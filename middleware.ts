@@ -21,28 +21,18 @@ export async function middleware(request: NextRequest) {
 
   const { data } = await supabase.auth.getUser();
   const isAuthed = !!data.user;
+  const path = request.nextUrl.pathname;
 
-  const { pathname } = request.nextUrl;
+  const isSignIn = path.startsWith("/sign-in");
+  const isPublicAsset =
+    path.startsWith("/_next") || path.startsWith("/favicon");
 
-  // Public routes
-  const isPublic =
-    pathname === "/" ||
-    pathname.startsWith("/auth") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon");
-
-  if (!isAuthed && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+  if (!isAuthed && !isSignIn && !isPublicAsset) {
+    return NextResponse.redirect(new URL("/sign-in", request.url));
   }
 
-  // If authed and hits "/", send to app
-  if (isAuthed && pathname === "/") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/app";
-    return NextResponse.redirect(url);
+  if (isAuthed && isSignIn) {
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return response;
