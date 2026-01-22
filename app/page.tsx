@@ -10,14 +10,25 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Middleware guarantees auth, but this keeps TS honest
+  if (!user) {
+    redirect("/sign-in");
+  }
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("role, has_password")
-    .eq("id", user!.id)
+    .eq("id", user.id)
     .single();
 
+  // 🛟 SAFETY: profile should exist, but don’t assume
+  if (!profile) {
+    // This should be extremely rare once the trigger exists
+    redirect("/set-password");
+  }
+
   // 🔐 FORCE password setup if missing
-  if (!profile?.has_password) {
+  if (!profile.has_password) {
     redirect("/set-password");
   }
 
