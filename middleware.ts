@@ -3,6 +3,17 @@ import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next();
+  const path = request.nextUrl.pathname;
+
+  // Public routes
+  if (
+    path.startsWith("/sign-in") ||
+    path.startsWith("/reset-password") ||
+    path.startsWith("/_next") ||
+    path.startsWith("/favicon")
+  ) {
+    return response;
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,27 +23,23 @@ export async function middleware(request: NextRequest) {
         getAll: () => request.cookies.getAll(),
         setAll: (cookiesToSet) => {
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
+            response.cookies.set(name, value, {
+              ...options,
+              sameSite: "lax",
+              secure: true,
+            });
           });
         },
       },
     }
   );
 
-  const { data } = await supabase.auth.getUser();
-  const isAuthed = !!data.user;
-  const path = request.nextUrl.pathname;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const isSignIn = path.startsWith("/sign-in");
-  const isPublicAsset =
-    path.startsWith("/_next") || path.startsWith("/favicon");
-
-  if (!isAuthed && !isSignIn && !isPublicAsset) {
+  if (!user) {
     return NextResponse.redirect(new URL("/sign-in", request.url));
-  }
-
-  if (isAuthed && isSignIn) {
-    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return response;
