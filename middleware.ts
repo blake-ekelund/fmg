@@ -8,9 +8,9 @@ export async function middleware(request: NextRequest) {
   if (
     path.startsWith("/sign-in") ||
     path.startsWith("/create-account") ||
+    path.startsWith("/auth/callback") ||
     path.startsWith("/reset-password") ||
-    path.startsWith("/_next") ||
-    path.startsWith("/favicon")
+    path.startsWith("/_next")
   ) {
     return response;
   }
