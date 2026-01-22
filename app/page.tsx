@@ -1,53 +1,55 @@
-"use client";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+export default async function HomePage() {
+  const supabase = await createClient();
 
-export default function SignInPage() {
-  const supabase = createClient();
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  async function sendLink() {
-    setLoading(true);
-    setStatus(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${location.origin}/auth/callback` },
-    });
-    setLoading(false);
-    setStatus(error ? error.message : "Check your email for the sign-in link.");
-  }
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user!.id)
+    .single();
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-md border rounded-2xl p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">FMG Portal</h1>
-        <p className="mt-2 text-sm opacity-70">
-          Sign in to access company KPIs and dashboards.
-        </p>
+    <main className="p-8 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <h1 className="text-3xl font-semibold">Dashboard</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Fragrance Marketing Group — internal overview
+          </p>
+        </div>
 
-        <label className="block mt-6 text-sm font-medium">Email</label>
-        <input
-          className="mt-2 w-full border rounded-xl px-3 py-2"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@fragrance-marketing-group.com"
-        />
-
-        <button
-          className="mt-4 w-full rounded-xl px-3 py-2 border"
-          onClick={sendLink}
-          disabled={loading || !email}
-        >
-          {loading ? "Sending..." : "Send sign-in link"}
-        </button>
-
-        {status && <p className="mt-4 text-sm">{status}</p>}
+        <span className="px-3 py-1 rounded-full text-sm border">
+          {profile?.role === "admin" ? "Admin" : "Member"}
+        </span>
       </div>
+
+      {/* KPI placeholders */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <KpiCard title="Revenue" />
+        <KpiCard title="Active Campaigns" />
+        <KpiCard title="Spend Efficiency" />
+      </section>
+
+      <p className="mt-10 text-xs text-gray-500">
+        Data access is restricted based on your role.
+      </p>
     </main>
+  );
+}
+
+function KpiCard({ title }: { title: string }) {
+  return (
+    <div className="border rounded-2xl p-6 bg-white shadow-sm">
+      <h2 className="text-sm font-medium text-gray-600">{title}</h2>
+      <div className="mt-4 h-10 w-32 bg-gray-100 rounded animate-pulse" />
+    </div>
   );
 }

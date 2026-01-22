@@ -1,87 +1,86 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+"use client";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
-  const supabase = await createClient();
+import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { Lock, Mail } from "lucide-react";
+import { motion } from "framer-motion";
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export default function SignInPage() {
+  const supabase = createClient();
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  if (!user) {
-    redirect("/sign-in");
+  async function sendLink() {
+    setLoading(true);
+    setStatus(null);
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${location.origin}/auth/callback`,
+      },
+    });
+
+    setLoading(false);
+    setStatus(
+      error
+        ? error.message
+        : "Check your email for a secure sign-in link."
+    );
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
   return (
-    <main className="p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-semibold">
-            Welcome back
-          </h1>
-          <p className="mt-2 text-sm text-gray-600">
-            Fragrance Marketing Group internal dashboard
-          </p>
-        </div>
-
-        {profile?.role && (
-          <span className="px-3 py-1 rounded-full text-sm border">
-            {profile.role === "admin" ? "Admin" : "Member"}
-          </span>
-        )}
+    <main className="min-h-screen grid md:grid-cols-2">
+      {/* Left panel */}
+      <div className="hidden md:flex flex-col justify-center px-16 bg-slate-900 text-white">
+        <h1 className="text-4xl font-semibold leading-tight">
+          Fragrance Marketing Group
+        </h1>
+        <p className="mt-6 text-lg opacity-80 max-w-md">
+          Secure internal access to dashboards, KPIs, and operational insight.
+        </p>
       </div>
 
-      {/* KPI Placeholder Grid */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card title="Revenue">
-          <PlaceholderValue />
-        </Card>
+      {/* Right panel */}
+      <div className="flex items-center justify-center p-6">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="w-full max-w-md border rounded-2xl p-8 shadow-sm bg-white"
+        >
+          <div className="flex items-center gap-2 mb-6">
+            <Lock className="w-5 h-5 text-gray-500" />
+            <h2 className="text-xl font-semibold">Sign in</h2>
+          </div>
 
-        <Card title="Active Campaigns">
-          <PlaceholderValue />
-        </Card>
+          <label className="block text-sm font-medium">Work email</label>
+          <div className="mt-2 relative">
+            <Mail className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+            <input
+              className="w-full border rounded-xl pl-9 pr-3 py-2"
+              placeholder="you@fragrance-marketing-group.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
 
-        <Card title="Spend Efficiency">
-          <PlaceholderValue />
-        </Card>
-      </section>
+          <button
+            onClick={sendLink}
+            disabled={loading || !email}
+            className="mt-6 w-full rounded-xl px-3 py-2 bg-black text-white disabled:opacity-50"
+          >
+            {loading ? "Sending…" : "Send secure sign-in link"}
+          </button>
 
-      {/* Footer note */}
-      <p className="mt-10 text-xs text-gray-500">
-        Data shown here is restricted based on your access level.
-      </p>
+          {status && (
+            <p className="mt-4 text-sm text-gray-600">{status}</p>
+          )}
+        </motion.div>
+      </div>
     </main>
-  );
-}
-
-function Card({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="border rounded-2xl p-6 shadow-sm bg-white">
-      <h2 className="text-sm font-medium text-gray-600">
-        {title}
-      </h2>
-      <div className="mt-4">{children}</div>
-    </div>
-  );
-}
-
-function PlaceholderValue() {
-  return (
-    <div className="h-10 w-32 bg-gray-100 rounded animate-pulse" />
   );
 }
