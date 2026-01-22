@@ -5,7 +5,6 @@ export async function middleware(request: NextRequest) {
   const response = NextResponse.next();
   const path = request.nextUrl.pathname;
 
-  // Public routes
   if (
     path.startsWith("/sign-in") ||
     path.startsWith("/create-account") ||
@@ -22,20 +21,22 @@ export async function middleware(request: NextRequest) {
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: (cookiesToSet) => {
+        setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
+            response.cookies.set(name, value, {
+              ...options,
+              sameSite: "lax",
+              secure: true,
+            });
           });
         },
       },
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (!data.user) {
     return NextResponse.redirect(new URL("/sign-in", request.url));
   }
 

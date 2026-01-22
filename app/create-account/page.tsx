@@ -9,26 +9,29 @@ export default function CreateAccountPage() {
   const router = useRouter();
 
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function createAccount() {
     setLoading(true);
     setError(null);
 
-    // User is already authenticated via invite
-    const { error } = await supabase.auth.updateUser({
-      password,
-    });
-
-    setLoading(false);
-
+    const { error } = await supabase.auth.updateUser({ password });
     if (error) {
+      setLoading(false);
       setError(error.message);
       return;
     }
 
-    // Supabase automatically promotes session → full login
+    const { data } = await supabase.auth.getUser();
+    if (data.user) {
+      await supabase
+        .from("profiles")
+        .update({ has_password: true })
+        .eq("id", data.user.id);
+    }
+
+    setLoading(false);
     router.replace("/");
   }
 
@@ -36,9 +39,6 @@ export default function CreateAccountPage() {
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-md border rounded-xl p-8">
         <h1 className="text-xl font-semibold">Create your account</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Set a password to finish creating your account.
-        </p>
 
         <input
           type="password"
@@ -50,7 +50,7 @@ export default function CreateAccountPage() {
 
         <button
           onClick={createAccount}
-          disabled={loading || password.length < 8}
+          disabled={password.length < 8 || loading}
           className="mt-4 w-full bg-black text-white rounded-lg py-2"
         >
           {loading ? "Creating…" : "Create account"}

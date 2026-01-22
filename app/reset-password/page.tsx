@@ -1,45 +1,60 @@
 "use client";
-export const dynamic = "force-dynamic";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function ResetPasswordPage() {
+export default function SignInPage() {
   const supabase = createClient();
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+  const router = useRouter();
 
-  async function sendReset() {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${location.origin}/reset-password/update`,
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function signIn() {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
-    setStatus(
-      error ? error.message : "Check your email for a password reset link."
-    );
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    router.replace("/");
   }
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-md border rounded-2xl p-8">
-        <h1 className="text-xl font-semibold">Reset password</h1>
+      <div className="w-full max-w-md border rounded-xl p-8">
+        <h1 className="text-xl font-semibold">Sign in</h1>
 
         <input
-          className="mt-6 w-full border rounded-xl px-3 py-2"
-          placeholder="you@company.com"
+          className="mt-6 w-full border rounded-lg px-3 py-2"
+          placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
 
+        <input
+          type="password"
+          className="mt-4 w-full border rounded-lg px-3 py-2"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
         <button
-          onClick={sendReset}
-          className="mt-4 w-full bg-black text-white rounded-xl py-2"
+          onClick={signIn}
+          className="mt-4 w-full bg-black text-white rounded-lg py-2"
         >
-          Send reset link
+          Sign in
         </button>
 
-        {status && (
-          <p className="mt-4 text-sm text-gray-600">{status}</p>
+        {error && (
+          <p className="mt-4 text-sm text-red-600">{error}</p>
         )}
       </div>
     </main>
