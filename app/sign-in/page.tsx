@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -12,22 +14,20 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // 🔍 LOG URL + HASH ON LOAD
-  console.log("[SIGN-IN] location.href:", window.location.href);
-  console.log("[SIGN-IN] location.hash:", window.location.hash);
-
-  // 🔍 CHECK SESSION ON LOAD
+  // 🔍 CLIENT-ONLY LOGGING
   useEffect(() => {
+    console.log("[SIGN-IN] location.href:", window.location.href);
+    console.log("[SIGN-IN] location.hash:", window.location.hash);
+
     supabase.auth.getSession().then(({ data, error }) => {
       console.log("[SIGN-IN] getSession() error:", error);
       console.log("[SIGN-IN] getSession() data:", data);
     });
 
-    // 🔍 LISTEN TO AUTH STATE CHANGES
     const { data: listener } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log("[AUTH STATE CHANGE] event:", event);
-        console.log("[AUTH STATE CHANGE] session:", session);
+        console.log("[AUTH EVENT]", event);
+        console.log("[SESSION]", session);
       }
     );
 
@@ -52,7 +52,7 @@ export default function SignInPage() {
       return;
     }
 
-    console.log("[SIGN-IN] Password login successful, routing to /");
+    console.log("[SIGN-IN] Password login successful → /");
     router.replace("/");
   }
 
