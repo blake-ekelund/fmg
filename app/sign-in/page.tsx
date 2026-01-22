@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -12,17 +12,47 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // 🔍 LOG URL + HASH ON LOAD
+  console.log("[SIGN-IN] location.href:", window.location.href);
+  console.log("[SIGN-IN] location.hash:", window.location.hash);
+
+  // 🔍 CHECK SESSION ON LOAD
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      console.log("[SIGN-IN] getSession() error:", error);
+      console.log("[SIGN-IN] getSession() data:", data);
+    });
+
+    // 🔍 LISTEN TO AUTH STATE CHANGES
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        console.log("[AUTH STATE CHANGE] event:", event);
+        console.log("[AUTH STATE CHANGE] session:", session);
+      }
+    );
+
+    return () => {
+      listener?.subscription.unsubscribe();
+    };
+  }, [supabase]);
+
   async function signIn() {
-    const { error } = await supabase.auth.signInWithPassword({
+    console.log("[SIGN-IN] Attempting password login:", email);
+
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+
+    console.log("[SIGN-IN] signInWithPassword data:", data);
+    console.log("[SIGN-IN] signInWithPassword error:", error);
 
     if (error) {
       setError(error.message);
       return;
     }
 
+    console.log("[SIGN-IN] Password login successful, routing to /");
     router.replace("/");
   }
 

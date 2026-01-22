@@ -36,6 +36,13 @@ export async function middleware(request: NextRequest) {
 
   const { data } = await supabase.auth.getUser();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  console.log("[MIDDLEWARE] path:", path);
+  console.log("[MIDDLEWARE] user:", user);
+
   if (!data.user) {
     return NextResponse.redirect(new URL("/sign-in", request.url));
   }
