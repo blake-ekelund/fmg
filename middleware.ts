@@ -8,6 +8,7 @@ export async function middleware(request: NextRequest) {
   // Public routes
   if (
     path.startsWith("/sign-in") ||
+    path.startsWith("/create-account") ||
     path.startsWith("/reset-password") ||
     path.startsWith("/_next") ||
     path.startsWith("/favicon")
@@ -23,11 +24,7 @@ export async function middleware(request: NextRequest) {
         getAll: () => request.cookies.getAll(),
         setAll: (cookiesToSet) => {
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, {
-              ...options,
-              sameSite: "lax",
-              secure: true,
-            });
+            response.cookies.set(name, value, options);
           });
         },
       },
