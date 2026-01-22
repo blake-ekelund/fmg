@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Lock, Mail } from "lucide-react";
@@ -16,6 +16,24 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  /**
+   * 🔑 INVITE HANDLER
+   * Supabase invite links land on /sign-in#access_token=...
+   * We must explicitly hydrate the session once on the client.
+   */
+  useEffect(() => {
+    const hash = window.location.hash;
+
+    if (hash.includes("access_token")) {
+      supabase.auth.getSession().then(() => {
+        // Remove tokens from URL
+        window.history.replaceState({}, document.title, "/set-password");
+        // Send user into onboarding
+        router.replace("/set-password");
+      });
+    }
+  }, [supabase, router]);
 
   async function signIn() {
     setLoading(true);
@@ -33,7 +51,7 @@ export default function SignInPage() {
       return;
     }
 
-    // Let middleware handle auth state; client just navigates
+    // Normal password login → home
     router.replace("/");
   }
 
