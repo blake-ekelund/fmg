@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-import Sidebar from "@/components/Sidebar";
-import MobileNav from "@/components/MobileNav";
 import clsx from "clsx";
+import LayoutShell from "@/components/LayoutShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,21 +33,7 @@ export default function RootLayout({
           "antialiased bg-white text-black"
         )}
       >
-        <div className="min-h-screen">
-          {/* Desktop sidebar (fixed) */}
-          <Sidebar />
-
-          {/* Main content area */}
-          <div className="flex flex-col min-h-screen md:ml-64">
-            {/* Mobile nav */}
-            <MobileNav />
-
-            {/* Page content */}
-            <main className="flex-1">
-              {children}
-            </main>
-          </div>
-        </div>
+        <LayoutShell>{children}</LayoutShell>
       </body>
     </html>
   );
