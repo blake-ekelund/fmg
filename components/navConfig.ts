@@ -61,8 +61,8 @@ export const navItems: readonly NavItem[] = [
     icon: Megaphone,
   },
   {
-    label: "Workspace",
-    href: "/workspace",
+    label: "Task List",
+    href: "/task-list",
     icon: Lightbulb,
     accent: "amber", // or whatever fits FMG
   },

@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import clsx from "clsx";
+
 import LayoutShell from "@/components/LayoutShell";
+import AuthGate from "@/components/AuthGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,7 +35,9 @@ export default function RootLayout({
           "antialiased bg-white text-black"
         )}
       >
-        <LayoutShell>{children}</LayoutShell>
+        <AuthGate>
+          <LayoutShell>{children}</LayoutShell>
+        </AuthGate>
       </body>
     </html>
   );

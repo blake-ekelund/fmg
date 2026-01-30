@@ -2,12 +2,21 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Menu, LogOut } from "lucide-react";
 import clsx from "clsx";
 import { navItems, accentBg } from "./navConfig";
+import { supabaseBrowser } from "@/lib/supabase/browser";
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const router = useRouter();
+  const supabase = supabaseBrowser();
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.replace("/auth/sign-in");
+  }
 
   return (
     <aside
@@ -32,7 +41,7 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="mt-8 px-6 space-y-6">
+      <nav className="mt-8 px-6 space-y-6 flex-1">
         {navItems.map((item) => (
           <NavItem
             key={item.label}
@@ -41,6 +50,26 @@ export default function Sidebar() {
           />
         ))}
       </nav>
+
+      {/* Logout */}
+      <div className="px-6 pb-6">
+        <button
+          onClick={handleLogout}
+          className={clsx(
+            "group flex items-center gap-3 text-sm font-medium tracking-wide transition text-gray-500 hover:text-black w-full",
+            collapsed && "justify-center"
+          )}
+        >
+          <span className="opacity-70 group-hover:opacity-100 transition">
+            <LogOut size={16} />
+          </span>
+          {!collapsed && <span>Log out</span>}
+        </button>
+
+        {!collapsed && (
+          <div className="mt-2 h-[2px] w-4 rounded-full opacity-0 group-hover:opacity-100 transition bg-gray-300" />
+        )}
+      </div>
     </aside>
   );
 }

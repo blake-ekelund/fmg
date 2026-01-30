@@ -14,24 +14,42 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false);
 
   async function signIn() {
+    console.log("SIGN IN CLICKED");
+    console.log("Email:", email);
+
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    console.log("Calling supabase.auth.signInWithPassword...");
+
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
+    console.log("SIGN IN RESPONSE:", {
+      data,
+      error,
+    });
+
     setLoading(false);
 
-    if (error) setError(error.message);
-    else router.push("/workspace");
+    if (error) {
+      console.error("SIGN IN ERROR:", error.message);
+      setError(error.message);
+      return;
+    }
+
+    console.log("Session exists?", Boolean(data?.session));
+    console.log("User:", data?.user);
+
+    console.log("Redirecting to /dashboard...");
+    router.replace("/dashboard");
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white px-4">
       <div className="w-full max-w-sm">
-
         <div className="border border-gray-200 rounded-2xl p-6 space-y-5">
           <h1 className="text-xl font-semibold">Sign in</h1>
 
@@ -50,9 +68,14 @@ export default function SignInPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
 
           <button
+            type="button"
             onClick={signIn}
             disabled={loading}
             className="w-full rounded-xl bg-orange-800 py-2 text-white hover:bg-orange-700"
