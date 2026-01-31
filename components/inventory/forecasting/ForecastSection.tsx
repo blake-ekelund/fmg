@@ -1,207 +1,193 @@
 "use client";
 
-import { useEffect, useMemo, useState, Fragment } from "react";
+import { useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Product } from "../types";
+import { addMonths } from "./utils/date";
+import { useForecastData } from "./hooks/useForecastData";
+import { useDebouncedSave } from "./hooks/useDebouncedSave";
+import ForecastTable from "./ForecastTable";
 
-type ForecastRow = Product & {
-  on_hand: number;
-  on_order: number;
-};
+/* ---------------- Status Logic (single source of truth) ---------------- */
+function getStatusLabel(
+  onHand: number,
+  onOrder: number,
+  avg: number
+): "healthy" | "needs review" | "at risk" | "no demand" {
+  if (avg <= 0) return "no demand";
 
-function addMonths(date: Date, n: number) {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() + n);
-  return d;
-}
+  const monthsOfSupply = (onHand + onOrder) / avg;
 
-/* ---------------------------------------------
-   Group rows by Display Name + Product Type
---------------------------------------------- */
-function groupByProduct(rows: ForecastRow[]) {
-  const groups = new Map<string, ForecastRow[]>();
-
-  for (const row of rows) {
-    const key = `${row.display_name}__${row.product_type}`;
-
-    if (!groups.has(key)) {
-      groups.set(key, []);
-    }
-
-    groups.get(key)!.push(row);
-  }
-
-  return Array.from(groups.entries()).map(
-    ([key, items]) => {
-      const [name, type] = key.split("__");
-      return { name, type, items };
-    }
-  );
+  if (monthsOfSupply > 3) return "healthy";
+  if (monthsOfSupply > 1.5) return "needs review";
+  return "at risk";
 }
 
 export default function ForecastSection() {
-  const [rows, setRows] = useState<ForecastRow[]>([]);
+  const { rows, setRows } = useForecastData();
+  const scheduleSave = useDebouncedSave();
 
-  useEffect(() => {
-    async function load() {
-      const { data: products } = await supabase
-        .from("inventory_products")
-        .select("*")
-        .eq("is_forecasted", true);
+  /* ---------------- Filters ---------------- */
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "healthy" | "needs review" | "at risk"
+  >("all");
 
-      const { data: inventory } = await supabase
-        .from("inventory_snapshot_items")
-        .select("part, on_hand, on_order")
-        .order("created_at", { ascending: false });
-
-      const inventoryMap = new Map(
-        (inventory ?? []).map((r) => [r.part, r])
-      );
-
-      const merged =
-        products?.map((p) => ({
-          ...p,
-          on_hand: inventoryMap.get(p.part)?.on_hand ?? 0,
-          on_order: inventoryMap.get(p.part)?.on_order ?? 0,
-        })) ?? [];
-
-      setRows(merged);
-    }
-
-    load();
-  }, []);
-
-  /* ---------------------------------------------
-     Only next 6 months
-  --------------------------------------------- */
-  const months = useMemo(() => {
-    return Array.from({ length: 6 }).map((_, i) =>
-      addMonths(new Date(), i)
-    );
-  }, []);
-
-  const grouped = useMemo(
-    () => groupByProduct(rows),
-    [rows]
+  /* ---------------- Months ---------------- */
+  const months = useMemo(
+    () => Array.from({ length: 6 }).map((_, i) => addMonths(new Date(), i)),
+    []
   );
 
-  function project(row: ForecastRow, monthIndex: number) {
-    const arrivals =
-      row.lead_time_months > 0 &&
-      monthIndex === Math.floor(row.lead_time_months)
-        ? row.on_order
-        : 0;
-
-    return (
-      row.on_hand +
-      arrivals -
-      row.avg_monthly_demand * (monthIndex + 1)
+  /* ---------------- Updates ---------------- */
+  function updateAvg(part: string, value: number) {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.part === part ? { ...r, avg_monthly_demand: value } : r
+      )
     );
+
+    scheduleSave(`avg-${part}`, async () => {
+      await supabase
+        .from("inventory_products")
+        .update({ avg_monthly_demand: value })
+        .eq("part", part);
+    });
   }
 
+  function updateOnOrder(part: string, value: number) {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.part === part ? { ...r, on_order: value } : r
+      )
+    );
+
+    const row = rows.find((r) => r.part === part);
+    if (!row?.snapshot_id) return;
+
+    scheduleSave(`onorder-${part}`, async () => {
+      await supabase
+        .from("inventory_snapshot_items")
+        .update({ on_order: value })
+        .eq("id", row.snapshot_id);
+    });
+  }
+
+  /* ---------------- Filtered Rows ---------------- */
+  const filteredRows = useMemo(() => {
+    const q = search.toLowerCase().trim();
+
+    return rows.filter((r) => {
+      const status = getStatusLabel(
+        r.on_hand,
+        r.on_order,
+        r.avg_monthly_demand
+      );
+
+      // Status dropdown filter
+      if (statusFilter !== "all" && status !== statusFilter) {
+        return false;
+      }
+
+      // Search across part, name, fragrance, AND status text
+      if (q) {
+        const haystack = [
+          r.part,
+          r.display_name,
+          r.fragrance,
+          status,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (!haystack.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [rows, search, statusFilter]);
+
+  /* ---------------- UI ---------------- */
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-medium">
-        Inventory Forecast (Next 6 Months)
-      </h2>
+    <div className="space-y-3">
+      {/* Title + Filters */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <h2 className="text-base font-medium">
+          Inventory Forecast (Next 6 Months)
+        </h2>
 
-      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
-              <th className="px-4 py-3 text-left">Part</th>
-              <th className="px-4 py-3 text-left">Name</th>
-              <th className="px-4 py-3 text-right">On Hand</th>
-              <th className="px-4 py-3 text-right">On Order</th>
-              <th className="px-4 py-3 text-right">Min</th>
-              <th className="px-4 py-3 text-right">Avg / Mo</th>
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <input
+            type="text"
+            placeholder="Search name, fragrance, part, or status…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="
+              h-8
+              w-72
+              rounded-md
+              bg-blue-50
+              text-blue-700
+              placeholder-blue-400
+              px-3
+              text-xs
+              outline-none
+              ring-1
+              ring-blue-100
+              focus:ring-2
+              focus:ring-blue-400
+              focus:bg-white
+            "
+          />
 
-              {months.map((m) => (
-                <th
-                  key={m.toISOString()}
-                  className="px-4 py-3 text-right"
-                >
-                  {m.toLocaleDateString("en-US", {
-                    month: "short",
-                    year: "2-digit",
-                  })}
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody>
-            {grouped.map((group) => (
-              <Fragment key={`${group.name}-${group.type}`}>
-                {/* Group Header */}
-                <tr className="bg-gray-50 border-t border-gray-200">
-                  <td
-                    colSpan={6 + months.length}
-                    className="px-4 py-3 text-sm font-medium text-gray-900"
-                  >
-                    {group.name}
-                    <span className="ml-2 inline-flex items-center rounded-md bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700">
-                      {group.type}
-                    </span>
-                  </td>
-                </tr>
-
-                {/* Group Rows */}
-                {group.items.map((r) => (
-                  <tr
-                    key={r.part}
-                    className="border-b border-gray-100"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {r.part}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {r.display_name}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {r.on_hand}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {r.on_order}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {r.min_qty}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {r.avg_monthly_demand}
-                    </td>
-
-                    {months.map((_, i) => {
-                      const v = project(r, i);
-                      const color =
-                        v < 0
-                          ? "bg-red-100 text-red-700"
-                          : v < r.min_qty
-                          ? "bg-yellow-100 text-yellow-800"
-                          : "bg-green-100 text-green-800";
-
-                      return (
-                        <td
-                          key={i}
-                          className={`px-4 py-3 text-right tabular-nums ${color}`}
-                        >
-                          {Math.round(v)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-
-        {grouped.length === 0 && (
-          <div className="p-6 text-sm text-gray-500">
-            No forecastable products found.
-          </div>
-        )}
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) =>
+              setStatusFilter(
+                e.target.value as
+                  | "all"
+                  | "healthy"
+                  | "needs review"
+                  | "at risk"
+              )
+            }
+            className="
+              h-8
+              rounded-md
+              bg-blue-50
+              text-blue-700
+              px-2
+              text-xs
+              outline-none
+              ring-1
+              ring-blue-100
+              focus:ring-2
+              focus:ring-blue-400
+              focus:bg-white
+            "
+          >
+            <option value="all">All status</option>
+            <option value="healthy">Healthy</option>
+            <option value="needs review">Needs review</option>
+            <option value="at risk">At risk</option>
+          </select>
+        </div>
       </div>
+
+      <ForecastTable
+        rows={filteredRows}
+        months={months}
+        onUpdateAvg={updateAvg}
+        onUpdateOnOrder={updateOnOrder}
+      />
+
+      {filteredRows.length === 0 && (
+        <div className="p-4 text-xs text-gray-500">
+          No products match your filters.
+        </div>
+      )}
     </div>
   );
 }
