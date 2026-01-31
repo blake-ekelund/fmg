@@ -40,14 +40,18 @@ export function TableRow({
 
   async function handleToggle(value: boolean) {
     onToggleComplete(id, value);
-    await supabase.from("tasks").update({ completed: value }).eq("id", id);
+    await supabase
+      .from("tasks")
+      .update({ completed: value })
+      .eq("id", id);
   }
 
   return (
     <div
       className="
-        grid items-center
-        px-4 py-3 text-sm
+        grid items-start
+        px-4 py-3.5
+        text-sm
         hover:bg-gray-50 transition
         cursor-pointer
       "
@@ -58,46 +62,55 @@ export function TableRow({
       onClick={() => onOpen(id)}
     >
       {/* Checkbox */}
-      <div>
+      <div className="pt-1">
         <input
           type="checkbox"
           checked={completed ?? false}
           onChange={(e) => handleToggle(e.target.checked)}
           onClick={(e) => e.stopPropagation()}
-          className="h-4 w-4 rounded border-gray-300"
+          className="
+            h-4 w-4
+            rounded
+            border-gray-300
+            accent-orange-800
+            cursor-pointer
+          "
         />
       </div>
 
       {/* Task */}
-      <div className="min-w-0">
+      <div className="min-w-0 space-y-0.5">
         <div
-          className={`font-medium truncate ${
-            completed ? "line-through text-gray-400" : "text-gray-900"
+          className={`font-medium leading-snug ${
+            completed
+              ? "line-through text-gray-400"
+              : "text-gray-900"
           }`}
         >
           {name}
         </div>
+
         {description && (
-          <div className="text-xs text-gray-500 truncate">
+          <div className="text-xs text-gray-500 leading-snug line-clamp-2">
             {description}
           </div>
         )}
       </div>
 
       {/* Owner */}
-      <div className="truncate text-gray-700">
+      <div className="truncate text-gray-700 pt-0.5">
         {owner || "—"}
       </div>
 
       {/* Priority */}
-      <div>
+      <div className="pt-0.5">
         <span className={PRIORITY_STYLES[normalizedPriority]}>
           {normalizedPriority}
         </span>
       </div>
 
       {/* Created */}
-      <div className="text-gray-600">
+      <div className="text-gray-600 pt-0.5">
         {new Date(created_at).toLocaleDateString("en-US", {
           timeZone: "America/New_York",
           month: "short",
@@ -107,12 +120,12 @@ export function TableRow({
       </div>
 
       {/* Notes */}
-      <div className="truncate text-xs text-gray-500">
+      <div className="text-xs text-gray-500 leading-snug line-clamp-2 pt-0.5">
         {notes || "—"}
       </div>
 
       {/* Status */}
-      <div>
+      <div className="pt-0.5">
         <span
           className={`px-2 py-0.5 rounded-full text-xs ${
             completed
@@ -125,7 +138,7 @@ export function TableRow({
       </div>
 
       {/* Actions */}
-      <div className="text-right">
+      <div className="text-right pt-0.5">
         <button
           onClick={(e) => {
             e.stopPropagation();

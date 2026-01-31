@@ -8,6 +8,7 @@ import {
   FileText,
   Plus,
   X,
+  Trash2,
 } from "lucide-react";
 
 /**
@@ -31,21 +32,25 @@ export default function DayModal({
   items,
   onAddNew,
   onSelectItem,
+  onDeleteItem,
   onClose,
 }: {
   date: string;
   items: ContentItem[];
   onAddNew: () => void;
   onSelectItem: (item: ContentItem) => void;
+  onDeleteItem: (item: ContentItem) => void;
   onClose: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30"
         onClick={onClose}
       />
 
+      {/* Modal */}
       <div
         className="relative w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-gray-200 p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
@@ -85,22 +90,39 @@ export default function DayModal({
               const Icon = PLATFORM_ICONS[item.platform];
 
               return (
-                <button
+                <div
                   key={item.id}
-                  onClick={() => onSelectItem(item)}
-                  className="w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-gray-50 text-left"
+                  className="group w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-gray-50"
                 >
-                  <Icon size={14} className="opacity-70" />
+                  {/* Clickable content (edit/select) */}
+                  <button
+                    onClick={() => onSelectItem(item)}
+                    className="flex flex-1 items-center gap-3 text-left min-w-0"
+                  >
+                    <Icon size={14} className="opacity-70" />
 
-                  <div className="truncate">
-                    <div className="font-medium truncate">
-                      {item.platform} — {item.content_type}
+                    <div className="truncate">
+                      <div className="font-medium truncate">
+                        {item.platform} — {item.content_type}
+                      </div>
+                      <div className="text-xs text-gray-500 truncate">
+                        {item.strategy}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500 truncate">
-                      {item.strategy}
-                    </div>
-                  </div>
-                </button>
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteItem(item);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition text-gray-400 hover:text-red-600"
+                    title="Delete content"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               );
             })}
           </div>

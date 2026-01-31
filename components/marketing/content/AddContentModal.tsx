@@ -13,6 +13,13 @@ type Props = {
   onBack?: () => void;
 };
 
+const PLATFORM_OPTIONS: Platform[] = [
+  "Instagram",
+  "Facebook",
+  "TikTok",
+  "Blog",
+];
+
 export default function AddContentModal({
   date,
   item,
@@ -26,9 +33,11 @@ export default function AddContentModal({
       new Date().toISOString().split("T")[0]
   );
 
-  const [platform, setPlatform] = useState<Platform>(
-    item?.platform ?? "Instagram"
+  // Multi-select for CREATE, single-select for EDIT
+  const [platforms, setPlatforms] = useState<Platform[]>(
+    item ? [item.platform] : ["Instagram", "Facebook"]
   );
+
   const [contentType, setContentType] = useState(
     item?.content_type ?? ""
   );
@@ -47,25 +56,34 @@ export default function AddContentModal({
   useEffect(() => {
     if (!item) return;
     setPublishDate(item.publish_date);
-    setPlatform(item.platform);
+    setPlatforms([item.platform]);
     setContentType(item.content_type);
     setStrategy(item.strategy);
     setDescription(item.description);
     setStatus(item.status);
   }, [item]);
 
+  function togglePlatform(p: Platform) {
+    setPlatforms((prev) =>
+      prev.includes(p)
+        ? prev.filter((x) => x !== p)
+        : [...prev, p]
+    );
+  }
+
   async function save() {
     if (!publishDate || !contentType || !strategy) return;
+    if (!platforms.length) return;
 
     setLoading(true);
 
     if (item) {
-      // EDIT
+      // EDIT — single row only
       await supabase
         .from("marketing_content")
         .update({
           publish_date: publishDate,
-          platform,
+          platform: platforms[0],
           content_type: contentType,
           strategy,
           description,
@@ -73,15 +91,17 @@ export default function AddContentModal({
         })
         .eq("id", item.id);
     } else {
-      // CREATE
-      await supabase.from("marketing_content").insert({
+      // CREATE — one row per platform
+      const rows = platforms.map((platform) => ({
         publish_date: publishDate,
         platform,
         content_type: contentType,
         strategy,
         description,
         status,
-      });
+      }));
+
+      await supabase.from("marketing_content").insert(rows);
     }
 
     setLoading(false);
@@ -96,9 +116,9 @@ export default function AddContentModal({
         onClick={onClose}
       />
 
-      {/* Modal Container — STOP PROPAGATION */}
+      {/* Modal */}
       <div
-        className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-gray-200 p-6 space-y-4"
+        className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-gray-200 p-6 space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -120,63 +140,110 @@ export default function AddContentModal({
           </h3>
         </div>
 
-        {/* Form */}
-        <input
-          type="date"
-          value={publishDate}
-          onChange={(e) => setPublishDate(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-        />
+        {/* Publish Date */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            Publish Date
+          </label>
+          <input
+            type="date"
+            value={publishDate}
+            onChange={(e) => setPublishDate(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          />
+        </div>
 
-        <select
-          value={platform}
-          onChange={(e) =>
-            setPlatform(e.target.value as Platform)
-          }
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-        >
-          <option>Instagram</option>
-          <option>Facebook</option>
-          <option>TikTok</option>
-          <option>Blog</option>
-        </select>
+        {/* Platforms */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-700">
+            Platform
+          </label>
 
-        <input
-          placeholder="Content Type"
-          value={contentType}
-          onChange={(e) => setContentType(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-        />
+          <div className="flex flex-wrap gap-4">
+            {PLATFORM_OPTIONS.map((p) => (
+              <label
+                key={p}
+                className="flex items-center gap-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={platforms.includes(p)}
+                  onChange={() => togglePlatform(p)}
+                  disabled={!!item}
+                />
+                {p}
+              </label>
+            ))}
+          </div>
 
-        <input
-          placeholder="Strategy"
-          value={strategy}
-          onChange={(e) => setStrategy(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-        />
+          {!item && (
+            <p className="text-xs text-gray-500">
+              A separate content item will be created for each
+              selected platform.
+            </p>
+          )}
+        </div>
 
-        <textarea
-          rows={3}
-          placeholder="Description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm resize-none"
-        />
+        {/* Content Type */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            Content Type
+          </label>
+          <input
+            placeholder="e.g. Static Image, Carousel, Reel"
+            value={contentType}
+            onChange={(e) => setContentType(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          />
+        </div>
 
-        <select
-          value={status}
-          onChange={(e) =>
-            setStatus(e.target.value as ContentStatus)
-          }
-          className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-        >
-          <option>Not Started</option>
-          <option>Ready</option>
-          <option>In Progress</option>
-        </select>
+        {/* Strategy */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            Strategy
+          </label>
+          <input
+            placeholder="e.g. Self-care, Brand Awareness"
+            value={strategy}
+            onChange={(e) => setStrategy(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          />
+        </div>
+
+        {/* Description */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            Description
+          </label>
+          <textarea
+            rows={3}
+            placeholder="What is this post about?"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm resize-none"
+          />
+        </div>
+
+        {/* Status */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            Status
+          </label>
+          <select
+            value={status}
+            onChange={(e) =>
+              setStatus(e.target.value as ContentStatus)
+            }
+            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+          >
+            <option>Not Started</option>
+            <option>In Progress</option>
+            <option>Ready</option>
+          </select>
+        </div>
 
         {/* Actions */}
-        <div className="flex justify-between pt-2">
+        <div className="flex justify-between pt-3">
           <button
             type="button"
             onClick={onClose}

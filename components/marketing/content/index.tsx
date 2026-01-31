@@ -11,6 +11,7 @@ import CalendarView from "./CalendarView";
 import TableView from "./TableView";
 import AddContentModal from "./AddContentModal";
 import DayModal from "./DayModal";
+import ConfirmDeleteModal from "./ConfirmDeleteModal";
 
 export default function MarketingContentSection() {
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -28,6 +29,9 @@ export default function MarketingContentSection() {
   const [dayModalItems, setDayModalItems] =
     useState<ContentItem[]>([]);
 
+  const [deleteTarget, setDeleteTarget] =
+    useState<ContentItem | null>(null);
+
   useEffect(() => {
     load();
   }, []);
@@ -39,6 +43,29 @@ export default function MarketingContentSection() {
       .order("publish_date");
 
     setItems(data ?? []);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+
+    await supabase
+      .from("marketing_content")
+      .delete()
+      .eq("id", deleteTarget.id);
+
+    // Optimistic local update
+    setItems((prev) =>
+      prev.filter((i) => i.id !== deleteTarget.id)
+    );
+
+    // Keep DayModal in sync
+    if (dayModalDate) {
+      setDayModalItems((prev) =>
+        prev.filter((i) => i.id !== deleteTarget.id)
+      );
+    }
+
+    setDeleteTarget(null);
   }
 
   return (
@@ -140,6 +167,7 @@ export default function MarketingContentSection() {
             setDayModalDate(null);
             setAddOpen(true);
           }}
+          onDeleteItem={(item) => setDeleteTarget(item)}
           onClose={() => setDayModalDate(null)}
         />
       )}
@@ -173,6 +201,16 @@ export default function MarketingContentSection() {
             setSelectedDate(null);
             setEditItem(null);
           }}
+        />
+      )}
+
+      {/* Confirm Delete Modal */}
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          title="Delete scheduled content?"
+          description={`${deleteTarget.platform} — ${deleteTarget.content_type}`}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={confirmDelete}
         />
       )}
     </section>

@@ -29,16 +29,24 @@ export function FiltersRow({
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
         placeholder="Search tasks"
-        className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+        className="
+          flex-1
+          rounded-xl
+          border border-gray-200
+          px-4 py-2
+          text-sm
+          focus:outline-none
+          focus:ring-1 focus:ring-gray-300
+        "
       />
-      
+
       {/* Owner */}
       <select
         value={owner}
         onChange={(e) => onOwnerChange(e.target.value)}
         className="rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
       >
-        <option value="">Owner</option>
+        <option value="">All Owners</option>
         <option>Blake</option>
         <option>Brooke</option>
         <option>Julie</option>
@@ -51,7 +59,7 @@ export function FiltersRow({
         onChange={(e) => onStatusChange(e.target.value)}
         className="rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
       >
-        <option value="">Status</option>
+        <option value="">All Statuses</option>
         <option value="open">Open</option>
         <option value="completed">Completed</option>
       </select>
@@ -62,12 +70,11 @@ export function FiltersRow({
         onChange={(e) => onPriorityChange(e.target.value)}
         className="rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
       >
-        <option value="">Priority</option>
+        <option value="">All Priorities</option>
         <option>High</option>
         <option>Medium</option>
         <option>Low</option>
       </select>
-
     </section>
   );
 }

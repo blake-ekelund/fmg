@@ -15,11 +15,11 @@ export default function TaskListPage() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [deleteTask, setDeleteTask] = useState<Task | null>(null);
 
-  // Filters
+  // Filters (defaults matter)
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [owner, setOwner] = useState("");
-  const [priority, setPriority] = useState("");
+  const [status, setStatus] = useState("open"); // ✅ default
+  const [owner, setOwner] = useState("");       // All Owners
+  const [priority, setPriority] = useState(""); // All Priorities
 
   async function loadTasks() {
     const { data } = await supabase
@@ -80,7 +80,9 @@ export default function TaskListPage() {
         {/* Header */}
         <header className="flex justify-between items-center">
           <div>
-            <h1 className="text-4xl font-semibold tracking-tight">Tasks</h1>
+            <h1 className="text-4xl font-semibold tracking-tight">
+              Tasks
+            </h1>
             <p className="mt-3 text-gray-500">
               Click a task to edit. Changes save immediately.
             </p>
@@ -120,7 +122,8 @@ export default function TaskListPage() {
                 onOpen={openTask}
                 onToggleComplete={toggleComplete}
                 onRequestDelete={(id) => {
-                  const t = tasks.find((x) => x.id === id) ?? null;
+                  const t =
+                    tasks.find((x) => x.id === id) ?? null;
                   setDeleteTask(t);
                 }}
               />

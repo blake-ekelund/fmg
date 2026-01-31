@@ -5,6 +5,7 @@ import {
   Users,
   Megaphone,
   Lightbulb,
+  Building,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -17,7 +18,8 @@ export type Accent =
   | "orange"
   | "lavender"
   | "yellow"
-  | "amber";
+  | "amber"  
+  | "black";
 
 export type NavItem = {
   label: string;
@@ -66,6 +68,12 @@ export const navItems: readonly NavItem[] = [
     icon: Lightbulb,
     accent: "amber", // or whatever fits FMG
   },
+  {
+    label: "Company",
+    href: "/company",
+    icon: Building,
+    accent: "black", // or whatever fits FMG
+  },  
 ] as const;
 
 /* ---------------------------
@@ -78,4 +86,5 @@ export const accentBg: Record<Accent, string> = {
   lavender: "bg-purple-400",
   yellow: "bg-yellow-400",
   amber: "bg-orange-800",
+  black: "bg-gray-800"
 };
