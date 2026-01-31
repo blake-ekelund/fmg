@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 import { ContentItem, ViewMode } from "./types";
@@ -41,7 +42,7 @@ export default function MarketingContentSection() {
   }
 
   return (
-    <section className="border border-gray-200 rounded-2xl p-6 space-y-6">
+    <section className="rounded-2xl border border-gray-200 p-6 space-y-6 bg-white">
       {/* Header */}
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-medium">
@@ -50,6 +51,50 @@ export default function MarketingContentSection() {
 
         <ViewToggle view={view} onChange={setView} />
       </div>
+
+      {/* Month Toggle — Calendar only */}
+      {view === "calendar" && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() =>
+              setMonth(
+                (m) =>
+                  new Date(
+                    m.getFullYear(),
+                    m.getMonth() - 1,
+                    1
+                  )
+              )
+            }
+            className="h-8 w-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          <div className="text-sm font-medium text-gray-700 min-w-[140px] text-center">
+            {month.toLocaleString("default", {
+              month: "long",
+              year: "numeric",
+            })}
+          </div>
+
+          <button
+            onClick={() =>
+              setMonth(
+                (m) =>
+                  new Date(
+                    m.getFullYear(),
+                    m.getMonth() + 1,
+                    1
+                  )
+              )
+            }
+            className="h-8 w-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      )}
 
       {/* Calendar View */}
       {view === "calendar" && (
