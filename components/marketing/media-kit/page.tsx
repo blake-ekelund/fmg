@@ -4,11 +4,32 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 import { MediaKitTable } from "./components/mediaKit/MediaKitTable";
+import { FiltersBar } from "./components/mediaKit/FiltersBar";
 import { ProductRow } from "./components/mediaKit/types";
 import { SkuAssetEditorModal } from "./components/SkuAssetEditorModal";
 
 import { Section, AssetMeta } from "./components/modalSections/types";
 import { emptyAssetMeta } from "@/lib/mediaKit/emptyAssetMeta";
+
+/* -------------------------
+   Helper functions
+-------------------------- */
+
+function hasAnyCopy(p: ProductRow) {
+  const c = p.media_kit_products;
+  if (!c) return false;
+
+  return !!(
+    c.short_description?.trim() ||
+    c.long_description?.trim() ||
+    c.benefits?.trim() ||
+    c.ingredients_text?.trim()
+  );
+}
+
+function hasAllAssets(assetMeta: Record<Section, AssetMeta>) {
+  return Object.values(assetMeta).every((a) => a.exists);
+}
 
 export default function MediaKitPage() {
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -19,6 +40,14 @@ export default function MediaKitPage() {
     Record<string, Record<Section, AssetMeta>>
   >({});
 
+  /* ---------- filters ---------- */
+  const [search, setSearch] = useState("");
+  const [showMissingCopy, setShowMissingCopy] = useState(false);
+  const [showMissingAssets, setShowMissingAssets] = useState(false);
+
+  /* -------------------------
+     Load products
+  -------------------------- */
   async function load() {
     setLoading(true);
 
@@ -50,7 +79,6 @@ export default function MediaKitPage() {
         display_name: row.display_name,
         fragrance: row.fragrance,
         media_kit_products: row.media_kit_products ?? null,
-
       }));
 
     setProducts(normalized);
@@ -61,7 +89,9 @@ export default function MediaKitPage() {
     load();
   }, []);
 
-  // Initialize empty asset meta per SKU (prevents crashes)
+  /* -------------------------
+     Initialize asset meta
+  -------------------------- */
   useEffect(() => {
     if (products.length === 0) return;
 
@@ -72,7 +102,9 @@ export default function MediaKitPage() {
     setAssetMetaBySku(next);
   }, [products]);
 
-  // Load asset metadata for all SKUs
+  /* -------------------------
+     Load asset metadata
+  -------------------------- */
   useEffect(() => {
     if (products.length === 0) return;
 
@@ -102,12 +134,47 @@ export default function MediaKitPage() {
     loadAssets();
   }, [products]);
 
+  /* -------------------------
+     Apply filters (derived)
+  -------------------------- */
+  const filteredProducts = products.filter((p) => {
+    const q = search.toLowerCase();
+
+    const matchesSearch =
+      !search ||
+      p.part.toLowerCase().includes(q) ||
+      p.display_name.toLowerCase().includes(q) ||
+      (p.fragrance ?? "").toLowerCase().includes(q);
+
+    if (!matchesSearch) return false;
+
+    if (showMissingCopy && hasAnyCopy(p)) return false;
+
+    if (
+      showMissingAssets &&
+      hasAllAssets(assetMetaBySku[p.part] ?? emptyAssetMeta())
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+
   return (
     <>
       <div className="space-y-6">
+        <FiltersBar
+          search={search}
+          onSearchChange={setSearch}
+          showMissingCopy={showMissingCopy}
+          onToggleMissingCopy={setShowMissingCopy}
+          showMissingAssets={showMissingAssets}
+          onToggleMissingAssets={setShowMissingAssets}
+          resultCount={filteredProducts.length}
+        />
 
         <MediaKitTable
-          products={products}
+          products={filteredProducts}
           loading={loading}
           assetMetaBySku={assetMetaBySku}
           onEdit={(p) => setActiveSku(p)}
@@ -123,8 +190,8 @@ export default function MediaKitPage() {
           assets={assetMetaBySku[activeSku.part] ?? emptyAssetMeta()}
           onClose={() => setActiveSku(null)}
           onSaved={() => {
-            load();               // 🔄 re-fetch marketing data
-            setActiveSku(null);   // close modal (safety)
+            load();
+            setActiveSku(null);
           }}
         />
       )}
