@@ -1,16 +1,20 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Menu, LogOut } from "lucide-react";
 import clsx from "clsx";
 import { navItems, accentBg } from "./navConfig";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
-export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+type Props = {
+  collapsed: boolean;
+  onToggle: () => void;
+};
+
+export default function Sidebar({ collapsed, onToggle }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = supabaseBrowser();
 
   async function handleLogout() {
@@ -26,14 +30,14 @@ export default function Sidebar() {
       )}
     >
       {/* Brand */}
-      <div className="h-16 px-6 flex items-center justify-between border-b border-gray-100">
+      <div className="h-16 px-8 flex items-center justify-between border-b border-gray-100">
         {!collapsed && (
           <span className="font-semibold tracking-tight text-lg">
             FMG
           </span>
         )}
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={onToggle}
           className="text-gray-500 hover:text-black transition"
         >
           <Menu size={18} />
@@ -42,13 +46,21 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="mt-8 px-6 space-y-6 flex-1">
-        {navItems.map((item) => (
-          <NavItem
-            key={item.label}
-            {...item}
-            collapsed={collapsed}
-          />
-        ))}
+        {navItems.map((item) => {
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
+
+          return (
+            <NavItem
+              key={item.label}
+              {...item}
+              collapsed={collapsed}
+              active={isActive}
+            />
+          );
+        })}
       </nav>
 
       {/* Logout */}
@@ -65,14 +77,14 @@ export default function Sidebar() {
           </span>
           {!collapsed && <span>Log out</span>}
         </button>
-
-        {!collapsed && (
-          <div className="mt-2 h-[2px] w-4 rounded-full opacity-0 group-hover:opacity-100 transition bg-gray-300" />
-        )}
       </div>
     </aside>
   );
 }
+
+/* -------------------------
+   Nav Item
+-------------------------- */
 
 function NavItem({
   label,
@@ -80,31 +92,53 @@ function NavItem({
   icon: Icon,
   accent,
   collapsed,
+  active,
 }: {
   label: string;
   href: string;
   icon: React.ComponentType<{ size?: number }>;
   accent: keyof typeof accentBg;
   collapsed: boolean;
+  active: boolean;
 }) {
   return (
     <Link href={href} className="group block">
       <div
         className={clsx(
-          "flex items-center gap-3 text-sm font-medium tracking-wide transition text-gray-500 group-hover:text-black",
-          collapsed && "justify-center"
+          "flex items-center gap-3 text-sm font-medium tracking-wide transition",
+          collapsed && "justify-center",
+
+          // base
+          "text-gray-500",
+
+          // hover
+          "group-hover:text-black",
+
+          // active
+          active && "text-black"
         )}
       >
-        <span className="opacity-70 group-hover:opacity-100 transition">
+        <span
+          className={clsx(
+            "transition",
+            active
+              ? "opacity-100"
+              : "opacity-70 group-hover:opacity-100"
+          )}
+        >
           <Icon size={16} />
         </span>
+
         {!collapsed && <span>{label}</span>}
       </div>
 
       {!collapsed && (
         <div
           className={clsx(
-            "mt-2 h-[2px] w-4 rounded-full opacity-0 group-hover:opacity-100 transition",
+            "mt-2 h-[2px] w-4 rounded-full transition",
+            active
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100",
             accentBg[accent]
           )}
         />
