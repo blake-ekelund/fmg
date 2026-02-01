@@ -39,7 +39,7 @@ export function MediaKitTable({
           <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
             <th className="px-4 py-3 text-left font-medium">SKU</th>
             <th className="px-4 py-3 text-left font-medium">
-              Description
+              Copy
             </th>
             <th className="px-4 py-3 text-left font-medium">
               Assets

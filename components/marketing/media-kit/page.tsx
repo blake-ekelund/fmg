@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-import { MediaKitHeader } from "./components/mediaKit/MediaKitHeader";
 import { MediaKitTable } from "./components/mediaKit/MediaKitTable";
 import { ProductRow } from "./components/mediaKit/types";
 import { SkuAssetEditorModal } from "./components/SkuAssetEditorModal";
@@ -32,6 +31,8 @@ export default function MediaKitPage() {
         media_kit_products (
           short_description,
           long_description,
+          benefits,
+          ingredients_text,
           updated_at
         )
       `)
@@ -48,10 +49,8 @@ export default function MediaKitPage() {
         part: row.part,
         display_name: row.display_name,
         fragrance: row.fragrance,
-        media_kit_products:
-          row.media_kit_products && row.media_kit_products.length > 0
-            ? row.media_kit_products[0]
-            : null,
+        media_kit_products: row.media_kit_products ?? null,
+
       }));
 
     setProducts(normalized);
@@ -106,7 +105,6 @@ export default function MediaKitPage() {
   return (
     <>
       <div className="space-y-6">
-        <MediaKitHeader />
 
         <MediaKitTable
           products={products}
@@ -124,6 +122,10 @@ export default function MediaKitPage() {
           fragrance={activeSku.fragrance ?? undefined}
           assets={assetMetaBySku[activeSku.part] ?? emptyAssetMeta()}
           onClose={() => setActiveSku(null)}
+          onSaved={() => {
+            load();               // 🔄 re-fetch marketing data
+            setActiveSku(null);   // close modal (safety)
+          }}
         />
       )}
     </>

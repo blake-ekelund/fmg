@@ -35,6 +35,7 @@ type Props = {
   fragrance?: string;
   assets: Record<Section, AssetMeta>;
   onClose: () => void;
+  onSaved: () => void;
 };
 
 export function SkuAssetEditorModal({
@@ -44,6 +45,7 @@ export function SkuAssetEditorModal({
   fragrance,
   assets,
   onClose,
+  onSaved, // ✅ FIXED
 }: Props) {
   const [section, setSection] = useState<Section>("description");
 
@@ -74,7 +76,7 @@ export function SkuAssetEditorModal({
   if (!open) return null;
 
   /* -------------------------
-     Load text when modal opens
+     Load text on open
   -------------------------- */
   useEffect(() => {
     if (!open) return;
@@ -100,7 +102,6 @@ export function SkuAssetEditorModal({
         setIngredientsText(data.ingredients_text ?? "");
         setNotes(data.retailer_notes ?? "");
 
-        // ensure description nav date reflects DB
         setAssetMeta((prev) => ({
           ...prev,
           description: {
@@ -116,7 +117,6 @@ export function SkuAssetEditorModal({
 
   /* -------------------------
      Refresh assets + previews
-     (RUN ON OPEN AND AFTER UPLOAD)
   -------------------------- */
   async function refreshAssets() {
     const { data: assetRows, error } = await supabase
@@ -129,7 +129,6 @@ export function SkuAssetEditorModal({
       return;
     }
 
-    // also fetch description updated_at for nav
     const { data: productRow } = await supabase
       .from("media_kit_products")
       .select("updated_at")
@@ -139,13 +138,11 @@ export function SkuAssetEditorModal({
     const nextMeta = emptyAssetMeta();
     const nextImages: Partial<Record<Section, string[]>> = {};
 
-    // product description completion/date
     nextMeta.description = {
       exists: !!productRow?.updated_at,
       updatedAt: productRow?.updated_at ?? undefined,
     };
 
-    // process assets
     for (const row of assetRows ?? []) {
       const type = row.asset_type as Section;
 
@@ -154,7 +151,6 @@ export function SkuAssetEditorModal({
         updatedAt: row.updated_at,
       };
 
-      // signed URLs expire — regenerated on open
       const { data: urlData } = await supabase.storage
         .from("media-kit")
         .createSignedUrl(row.storage_path, 60 * 60);
@@ -171,7 +167,6 @@ export function SkuAssetEditorModal({
     setAssetImages(nextImages);
   }
 
-  // 🔑 THIS is what was missing: load images on open
   useEffect(() => {
     if (!open) return;
     refreshAssets();
@@ -215,7 +210,10 @@ export function SkuAssetEditorModal({
     setSaving(false);
     setSaveSuccess(true);
 
-    setTimeout(onClose, 800);
+    setTimeout(() => {
+      onSaved();  // ✅ now actually runs
+      onClose();
+    }, 500);
   }
 
   return (

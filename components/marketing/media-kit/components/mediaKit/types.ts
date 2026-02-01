@@ -8,6 +8,8 @@ export type ProductRow = {
   media_kit_products?: {
     short_description: string | null;
     long_description: string | null;
+    benefits: string | null;
+    ingredients_text: string | null;
     updated_at: string | null;
   } | null;
 };
