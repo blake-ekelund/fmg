@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Platform, ContentStatus, ContentItem } from "./types";
+import {
+  Platform,
+  ContentStatus,
+  ContentItem,
+  Brand,
+} from "./types";
 import { ArrowLeft } from "lucide-react";
 
 type Props = {
@@ -20,6 +25,8 @@ const PLATFORM_OPTIONS: Platform[] = [
   "Blog",
 ];
 
+const BRAND_OPTIONS: Brand[] = ["NI", "Sassy"];
+
 export default function AddContentModal({
   date,
   item,
@@ -33,7 +40,15 @@ export default function AddContentModal({
       new Date().toISOString().split("T")[0]
   );
 
-  // Multi-select for CREATE, single-select for EDIT
+  /* ---------------------------------------------
+     Brand + Platform
+     - Create: multi-select
+     - Edit: single (locked)
+  --------------------------------------------- */
+  const [brands, setBrands] = useState<Brand[]>(
+    item ? [item.brand] : ["NI"]
+  );
+
   const [platforms, setPlatforms] = useState<Platform[]>(
     item ? [item.platform] : ["Instagram", "Facebook"]
   );
@@ -50,18 +65,29 @@ export default function AddContentModal({
   const [status, setStatus] = useState<ContentStatus>(
     item?.status ?? "Not Started"
   );
+
   const [loading, setLoading] = useState(false);
 
-  /* Sync state when editing a different item */
+  /* Sync state when editing */
   useEffect(() => {
     if (!item) return;
+
     setPublishDate(item.publish_date);
+    setBrands([item.brand]);
     setPlatforms([item.platform]);
     setContentType(item.content_type);
     setStrategy(item.strategy);
     setDescription(item.description);
     setStatus(item.status);
   }, [item]);
+
+  function toggleBrand(b: Brand) {
+    setBrands((prev) =>
+      prev.includes(b)
+        ? prev.filter((x) => x !== b)
+        : [...prev, b]
+    );
+  }
 
   function togglePlatform(p: Platform) {
     setPlatforms((prev) =>
@@ -73,16 +99,19 @@ export default function AddContentModal({
 
   async function save() {
     if (!publishDate || !contentType || !strategy) return;
-    if (!platforms.length) return;
+    if (!brands.length || !platforms.length) return;
 
     setLoading(true);
 
     if (item) {
-      // EDIT — single row only
+      /* ---------------------------------------------
+         EDIT — single row only
+      --------------------------------------------- */
       await supabase
         .from("marketing_content")
         .update({
           publish_date: publishDate,
+          brand: brands[0],
           platform: platforms[0],
           content_type: contentType,
           strategy,
@@ -91,15 +120,20 @@ export default function AddContentModal({
         })
         .eq("id", item.id);
     } else {
-      // CREATE — one row per platform
-      const rows = platforms.map((platform) => ({
-        publish_date: publishDate,
-        platform,
-        content_type: contentType,
-        strategy,
-        description,
-        status,
-      }));
+      /* ---------------------------------------------
+         CREATE — brand × platform
+      --------------------------------------------- */
+      const rows = brands.flatMap((brand) =>
+        platforms.map((platform) => ({
+          publish_date: publishDate,
+          brand,
+          platform,
+          content_type: contentType,
+          strategy,
+          description,
+          status,
+        }))
+      );
 
       await supabase.from("marketing_content").insert(rows);
     }
@@ -126,10 +160,7 @@ export default function AddContentModal({
           {onBack && (
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onBack();
-              }}
+              onClick={onBack}
               className="text-gray-500 hover:text-black"
             >
               <ArrowLeft size={16} />
@@ -141,24 +172,52 @@ export default function AddContentModal({
         </div>
 
         {/* Publish Date */}
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">
-            Publish Date
-          </label>
+        <label className="block text-sm font-medium">
+          Publish Date
           <input
             type="date"
             value={publishDate}
-            onChange={(e) => setPublishDate(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+            onChange={(e) =>
+              setPublishDate(e.target.value)
+            }
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
           />
+        </label>
+
+        {/* Brand */}
+        <div>
+          <div className="text-sm font-medium mb-2">
+            Brand
+          </div>
+          <div className="flex gap-4">
+            {BRAND_OPTIONS.map((b) => (
+              <label
+                key={b}
+                className="flex items-center gap-2 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  checked={brands.includes(b)}
+                  onChange={() => toggleBrand(b)}
+                  disabled={!!item}
+                />
+                {b}
+              </label>
+            ))}
+          </div>
+
+          {!item && (
+            <p className="mt-1 text-xs text-gray-500">
+              Selecting multiple brands creates one item per brand.
+            </p>
+          )}
         </div>
 
-        {/* Platforms */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700">
+        {/* Platform */}
+        <div>
+          <div className="text-sm font-medium mb-2">
             Platform
-          </label>
-
+          </div>
           <div className="flex flex-wrap gap-4">
             {PLATFORM_OPTIONS.map((p) => (
               <label
@@ -177,75 +236,70 @@ export default function AddContentModal({
           </div>
 
           {!item && (
-            <p className="text-xs text-gray-500">
-              A separate content item will be created for each
-              selected platform.
+            <p className="mt-1 text-xs text-gray-500">
+              A separate content item will be created for each selected platform.
             </p>
           )}
         </div>
 
         {/* Content Type */}
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">
-            Content Type
-          </label>
+        <label className="block text-sm font-medium">
+          Content Type
           <input
-            placeholder="e.g. Static Image, Carousel, Reel"
             value={contentType}
-            onChange={(e) => setContentType(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+            onChange={(e) =>
+              setContentType(e.target.value)
+            }
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
           />
-        </div>
+        </label>
 
         {/* Strategy */}
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">
-            Strategy
-          </label>
+        <label className="block text-sm font-medium">
+          Strategy
           <input
-            placeholder="e.g. Self-care, Brand Awareness"
             value={strategy}
-            onChange={(e) => setStrategy(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+            onChange={(e) =>
+              setStrategy(e.target.value)
+            }
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
           />
-        </div>
+        </label>
 
         {/* Description */}
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">
-            Description
-          </label>
+        <label className="block text-sm font-medium">
+          Description
           <textarea
             rows={3}
-            placeholder="What is this post about?"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm resize-none"
+            onChange={(e) =>
+              setDescription(e.target.value)
+            }
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm resize-none"
           />
-        </div>
+        </label>
 
         {/* Status */}
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">
-            Status
-          </label>
+        <label className="block text-sm font-medium">
+          Status
           <select
             value={status}
             onChange={(e) =>
-              setStatus(e.target.value as ContentStatus)
+              setStatus(
+                e.target.value as ContentStatus
+              )
             }
-            className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
           >
             <option>Not Started</option>
             <option>In Progress</option>
             <option>Ready</option>
           </select>
-        </div>
+        </label>
 
         {/* Actions */}
         <div className="flex justify-between pt-3">
           <button
-            type="button"
             onClick={onClose}
             className="text-sm text-gray-500"
           >
@@ -253,16 +307,11 @@ export default function AddContentModal({
           </button>
 
           <button
-            type="button"
             onClick={save}
             disabled={loading}
             className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
           >
-            {loading
-              ? "Saving…"
-              : item
-              ? "Save Changes"
-              : "Add Content"}
+            {loading ? "Saving…" : "Save"}
           </button>
         </div>
       </div>

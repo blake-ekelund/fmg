@@ -1,4 +1,3 @@
-// /marketing/content/TableView.tsx
 "use client";
 
 import { ContentItem } from "./types";
@@ -31,6 +30,11 @@ const PLATFORM_META = {
   },
 } as const;
 
+const BRAND_META = {
+  NI: "bg-sky-100 text-sky-700",
+  Sassy: "bg-rose-100 text-rose-700",
+} as const;
+
 const STATUS_META = {
   "Not Started": "bg-gray-100 text-gray-600",
   "In Progress": "bg-yellow-100 text-yellow-700",
@@ -46,32 +50,33 @@ export default function TableView({
 }) {
   return (
     <div className="overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
-      <table className="w-full text-sm">
-        {/* Header */}
+      <table className="w-full text-xs">
         <thead className="bg-gray-50 text-gray-500">
           <tr>
-            <th className="px-5 py-3 text-left font-medium">
+            <th className="px-4 py-2 text-left font-medium w-28">
               Date
             </th>
-            <th className="px-5 py-3 text-left font-medium">
+            <th className="px-4 py-2 text-left font-medium w-24">
+              Brand
+            </th>
+            <th className="px-4 py-2 text-left font-medium w-40">
               Platform
             </th>
-            <th className="px-5 py-3 text-left font-medium">
+            <th className="px-4 py-2 text-left font-medium w-32">
               Type
             </th>
-            <th className="px-5 py-3 text-left font-medium">
+            <th className="px-4 py-2 text-left font-medium">
               Strategy
             </th>
-            <th className="px-5 py-3 text-left font-medium">
+            <th className="px-4 py-2 text-left font-medium">
               Description
             </th>
-            <th className="px-5 py-3 text-left font-medium">
+            <th className="px-4 py-2 text-left font-medium w-28">
               Status
             </th>
           </tr>
         </thead>
 
-        {/* Body */}
         <tbody className="divide-y divide-gray-100">
           {items.map((item) => {
             const PlatformIcon =
@@ -81,47 +86,59 @@ export default function TableView({
               <tr
                 key={item.id}
                 onClick={() => onSelectItem(item)}
-                className="cursor-pointer hover:bg-gray-50 transition-colors"
+                className="cursor-pointer hover:bg-gray-50 transition-colors align-top"
               >
                 {/* Date */}
-                <td className="px-5 py-4 whitespace-nowrap text-gray-700">
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                   {item.publish_date}
                 </td>
 
-                {/* Platform */}
-                <td className="px-5 py-4">
+                {/* Brand */}
+                <td className="px-4 py-3">
                   <span
-                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
+                    className={`inline-flex rounded-full px-2.5 py-1 font-medium ${
+                      BRAND_META[item.brand]
+                    }`}
+                  >
+                    {item.brand}
+                  </span>
+                </td>
+
+                {/* Platform */}
+                <td className="px-4 py-3">
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium ${
                       PLATFORM_META[item.platform].className
                     }`}
                   >
-                    <PlatformIcon
-                      size={14}
-                      className="opacity-80"
-                    />
+                    <PlatformIcon size={12} className="opacity-80" />
                     {item.platform}
                   </span>
                 </td>
 
-                {/* Content Type */}
-                <td className="px-5 py-4 text-gray-800">
+                {/* Type */}
+                <td className="px-4 py-3 text-gray-800">
                   {item.content_type}
                 </td>
 
                 {/* Strategy */}
-                <td className="px-5 py-4 text-gray-600">
-                  {item.strategy}
+                <td className="px-4 py-3 text-gray-600 leading-snug">
+                  <div className="line-clamp-2">
+                    {item.strategy}
+                  </div>
                 </td>
 
                 {/* Description */}
-                <td className="px-5 py-4 text-gray-600 max-w-sm truncate">
-                  {item.description}
+                <td className="px-4 py-3 text-gray-600 leading-snug">
+                  <div className="line-clamp-3">
+                    {item.description || "—"}
+                  </div>
                 </td>
 
                 {/* Status */}
-                <td className="px-5 py-4">
+                <td className="px-4 py-3">
                   <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                    className={`inline-flex rounded-full px-2.5 py-1 font-medium ${
                       STATUS_META[item.status]
                     }`}
                   >

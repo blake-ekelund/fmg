@@ -1,12 +1,16 @@
-// /marketing/content/MarketingContentSection.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-import { ContentItem, ViewMode } from "./types";
-import ViewToggle from "./ViewToggle";
+import {
+  ContentItem,
+  ViewMode,
+  BrandView,
+} from "./types";
+import ViewToggle from "./ToggleView";
+import BrandToggle from "./ToggleBrand";
 import CalendarView from "./CalendarView";
 import TableView from "./TableView";
 import AddContentModal from "./AddContentModal";
@@ -16,6 +20,9 @@ import ConfirmDeleteModal from "./ConfirmDeleteModal";
 export default function MarketingContentSection() {
   const [items, setItems] = useState<ContentItem[]>([]);
   const [view, setView] = useState<ViewMode>("calendar");
+  const [brandView, setBrandView] =
+    useState<BrandView>("all");
+
   const [month, setMonth] = useState(new Date());
 
   const [addOpen, setAddOpen] = useState(false);
@@ -45,6 +52,16 @@ export default function MarketingContentSection() {
     setItems(data ?? []);
   }
 
+  /* ---------------------------------------------
+     Brand-filtered items (single source of truth)
+  --------------------------------------------- */
+  const visibleItems = useMemo(() => {
+    if (brandView === "all") return items;
+    return items.filter(
+      (i) => i.brand === brandView
+    );
+  }, [items, brandView]);
+
   async function confirmDelete() {
     if (!deleteTarget) return;
 
@@ -58,7 +75,6 @@ export default function MarketingContentSection() {
       prev.filter((i) => i.id !== deleteTarget.id)
     );
 
-    // Keep DayModal in sync
     if (dayModalDate) {
       setDayModalItems((prev) =>
         prev.filter((i) => i.id !== deleteTarget.id)
@@ -76,7 +92,16 @@ export default function MarketingContentSection() {
           Content Calendar
         </h2>
 
-        <ViewToggle view={view} onChange={setView} />
+        <div className="flex items-center gap-3">
+          <BrandToggle
+            brand={brandView}
+            onChange={setBrandView}
+          />
+          <ViewToggle
+            view={view}
+            onChange={setView}
+          />
+        </div>
       </div>
 
       {/* Month Toggle — Calendar only */}
@@ -127,11 +152,11 @@ export default function MarketingContentSection() {
       {view === "calendar" && (
         <CalendarView
           month={month}
-          items={items}
+          items={visibleItems}
           onSelectDate={(dateISO) => {
             setDayModalDate(dateISO);
             setDayModalItems(
-              items.filter(
+              visibleItems.filter(
                 (i) => i.publish_date === dateISO
               )
             );
@@ -142,7 +167,7 @@ export default function MarketingContentSection() {
       {/* Table View */}
       {view === "table" && (
         <TableView
-          items={items}
+          items={visibleItems}
           onSelectItem={(item) => {
             setEditItem(item);
             setSelectedDate(null);
@@ -183,7 +208,7 @@ export default function MarketingContentSection() {
             if (selectedDate) {
               setDayModalDate(selectedDate);
               setDayModalItems(
-                items.filter(
+                visibleItems.filter(
                   (i) =>
                     i.publish_date === selectedDate
                 )
