@@ -1,15 +1,19 @@
 import { MediaKitRow } from "./MediaKitRow";
 import { ProductRow } from "./types";
+import { Section, AssetMeta } from "../modalSections/types";
+import { emptyAssetMeta } from "@/lib/mediaKit/emptyAssetMeta";
 
 type Props = {
   products: ProductRow[];
   loading: boolean;
-  onEdit: (p: ProductRow) => void;
+  assetMetaBySku: Record<string, Record<Section, AssetMeta>>;
+  onEdit: (p: ProductRow, section?: Section) => void;
 };
 
 export function MediaKitTable({
   products,
   loading,
+  assetMetaBySku,
   onEdit,
 }: Props) {
   if (loading) {
@@ -41,9 +45,6 @@ export function MediaKitTable({
               Assets
             </th>
             <th className="px-4 py-3 text-left font-medium">
-              Notes
-            </th>
-            <th className="px-4 py-3 text-left font-medium">
               Updated
             </th>
             <th className="px-4 py-3 text-right font-medium">
@@ -57,7 +58,8 @@ export function MediaKitTable({
             <MediaKitRow
               key={p.part}
               product={p}
-              onEdit={() => onEdit(p)}
+              assetMeta={assetMetaBySku[p.part] ?? emptyAssetMeta()}
+              onEdit={(section) => onEdit(p, section)}
             />
           ))}
         </tbody>

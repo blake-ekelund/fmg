@@ -1,5 +1,6 @@
 import {
   Image as ImageIcon,
+  FileText,
   CheckCircle,
 } from "lucide-react";
 import { Section, AssetMeta } from "./types";
@@ -32,6 +33,13 @@ export function ModalNav({
     "other",
     "notes",
   ];
+
+  function iconForSection(section: Section) {
+    if (section === "description" || section === "notes") {
+      return <FileText size={16} />;
+    }
+    return <ImageIcon size={16} />;
+  }
 
   return (
     <aside className="w-72 bg-gray-50 border-r border-gray-100 flex flex-col">
@@ -79,7 +87,7 @@ export function ModalNav({
               }`}
             >
               {/* Icon */}
-              <ImageIcon size={16} />
+              {iconForSection(section)}
 
               {/* Label */}
               <span className="flex-1 text-left">

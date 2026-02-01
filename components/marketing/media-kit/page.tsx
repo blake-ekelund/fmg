@@ -2,30 +2,59 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+
 import { MediaKitHeader } from "./components/mediaKit/MediaKitHeader";
 import { MediaKitTable } from "./components/mediaKit/MediaKitTable";
 import { ProductRow } from "./components/mediaKit/types";
 import { SkuAssetEditorModal } from "./components/SkuAssetEditorModal";
+
 import { Section, AssetMeta } from "./components/modalSections/types";
+import { emptyAssetMeta } from "@/lib/mediaKit/emptyAssetMeta";
 
 export default function MediaKitPage() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSku, setActiveSku] = useState<ProductRow | null>(null);
 
+  const [assetMetaBySku, setAssetMetaBySku] = useState<
+    Record<string, Record<Section, AssetMeta>>
+  >({});
+
   async function load() {
     setLoading(true);
 
     const { data, error } = await supabase
       .from("inventory_products")
-      .select("part, display_name, fragrance, updated_at")
+      .select(`
+        part,
+        display_name,
+        fragrance,
+        media_kit_products (
+          short_description,
+          long_description,
+          updated_at
+        )
+      `)
       .order("part");
 
     if (error) {
-      console.error("Failed to load inventory_products", error);
+      console.error("Failed to load products", error);
+      setLoading(false);
+      return;
     }
 
-    setProducts(data ?? []);
+    const normalized: ProductRow[] =
+      (data ?? []).map((row: any) => ({
+        part: row.part,
+        display_name: row.display_name,
+        fragrance: row.fragrance,
+        media_kit_products:
+          row.media_kit_products && row.media_kit_products.length > 0
+            ? row.media_kit_products[0]
+            : null,
+      }));
+
+    setProducts(normalized);
     setLoading(false);
   }
 
@@ -33,44 +62,46 @@ export default function MediaKitPage() {
     load();
   }, []);
 
-  /**
-   * TEMP asset metadata stub
-   * This is what drives:
-   * - checkmarks
-   * - last-updated dates in the modal nav
-   *
-   * Replace this with real media_kit_assets data later.
-   */
-  const assetStub: Record<Section, AssetMeta> = {
-    description: {
-      exists: true,
-      updatedAt: activeSku?.updated_at ?? undefined,
-    },
-    front: {
-      exists: false,
-    },
-    benefits: {
-      exists: false,
-    },
-    lifestyle: {
-      exists: true,
-      updatedAt: "2026-01-28T14:02:00Z",
-    },
-    ingredients: {
-      exists: true,
-      updatedAt: "2026-01-27T09:41:00Z",
-    },
-    fragrance: {
-      exists: true,
-      updatedAt: "2026-01-26T16:20:00Z",
-    },
-    other: {
-      exists: false,
-    },
-    notes: {
-      exists: false,
-    },
-  };
+  // Initialize empty asset meta per SKU (prevents crashes)
+  useEffect(() => {
+    if (products.length === 0) return;
+
+    const next: Record<string, Record<Section, AssetMeta>> = {};
+    for (const p of products) {
+      next[p.part] = emptyAssetMeta();
+    }
+    setAssetMetaBySku(next);
+  }, [products]);
+
+  // Load asset metadata for all SKUs
+  useEffect(() => {
+    if (products.length === 0) return;
+
+    async function loadAssets() {
+      const { data, error } = await supabase
+        .from("media_kit_assets")
+        .select("part, asset_type, updated_at");
+
+      if (error) {
+        console.error("Failed to load assets", error);
+        return;
+      }
+
+      setAssetMetaBySku((prev) => {
+        const next = { ...prev };
+        for (const row of data ?? []) {
+          if (!next[row.part]) continue;
+          next[row.part][row.asset_type as Section] = {
+            exists: true,
+            updatedAt: row.updated_at,
+          };
+        }
+        return next;
+      });
+    }
+
+    loadAssets();
+  }, [products]);
 
   return (
     <>
@@ -80,7 +111,8 @@ export default function MediaKitPage() {
         <MediaKitTable
           products={products}
           loading={loading}
-          onEdit={setActiveSku}
+          assetMetaBySku={assetMetaBySku}
+          onEdit={(p) => setActiveSku(p)}
         />
       </div>
 
@@ -90,7 +122,7 @@ export default function MediaKitPage() {
           part={activeSku.part}
           displayName={activeSku.display_name}
           fragrance={activeSku.fragrance ?? undefined}
-          assets={assetStub}
+          assets={assetMetaBySku[activeSku.part] ?? emptyAssetMeta()}
           onClose={() => setActiveSku(null)}
         />
       )}

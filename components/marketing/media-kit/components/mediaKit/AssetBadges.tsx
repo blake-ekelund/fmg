@@ -1,14 +1,15 @@
+// components/mediaKit/AssetBadges.tsx
 import {
   ImageIcon,
   FileTextIcon,
   CheckCircle,
   Plus,
 } from "lucide-react";
-import { AssetType, AssetStatus } from "./types";
+import { AssetType } from "./types";
 
 type Props = {
   type: AssetType;
-  status: AssetStatus;
+  status: "present" | "missing";
 };
 
 export function AssetBadge({ type, status }: Props) {
@@ -28,35 +29,21 @@ export function AssetBadge({ type, status }: Props) {
 
   return (
     <div
-      className={`
-        group flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium
-        transition
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium
         ${
           isPresent
-            ? "bg-yellow-50 text-gray-900 ring-1 ring-yellow-400/40 hover:bg-yellow-100"
+            ? "bg-yellow-50 text-gray-900 ring-1 ring-yellow-400/40"
             : "bg-gray-100 text-gray-400 ring-1 ring-gray-200 border-dashed"
         }
       `}
-      title={
-        isPresent
-          ? `${labelMap[type]} uploaded`
-          : `${labelMap[type]} missing`
-      }
     >
       {isPresent ? (
-        <CheckCircle
-          size={14}
-          className="text-yellow-500"
-        />
+        <CheckCircle size={14} className="text-yellow-500" />
       ) : (
-        <Plus
-          size={14}
-          className="text-gray-400"
-        />
+        <Plus size={14} className="text-gray-400" />
       )}
-
       <Icon size={14} />
-      <span>{labelMap[type]}</span>
+      {labelMap[type]}
     </div>
   );
 }
