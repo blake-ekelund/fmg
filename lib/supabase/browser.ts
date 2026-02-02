@@ -1,14 +1,16 @@
-// lib/supabase/browser.ts
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { Database } from "@/types/supabase";
+
+export type TypedSupabaseClient = SupabaseClient<Database>;
 
 declare global {
   // eslint-disable-next-line no-var
-  var __supabase: ReturnType<typeof createClient> | undefined;
+  var __supabase: TypedSupabaseClient | undefined;
 }
 
-export function supabaseBrowser() {
+export function supabaseBrowser(): TypedSupabaseClient {
   if (!globalThis.__supabase) {
-    globalThis.__supabase = createClient(
+    globalThis.__supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {

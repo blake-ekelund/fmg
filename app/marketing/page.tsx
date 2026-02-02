@@ -6,13 +6,15 @@ import MarketingOverviewSection from "@/components/marketing/overview/overview";
 import MarketingContentSection from "@/components/marketing/content-calendar/index";
 import MarketingShopifySection from "@/components/marketing/shopify/shopify";
 import MarketingMediaSection from "@/components/marketing/media-kit/page";
+import MarketingShareSection from "@/components/marketing/photo-share/page";
 
 type MarketingSection =
   | "overview"
   | "content-calendar"
   | "create"
   | "shopify"
-  | "media-kit";
+  | "media-kit"
+  | "photo-share";
 
 export default function MarketingPage() {
   const [section, setSection] =
@@ -61,6 +63,13 @@ export default function MarketingPage() {
           onClick={() => setSection("media-kit")}
         >
           Media Kit
+        </TabButton>        
+        
+        <TabButton
+          active={section === "photo-share"}
+          onClick={() => setSection("photo-share")}
+        >
+          Photo Share
         </TabButton>
       </nav>
 
@@ -69,7 +78,9 @@ export default function MarketingPage() {
         {section === "overview" && <MarketingOverviewSection />}
         {section === "content-calendar" && <MarketingContentSection />}
         {section === "shopify" && <MarketingShopifySection />}
-        {section === "media-kit" && <MarketingMediaSection />}
+        {section === "media-kit" && <MarketingMediaSection />}        
+        {section === "photo-share" && <MarketingShareSection />}
+
       </div>
     </div>
   );
