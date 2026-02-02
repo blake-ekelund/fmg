@@ -13,7 +13,7 @@ import ViewToggle from "./ToggleView";
 import BrandToggle from "./ToggleBrand";
 import CalendarView from "./CalendarView";
 import TableView from "./TableView";
-import AddContentModal from "./AddContentModal";
+import AddContentModal from "./modal/AddContentModal";
 import DayModal from "./DayModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 
