@@ -47,6 +47,7 @@ export default function EditPhotoModal({
 
   if (!open) return null;
 
+  /* ---------------- SAVE ---------------- */
   async function handleSave() {
     setSaving(true);
 
@@ -56,9 +57,10 @@ export default function EditPhotoModal({
       allow_third_party_use: allowThirdParty,
     };
 
-    const { error } = await supabase
-      .from("photo_share_assets")
-      .update(update as PhotoAssetUpdate)
+    const { error } = await (
+      supabase.from("photo_share_assets") as any
+    )
+      .update(update)
       .eq("id", asset.id);
 
     setSaving(false);
@@ -71,6 +73,7 @@ export default function EditPhotoModal({
     }
   }
 
+  /* ---------------- ARCHIVE ---------------- */
   async function handleArchive() {
     if (!confirm("Archive this asset?")) return;
 
@@ -78,9 +81,10 @@ export default function EditPhotoModal({
       is_active: false,
     };
 
-    const { error } = await supabase
-      .from("photo_share_assets")
-      .update(update as PhotoAssetUpdate)
+    const { error } = await (
+      supabase.from("photo_share_assets") as any
+    )
+      .update(update)
       .eq("id", asset.id);
 
     if (!error) {
@@ -101,7 +105,7 @@ export default function EditPhotoModal({
         className="
           w-full
           max-w-3xl
-          max-h-[100vh]
+          max-h-[85vh]
           rounded-3xl
           bg-white
           shadow-xl
@@ -122,7 +126,7 @@ export default function EditPhotoModal({
           </button>
         </header>
 
-        {/* Image canvas */}
+        {/* Image */}
         <div className="px-8">
           <div className="h-72 w-full rounded-2xl bg-gray-50 flex items-center justify-center">
             <img
@@ -142,7 +146,7 @@ export default function EditPhotoModal({
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-gray-200"
+              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
             />
           </div>
 
@@ -154,7 +158,7 @@ export default function EditPhotoModal({
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-gray-200"
+              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
             />
           </div>
 
