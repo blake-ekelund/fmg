@@ -163,24 +163,31 @@ export default function MediaKitPage() {
   return (
     <>
       <div className="space-y-6">
-        <FiltersBar
-          search={search}
-          onSearchChange={setSearch}
-          showMissingCopy={showMissingCopy}
-          onToggleMissingCopy={setShowMissingCopy}
-          showMissingAssets={showMissingAssets}
-          onToggleMissingAssets={setShowMissingAssets}
-          resultCount={filteredProducts.length}
-        />
+        {/* Filters */}
+        <div className="overflow-x-auto">
+          <FiltersBar
+            search={search}
+            onSearchChange={setSearch}
+            showMissingCopy={showMissingCopy}
+            onToggleMissingCopy={setShowMissingCopy}
+            showMissingAssets={showMissingAssets}
+            onToggleMissingAssets={setShowMissingAssets}
+            resultCount={filteredProducts.length}
+          />
+        </div>
 
-        <MediaKitTable
-          products={filteredProducts}
-          loading={loading}
-          assetMetaBySku={assetMetaBySku}
-          onEdit={(p) => setActiveSku(p)}
-        />
+        {/* Table */}
+        <section className="overflow-x-auto">
+          <MediaKitTable
+            products={filteredProducts}
+            loading={loading}
+            assetMetaBySku={assetMetaBySku}
+            onEdit={(p) => setActiveSku(p)}
+          />
+        </section>
       </div>
 
+      {/* Editor Modal */}
       {activeSku && (
         <SkuAssetEditorModal
           open={true}

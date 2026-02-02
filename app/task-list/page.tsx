@@ -15,11 +15,11 @@ export default function TaskListPage() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [deleteTask, setDeleteTask] = useState<Task | null>(null);
 
-  // Filters (defaults matter)
+  // Filters
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("open"); // ✅ default
-  const [owner, setOwner] = useState("");       // All Owners
-  const [priority, setPriority] = useState(""); // All Priorities
+  const [status, setStatus] = useState("open");
+  const [owner, setOwner] = useState("");
+  const [priority, setPriority] = useState("");
 
   async function loadTasks() {
     const { data } = await supabase
@@ -54,7 +54,6 @@ export default function TaskListPage() {
     loadTasks();
   }
 
-  // Derived filtered list
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (
@@ -76,14 +75,14 @@ export default function TaskListPage() {
 
   return (
     <>
-      <div className="px-8 py-10 space-y-10">
+      <div className="px-4 md:px-8 py-8 md:py-10 space-y-8 md:space-y-10">
         {/* Header */}
-        <header className="flex justify-between items-center">
+        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-4xl font-semibold tracking-tight">
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
               Tasks
             </h1>
-            <p className="mt-3 text-gray-500">
+            <p className="mt-2 md:mt-3 text-gray-500 text-sm md:text-base">
               Click a task to edit. Changes save immediately.
             </p>
           </div>
@@ -93,26 +92,36 @@ export default function TaskListPage() {
               setActiveTask(null);
               setOpen(true);
             }}
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm hover:bg-gray-50"
+            className="
+              w-full md:w-auto
+              rounded-xl
+              border border-gray-200
+              bg-white
+              px-4 py-2
+              text-sm
+              hover:bg-gray-50
+            "
           >
             Add New Task
           </button>
         </header>
 
         {/* Filters */}
-        <FiltersRow
-          search={search}
-          status={status}
-          owner={owner}
-          priority={priority}
-          onSearchChange={setSearch}
-          onStatusChange={setStatus}
-          onOwnerChange={setOwner}
-          onPriorityChange={setPriority}
-        />
+        <div className="overflow-x-auto">
+          <FiltersRow
+            search={search}
+            status={status}
+            owner={owner}
+            priority={priority}
+            onSearchChange={setSearch}
+            onStatusChange={setStatus}
+            onOwnerChange={setOwner}
+            onPriorityChange={setPriority}
+          />
+        </div>
 
         {/* Table */}
-        <section>
+        <section className="overflow-x-auto">
           <Table>
             <TableHeader />
             {filteredTasks.map((task) => (
@@ -132,6 +141,7 @@ export default function TaskListPage() {
         </section>
       </div>
 
+      {/* Modals */}
       <AddTaskModal
         open={open}
         task={activeTask}

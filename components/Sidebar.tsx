@@ -25,7 +25,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   return (
     <aside
       className={clsx(
-        "hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col border-r border-gray-200 bg-white transition-all duration-300 z-40",
+        "hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-white border-r border-gray-100 transition-all duration-300 z-40",
         collapsed ? "w-20" : "w-64"
       )}
     >
@@ -37,6 +37,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           </span>
         )}
         <button
+          aria-label="Toggle sidebar"
           onClick={onToggle}
           className="text-gray-500 hover:text-black transition"
         >
@@ -107,14 +108,8 @@ function NavItem({
         className={clsx(
           "flex items-center gap-3 text-sm font-medium tracking-wide transition",
           collapsed && "justify-center",
-
-          // base
           "text-gray-500",
-
-          // hover
           "group-hover:text-black",
-
-          // active
           active && "text-black"
         )}
       >

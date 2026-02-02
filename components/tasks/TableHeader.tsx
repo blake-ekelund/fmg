@@ -2,7 +2,8 @@ export function TableHeader() {
   return (
     <div
       className="
-        grid items-center
+        hidden md:grid
+        items-center
         px-4 py-3
         text-xs font-medium text-gray-500
         bg-gray-50
