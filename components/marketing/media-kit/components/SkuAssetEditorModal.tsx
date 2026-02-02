@@ -38,6 +38,8 @@ type Props = {
   onSaved: () => void;
 };
 
+type MobileTab = "info" | "images" | "notes";
+
 export function SkuAssetEditorModal({
   open,
   part,
@@ -45,9 +47,10 @@ export function SkuAssetEditorModal({
   fragrance,
   assets,
   onClose,
-  onSaved, // ✅ FIXED
+  onSaved,
 }: Props) {
   const [section, setSection] = useState<Section>("description");
+  const [mobileTab, setMobileTab] = useState<MobileTab>("info");
 
   /* ---------- text state ---------- */
   const [shortDesc, setShortDesc] = useState("");
@@ -101,14 +104,6 @@ export function SkuAssetEditorModal({
         setBenefits(data.benefits ?? "");
         setIngredientsText(data.ingredients_text ?? "");
         setNotes(data.retailer_notes ?? "");
-
-        setAssetMeta((prev) => ({
-          ...prev,
-          description: {
-            exists: true,
-            updatedAt: data.updated_at ?? undefined,
-          },
-        }));
       }
     }
 
@@ -116,54 +111,29 @@ export function SkuAssetEditorModal({
   }, [open, part]);
 
   /* -------------------------
-     Refresh assets + previews
+     Refresh assets
   -------------------------- */
   async function refreshAssets() {
-    const { data: assetRows, error } = await supabase
+    const { data: assetRows } = await supabase
       .from("media_kit_assets")
       .select("asset_type, storage_path, updated_at")
       .eq("part", part);
 
-    if (error) {
-      console.error("Failed to refresh assets", error);
-      return;
-    }
-
-    const { data: productRow } = await supabase
-      .from("media_kit_products")
-      .select("updated_at")
-      .eq("part", part)
-      .single();
-
-    const nextMeta = emptyAssetMeta();
     const nextImages: Partial<Record<Section, string[]>> = {};
 
-    nextMeta.description = {
-      exists: !!productRow?.updated_at,
-      updatedAt: productRow?.updated_at ?? undefined,
-    };
-
     for (const row of assetRows ?? []) {
-      const type = row.asset_type as Section;
-
-      nextMeta[type] = {
-        exists: true,
-        updatedAt: row.updated_at,
-      };
-
       const { data: urlData } = await supabase.storage
         .from("media-kit")
         .createSignedUrl(row.storage_path, 60 * 60);
 
       if (urlData?.signedUrl) {
-        nextImages[type] = [
-          ...(nextImages[type] ?? []),
+        nextImages[row.asset_type as Section] = [
+          ...(nextImages[row.asset_type as Section] ?? []),
           urlData.signedUrl,
         ];
       }
     }
 
-    setAssetMeta(nextMeta);
     setAssetImages(nextImages);
   }
 
@@ -173,7 +143,7 @@ export function SkuAssetEditorModal({
   }, [open]);
 
   /* -------------------------
-     Save text
+     Save
   -------------------------- */
   async function handleSave() {
     setSaving(true);
@@ -193,56 +163,91 @@ export function SkuAssetEditorModal({
       });
 
     if (error) {
-      console.error("Save failed", error);
       setSaveError("Failed to save changes");
       setSaving(false);
       return;
     }
 
-    setAssetMeta((prev) => ({
-      ...prev,
-      description: {
-        exists: true,
-        updatedAt: new Date().toISOString(),
-      },
-    }));
-
     setSaving(false);
     setSaveSuccess(true);
 
     setTimeout(() => {
-      onSaved();  // ✅ now actually runs
+      onSaved();
       onClose();
     }, 500);
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50">
+      {/* Desktop overlay */}
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="hidden md:block absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      <div className="relative w-full max-w-6xl h-[85vh] bg-white rounded-3xl shadow-2xl flex overflow-hidden">
-        <ModalNav
-          active={section}
-          assets={assetMeta}
-          part={part}
-          displayName={displayName}
-          fragrance={fragrance}
-          onSelect={setSection}
-        />
+      {/* Modal */}
+      <div className="relative w-screen h-screen md:w-full md:h-[85vh] md:max-w-6xl bg-white md:rounded-3xl shadow-none md:shadow-2xl flex overflow-hidden">
+        {/* Desktop Sidebar */}
+        <div className="hidden md:block">
+          <ModalNav
+            active={section}
+            assets={assetMeta}
+            part={part}
+            displayName={displayName}
+            fragrance={fragrance}
+            onSelect={setSection}
+          />
+        </div>
 
-        <main className="flex-1 flex flex-col relative">
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100"
-          >
-            <X size={18} />
-          </button>
+        <main className="flex-1 flex flex-col">
+          {/* Mobile Header */}
+          <div className="md:hidden sticky top-0 z-20 bg-white border-b px-4 py-3 flex items-center justify-between">
+            <button onClick={onClose} className="p-2">
+              <X size={18} />
+            </button>
 
-          <div className="flex-1 overflow-y-auto px-8 py-8">
-            {section === "description" && (
+            <div className="text-sm font-medium truncate">
+              {displayName}
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                saving
+                  ? "bg-gray-300"
+                  : "bg-yellow-400 hover:bg-yellow-500"
+              }`}
+            >
+              Save
+            </button>
+          </div>
+
+          {/* Mobile Primary Tabs */}
+          <div className="md:hidden border-b bg-white px-4 py-3 flex gap-2">
+            {[
+              { key: "info", label: "Product Info" },
+              { key: "images", label: "Images" },
+              { key: "notes", label: "Notes" },
+            ].map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setMobileTab(t.key as MobileTab)}
+                className={`flex-1 px-3 py-2 rounded-xl text-sm font-medium ${
+                  mobileTab === t.key
+                    ? "bg-yellow-400 text-black"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-8">
+            {/* Mobile */}
+            {mobileTab === "info" && (
               <ProductDescriptionSection
                 shortDescription={shortDesc}
                 longDescription={longDesc}
@@ -253,26 +258,62 @@ export function SkuAssetEditorModal({
               />
             )}
 
-            {section !== "description" && section !== "notes" && (
+            {mobileTab === "images" && (
               <PhotoSection
-                label={sectionLabels[section]}
-                multiple={section === "other"}
+                label={sectionLabels.front}
+                multiple={false}
                 part={part}
-                assetType={section}
-                images={assetImages[section] ?? []}
+                assetType="front"
+                images={assetImages.front ?? []}
                 onUploaded={refreshAssets}
-                showIngredientsText={section === "ingredients"}
-                ingredientsText={ingredientsText}
-                onIngredientsChange={setIngredientsText}
               />
             )}
 
-            {section === "notes" && (
+            {mobileTab === "notes" && (
               <NotesSection value={notes} onChange={setNotes} />
+            )}
+
+            {/* Desktop */}
+            <div className="hidden md:block">
+              {section === "description" && (
+                <ProductDescriptionSection
+                  shortDescription={shortDesc}
+                  longDescription={longDesc}
+                  benefits={benefits}
+                  onShortChange={setShortDesc}
+                  onLongChange={setLongDesc}
+                  onBenefitsChange={setBenefits}
+                />
+              )}
+
+              {section !== "description" && section !== "notes" && (
+                <PhotoSection
+                  label={sectionLabels[section]}
+                  multiple={section === "other"}
+                  part={part}
+                  assetType={section}
+                  images={assetImages[section] ?? []}
+                  onUploaded={refreshAssets}
+                  showIngredientsText={section === "ingredients"}
+                  ingredientsText={ingredientsText}
+                  onIngredientsChange={setIngredientsText}
+                />
+              )}
+
+              {section === "notes" && (
+                <NotesSection value={notes} onChange={setNotes} />
+              )}
+            </div>
+
+            {saveSuccess && (
+              <div className="md:hidden mt-4 text-sm text-green-600">
+                Saved
+              </div>
             )}
           </div>
 
-          <div className="px-8 py-5 bg-gray-50 flex justify-between">
+          {/* Desktop Footer */}
+          <div className="hidden md:flex px-8 py-5 bg-gray-50 justify-between">
             <div className="text-sm">
               {saveError && (
                 <span className="text-red-600">{saveError}</span>
@@ -292,13 +333,9 @@ export function SkuAssetEditorModal({
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className={`px-4 py-2 rounded-xl ${
-                  saving
-                    ? "bg-gray-300"
-                    : "bg-yellow-400 hover:bg-yellow-500"
-                }`}
+                className="px-4 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-500"
               >
-                {saving ? "Saving…" : "Save Changes"}
+                Save Changes
               </button>
             </div>
           </div>

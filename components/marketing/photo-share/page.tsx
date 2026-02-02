@@ -18,7 +18,8 @@ export default function PhotoSharePage() {
 
   const [view, setView] = useState<"grid" | "table">("grid");
   const [search, setSearch] = useState("");
-  const [thirdParty, setThirdParty] = useState<"all" | "yes" | "no">("all");
+  const [thirdParty, setThirdParty] =
+    useState<"all" | "yes" | "no">("all");
   const [showUpload, setShowUpload] = useState(false);
 
   useEffect(() => {
@@ -47,37 +48,63 @@ export default function PhotoSharePage() {
   }, [assets, search, thirdParty]);
 
   return (
-    <div className="px-8 space-y-6">
-
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="px-4 md:px-8 py-6 space-y-6">
+      {/* Header / Controls */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        {/* Filters */}
         <PhotoFilters
           search={search}
           onSearch={setSearch}
           thirdParty={thirdParty}
           onThirdPartyChange={setThirdParty}
         />
-        <button
-          onClick={() => setShowUpload(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg"
-        >
-          <Plus size={16} /> Add media
-        </button>
 
-        <ViewToggle view={view} onChange={setView} />
+        {/* Actions */}
+        <div className="flex items-center justify-between md:justify-end gap-3">
+          <button
+            onClick={() => setShowUpload(true)}
+            className="
+              inline-flex
+              items-center
+              gap-2
+              px-4 py-2
+              rounded-xl
+              bg-gray-900
+              text-white
+              text-sm
+              font-medium
+              whitespace-nowrap
+            "
+          >
+            <Plus size={16} />
+            Add Image
+          </button>
+
+          {/* View toggle only where table makes sense */}
+          <div className="hidden sm:block">
+            <ViewToggle view={view} onChange={setView} />
+          </div>
+        </div>
       </div>
 
-      {view === "grid" ? (
-        <PhotoGrid
-        assets={filtered}
-        onSelect={(asset) => setActiveAsset(asset)}
-        />
-      ) : (
-        <PhotoTable
-          assets={filtered}
-          onSelect={(asset) => setActiveAsset(asset)}
-        />
-      )}
+      {/* Content */}
+      <div>
+        {view === "grid" ? (
+          <PhotoGrid
+            assets={filtered}
+            onSelect={(asset) => setActiveAsset(asset)}
+          />
+        ) : (
+          <div className="hidden sm:block">
+            <PhotoTable
+              assets={filtered}
+              onSelect={(asset) => setActiveAsset(asset)}
+            />
+          </div>
+        )}
+      </div>
 
+      {/* Modals */}
       <UploadPhotoModal
         open={showUpload}
         onClose={() => setShowUpload(false)}
@@ -87,7 +114,7 @@ export default function PhotoSharePage() {
       {activeAsset && (
         <EditPhotoModal
           asset={activeAsset}
-          open={!!activeAsset}
+          open
           onClose={() => setActiveAsset(null)}
           onSaved={load}
         />

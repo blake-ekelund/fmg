@@ -65,7 +65,6 @@ export function PhotoSection({
         url.pathname.split("/media-kit/")[1]
       );
 
-      // 1. Delete from storage
       const { error: storageError } =
         await supabase.storage
           .from("media-kit")
@@ -73,7 +72,6 @@ export function PhotoSection({
 
       if (storageError) throw storageError;
 
-      // 2. Delete DB row
       const { error: dbError } = await supabase
         .from("media_kit_assets")
         .delete()
@@ -92,13 +90,15 @@ export function PhotoSection({
   }
 
   return (
-    <div className="space-y-4 max-w-4xl">
+    <div className="space-y-4 max-w-none md:max-w-4xl">
+      {/* Section Header */}
       <h3 className="text-sm font-semibold text-gray-900">
         {label}
       </h3>
 
-      <div className="rounded-2xl bg-gray-50 p-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      {/* Image Grid */}
+      <div className="rounded-2xl bg-gray-50 p-4 md:p-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
           {images.map((src) => (
             <PreviewTile
               key={src}
@@ -111,7 +111,8 @@ export function PhotoSection({
         </div>
       </div>
 
-      <label className="inline-flex items-center gap-2 text-sm font-medium text-yellow-600 cursor-pointer hover:text-yellow-700">
+      {/* Upload Action */}
+      <label className="inline-flex items-center gap-2 text-sm font-medium text-yellow-600 cursor-pointer hover:text-yellow-700 active:text-yellow-800">
         <Upload size={16} />
         Upload {multiple ? "images" : "image"}
         <input
@@ -123,16 +124,18 @@ export function PhotoSection({
         />
       </label>
 
+      {/* Ingredients Text (if applicable) */}
       {showIngredientsText && (
         <textarea
-          rows={3}
+          rows={4}
           value={ingredientsText}
           onChange={(e) =>
             onIngredientsChange?.(e.target.value)
           }
           placeholder="Ingredients: Water (Aqua), ..."
           className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm
-                     focus:ring-2 focus:ring-yellow-200"
+                     resize-y
+                     focus:ring-2 focus:ring-yellow-200 focus:border-yellow-300"
         />
       )}
 

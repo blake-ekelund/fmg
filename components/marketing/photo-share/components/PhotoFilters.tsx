@@ -12,19 +12,19 @@ export default function PhotoFilters({
   onThirdPartyChange,
 }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full">
       {/* Search */}
-      <div className="relative">
+      <div className="relative w-full sm:w-72">
         <input
           placeholder="Search photos…"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           className="
-            w-72
+            w-full
             rounded-xl
             border border-gray-200
             bg-white
-            px-4 py-2
+            px-4 py-2.5
             text-sm
             placeholder-gray-400
             shadow-sm
@@ -38,17 +38,20 @@ export default function PhotoFilters({
       </div>
 
       {/* Usage filter */}
-      <div className="relative">
+      <div className="relative w-full sm:w-auto">
         <select
           value={thirdParty}
           onChange={(e) =>
-            onThirdPartyChange(e.target.value as Props["thirdParty"])
+            onThirdPartyChange(
+              e.target.value as Props["thirdParty"]
+            )
           }
           className="
+            w-full sm:w-auto
             rounded-xl
             border border-gray-200
             bg-white
-            px-4 py-2
+            px-4 py-2.5
             text-sm
             shadow-sm
             transition

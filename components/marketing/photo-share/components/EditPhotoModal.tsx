@@ -96,39 +96,50 @@ export default function EditPhotoModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50">
+      {/* Overlay */}
+      <div
+        className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+
+      {/* Modal container */}
       <div
         onClick={(e) => e.stopPropagation()}
         className="
-          w-full
-          max-w-3xl
-          max-h-[100vh]
-          rounded-3xl
+          relative
+          mx-3 my-4
+          max-h-[95vh]
+          w-auto
           bg-white
-          shadow-xl
-          flex
-          flex-col
+          rounded-3xl
+          shadow-[0_8px_30px_rgba(0,0,0,0.08)]
+          flex flex-col
+          overflow-hidden
+
+          md:mx-auto md:my-4
+          md:h-auto md:max-w-3xl
+          md:rounded-3xl
+          md:shadow-xl
         "
       >
         {/* Header */}
-        <header className="flex items-center justify-between px-8 py-5">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Edit Media
+        <header className="sticky top-0 z-10 bg-white px-4 md:px-8 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base md:text-lg font-semibold text-gray-900">
+            Edit media
           </h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-gray-500 hover:bg-gray-100"
+            aria-label="Close"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
           >
             <X size={18} />
           </button>
         </header>
 
         {/* Image */}
-        <div className="px-8">
-          <div className="h-72 w-full rounded-2xl bg-gray-50 flex items-center justify-center">
+        <div className="px-4 md:px-8 py-4">
+          <div className="h-56 md:h-56 w-full rounded-2xl bg-gray-50/70 border border-gray-100 flex items-center justify-center overflow-hidden">
             <img
               src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/marketing-photo-share/${asset.file_path}`}
               alt={asset.title}
@@ -138,7 +149,7 @@ export default function EditPhotoModal({
         </div>
 
         {/* Body */}
-        <div className="px-8 py-6 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-600">
               Title
@@ -146,7 +157,17 @@ export default function EditPhotoModal({
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+              className="
+                mt-1
+                w-full
+                rounded-xl
+                border border-gray-200
+                px-3 py-2.5
+                text-sm
+                focus:outline-none
+                focus:ring-2
+                focus:ring-gray-200
+              "
             />
           </div>
 
@@ -155,10 +176,20 @@ export default function EditPhotoModal({
               Description
             </label>
             <textarea
-              rows={3}
+              rows={4}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+              className="
+                mt-1
+                w-full
+                rounded-xl
+                border border-gray-200
+                px-3 py-2.5
+                text-sm
+                focus:outline-none
+                focus:ring-2
+                focus:ring-gray-200
+              "
             />
           </div>
 
@@ -166,14 +197,16 @@ export default function EditPhotoModal({
             <input
               type="checkbox"
               checked={allowThirdParty}
-              onChange={(e) => setAllowThirdParty(e.target.checked)}
+              onChange={(e) =>
+                setAllowThirdParty(e.target.checked)
+              }
             />
             Approved for third-party use
           </label>
         </div>
 
         {/* Footer */}
-        <footer className="mt-auto flex items-center justify-between px-8 py-5">
+        <footer className="sticky bottom-0 bg-white px-4 md:px-8 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
           <button
             onClick={handleArchive}
             className="inline-flex items-center gap-2 text-sm text-red-600 hover:underline"

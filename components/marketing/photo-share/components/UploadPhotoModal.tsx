@@ -22,7 +22,9 @@ export default function UploadPhotoModal({
   const [allowThirdParty, setAllowThirdParty] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Create / clean up preview URL
+  /* -------------------------
+     Preview handling
+  -------------------------- */
   useEffect(() => {
     if (!file) {
       setPreviewUrl(null);
@@ -63,49 +65,57 @@ export default function UploadPhotoModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onClick={onClose}
-    >
-      {/* Modal */}
+    <div className="fixed inset-0 z-50">
+      {/* Overlay (desktop emphasis, subtle on mobile) */}
+      <div
+        className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+
+      {/* Modal container */}
       <div
         onClick={(e) => e.stopPropagation()}
         className="
-          w-full
-          max-w-xl
-          max-h-[100vh]
-          rounded-3xl
+          relative
+          mx-3 my-4
+          max-h-[95vh]
+          w-auto
           bg-white
-          shadow-xl
-          flex
-          flex-col
+          rounded-3xl
+          shadow-[0_8px_30px_rgba(0,0,0,0.08)]
+          flex flex-col
+          overflow-hidden
+
+          md:mx-auto md:my-4
+          md:h-auto md:max-w-xl
+          md:rounded-3xl
+          md:shadow-xl
         "
       >
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">
+        <header className="sticky top-0 z-10 bg-white px-4 md:px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base md:text-lg font-semibold text-gray-900">
             Add media
           </h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-gray-500 hover:bg-gray-100"
+            aria-label="Close"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
           >
             <X size={18} />
           </button>
         </header>
 
         {/* Preview */}
-        <div className="px-6">
+        <div className="px-4 md:px-6 py-4">
           <div
             className="
-              h-56
+              h-42 md:h-42
               w-full
               rounded-2xl
-              bg-gray-50
-              border border-gray-200
-              flex
-              items-center
-              justify-center
+              bg-gray-50/70
+              border border-gray-100
+              flex items-center justify-center
               overflow-hidden
             "
           >
@@ -127,7 +137,7 @@ export default function UploadPhotoModal({
         </div>
 
         {/* Form */}
-        <div className="flex-1 px-6 py-5 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-600">
               File
@@ -155,7 +165,7 @@ export default function UploadPhotoModal({
                 w-full
                 rounded-xl
                 border border-gray-200
-                px-3 py-2
+                px-3 py-2.5
                 text-sm
                 focus:outline-none
                 focus:ring-2
@@ -172,13 +182,13 @@ export default function UploadPhotoModal({
               placeholder="Optional description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
+              rows={4}
               className="
                 mt-1
                 w-full
                 rounded-xl
                 border border-gray-200
-                px-3 py-2
+                px-3 py-2.5
                 text-sm
                 focus:outline-none
                 focus:ring-2
@@ -200,7 +210,7 @@ export default function UploadPhotoModal({
         </div>
 
         {/* Footer */}
-        <footer className="mt-auto flex items-center justify-end gap-3 px-6 py-4">
+        <footer className="sticky bottom-0 bg-white px-4 md:px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
           <button
             onClick={onClose}
             className="rounded-xl border border-gray-200 px-4 py-2 text-sm"
@@ -212,9 +222,7 @@ export default function UploadPhotoModal({
             onClick={handleUpload}
             disabled={!file || !title || loading}
             className="
-              inline-flex
-              items-center
-              gap-2
+              inline-flex items-center gap-2
               rounded-xl
               bg-gray-900
               px-4 py-2
