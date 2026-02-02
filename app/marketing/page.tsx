@@ -3,15 +3,14 @@
 import { useState } from "react";
 
 import MarketingOverviewSection from "@/components/marketing/overview/overview";
-import MarketingContentSection from "@/components/marketing/content/index";
-import MarketingSocialSection from "@/components/marketing/social";
+import MarketingContentSection from "@/components/marketing/content-calendar/index";
 import MarketingShopifySection from "@/components/marketing/shopify/shopify";
 import MarketingMediaSection from "@/components/marketing/media-kit/page";
 
 type MarketingSection =
   | "overview"
-  | "content"
-  | "social"
+  | "content-calendar"
+  | "create"
   | "shopify"
   | "media-kit";
 
@@ -44,24 +43,17 @@ export default function MarketingPage() {
         </TabButton>
 
         <TabButton
-          active={section === "content"}
-          onClick={() => setSection("content")}
+          active={section === "content-calendar"}
+          onClick={() => setSection("content-calendar")}
         >
-          Content
-        </TabButton>
-
-        <TabButton
-          active={section === "social"}
-          onClick={() => setSection("social")}
-        >
-          Social
+          Calendar
         </TabButton>
 
         <TabButton
           active={section === "shopify"}
           onClick={() => setSection("shopify")}
         >
-          Shopify
+          Analytics
         </TabButton>        
         
         <TabButton
@@ -75,8 +67,7 @@ export default function MarketingPage() {
       {/* Section Content */}
       <div className="space-y-12">
         {section === "overview" && <MarketingOverviewSection />}
-        {section === "content" && <MarketingContentSection />}
-        {section === "social" && <MarketingSocialSection />}
+        {section === "content-calendar" && <MarketingContentSection />}
         {section === "shopify" && <MarketingShopifySection />}
         {section === "media-kit" && <MarketingMediaSection />}
       </div>
