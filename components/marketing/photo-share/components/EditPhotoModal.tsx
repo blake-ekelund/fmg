@@ -105,7 +105,7 @@ export default function EditPhotoModal({
         className="
           w-full
           max-w-3xl
-          max-h-[85vh]
+          max-h-[100vh]
           rounded-3xl
           bg-white
           shadow-xl

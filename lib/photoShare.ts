@@ -5,6 +5,9 @@ import { PhotoAsset } from "@/types/photoShare";
 type PhotoAssetInsert =
   Database["public"]["Tables"]["photo_share_assets"]["Insert"];
 
+/* ------------------------------------------------------------------ */
+/* READ                                                               */
+/* ------------------------------------------------------------------ */
 export async function fetchPhotoAssets(): Promise<PhotoAsset[]> {
   const supabase = supabaseBrowser();
 
@@ -22,6 +25,9 @@ export async function fetchPhotoAssets(): Promise<PhotoAsset[]> {
   return data ?? [];
 }
 
+/* ------------------------------------------------------------------ */
+/* INSERT                                                             */
+/* ------------------------------------------------------------------ */
 export async function uploadPhotoAsset(payload: {
   file: File;
   title: string;
@@ -38,9 +44,7 @@ export async function uploadPhotoAsset(payload: {
     new Date().getMonth() + 1
   ).padStart(2, "0")}/${crypto.randomUUID()}.${ext}`;
 
-  /* ------------------------------------------------------------------ */
-  /* 1. Upload to Supabase Storage                                      */
-  /* ------------------------------------------------------------------ */
+  /* ------------------- 1. Storage upload ------------------- */
   const { error: uploadError } = await supabase.storage
     .from("marketing-photo-share")
     .upload(path, file, {
@@ -53,9 +57,7 @@ export async function uploadPhotoAsset(payload: {
     throw uploadError;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 2. Insert metadata (ARRAY INSERT — REQUIRED)                       */
-  /* ------------------------------------------------------------------ */
+  /* ------------------- 2. DB insert ------------------------ */
   const record: PhotoAssetInsert = {
     file_path: path,
     file_name: file.name,
@@ -64,11 +66,13 @@ export async function uploadPhotoAsset(payload: {
     title: payload.title,
     description: payload.description ?? null,
     allow_third_party_use: payload.allowThirdParty,
+    is_active: true,
   };
 
-  const { error: insertError } = await supabase
-    .from("photo_share_assets")
-    .insert([record]); // <-- ARRAY FIX (THIS IS THE KEY)
+  // 🔑 REQUIRED ESCAPE HATCH (Supabase v2 typing bug)
+  const { error: insertError } = await (
+    supabase.from("photo_share_assets") as any
+  ).insert([record]);
 
   if (insertError) {
     console.error("DB insert failed:", insertError);
