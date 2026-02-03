@@ -32,9 +32,17 @@ export function ProductDescriptionSection({
           value={shortDescription}
           onChange={(e) => onShortChange(e.target.value)}
           placeholder="Used in cards, previews, summaries"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm
-                     resize-none
-                     focus:ring-2 focus:ring-yellow-200 focus:border-yellow-300"
+          className="
+            w-full rounded-xl border border-gray-200
+            bg-white
+            px-4 py-3 text-sm
+            text-gray-900
+            placeholder:text-gray-400
+            resize-none
+            focus:outline-none
+            focus:ring-2 focus:ring-yellow-200
+            focus:border-yellow-300
+          "
         />
       </div>
 
@@ -48,9 +56,17 @@ export function ProductDescriptionSection({
           value={longDescription}
           onChange={(e) => onLongChange(e.target.value)}
           placeholder="Canonical description used by retailers"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm
-                     resize-y
-                     focus:ring-2 focus:ring-yellow-200 focus:border-yellow-300"
+          className="
+            w-full rounded-xl border border-gray-200
+            bg-white
+            px-4 py-3 text-sm
+            text-gray-900
+            placeholder:text-gray-400
+            resize-y
+            focus:outline-none
+            focus:ring-2 focus:ring-yellow-200
+            focus:border-yellow-300
+          "
         />
       </div>
 
@@ -63,10 +79,22 @@ export function ProductDescriptionSection({
           rows={6}
           value={benefits}
           onChange={(e) => onBenefitsChange(e.target.value)}
-          placeholder="• Gently cleanses without drying&#10;• Plant-based ingredients&#10;• Safe for daily use"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm
-                     resize-y
-                     focus:ring-2 focus:ring-yellow-200 focus:border-yellow-300"
+          placeholder={
+            "• Gently cleanses without drying\n" +
+            "• Plant-based ingredients\n" +
+            "• Safe for daily use"
+          }
+          className="
+            w-full rounded-xl border border-gray-200
+            bg-white
+            px-4 py-3 text-sm
+            text-gray-900
+            placeholder:text-gray-400
+            resize-y
+            focus:outline-none
+            focus:ring-2 focus:ring-yellow-200
+            focus:border-yellow-300
+          "
         />
       </div>
     </div>

@@ -22,9 +22,17 @@ export function NotesSection({ value, onChange }: Props) {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Usage guidance, restrictions, retailer notes, compliance reminders…"
-          className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm
-                     resize-y
-                     focus:ring-2 focus:ring-yellow-200 focus:border-yellow-300"
+          className="
+            w-full rounded-xl border border-gray-200
+            bg-white
+            px-4 py-3 text-sm
+            text-gray-900
+            placeholder:text-gray-400
+            resize-y
+            focus:outline-none
+            focus:ring-2 focus:ring-yellow-200
+            focus:border-yellow-300
+          "
         />
 
         <p className="text-xs text-gray-500 leading-relaxed">
