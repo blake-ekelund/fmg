@@ -1,7 +1,7 @@
+import { useMemo, useState, useEffect } from "react";
 import ForecastRow from "./ForecastRow";
 import { ForecastRow as Row } from "./types";
 import { project, colorFor } from "./utils/forecast";
-import { useMemo } from "react";
 
 type Props = {
   rows: Row[];
@@ -53,17 +53,13 @@ export default function ForecastTable({
               <EditableStat
                 label="On Order"
                 value={r.on_order}
-                onChange={(v) =>
-                  onUpdateOnOrder(r.part, v)
-                }
+                onChange={(v) => onUpdateOnOrder(r.part, v)}
               />
 
               <EditableStat
                 label="Avg / Mo"
                 value={r.avg_monthly_demand}
-                onChange={(v) =>
-                  onUpdateAvg(r.part, v)
-                }
+                onChange={(v) => onUpdateAvg(r.part, v)}
               />
             </div>
 
@@ -119,27 +115,13 @@ export default function ForecastTable({
         <table className="w-full text-[12px]">
           <thead>
             <tr className="text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-200">
-              <th className="px-2 py-1.5 text-center w-8">
-                Status
-              </th>
-              <th className="px-2 py-1.5 text-left">
-                Part
-              </th>
-              <th className="px-2 py-1.5 text-left">
-                Name
-              </th>
-              <th className="px-2 py-1.5 text-left">
-                Fragrance
-              </th>
-              <th className="px-2 py-1.5 text-right">
-                On Hand
-              </th>
-              <th className="px-2 py-1.5 text-right">
-                On Order
-              </th>
-              <th className="px-2 py-1.5 text-right">
-                Avg / Mo
-              </th>
+              <th className="px-2 py-1.5 text-center w-8">Status</th>
+              <th className="px-2 py-1.5 text-left">Part</th>
+              <th className="px-2 py-1.5 text-left">Name</th>
+              <th className="px-2 py-1.5 text-left">Fragrance</th>
+              <th className="px-2 py-1.5 text-right">On Hand</th>
+              <th className="px-2 py-1.5 text-right">On Order</th>
+              <th className="px-2 py-1.5 text-right">Avg / Mo</th>
 
               {months.map((m) => (
                 <th
@@ -181,6 +163,7 @@ export default function ForecastTable({
 /* ---------------------------------------------
    Mobile helpers
 --------------------------------------------- */
+
 function Stat({
   label,
   value,
@@ -190,12 +173,8 @@ function Stat({
 }) {
   return (
     <div>
-      <div className="text-xs text-gray-500">
-        {label}
-      </div>
-      <div className="text-gray-900">
-        {value.toLocaleString()}
-      </div>
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-gray-900">{value.toLocaleString()}</div>
     </div>
   );
 }
@@ -209,17 +188,28 @@ function EditableStat({
   value: number;
   onChange: (v: number) => void;
 }) {
+  const [local, setLocal] = useState(
+    value === 0 ? "" : value.toString()
+  );
+
+  useEffect(() => {
+    setLocal(value === 0 ? "" : value.toString());
+  }, [value]);
+
   return (
     <div>
-      <div className="text-xs text-gray-500">
-        {label}
-      </div>
+      <div className="text-xs text-gray-500">{label}</div>
+
       <input
-        type="number"
-        value={value}
-        onChange={(e) =>
-          onChange(Number(e.target.value))
-        }
+        inputMode="numeric"
+        value={local}
+        onChange={(e) => {
+          const v = e.target.value;
+          setLocal(v);
+
+          if (v === "") return;
+          onChange(Number(v));
+        }}
         className="
           mt-0.5 w-full rounded-md
           border border-gray-200
