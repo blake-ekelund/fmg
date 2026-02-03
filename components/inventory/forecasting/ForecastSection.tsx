@@ -7,7 +7,7 @@ import { useForecastData } from "./hooks/useForecastData";
 import { useDebouncedSave } from "./hooks/useDebouncedSave";
 import ForecastTable from "./ForecastTable";
 
-/* ---------------- Status Logic (single source of truth) ---------------- */
+/* ---------------- Status Logic ---------------- */
 function getStatusLabel(
   onHand: number,
   onOrder: number,
@@ -15,10 +15,9 @@ function getStatusLabel(
 ): "healthy" | "needs review" | "at risk" | "no demand" {
   if (avg <= 0) return "no demand";
 
-  const monthsOfSupply = (onHand + onOrder) / avg;
-
-  if (monthsOfSupply > 3) return "healthy";
-  if (monthsOfSupply > 1.5) return "needs review";
+  const mos = (onHand + onOrder) / avg;
+  if (mos > 3) return "healthy";
+  if (mos > 1.5) return "needs review";
   return "at risk";
 }
 
@@ -83,12 +82,10 @@ export default function ForecastSection() {
         r.avg_monthly_demand
       );
 
-      // Status dropdown filter
       if (statusFilter !== "all" && status !== statusFilter) {
         return false;
       }
 
-      // Search across part, name, fragrance, AND status text
       if (q) {
         const haystack = [
           r.part,
@@ -109,14 +106,20 @@ export default function ForecastSection() {
 
   /* ---------------- UI ---------------- */
   return (
-    <div className="space-y-3">
-      {/* Title + Filters */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="space-y-2 md:space-y-0 md:flex md:items-center md:justify-between">
         <h2 className="text-base font-medium">
           Inventory Forecast (Next 6 Months)
         </h2>
 
-        <div className="flex items-center gap-2">
+        {/* Filters */}
+        <div
+          className="
+            flex flex-col gap-2
+            md:flex-row md:items-center md:gap-2
+          "
+        >
           {/* Search */}
           <input
             type="text"
@@ -124,19 +127,17 @@ export default function ForecastSection() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="
-              h-8
-              w-72
+              h-9 w-full
+              md:h-8 md:w-72
               rounded-md
               bg-blue-50
               text-blue-700
               placeholder-blue-400
               px-3
-              text-xs
+              text-sm md:text-xs
               outline-none
-              ring-1
-              ring-blue-100
-              focus:ring-2
-              focus:ring-blue-400
+              ring-1 ring-blue-100
+              focus:ring-2 focus:ring-blue-400
               focus:bg-white
             "
           />
@@ -154,17 +155,16 @@ export default function ForecastSection() {
               )
             }
             className="
-              h-8
+              h-9 w-full
+              md:h-8 md:w-auto
               rounded-md
               bg-blue-50
               text-blue-700
-              px-2
-              text-xs
+              px-3 md:px-2
+              text-sm md:text-xs
               outline-none
-              ring-1
-              ring-blue-100
-              focus:ring-2
-              focus:ring-blue-400
+              ring-1 ring-blue-100
+              focus:ring-2 focus:ring-blue-400
               focus:bg-white
             "
           >
@@ -176,6 +176,7 @@ export default function ForecastSection() {
         </div>
       </div>
 
+      {/* Table / Cards */}
       <ForecastTable
         rows={filteredRows}
         months={months}

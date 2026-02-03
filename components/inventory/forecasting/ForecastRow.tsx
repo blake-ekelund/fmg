@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ForecastRow as Row } from "./types";
 import { project, colorFor } from "./utils/forecast";
 
@@ -10,21 +10,11 @@ type Props = {
 };
 
 const inputClass = `
-  w-20
-  h-7
-  rounded-md
-  bg-blue-50
-  text-blue-700
-  placeholder-blue-300
-  px-1.5
-  text-xs
-  text-right
-  outline-none
-  ring-1
-  ring-blue-100
-  focus:ring-2
-  focus:ring-blue-400
-  focus:bg-white
+  w-20 h-7 rounded-md
+  bg-blue-50 text-blue-700 placeholder-blue-300
+  px-1.5 text-xs text-right
+  outline-none ring-1 ring-blue-100
+  focus:ring-2 focus:ring-blue-400 focus:bg-white
   transition
 `;
 
@@ -39,7 +29,7 @@ function parseFormatted(value: string): number {
   return numeric ? Number(numeric) : 0;
 }
 
-/** Inventory health calculation */
+/* ---------------- Inventory Status ---------------- */
 function getInventoryStatus(
   onHand: number,
   onOrder: number,
@@ -52,16 +42,16 @@ function getInventoryStatus(
     };
   }
 
-  const monthsOfSupply = (onHand + onOrder) / avg;
+  const mos = (onHand + onOrder) / avg;
 
-  if (monthsOfSupply > 3) {
+  if (mos > 3) {
     return {
       label: "Healthy",
       className: "bg-green-500",
     };
   }
 
-  if (monthsOfSupply > 1.5) {
+  if (mos > 1.5) {
     return {
       label: "Needs review",
       className: "bg-yellow-400",
@@ -87,6 +77,7 @@ export default function ForecastRow({
     formatNumber(row.avg_monthly_demand)
   );
 
+  /* Keep inputs in sync with external updates */
   useEffect(() => {
     setOnOrderText(formatNumber(row.on_order));
   }, [row.on_order]);
@@ -101,49 +92,52 @@ export default function ForecastRow({
     row.avg_monthly_demand
   );
 
+  /* Single stable date per render */
+  const now = useMemo(() => new Date(), []);
+
   return (
-    <tr className="border-b border-gray-100">
-      {/* Status Indicator */}
+    <tr className="border-b border-gray-100 hover:bg-gray-50 transition">
+      {/* Status */}
       <td className="px-2 py-1.5 text-center">
         <span
           title={status.label}
           className={`
-            inline-block
-            h-2.5
-            w-2.5
-            rounded-full
+            inline-block h-2.5 w-2.5 rounded-full
             ${status.className}
           `}
         />
       </td>
 
+      {/* Part */}
       <td className="px-2 py-1.5 font-mono text-[11px] text-gray-600">
         {row.part}
       </td>
 
+      {/* Name */}
       <td className="px-2 py-1.5">
         {row.display_name}
       </td>
 
+      {/* Fragrance */}
       <td className="px-2 py-1.5 text-xs text-gray-600">
         {row.fragrance ?? "—"}
       </td>
 
+      {/* On Hand */}
       <td className="px-2 py-1.5 text-right tabular-nums">
         {formatNumber(row.on_hand)}
       </td>
 
+      {/* On Order (editable) */}
       <td className="px-2 py-1.5 text-right">
         <input
           type="text"
           inputMode="numeric"
           value={onOrderText}
           onChange={(e) => {
-            setOnOrderText(e.target.value);
-            onUpdateOnOrder(
-              row.part,
-              parseFormatted(e.target.value)
-            );
+            const v = e.target.value;
+            setOnOrderText(v);
+            onUpdateOnOrder(row.part, parseFormatted(v));
           }}
           onBlur={() => {
             const parsed = parseFormatted(onOrderText);
@@ -154,17 +148,16 @@ export default function ForecastRow({
         />
       </td>
 
+      {/* Avg / Mo (editable) */}
       <td className="px-2 py-1.5 text-right">
         <input
           type="text"
           inputMode="numeric"
           value={avgText}
           onChange={(e) => {
-            setAvgText(e.target.value);
-            onUpdateAvg(
-              row.part,
-              parseFormatted(e.target.value)
-            );
+            const v = e.target.value;
+            setAvgText(v);
+            onUpdateAvg(row.part, parseFormatted(v));
           }}
           onBlur={() => {
             const parsed = parseFormatted(avgText);
@@ -175,17 +168,16 @@ export default function ForecastRow({
         />
       </td>
 
+      {/* Projections */}
       {months.map((_, i) => {
-        const v = project(row, i);
+        const v = project(row, i, now);
+
         return (
           <td
             key={i}
             className={`
-              px-2
-              py-1.5
-              text-right
-              tabular-nums
-              text-xs
+              px-2 py-1.5 text-right
+              tabular-nums text-xs
               ${colorFor(v, row.avg_monthly_demand)}
             `}
           >

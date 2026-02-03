@@ -1,24 +1,24 @@
 import { ForecastRow } from "../types";
 import { daysInMonth, daysRemainingInMonth } from "./date";
 
-export function project(row: ForecastRow, monthIndex: number): number {
-  const now = new Date();
+export function project(
+  row: ForecastRow,
+  monthIndex: number,
+  now: Date
+): number {
+  const firstMonthFraction =
+    daysRemainingInMonth(now) / daysInMonth(now);
 
-  if (monthIndex === 0) {
-    const fraction =
-      daysRemainingInMonth(now) / daysInMonth(now);
+  let value =
+    row.on_hand +
+    row.on_order -
+    row.avg_monthly_demand * firstMonthFraction;
 
-    return (
-      row.on_hand -
-      row.avg_monthly_demand * fraction +
-      row.on_order
-    );
+  for (let i = 1; i <= monthIndex; i++) {
+    value -= row.avg_monthly_demand;
   }
 
-  return (
-    project(row, monthIndex - 1) -
-    row.avg_monthly_demand
-  );
+  return value;
 }
 
 export function colorFor(v: number, avg: number) {

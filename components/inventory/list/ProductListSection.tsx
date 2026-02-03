@@ -41,7 +41,7 @@ export default function ProductListSection() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-medium text-gray-900">
           Product List
         </h2>
@@ -52,45 +52,136 @@ export default function ProductListSection() {
             px-4 py-2 rounded-xl text-sm font-medium
             bg-orange-400 text-white
             hover:bg-orange-500 transition
+            whitespace-nowrap
           "
         >
           Add Product
         </button>
       </div>
 
-      {/* Table Container */}
-      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+      {/* ========================= */}
+      {/* Mobile Card View */}
+      {/* ========================= */}
+      <div className="space-y-3 md:hidden">
+        {!loading &&
+          products.map((p) => (
+            <div
+              key={p.part}
+              onClick={() => setActiveProduct(p)}
+              className="
+                rounded-2xl border border-gray-200 bg-white
+                p-4 space-y-3
+                transition hover:bg-gray-50
+              "
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium text-gray-900">
+                    {p.display_name}
+                  </div>
+                  <div className="font-mono text-xs text-gray-500">
+                    {p.part}
+                  </div>
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveProduct(p);
+                  }}
+                  className="text-sm font-medium text-orange-600"
+                >
+                  Edit
+                </button>
+              </div>
+
+              {/* Meta */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <div className="text-xs text-gray-500">Fragrance</div>
+                  <div>{p.fragrance ?? "—"}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Size</div>
+                  <div>{p.size ?? "—"}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Type</div>
+                  <div>{p.part_type}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Product</div>
+                  <span className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium">
+                    {p.product_type}
+                  </span>
+                </div>
+              </div>
+
+              {/* Min / Max + Forecast */}
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                <div className="flex gap-4 text-sm tabular-nums">
+                  <div>
+                    <span className="text-xs text-gray-500">Min</span>{" "}
+                    {p.min_qty}
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-500">Max</span>{" "}
+                    {p.max_qty}
+                  </div>
+                </div>
+
+                <label
+                  className="flex items-center gap-2 text-sm"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={p.is_forecasted}
+                    onChange={(e) =>
+                      toggleForecast(p.part, e.target.checked)
+                    }
+                    className="h-4 w-4 accent-orange-500"
+                  />
+                  Forecast
+                </label>
+              </div>
+            </div>
+          ))}
+
+        {!loading && products.length === 0 && (
+          <div className="p-4 text-sm text-gray-500">
+            No products configured yet.
+          </div>
+        )}
+
+        {loading && (
+          <div className="p-4 text-sm text-gray-500">
+            Loading products…
+          </div>
+        )}
+      </div>
+
+      {/* ========================= */}
+      {/* Desktop Table View */}
+      {/* ========================= */}
+      <div className="hidden md:block overflow-x-auto rounded-2xl border border-gray-200 bg-white">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
               <th className="px-4 py-3 text-left font-medium">Part #</th>
-              <th className="px-4 py-3 text-left font-medium">
-                Display Name
-              </th>
-              <th className="px-4 py-3 text-left font-medium">
-                Fragrance
-              </th>
-              <th className="px-4 py-3 text-left font-medium">
-                Size
-              </th>
-              <th className="px-4 py-3 text-left font-medium">
-                Type
-              </th>
-              <th className="px-4 py-3 text-left font-medium">
-                Product Type
-              </th>              
-              <th className="px-4 py-3 text-right font-medium">
-                Min
-              </th>
-              <th className="px-4 py-3 text-right font-medium">
-                Max
-              </th>
-              <th className="px-4 py-3 text-center font-medium">
-                Forecast
-              </th>
-              <th className="px-4 py-3 text-right font-medium">
-                Actions
-              </th>
+              <th className="px-4 py-3 text-left font-medium">Display Name</th>
+              <th className="px-4 py-3 text-left font-medium">Fragrance</th>
+              <th className="px-4 py-3 text-left font-medium">Size</th>
+              <th className="px-4 py-3 text-left font-medium">Type</th>
+              <th className="px-4 py-3 text-left font-medium">Product Type</th>
+              <th className="px-4 py-3 text-right font-medium">Min</th>
+              <th className="px-4 py-3 text-right font-medium">Max</th>
+              <th className="px-4 py-3 text-center font-medium">Forecast</th>
+              <th className="px-4 py-3 text-right font-medium">Actions</th>
             </tr>
           </thead>
 
@@ -101,55 +192,40 @@ export default function ProductListSection() {
                   key={p.part}
                   onClick={() => setActiveProduct(p)}
                   className={`
-                    cursor-pointer
-                    transition
-                    hover:bg-gray-50
-                    ${idx !== products.length - 1 ? "border-b border-gray-100" : ""}
+                    cursor-pointer transition hover:bg-gray-50
+                    ${
+                      idx !== products.length - 1
+                        ? "border-b border-gray-100"
+                        : ""
+                    }
                   `}
                 >
-                  {/* Part # */}
                   <td className="px-4 py-3 font-mono text-xs text-gray-700">
                     {p.part}
                   </td>
-
-                  {/* Display Name */}
                   <td className="px-4 py-3 font-medium text-gray-900">
                     {p.display_name}
                   </td>
-
-                  {/* Fragrance */}
                   <td className="px-4 py-3 text-gray-600">
                     {p.fragrance ?? "—"}
                   </td>
-
-                  {/* Size */}
                   <td className="px-4 py-3 text-gray-600">
                     {p.size ?? "—"}
                   </td>
-
-                  {/* Part Type */}
                   <td className="px-4 py-3 text-gray-600">
                     {p.part_type}
                   </td>
-
-                  {/* Product Type */}
-                  <td className="px-4 py-3 text-gray-700">
-                    <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium">
+                  <td className="px-4 py-3">
+                    <span className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium">
                       {p.product_type}
                     </span>
                   </td>
-
-                  {/* Min */}
-                  <td className="px-4 py-3 text-right tabular-nums text-gray-800">
+                  <td className="px-4 py-3 text-right tabular-nums">
                     {p.min_qty}
                   </td>
-
-                  {/* Max */}
-                  <td className="px-4 py-3 text-right tabular-nums text-gray-800">
+                  <td className="px-4 py-3 text-right tabular-nums">
                     {p.max_qty}
                   </td>
-
-                  {/* Forecast toggle */}
                   <td
                     className="px-4 py-3 text-center"
                     onClick={(e) => e.stopPropagation()}
@@ -158,16 +234,11 @@ export default function ProductListSection() {
                       type="checkbox"
                       checked={p.is_forecasted}
                       onChange={(e) =>
-                        toggleForecast(
-                          p.part,
-                          e.target.checked
-                        )
+                        toggleForecast(p.part, e.target.checked)
                       }
                       className="h-4 w-4 accent-orange-500"
                     />
                   </td>
-
-                  {/* Actions */}
                   <td
                     className="px-4 py-3 text-right"
                     onClick={(e) => {
@@ -197,7 +268,7 @@ export default function ProductListSection() {
         )}
       </div>
 
-      {/* Add / Edit Modal */}
+      {/* Modal */}
       {(addOpen || activeProduct) && (
         <AddEditProductModal
           product={activeProduct}
