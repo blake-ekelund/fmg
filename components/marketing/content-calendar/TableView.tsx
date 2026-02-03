@@ -56,21 +56,24 @@ export default function TableView({
             <th className="px-4 py-2 text-left font-medium w-28">
               Date
             </th>
-            <th className="px-4 py-2 text-left font-medium w-24">
-              Brand
-            </th>
+
+            {/* Brand + Platform */}
             <th className="px-4 py-2 text-left font-medium w-40">
-              Platform
+              Channel
             </th>
+
             <th className="px-4 py-2 text-left font-medium w-32">
               Type
             </th>
-            <th className="px-4 py-2 text-left font-medium">
+
+            {/* Desktop-only */}
+            <th className="hidden md:table-cell px-4 py-2 text-left font-medium">
               Strategy
             </th>
-            <th className="px-4 py-2 text-left font-medium">
+            <th className="hidden md:table-cell px-4 py-2 text-left font-medium">
               Description
             </th>
+
             <th className="px-4 py-2 text-left font-medium w-28">
               Status
             </th>
@@ -86,34 +89,39 @@ export default function TableView({
               <tr
                 key={item.id}
                 onClick={() => onSelectItem(item)}
-                className="cursor-pointer hover:bg-gray-50 transition-colors align-top"
+                className="
+                  cursor-pointer
+                  hover:bg-gray-50
+                  transition-colors
+                  align-top
+                "
               >
                 {/* Date */}
                 <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                   {item.publish_date}
                 </td>
 
-                {/* Brand */}
-                <td className="px-4 py-3">
-                  <span
+                {/* Brand + Platform */}
+                <td className="px-4 py-3 space-y-1">
+                  <div
                     className={`inline-flex rounded-full px-2.5 py-1 font-medium ${
                       BRAND_META[item.brand]
                     }`}
                   >
                     {item.brand}
-                  </span>
-                </td>
+                  </div>
 
-                {/* Platform */}
-                <td className="px-4 py-3">
-                  <span
+                  <div
                     className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium ${
                       PLATFORM_META[item.platform].className
                     }`}
                   >
-                    <PlatformIcon size={12} className="opacity-80" />
+                    <PlatformIcon
+                      size={12}
+                      className="opacity-80"
+                    />
                     {item.platform}
-                  </span>
+                  </div>
                 </td>
 
                 {/* Type */}
@@ -121,15 +129,15 @@ export default function TableView({
                   {item.content_type}
                 </td>
 
-                {/* Strategy */}
-                <td className="px-4 py-3 text-gray-600 leading-snug">
+                {/* Strategy (desktop only) */}
+                <td className="hidden md:table-cell px-4 py-3 text-gray-600 leading-snug">
                   <div className="line-clamp-2">
                     {item.strategy}
                   </div>
                 </td>
 
-                {/* Description */}
-                <td className="px-4 py-3 text-gray-600 leading-snug">
+                {/* Description (desktop only) */}
+                <td className="hidden md:table-cell px-4 py-3 text-gray-600 leading-snug">
                   <div className="line-clamp-3">
                     {item.description || "—"}
                   </div>

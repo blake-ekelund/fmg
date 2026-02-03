@@ -21,8 +21,8 @@ type Section = "setup" | "content" | "activity";
 
 type Props = {
   date: string | null;
-  item?: ContentItem | null; // calendar row
-  meta?: ContentMeta | null; // activity metadata
+  item?: ContentItem | null;
+  meta?: ContentMeta | null;
   onClose: () => void;
   onSaved: () => void;
   onBack?: () => void;
@@ -92,46 +92,6 @@ export default function AddContentModal({
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
 
-  /* ---------- Media Upload ---------- */
-
-  async function uploadMedia(
-    contentId: string,
-    files: File[]
-  ) {
-    let index = 0;
-
-    for (const file of files) {
-      const ext = file.name.split(".").pop();
-      const path = `${contentId}/${index}.${ext}`;
-
-      const { error } = await supabase.storage
-        .from("marketing-content")
-        .upload(path, file);
-
-      if (error) throw error;
-
-      await supabase.from("marketing_content_media").insert({
-        content_id: contentId,
-        media_type: file.type.startsWith("video")
-          ? "video"
-          : "image",
-        storage_path: path,
-        sort_order: index,
-      });
-
-      index++;
-    }
-
-    await logActivity(
-      contentId,
-      "media_added",
-      `Added ${files.length} media item${
-        files.length > 1 ? "s" : ""
-      }`,
-      { count: files.length }
-    );
-  }
-
   /* ---------- Save ---------- */
 
   async function save() {
@@ -143,7 +103,6 @@ export default function AddContentModal({
     let contentIds: string[] = [];
 
     if (item) {
-      /* ---------- UPDATE ---------- */
       await supabase
         .from("marketing_content")
         .update({
@@ -159,14 +118,10 @@ export default function AddContentModal({
 
       contentIds = [item.id];
 
-      await logActivity(
-        item.id,
-        "updated",
-        "Content updated",
-        { status }
-      );
+      await logActivity(item.id, "updated", "Content updated", {
+        status,
+      });
     } else {
-      /* ---------- CREATE ---------- */
       const rows = brands.flatMap((brand) =>
         platforms.map((platform) => ({
           publish_date: publishDate,
@@ -180,11 +135,14 @@ export default function AddContentModal({
       );
 
       const { data, error } = await supabase
-        .from("marketing_content")
-        .insert(rows)
-        .select("id");
+      .from("marketing_content")
+      .insert(rows)
+      .select("id");
 
-      if (error) throw error;
+    if (error) throw error;
+    if (!data) throw new Error("No data returned from insert");
+
+    contentIds = data.map((r) => r.id);
 
       contentIds = data.map((r) => r.id);
 
@@ -199,10 +157,6 @@ export default function AddContentModal({
       }
     }
 
-    if (files.length && contentIds.length) {
-      await uploadMedia(contentIds[0], files);
-    }
-
     setLoading(false);
     onSaved();
   }
@@ -213,25 +167,41 @@ export default function AddContentModal({
       onClose={onClose}
       onBack={onBack}
       footer={
-        <div className="flex justify-between">
+        <div className="flex justify-between items-center gap-4">
           <button
             onClick={onClose}
             className="text-sm text-gray-500"
           >
             Cancel
           </button>
+
           <button
             onClick={save}
             disabled={loading}
-            className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="
+              rounded-xl
+              bg-gray-900
+              px-4 py-2
+              text-sm
+              text-white
+              disabled:opacity-50
+            "
           >
             {loading ? "Saving…" : "Save"}
           </button>
         </div>
       }
     >
-      {/* ---------- Nav ---------- */}
-      <nav className="flex gap-4 text-sm mb-4">
+      {/* ---------- Section Nav (sticky on mobile) ---------- */}
+      <nav className="
+        sticky top-0 z-10
+        bg-white
+        flex gap-2
+        text-sm
+        mb-4
+        pb-2
+        border-b border-gray-100
+      ">
         <NavItem
           label="Setup"
           active={activeSection === "setup"}
@@ -249,8 +219,8 @@ export default function AddContentModal({
         />
       </nav>
 
-      {/* ---------- Sections ---------- */}
-      <div className="h-full overflow-y-auto pr-1">
+      {/* ---------- Scrollable Content ---------- */}
+      <div className="flex-1 overflow-y-auto pr-1">
         {activeSection === "setup" && (
           <SetupSection
             publishDate={publishDate}
@@ -300,11 +270,18 @@ function NavItem({
   return (
     <button
       onClick={onClick}
-      className={`px-2 py-1 rounded-md text-sm ${
-        active
-          ? "bg-gray-900 text-white"
-          : "text-gray-500 hover:bg-gray-100"
-      }`}
+      className={`
+        px-3 py-1.5
+        rounded-lg
+        text-sm
+        font-medium
+        transition
+        ${
+          active
+            ? "bg-gray-900 text-white"
+            : "text-gray-500 hover:bg-gray-100"
+        }
+      `}
     >
       {label}
     </button>

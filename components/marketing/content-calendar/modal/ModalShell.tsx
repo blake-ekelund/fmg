@@ -1,4 +1,6 @@
-import { ArrowLeft } from "lucide-react";
+"use client";
+
+import { ArrowLeft, X } from "lucide-react";
 
 type Props = {
   title: string;
@@ -16,7 +18,7 @@ export function ModalShell({
   footer,
 }: Props) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30"
@@ -26,34 +28,80 @@ export function ModalShell({
       {/* Modal */}
       <div
         className="
-          relative w-full max-w-lg
-          rounded-2xl bg-white shadow-xl ring-1 ring-gray-200
-          h-[80vh] max-h-[80vh]
+          relative
+          w-full
+          md:max-w-lg
+          bg-white
+          rounded-t-2xl md:rounded-2xl
+          shadow-xl
+          ring-1 ring-gray-200
+          h-[85vh] md:h-[90vh]
+          max-h-[85vh] md:max-h-[90vh]
           flex flex-col
+          overflow-hidden
         "
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header (fixed) */}
-        <div className="px-6 pt-6 flex items-center gap-2 shrink-0">
+        <div
+          className="
+            px-5 md:px-6
+            pt-4 md:pt-6
+            pb-3
+            flex items-center gap-3
+            shrink-0
+            border-b border-gray-100
+            bg-white
+            sticky top-0 z-10
+          "
+        >
           {onBack && (
             <button
               type="button"
               onClick={onBack}
-              className="text-gray-500 hover:text-black"
+              className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-black"
             >
               <ArrowLeft size={16} />
             </button>
           )}
-          <h3 className="text-lg font-medium">{title}</h3>
+
+          <h3 className="text-lg font-medium flex-1 truncate">
+            {title}
+          </h3>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-black"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Body (scrollable) */}
-        <div className="flex-1 px-6 pt-4">
+        <div
+          className="
+            flex-1
+            overflow-y-auto
+            px-5 md:px-6
+            pt-4
+            pb-6
+          "
+        >
           {children}
         </div>
 
         {/* Footer (fixed) */}
-        <div className="px-6 pb-6 pt-4 border-t border-gray-100 shrink-0">
+        <div
+          className="
+            px-5 md:px-6
+            py-4
+            border-t border-gray-100
+            shrink-0
+            bg-white
+            sticky bottom-0
+          "
+        >
           {footer}
         </div>
       </div>

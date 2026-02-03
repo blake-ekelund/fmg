@@ -43,7 +43,7 @@ export default function DayModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30"
@@ -52,11 +52,23 @@ export default function DayModal({
 
       {/* Modal */}
       <div
-        className="relative w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-gray-200 p-5 space-y-4"
+        className="
+          relative
+          w-full
+          md:max-w-md
+          bg-white
+          rounded-t-2xl md:rounded-2xl
+          shadow-xl
+          ring-1 ring-gray-200
+          p-5
+          space-y-4
+          max-h-[90vh]
+          overflow-y-auto
+        "
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between sticky top-0 bg-white z-10 pb-2">
           <h3 className="text-lg font-medium">
             {dateFromISO(date).toLocaleDateString("en-US", {
               weekday: "long",
@@ -65,7 +77,10 @@ export default function DayModal({
             })}
           </h3>
 
-          <button onClick={onClose}>
+          <button
+            onClick={onClose}
+            className="rounded-full p-1 hover:bg-gray-100"
+          >
             <X size={16} />
           </button>
         </div>
@@ -73,7 +88,16 @@ export default function DayModal({
         {/* Add button */}
         <button
           onClick={onAddNew}
-          className="w-full flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium hover:bg-gray-50"
+          className="
+            w-full
+            flex items-center gap-2
+            rounded-xl
+            border border-gray-200
+            px-4 py-3
+            text-sm font-medium
+            hover:bg-gray-50
+            active:bg-gray-100
+          "
         >
           <Plus size={16} />
           Add New Content
@@ -92,14 +116,32 @@ export default function DayModal({
               return (
                 <div
                   key={item.id}
-                  className="group w-full flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-gray-50"
+                  className="
+                    group
+                    w-full
+                    flex items-center gap-3
+                    rounded-xl
+                    px-3 py-2.5
+                    text-sm
+                    border border-transparent
+                    hover:border-gray-200
+                    hover:bg-gray-50
+                    transition
+                  "
                 >
-                  {/* Clickable content (edit/select) */}
+                  {/* Clickable content */}
                   <button
                     onClick={() => onSelectItem(item)}
-                    className="flex flex-1 items-center gap-3 text-left min-w-0"
+                    className="
+                      flex flex-1 items-center gap-3
+                      text-left
+                      min-w-0
+                    "
                   >
-                    <Icon size={14} className="opacity-70" />
+                    <Icon
+                      size={14}
+                      className="opacity-70 flex-shrink-0"
+                    />
 
                     <div className="truncate">
                       <div className="font-medium truncate">
@@ -111,13 +153,18 @@ export default function DayModal({
                     </div>
                   </button>
 
-                  {/* Delete */}
+                  {/* Delete (always visible on mobile, hover on desktop) */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onDeleteItem(item);
                     }}
-                    className="opacity-0 group-hover:opacity-100 transition text-gray-400 hover:text-red-600"
+                    className="
+                      text-gray-400
+                      hover:text-red-600
+                      transition
+                      md:opacity-0 md:group-hover:opacity-100
+                    "
                     title="Delete content"
                   >
                     <Trash2 size={14} />

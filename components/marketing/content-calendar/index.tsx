@@ -9,10 +9,12 @@ import {
   ViewMode,
   BrandView,
 } from "./types";
+
 import ViewToggle from "./ToggleView";
 import BrandToggle from "./ToggleBrand";
 import CalendarView from "./CalendarView";
 import TableView from "./TableView";
+import MobileDayTable from "./MobileDayTable";
 import AddContentModal from "./modal/AddContentModal";
 import DayModal from "./DayModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
@@ -49,11 +51,11 @@ export default function MarketingContentSection() {
       .select("*")
       .order("publish_date");
 
-    setItems(data ?? []);
+    if (data) setItems(data);
   }
 
   /* ---------------------------------------------
-     Brand-filtered items (single source of truth)
+     Brand-filtered items
   --------------------------------------------- */
   const visibleItems = useMemo(() => {
     if (brandView === "all") return items;
@@ -70,7 +72,6 @@ export default function MarketingContentSection() {
       .delete()
       .eq("id", deleteTarget.id);
 
-    // Optimistic local update
     setItems((prev) =>
       prev.filter((i) => i.id !== deleteTarget.id)
     );
@@ -85,18 +86,20 @@ export default function MarketingContentSection() {
   }
 
   return (
-    <section className="rounded-2xl border border-gray-200 p-6 space-y-6 bg-white">
+    <section className="rounded-2xl border border-gray-200 bg-white space-y-6 p-4 md:p-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h2 className="text-lg font-medium">
           Content Calendar
         </h2>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between md:justify-end gap-3">
           <BrandToggle
             brand={brandView}
             onChange={setBrandView}
           />
+
+          {/* Desktop only */}
           <ViewToggle
             view={view}
             onChange={setView}
@@ -104,97 +107,119 @@ export default function MarketingContentSection() {
         </div>
       </div>
 
-      {/* Month Toggle — Calendar only */}
-      {view === "calendar" && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={() =>
-              setMonth(
-                (m) =>
-                  new Date(
-                    m.getFullYear(),
-                    m.getMonth() - 1,
-                    1
-                  )
-              )
-            }
-            className="h-8 w-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
-          >
-            <ChevronLeft size={18} />
-          </button>
+      {/* ---------------- MOBILE ---------------- */}
+      <div className="md:hidden">
+        <MobileDayTable
+          items={visibleItems}
+          onSelect={(item) => {
+            setEditItem(item);
+            setSelectedDate(item.publish_date);
+            setAddOpen(true);
+          }}
+        />
+      </div>
 
-          <div className="text-sm font-medium text-gray-700 min-w-[140px] text-center">
-            {month.toLocaleString("default", {
-              month: "long",
-              year: "numeric",
-            })}
+      {/* ---------------- DESKTOP ---------------- */}
+      <div className="hidden md:block space-y-6">
+        {/* Month toggle */}
+        {view === "calendar" && (
+          <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={() =>
+                setMonth(
+                  (m) =>
+                    new Date(
+                      m.getFullYear(),
+                      m.getMonth() - 1,
+                      1
+                    )
+                )
+              }
+              className="h-8 w-8 rounded-full hover:bg-gray-100"
+            >
+              <ChevronLeft size={18} />
+            </button>
+
+            <div className="text-sm font-medium text-gray-700 min-w-[140px] text-center">
+              {month.toLocaleString("default", {
+                month: "long",
+                year: "numeric",
+              })}
+            </div>
+
+            <button
+              onClick={() =>
+                setMonth(
+                  (m) =>
+                    new Date(
+                      m.getFullYear(),
+                      m.getMonth() + 1,
+                      1
+                    )
+                )
+              }
+              className="h-8 w-8 rounded-full hover:bg-gray-100"
+            >
+              <ChevronRight size={18} />
+            </button>
           </div>
+        )}
 
-          <button
-            onClick={() =>
-              setMonth(
-                (m) =>
-                  new Date(
-                    m.getFullYear(),
-                    m.getMonth() + 1,
-                    1
-                  )
-              )
-            }
-            className="h-8 w-8 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
-      )}
+        {/* Calendar */}
+        {view === "calendar" && (
+          <CalendarView
+            month={month}
+            items={visibleItems}
+            onSelectDate={(dateISO) => {
+              setDayModalDate(dateISO);
+              setDayModalItems(
+                visibleItems.filter(
+                  (i) =>
+                    i.publish_date === dateISO
+                )
+              );
+            }}
+          />
+        )}
 
-      {/* Calendar View */}
-      {view === "calendar" && (
-        <CalendarView
-          month={month}
-          items={visibleItems}
-          onSelectDate={(dateISO) => {
-            setDayModalDate(dateISO);
-            setDayModalItems(
-              visibleItems.filter(
-                (i) => i.publish_date === dateISO
-              )
-            );
-          }}
-        />
-      )}
+        {/* Table */}
+        {view === "table" && (
+          <TableView
+            items={visibleItems}
+            onSelectItem={(item) => {
+              setEditItem(item);
+              setSelectedDate(null);
+              setAddOpen(true);
+            }}
+          />
+        )}
+      </div>
 
-      {/* Table View */}
-      {view === "table" && (
-        <TableView
-          items={visibleItems}
-          onSelectItem={(item) => {
-            setEditItem(item);
-            setSelectedDate(null);
-            setAddOpen(true);
-          }}
-        />
-      )}
-
-      {/* Day Modal */}
+      {/* Day modal — DESKTOP ONLY */}
       {dayModalDate && (
-        <DayModal
-          date={dayModalDate}
-          items={dayModalItems}
-          onAddNew={() => {
-            setSelectedDate(dayModalDate);
-            setEditItem(null);
-            setDayModalDate(null);
-            setAddOpen(true);
-          }}
-          onSelectItem={(item) => {
-            setEditItem(item);
-            setDayModalDate(null);
-            setAddOpen(true);
-          }}
-          onDeleteItem={(item) => setDeleteTarget(item)}
-          onClose={() => setDayModalDate(null)}
-        />
+        <div className="hidden md:block">
+          <DayModal
+            date={dayModalDate}
+            items={dayModalItems}
+            onAddNew={() => {
+              setSelectedDate(dayModalDate);
+              setEditItem(null);
+              setDayModalDate(null);
+              setAddOpen(true);
+            }}
+            onSelectItem={(item) => {
+              setEditItem(item);
+              setDayModalDate(null);
+              setAddOpen(true);
+            }}
+            onDeleteItem={(item) =>
+              setDeleteTarget(item)
+            }
+            onClose={() =>
+              setDayModalDate(null)
+            }
+          />
+        </div>
       )}
 
       {/* Add / Edit Modal */}
@@ -202,19 +227,6 @@ export default function MarketingContentSection() {
         <AddContentModal
           date={selectedDate}
           item={editItem}
-          onBack={() => {
-            setAddOpen(false);
-            setEditItem(null);
-            if (selectedDate) {
-              setDayModalDate(selectedDate);
-              setDayModalItems(
-                visibleItems.filter(
-                  (i) =>
-                    i.publish_date === selectedDate
-                )
-              );
-            }
-          }}
           onClose={() => {
             setAddOpen(false);
             setSelectedDate(null);
@@ -229,12 +241,14 @@ export default function MarketingContentSection() {
         />
       )}
 
-      {/* Confirm Delete Modal */}
+      {/* Confirm Delete */}
       {deleteTarget && (
         <ConfirmDeleteModal
           title="Delete scheduled content?"
           description={`${deleteTarget.platform} — ${deleteTarget.content_type}`}
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={() =>
+            setDeleteTarget(null)
+          }
           onConfirm={confirmDelete}
         />
       )}
