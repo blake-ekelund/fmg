@@ -1,17 +1,17 @@
 "use client";
 
 import { Stat } from "@/components/sales/Stat";
-import { SalesByProductMonth } from "./useSalesProductMonth.js";
+import { SalesProductMonth } from "./useSalesProductMonth";
 
 export function SalesMonthlyKPIs({
   rows,
 }: {
-  rows: SalesByProductMonth[];
+  rows: SalesProductMonth[];
 }) {
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
   const totalUnits = rows.reduce((s, r) => s + r.units_sold, 0);
 
-  const months = new Set(rows.map(r => r.month)).size;
+  const months = new Set(rows.map((r) => r.month)).size;
   const avgMonthlyRevenue =
     months > 0 ? totalRevenue / months : 0;
 

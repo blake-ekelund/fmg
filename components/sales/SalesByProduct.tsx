@@ -2,12 +2,12 @@
 
 import { Table } from "@/components/sales/Table";
 import { TableRow } from "@/components/sales/TableRow";
-import { SalesByProductMonth } from "./useSalesProductMonth.js";
+import { SalesProductMonth } from "./useSalesProductMonth";
 
 export function SalesByProductMonthTable({
   rows,
 }: {
-  rows: SalesByProductMonth[];
+  rows: SalesProductMonth[];
 }) {
   return (
     <section className="border border-gray-200 rounded-2xl p-6">
@@ -19,7 +19,9 @@ export function SalesByProductMonthTable({
         {rows.map((r) => (
           <TableRow
             key={`${r.month}-${r.product_code}`}
-            name={`${r.display_name ?? r.product_code} · ${r.fragrance ?? "—"}`}
+            name={`${r.display_name ?? r.product_code} · ${
+              r.fragrance ?? "—"
+            }`}
             value={`$${r.revenue.toFixed(2)}`}
             secondary={`${r.units_sold} units · ${r.month}`}
           />
