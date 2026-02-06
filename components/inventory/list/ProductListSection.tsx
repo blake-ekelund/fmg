@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Product } from "../types";
 import AddEditProductModal from "../AddEditProductModal";
+
+type StatusFilter = "current" | "archived" | "all";
 
 export default function ProductListSection() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -11,12 +13,20 @@ export default function ProductListSection() {
   const [addOpen, setAddOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  /* ---------------- Filters ---------------- */
+
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<StatusFilter>("current");
+
+  /* ---------------- Data ---------------- */
+
   async function load() {
     setLoading(true);
     const { data } = await supabase
       .from("inventory_products")
       .select("*")
       .order("part");
+
     setProducts(data ?? []);
     setLoading(false);
   }
@@ -38,104 +48,102 @@ export default function ProductListSection() {
       .eq("part", part);
   }
 
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-medium text-gray-900">
-          Product List
-        </h2>
+  /* ---------------- Filtering Logic ---------------- */
 
-        <button
-          onClick={() => setAddOpen(true)}
-          className="
-            px-4 py-2 rounded-xl text-sm font-medium
-            bg-orange-400 text-white
-            hover:bg-orange-500 transition
-            whitespace-nowrap
-          "
-        >
-          Add Product
-        </button>
-      </div>
+  const filteredProducts = useMemo(() => {
+    const q = query.trim().toLowerCase();
 
-      {/* ========================= */}
-      {/* Mobile Card View */}
-      {/* ========================= */}
-      <div className="space-y-3 md:hidden">
-        {!loading &&
-          products.map((p) => (
-            <div
-              key={p.part}
-              onClick={() => setActiveProduct(p)}
-              className="
-                rounded-2xl border border-gray-200 bg-white
-                p-4 space-y-3
-                transition hover:bg-gray-50
-              "
-            >
-              {/* Header */}
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-medium text-gray-900">
-                    {p.display_name}
-                  </div>
-                  <div className="font-mono text-xs text-gray-500">
-                    {p.part}
-                  </div>
-                </div>
+    return products.filter((p) => {
+      // Status filter
+      if (status === "current" && !p.is_forecasted) return false;
+      if (status === "archived" && p.is_forecasted) return false;
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveProduct(p);
-                  }}
-                  className="text-sm font-medium text-orange-600"
-                >
-                  Edit
-                </button>
-              </div>
+      // Text search
+      if (!q) return true;
 
-              {/* Meta */}
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <div>
-                  <div className="text-xs text-gray-500">Fragrance</div>
-                  <div>{p.fragrance ?? "—"}</div>
-                </div>
+      return (
+        p.part.toLowerCase().includes(q) ||
+        p.display_name?.toLowerCase().includes(q) ||
+        p.fragrance?.toLowerCase().includes(q)
+      );
+    });
+  }, [products, query, status]);
 
-                <div>
-                  <div className="text-xs text-gray-500">Size</div>
-                  <div>{p.size ?? "—"}</div>
-                </div>
+  /* ---------------- Table ---------------- */
 
-                <div>
-                  <div className="text-xs text-gray-500">Type</div>
-                  <div>{p.part_type}</div>
-                </div>
+  function ProductTable({
+    rows,
+    emptyLabel,
+  }: {
+    rows: Product[];
+    emptyLabel: string;
+  }) {
+    return (
+      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
+              <th className="px-4 py-3 text-left font-medium">Part #</th>
+              <th className="px-4 py-3 text-left font-medium">
+                Display Name
+              </th>
+              <th className="px-4 py-3 text-left font-medium">
+                Fragrance
+              </th>
+              <th className="px-4 py-3 text-left font-medium">Size</th>
+              <th className="px-4 py-3 text-left font-medium">Type</th>
+              <th className="px-4 py-3 text-left font-medium">
+                Product Type
+              </th>
+              <th className="px-4 py-3 text-right font-medium">Min</th>
+              <th className="px-4 py-3 text-right font-medium">Max</th>
+              <th className="px-4 py-3 text-center font-medium">
+                Forecast
+              </th>
+              <th className="px-4 py-3 text-right font-medium">
+                Actions
+              </th>
+            </tr>
+          </thead>
 
-                <div>
-                  <div className="text-xs text-gray-500">Product</div>
+          <tbody>
+            {rows.map((p, idx) => (
+              <tr
+                key={p.part}
+                onClick={() => setActiveProduct(p)}
+                className={`
+                  cursor-pointer transition hover:bg-gray-50
+                  ${idx !== rows.length - 1 ? "border-b border-gray-100" : ""}
+                `}
+              >
+                <td className="px-4 py-3 font-mono text-xs text-gray-700">
+                  {p.part}
+                </td>
+                <td className="px-4 py-3 font-medium text-gray-900">
+                  {p.display_name}
+                </td>
+                <td className="px-4 py-3 text-gray-600">
+                  {p.fragrance ?? "—"}
+                </td>
+                <td className="px-4 py-3 text-gray-600">
+                  {p.size ?? "—"}
+                </td>
+                <td className="px-4 py-3 text-gray-600">
+                  {p.part_type}
+                </td>
+                <td className="px-4 py-3">
                   <span className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium">
                     {p.product_type}
                   </span>
-                </div>
-              </div>
-
-              {/* Min / Max + Forecast */}
-              <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                <div className="flex gap-4 text-sm tabular-nums">
-                  <div>
-                    <span className="text-xs text-gray-500">Min</span>{" "}
-                    {p.min_qty}
-                  </div>
-                  <div>
-                    <span className="text-xs text-gray-500">Max</span>{" "}
-                    {p.max_qty}
-                  </div>
-                </div>
-
-                <label
-                  className="flex items-center gap-2 text-sm"
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {p.min_qty}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {p.max_qty}
+                </td>
+                <td
+                  className="px-4 py-3 text-center"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <input
@@ -146,139 +154,102 @@ export default function ProductListSection() {
                     }
                     className="h-4 w-4 accent-orange-500"
                   />
-                  Forecast
-                </label>
-              </div>
-            </div>
-          ))}
-
-        {!loading && products.length === 0 && (
-          <div className="p-4 text-sm text-gray-500">
-            No products configured yet.
-          </div>
-        )}
-
-        {loading && (
-          <div className="p-4 text-sm text-gray-500">
-            Loading products…
-          </div>
-        )}
-      </div>
-
-      {/* ========================= */}
-      {/* Desktop Table View */}
-      {/* ========================= */}
-      <div className="hidden md:block overflow-x-auto rounded-2xl border border-gray-200 bg-white">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
-              <th className="px-4 py-3 text-left font-medium">Part #</th>
-              <th className="px-4 py-3 text-left font-medium">Display Name</th>
-              <th className="px-4 py-3 text-left font-medium">Fragrance</th>
-              <th className="px-4 py-3 text-left font-medium">Size</th>
-              <th className="px-4 py-3 text-left font-medium">Type</th>
-              <th className="px-4 py-3 text-left font-medium">Product Type</th>
-              <th className="px-4 py-3 text-right font-medium">Min</th>
-              <th className="px-4 py-3 text-right font-medium">Max</th>
-              <th className="px-4 py-3 text-center font-medium">Forecast</th>
-              <th className="px-4 py-3 text-right font-medium">Actions</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {!loading &&
-              products.map((p, idx) => (
-                <tr
-                  key={p.part}
-                  onClick={() => setActiveProduct(p)}
-                  className={`
-                    cursor-pointer transition hover:bg-gray-50
-                    ${
-                      idx !== products.length - 1
-                        ? "border-b border-gray-100"
-                        : ""
-                    }
-                  `}
+                </td>
+                <td
+                  className="px-4 py-3 text-right"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveProduct(p);
+                  }}
                 >
-                  <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                    {p.part}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {p.display_name}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {p.fragrance ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {p.size ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {p.part_type}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium">
-                      {p.product_type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {p.min_qty}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {p.max_qty}
-                  </td>
-                  <td
-                    className="px-4 py-3 text-center"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={p.is_forecasted}
-                      onChange={(e) =>
-                        toggleForecast(p.part, e.target.checked)
-                      }
-                      className="h-4 w-4 accent-orange-500"
-                    />
-                  </td>
-                  <td
-                    className="px-4 py-3 text-right"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveProduct(p);
-                    }}
-                  >
-                    <button className="text-sm font-medium text-orange-600 hover:text-orange-700">
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  <button className="text-sm font-medium text-orange-600 hover:text-orange-700">
+                    Edit
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
 
-        {!loading && products.length === 0 && (
+        {!loading && rows.length === 0 && (
           <div className="p-6 text-sm text-gray-500">
-            No products configured yet.
-          </div>
-        )}
-
-        {loading && (
-          <div className="p-6 text-sm text-gray-500">
-            Loading products…
+            {emptyLabel}
           </div>
         )}
       </div>
+    );
+  }
 
-      {/* Modal */}
-      {(addOpen || activeProduct) && (
-        <AddEditProductModal
-          product={activeProduct}
-          onClose={() => {
-            setAddOpen(false);
-            setActiveProduct(null);
-          }}
-          onSaved={load}
-        />
-      )}
+  /* ---------------- Render ---------------- */
+
+return (
+  <div className="space-y-6">
+    {/* Toolbar */}
+    <div className="flex flex-wrap items-center gap-3">
+      {/* Search */}
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by part, name, fragrance…"
+        className="
+          w-full md:w-80 rounded-xl border border-gray-200
+          px-3 py-2 text-sm
+          focus:outline-none focus:ring-2 focus:ring-orange-400
+        "
+      />
+
+      {/* Status Filter */}
+      <select
+        value={status}
+        onChange={(e) =>
+          setStatus(e.target.value as StatusFilter)
+        }
+        className="
+          rounded-xl border border-gray-200
+          px-3 py-2 text-sm
+          focus:outline-none focus:ring-2 focus:ring-orange-400
+        "
+      >
+        <option value="current">Current</option>
+        <option value="archived">Archived</option>
+        <option value="all">All</option>
+      </select>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Add Product */}
+      <button
+        onClick={() => setAddOpen(true)}
+        className="
+          px-4 py-2 rounded-xl text-sm font-medium
+          bg-orange-400 text-white
+          hover:bg-orange-500 transition
+          whitespace-nowrap
+        "
+      >
+        Add Product
+      </button>
     </div>
-  );
+
+    {/* Table */}
+    <ProductTable
+      rows={filteredProducts}
+      emptyLabel="No matching products."
+    />
+
+    {/* Modal */}
+    {(addOpen || activeProduct) && (
+      <AddEditProductModal
+        product={activeProduct}
+        onClose={() => {
+          setAddOpen(false);
+          setActiveProduct(null);
+        }}
+        onSaved={load}
+      />
+    )}
+  </div>
+);
+
 }
