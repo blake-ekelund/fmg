@@ -1,143 +1,161 @@
-import { Stat } from "@/components/sales/Stat";
-import { Table } from "@/components/sales/Table";
-import { TableRow } from "@/components/sales/TableRow";
+"use client";
+
+import { useMemo, useState } from "react";
+import { useSalesByMonth } from "@/components/sales/useSalesByMonth";
+import { useSalesProductMonth } from "@/components/sales/useSalesProductMonth";
+import { ProductFilters } from "@/components/sales/ProductFilters";
+import { SalesYearComparisonChart } from "@/components/sales/SalesYearComparisonChart";
+import { Last12MonthsTable } from "@/components/sales/Last12MonthsTable";
+
+/* ---------------------------------------------
+   Helpers
+--------------------------------------------- */
+function monthKey(d: string | Date) {
+  const date = new Date(d);
+  return `${date.getFullYear()}-${String(
+    date.getMonth() + 1
+  ).padStart(2, "0")}`;
+}
 
 export default function SalesPage() {
+  // 🔹 Hooks must ALWAYS run
+  const monthData = useSalesByMonth();
+  const productData = useSalesProductMonth();
+
+  const [product, setProduct] = useState("");
+  const [fragrance, setFragrance] = useState("");
+
+  /* ---------------------------------------------
+     Derived data (hooks FIRST, no early return)
+  --------------------------------------------- */
+  const products = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          productData.rows.map(r => r.display_name).filter(Boolean)
+        )
+      ) as string[],
+    [productData.rows]
+  );
+
+  const fragrances = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          productData.rows.map(r => r.fragrance).filter(Boolean)
+        )
+      ) as string[],
+    [productData.rows]
+  );
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const priorYear = currentYear - 1;
+
+  const monthLabels = [
+    "Jan","Feb","Mar","Apr","May","Jun",
+    "Jul","Aug","Sep","Oct","Nov","Dec"
+  ];
+
+  const currentYearData = useMemo(() => {
+    return Array.from({ length: 12 }, (_, m) =>
+      monthData.rows
+        .filter(r => {
+          const d = new Date(r.month);
+          return d.getFullYear() === currentYear && d.getMonth() === m;
+        })
+        .reduce((s, r) => s + r.revenue, 0)
+    );
+  }, [monthData.rows, currentYear]);
+
+  const priorYearData = useMemo(() => {
+    return Array.from({ length: 12 }, (_, m) =>
+      monthData.rows
+        .filter(r => {
+          const d = new Date(r.month);
+          return d.getFullYear() === priorYear && d.getMonth() === m;
+        })
+        .reduce((s, r) => s + r.revenue, 0)
+    );
+  }, [monthData.rows, priorYear]);
+
+  const last12 = useMemo(() => {
+    const start = new Date(
+      now.getFullYear(),
+      now.getMonth() - 11,
+      1
+    );
+
+    const revenueByMonth = monthData.rows.reduce<Record<string, number>>(
+      (acc, r) => {
+        const key = monthKey(r.month);
+        acc[key] = (acc[key] ?? 0) + r.revenue;
+        return acc;
+      },
+      {}
+    );
+
+    return Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(
+        start.getFullYear(),
+        start.getMonth() + i,
+        1
+      );
+      const key = monthKey(d);
+
+      return {
+        month: `${key}-01`,
+        revenue: revenueByMonth[key] ?? 0,
+      };
+    });
+  }, [monthData.rows, now]);
+
+  /* ---------------------------------------------
+     NOW it is safe to conditionally render
+  --------------------------------------------- */
+  if (monthData.loading || productData.loading) {
+    return (
+      <div className="px-8 py-10 text-gray-500">
+        Loading sales…
+      </div>
+    );
+  }
+
   return (
     <div className="px-8 py-10 space-y-12">
-      {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-semibold tracking-tight">
-            Sales
-          </h1>
-          <p className="mt-3 text-gray-500 max-w-xl">
-            Performance across vans, products, and time.
-          </p>
-        </div>
-
-        {/* Period Selector */}
-        <PeriodSelector />
+      <header>
+        <h1 className="text-4xl font-semibold tracking-tight">
+          Sales
+        </h1>
+        <p className="mt-3 text-gray-500 max-w-xl">
+          Monthly sales performance.
+        </p>
       </header>
 
-      {/* Filters */}
-      <FiltersRow />
-
-      {/* KPI Row */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-6">
-        <Stat label="Total Sales" value="$42,380" />
-        <Stat label="Units Sold" value="3,128" />
-        <Stat label="Avg. Order Value" value="$13.55" />
-        <Stat label="Best Day" value="Saturday" />
-      </section>
-
-      {/* Sales Trend */}
-      <section className="border border-gray-200 rounded-2xl p-6">
-        <h2 className="text-lg font-medium mb-2">
-          Sales Trend
-        </h2>
-        <p className="text-sm text-gray-500 mb-6">
-          Daily sales over time (chart coming soon).
-        </p>
-
-        <div className="h-40 rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center text-gray-400 text-sm">
-          Chart placeholder
-        </div>
-      </section>
-
-      {/* Sales by Van */}
-      <section className="border border-gray-200 rounded-2xl p-6">
-        <h2 className="text-lg font-medium mb-4">
-          Sales by Van
-        </h2>
-
-        <Table>
-          <TableRow name="Van 01" value="$12,430" secondary="932 units" />
-          <TableRow name="Van 02" value="$10,980" secondary="814 units" />
-          <TableRow name="Van 03" value="$9,540" secondary="702 units" />
-          <TableRow name="Van 04" value="$9,430" secondary="680 units" />
-        </Table>
-      </section>
-
-      {/* Top Products */}
-      <section className="border border-gray-200 rounded-2xl p-6">
-        <h2 className="text-lg font-medium mb-4">
-          Top Products
-        </h2>
-
-        <Table>
-          <TableRow name="Bestie" value="$8,320" secondary="612 units" accent="pink" />
-          <TableRow name="Bougie Babe" value="$7,940" secondary="586 units" accent="green" />
-          <TableRow name="Hot Mess" value="$6,710" secondary="498 units" accent="orange" />
-        </Table>
-      </section>
-    </div>
-  );
-}
-
-/* ---------------------------------------------
-   Period Selector (placeholder)
---------------------------------------------- */
-function PeriodSelector() {
-  const periods = ["Month", "Quarter", "YTD", "TTM"];
-
-  return (
-    <div className="inline-flex rounded-xl border border-gray-200 p-1 bg-white">
-      {periods.map((period, idx) => (
-        <button
-          key={period}
-          className={`px-3 py-1.5 text-sm rounded-lg transition ${
-            idx === 0
-              ? "bg-gray-100 text-black"
-              : "text-gray-500 hover:text-black"
-          }`}
-        >
-          {period}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* ---------------------------------------------
-   Filters Row (placeholders)
---------------------------------------------- */
-function FiltersRow() {
-  return (
-    <section className="flex flex-col md:flex-row md:items-center gap-4">
-      {/* Search */}
-      <input
-        type="text"
-        placeholder="Search (SKU, Product Name, Fragrance, or Description)"
-        className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+      <ProductFilters
+        products={products}
+        fragrances={fragrances}
+        selectedProduct={product}
+        selectedFragrance={fragrance}
+        onProductChange={setProduct}
+        onFragranceChange={setFragrance}
       />
 
-      {/* Product */}
-      <select
-        defaultValue=""
-        className="border border-gray-200 rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
-      >
-        <option value="" disabled>
-          Product
-        </option>
-        <option>Hand Cream</option>
-        <option>Body Butter</option>
-        <option>Lip Butter</option>
-      </select>
+      <section className="border border-gray-200 rounded-2xl p-6">
+        <h2 className="text-lg font-medium mb-4">
+          Monthly Sales: {priorYear} vs {currentYear}
+        </h2>
 
-      {/* Fragrance */}
-      <select
-        defaultValue=""
-        className="border border-gray-200 rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
-      >
-        <option value="" disabled>
-          Fragrance
-        </option>
-        <option>Vanilla</option>
-        <option>Coconut</option>
-        <option>Lavender</option>
-        <option>Citrus</option>
-      </select>
-    </section>
+        <SalesYearComparisonChart
+          months={monthLabels}
+          priorYear={priorYear}
+          currentYear={currentYear}
+          priorYearData={priorYearData}
+          currentYearData={currentYearData}
+        />
+      </section>
+
+      <Last12MonthsTable rows={last12} />
+    </div>
   );
 }

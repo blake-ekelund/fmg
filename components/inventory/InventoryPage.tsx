@@ -20,14 +20,22 @@ export default function InventoryPage() {
     onlyShort: false,
   });
 
+  /* ---------------------------------------------
+     Fetch snapshot data ONLY for "Current"
+  --------------------------------------------- */
   useEffect(() => {
+    if (section !== "current") return;
+
     supabase
       .from("inventory_snapshot_items")
       .select("*")
       .order("created_at", { ascending: false })
       .then(({ data }) => setRows(data ?? []));
-  }, []);
+  }, [section]);
 
+  /* ---------------------------------------------
+     Filtering (Current inventory only)
+  --------------------------------------------- */
   const filtered = rows.filter((r) => {
     if (
       filters.search &&
@@ -115,12 +123,7 @@ export default function InventoryPage() {
       </nav>
 
       {/* Section Content */}
-      <div
-        className="
-          space-y-8
-          md:space-y-12
-        "
-      >
+      <div className="space-y-8 md:space-y-12">
         {section === "current" && (
           <>
             <InventoryFilters

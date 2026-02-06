@@ -1,55 +1,40 @@
-// /components/sales/Stat.tsx
-import { ArrowUp, ArrowDown } from "lucide-react";
-
 type Props = {
   label: string;
   value: string;
-  delta?: string | null;
-  trend?: "up" | "down" | "flat";
-  helper?: string;
+  delta?: string;
+  deltaType?: "up" | "down" | "neutral";
 };
 
 export function Stat({
   label,
   value,
   delta,
-  trend,
-  helper,
+  deltaType = "neutral",
 }: Props) {
-  return (
-    <div className="rounded-2xl border border-gray-200 p-4">
-      <div className="text-sm text-gray-500">{label}</div>
+  const deltaColor =
+    deltaType === "up"
+      ? "text-green-600"
+      : deltaType === "down"
+      ? "text-red-600"
+      : "text-gray-500";
 
-      <div className="mt-1 text-2xl font-semibold">
-        {value}
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+      <div className="text-sm text-gray-500">
+        {label}
       </div>
 
-      {(delta || helper) && (
-        <div className="mt-1 flex items-center gap-1 text-sm">
-          {trend === "up" && (
-            <ArrowUp className="h-4 w-4 text-green-600" />
-          )}
-          {trend === "down" && (
-            <ArrowDown className="h-4 w-4 text-red-600" />
-          )}
-
-          {delta && (
-            <span
-              className={
-                trend === "down"
-                  ? "text-red-600"
-                  : "text-green-600"
-              }
-            >
-              {delta}
-            </span>
-          )}
-
-          {helper && (
-            <span className="text-gray-400">{helper}</span>
-          )}
+      <div className="mt-2 flex items-end justify-between gap-2">
+        <div className="text-2xl font-semibold tracking-tight tabular-nums text-gray-900">
+          {value}
         </div>
-      )}
+
+        {delta && (
+          <div className={`text-sm font-medium ${deltaColor}`}>
+            {delta}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

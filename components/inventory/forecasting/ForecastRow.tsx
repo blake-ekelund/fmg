@@ -70,6 +70,9 @@ export default function ForecastRow({
   onUpdateAvg,
   onUpdateOnOrder,
 }: Props) {
+  /* ---------------------------------------------
+     Local input state (controlled but editable)
+  --------------------------------------------- */
   const [onOrderText, setOnOrderText] = useState(
     formatNumber(row.on_order)
   );
@@ -92,7 +95,7 @@ export default function ForecastRow({
     row.avg_monthly_demand
   );
 
-  /* Single stable date per render */
+  /* Stable "now" for projections */
   const now = useMemo(() => new Date(), []);
 
   return (
@@ -148,7 +151,7 @@ export default function ForecastRow({
         />
       </td>
 
-      {/* Avg / Mo (editable) */}
+      {/* Avg / Mo (derived from last 90 days, editable) */}
       <td className="px-2 py-1.5 text-right">
         <input
           type="text"
@@ -165,6 +168,7 @@ export default function ForecastRow({
             onUpdateAvg(row.part, parsed);
           }}
           className={inputClass}
+          title="Default = units sold in last 90 days ÷ 3"
         />
       </td>
 

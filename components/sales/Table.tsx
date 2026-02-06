@@ -1,15 +1,12 @@
-// components/sales/Table.tsx
-"use client";
-
-import React from "react";
+import { ReactNode } from "react";
 
 type Props = {
-  children: React.ReactNode;
+  children: ReactNode;
 };
 
 export function Table({ children }: Props) {
   return (
-    <div className="divide-y divide-gray-200">
+    <div className="divide-y divide-gray-100">
       {children}
     </div>
   );
