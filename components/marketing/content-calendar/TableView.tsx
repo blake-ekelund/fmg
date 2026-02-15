@@ -174,7 +174,7 @@ export default function TableView({
                 <td className="px-4 py-3">
                   <span
                     className={`inline-flex rounded-full px-2.5 py-1 font-medium ${
-                      STATUS_META[item.status]
+                      STATUS_STYLES[item.status]
                     }`}
                   >
                     {item.status}
