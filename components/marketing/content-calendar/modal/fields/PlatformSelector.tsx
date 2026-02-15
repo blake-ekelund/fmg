@@ -4,7 +4,8 @@ const PLATFORM_OPTIONS: Platform[] = [
   "Instagram",
   "Facebook",
   "TikTok",
-  "Blog",
+  "Shopify",
+  "Subscriber-List",
 ];
 
 type Props = {
@@ -35,7 +36,7 @@ export function PlatformSelector({
               disabled={locked}
               onClick={() => onToggle(p)}
               className={`
-                px-3 py-1.5 rounded-lg text-sm font-medium
+                px-2 py-1.5 rounded-lg text-sm font-medium
                 transition
                 ${
                   active

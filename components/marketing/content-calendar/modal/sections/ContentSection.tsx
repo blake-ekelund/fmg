@@ -1,18 +1,63 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Upload, X, FileImage, FileVideo, FileText } from "lucide-react";
+import {
+  Upload,
+  X,
+  FileImage,
+  FileVideo,
+  FileText,
+  CheckCircle,
+  Send,
+  Rocket,
+} from "lucide-react";
+
+import {
+  ContentType,
+  StrategyType,
+  ContentStatus,
+} from "../../types";
+
+/* ---------- Options ---------- */
+
+const CONTENT_TYPE_OPTIONS: ContentType[] = [
+  "Photo",
+  "Carousel",
+  "Reel",
+  "Live",
+  "Blog",
+  "Newsletter",
+];
+
+const STRATEGY_OPTIONS: StrategyType[] = [
+  "Awareness",
+  "Engagement",
+  "Conversion",
+  "Retention",
+  "Launch",
+  "Education",
+];
+
+/* ---------- Props ---------- */
 
 type Props = {
-  contentType: string;
-  setContentType: (v: string) => void;
-  strategy: string;
-  setStrategy: (v: string) => void;
+  contentType: ContentType | "";
+  setContentType: (v: ContentType | "") => void;
+
+  strategy: StrategyType | "";
+  setStrategy: (v: StrategyType | "") => void;
+
   description: string;
   setDescription: (v: string) => void;
+
   files: File[];
   setFiles: React.Dispatch<React.SetStateAction<File[]>>;
+
+  status?: ContentStatus;
+  onTransition?: (newStatus: ContentStatus) => void;
 };
+
+/* ---------- Component ---------- */
 
 export function ContentSection({
   contentType,
@@ -21,21 +66,16 @@ export function ContentSection({
   setStrategy,
   description,
   setDescription,
+  files,
+  setFiles,
+  status,
+  onTransition,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
 
   const accept = useMemo(
-    () =>
-      [
-        "image/*", // images
-        "video/*", // videos
-        // Allow common doc types too (optional)
-        ".pdf",
-        ".doc",
-        ".docx",
-      ].join(","),
+    () => ["image/*", "video/*", ".pdf", ".doc", ".docx"].join(","),
     []
   );
 
@@ -44,7 +84,6 @@ export function ContentSection({
 
     const incoming = Array.from(list);
 
-    // De-dupe by name+size+lastModified
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => keyOf(f)));
       const merged = [...prev];
@@ -56,12 +95,15 @@ export function ContentSection({
           seen.add(k);
         }
       }
+
       return merged;
     });
   }
 
   function removeFile(target: File) {
-    setFiles((prev) => prev.filter((f) => keyOf(f) !== keyOf(target)));
+    setFiles((prev) =>
+      prev.filter((f) => keyOf(f) !== keyOf(target))
+    );
   }
 
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
@@ -71,146 +113,118 @@ export function ContentSection({
     addFiles(e.dataTransfer.files);
   }
 
+  /* ======================================
+     Render
+  ====================================== */
+
   return (
-    <div className="space-y-6 pt-6">
-      {/* Row: Content Type + Strategy */}
+    <div className="space-y-8 pt-6">
+
+      {/* ---------- CONTENT TYPE + STRATEGY ---------- */}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Content Type */}
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-gray-700">
             Content Type
           </label>
-          <input
+
+          <select
             value={contentType}
-            onChange={(e) => setContentType(e.target.value)}
-            placeholder="e.g. Product launch"
-            className="
-              w-full rounded-xl
-              border border-gray-200
-              bg-white px-3 py-2.5 text-sm
-              placeholder:text-gray-400
-              focus:outline-none
-              focus:ring-2 focus:ring-black/5
-              focus:border-gray-300
-              transition
-            "
-          />
+            onChange={(e) =>
+              setContentType(e.target.value as ContentType | "")
+            }
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm"
+          >
+            <option value="">Select type</option>
+            {CONTENT_TYPE_OPTIONS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Strategy */}
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-gray-700">
             Strategy
           </label>
-          <input
+
+          <select
             value={strategy}
-            onChange={(e) => setStrategy(e.target.value)}
-            placeholder="What is this trying to achieve?"
-            className="
-              w-full rounded-xl
-              border border-gray-200
-              bg-white px-3 py-2.5 text-sm
-              placeholder:text-gray-400
-              focus:outline-none
-              focus:ring-2 focus:ring-black/5
-              focus:border-gray-300
-              transition
-            "
-          />
+            onChange={(e) =>
+              setStrategy(e.target.value as StrategyType | "")
+            }
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm"
+          >
+            <option value="">Select strategy</option>
+            {STRATEGY_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Upload Area */}
-      <div className="space-y-2">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium text-gray-700">
-              Media Upload
-            </div>
-            <div className="text-xs text-gray-500">
-              Drag & drop files here, or click to browse.
-            </div>
-          </div>
+      {/* ---------- Upload ---------- */}
 
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept={accept}
-            className="hidden"
-            onChange={(e) => addFiles(e.target.files)}
-          />
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDrop={onDrop}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        className={`rounded-xl border border-dashed p-6 cursor-pointer transition ${
+          dragOver
+            ? "bg-gray-100 border-gray-400"
+            : "bg-gray-50 border-gray-200"
+        }`}
+      >
+        <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+          <Upload size={14} />
+          Click or drag files here
         </div>
 
-        <div
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDragOver(true);
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDragOver(false);
-          }}
-          onDrop={onDrop}
-          className={`
-            rounded-xl border border-dashed
-            ${dragOver ? "border-gray-400 bg-gray-50" : "border-gray-200 bg-gray-50/50"}
-            p-6 cursor-pointer
-            transition
-          `}
-          role="button"
-          tabIndex={0}
-        >
-          <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
-            <Upload className="w-4 h-4" />
-            <span>
-              {dragOver ? "Drop files to add" : "Click or drop files here"}
-            </span>
-          </div>
-        </div>
-
-        {/* Selected files list */}
-        {files.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-            <div className="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-              {files.length} file{files.length === 1 ? "" : "s"} selected
-            </div>
-
-            <ul className="divide-y divide-gray-100">
-              {files.map((f) => (
-                <li key={keyOf(f)} className="px-4 py-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {fileIcon(f)}
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-gray-800 truncate">
-                        {f.name}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {formatBytes(f.size)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => removeFile(f)}
-                    className="text-gray-400 hover:text-gray-700 transition"
-                    aria-label={`Remove ${f.name}`}
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={accept}
+          className="hidden"
+          onChange={(e) => addFiles(e.target.files)}
+        />
       </div>
 
-      {/* Post Copy */}
-      <div className="space-y-1.5">
+      {files.length > 0 && (
+        <ul className="divide-y divide-gray-100 border border-gray-200 rounded-xl">
+          {files.map((f) => (
+            <li
+              key={keyOf(f)}
+              className="flex justify-between px-4 py-3"
+            >
+              <div className="flex gap-2 items-center truncate">
+                {fileIcon(f)}
+                <span className="truncate text-sm">
+                  {f.name}
+                </span>
+              </div>
+
+              <button
+                onClick={() => removeFile(f)}
+                className="text-gray-400 hover:text-black"
+              >
+                <X size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* ---------- Description ---------- */}
+
+      <div>
         <label className="text-sm font-medium text-gray-700">
           Post Copy
         </label>
@@ -218,41 +232,23 @@ export function ContentSection({
           rows={4}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Write the caption, copy, or notes for this content…"
-          className="
-            w-full rounded-xl
-            border border-gray-200
-            bg-white px-3 py-2.5 text-sm
-            placeholder:text-gray-400
-            focus:outline-none
-            focus:ring-2 focus:ring-black/5
-            focus:border-gray-300
-            transition
-            resize-none
-          "
+          className="w-full mt-1 rounded-xl border border-gray-200 px-3 py-2 text-sm"
         />
       </div>
     </div>
   );
 }
 
-/* ---------- helpers ---------- */
+/* ---------- Helpers ---------- */
 
 function keyOf(f: File) {
   return `${f.name}:${f.size}:${f.lastModified}`;
 }
 
 function fileIcon(f: File) {
-  if (f.type.startsWith("image/")) return <FileImage className="w-4 h-4 text-gray-600" />;
-  if (f.type.startsWith("video/")) return <FileVideo className="w-4 h-4 text-gray-600" />;
-  return <FileText className="w-4 h-4 text-gray-600" />;
-}
-
-function formatBytes(bytes: number) {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  const value = bytes / Math.pow(k, i);
-  return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${sizes[i]}`;
+  if (f.type.startsWith("image/"))
+    return <FileImage size={14} />;
+  if (f.type.startsWith("video/"))
+    return <FileVideo size={14} />;
+  return <FileText size={14} />;
 }

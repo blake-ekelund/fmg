@@ -5,7 +5,8 @@ import {
   Instagram,
   Facebook,
   Music2,
-  FileText,
+  ShoppingBag,
+  Mail,
   Plus,
   X,
   Trash2,
@@ -20,11 +21,15 @@ function dateFromISO(iso: string) {
   return new Date(y, m - 1, d);
 }
 
-const PLATFORM_ICONS: Record<Platform, any> = {
+const PLATFORM_ICONS: Record<
+  Platform,
+  React.ComponentType<any>
+> = {
   Instagram,
   Facebook,
   TikTok: Music2,
-  Blog: FileText,
+  Shopify: ShoppingBag,
+  "Subscriber-List": Mail,
 };
 
 export default function DayModal({
@@ -70,11 +75,14 @@ export default function DayModal({
         {/* Header */}
         <div className="flex items-center justify-between sticky top-0 bg-white z-10 pb-2">
           <h3 className="text-lg font-medium">
-            {dateFromISO(date).toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
+            {dateFromISO(date).toLocaleDateString(
+              "en-US",
+              {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              }
+            )}
           </h3>
 
           <button
@@ -111,7 +119,8 @@ export default function DayModal({
             </div>
 
             {items.map((item) => {
-              const Icon = PLATFORM_ICONS[item.platform];
+              const Icon =
+                PLATFORM_ICONS[item.platform] ?? Mail;
 
               return (
                 <div
@@ -131,7 +140,9 @@ export default function DayModal({
                 >
                   {/* Clickable content */}
                   <button
-                    onClick={() => onSelectItem(item)}
+                    onClick={() =>
+                      onSelectItem(item)
+                    }
                     className="
                       flex flex-1 items-center gap-3
                       text-left
@@ -145,7 +156,8 @@ export default function DayModal({
 
                     <div className="truncate">
                       <div className="font-medium truncate">
-                        {item.platform} — {item.content_type}
+                        {item.platform} —{" "}
+                        {item.content_type}
                       </div>
                       <div className="text-xs text-gray-500 truncate">
                         {item.strategy}
@@ -153,7 +165,7 @@ export default function DayModal({
                     </div>
                   </button>
 
-                  {/* Delete (always visible on mobile, hover on desktop) */}
+                  {/* Delete */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

@@ -3,7 +3,8 @@ import {
   Instagram,
   Facebook,
   Music2,
-  FileText,
+  ShoppingBag,
+  Mail,
 } from "lucide-react";
 
 /* ---------------------------------------------
@@ -11,7 +12,7 @@ import {
 --------------------------------------------- */
 const PLATFORM_META: Record<
   Platform,
-  { icon: any; className: string }
+  { icon: React.ComponentType<any>; className: string }
 > = {
   Instagram: {
     icon: Instagram,
@@ -25,16 +26,21 @@ const PLATFORM_META: Record<
     icon: Music2,
     className: "bg-neutral-900 text-white",
   },
-  Blog: {
-    icon: FileText,
+  Shopify: {
+    icon: ShoppingBag,
     className: "bg-emerald-100 text-emerald-700",
+  },
+  "Subscriber-List": {
+    icon: Mail,
+    className: "bg-purple-100 text-purple-700",
   },
 };
 
 const STATUS_DOT: Record<ContentStatus, string> = {
-  "Not Started": "bg-gray-400",
-  "In Progress": "bg-yellow-500",
-  Ready: "bg-green-500",
+  Draft: "bg-gray-400",        // neutral
+  "In Review": "bg-amber-500", // caution / pending
+  Reviewed: "bg-sky-500",      // verified
+  Published: "bg-emerald-600", // live / success
 };
 
 export default function CalendarDay({
@@ -92,8 +98,11 @@ export default function CalendarDay({
       {/* Content items */}
       <div className="mt-1 space-y-1">
         {visibleItems.map((item) => {
+          const meta =
+            PLATFORM_META[item.platform];
+
           const PlatformIcon =
-            PLATFORM_META[item.platform].icon;
+            meta?.icon ?? Mail; // safe fallback
 
           return (
             <div
@@ -105,7 +114,7 @@ export default function CalendarDay({
                 text-[11px]
                 font-medium
                 truncate
-                ${PLATFORM_META[item.platform].className}
+                ${meta?.className ?? "bg-gray-100 text-gray-700"}
               `}
             >
               {/* Status dot */}
@@ -129,7 +138,6 @@ export default function CalendarDay({
           );
         })}
 
-        {/* Overflow indicator */}
         {overflowCount > 0 && (
           <div className="text-[10px] text-gray-400 pl-1">
             +{overflowCount} more

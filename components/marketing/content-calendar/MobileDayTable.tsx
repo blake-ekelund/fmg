@@ -6,7 +6,8 @@ import {
   Instagram,
   Facebook,
   Music2,
-  FileText,
+  ShoppingBag,
+  Mail,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -16,35 +17,56 @@ import {
 --------------------------------------------- */
 const PLATFORM_META: Record<
   Platform,
-  { icon: any; className: string }
+  { icon: React.ComponentType<any>; className: string }
 > = {
   Instagram: {
     icon: Instagram,
-    className: "bg-pink-50 text-pink-700 border-pink-200",
+    className:
+      "bg-pink-50 text-pink-700 border-pink-200",
   },
   Facebook: {
     icon: Facebook,
-    className: "bg-blue-50 text-blue-700 border-blue-200",
+    className:
+      "bg-blue-50 text-blue-700 border-blue-200",
   },
   TikTok: {
     icon: Music2,
-    className: "bg-neutral-900 text-white border-neutral-800",
+    className:
+      "bg-neutral-900 text-white border-neutral-800",
   },
-  Blog: {
-    icon: FileText,
-    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Shopify: {
+    icon: ShoppingBag,
+    className:
+      "bg-emerald-50 text-emerald-700 border-emerald-200",
+  },
+  "Subscriber-List": {
+    icon: Mail,
+    className:
+      "bg-purple-50 text-purple-700 border-purple-200",
   },
 };
 
-const STATUS_META: Record<ContentStatus, string> = {
-  "Not Started": "bg-gray-100 text-gray-600 border-gray-200",
-  "In Progress": "bg-yellow-50 text-yellow-700 border-yellow-200",
-  Ready: "bg-green-50 text-green-700 border-green-200",
+const STATUS_META: Record<
+  ContentStatus,
+  string
+> = {
+  Draft:
+    "bg-gray-100 text-gray-600 border-gray-200",
+
+  "In Review":
+    "bg-amber-50 text-amber-700 border-amber-200",
+
+  Reviewed:
+    "bg-sky-50 text-sky-700 border-sky-200",
+
+  Published:
+    "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 /* ---------------------------------------------
    Date helpers
 --------------------------------------------- */
+
 function todayISO() {
   return new Date().toISOString().split("T")[0];
 }
@@ -57,11 +79,14 @@ function addDays(iso: string, delta: number) {
 
 function formatDayLabel(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
+  return new Date(y, m - 1, d).toLocaleDateString(
+    "en-US",
+    {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+    }
+  );
 }
 
 export default function MobileDayTable({
@@ -71,7 +96,8 @@ export default function MobileDayTable({
   items: ContentItem[];
   onSelect: (item: ContentItem) => void;
 }) {
-  const [activeDate, setActiveDate] = useState(todayISO());
+  const [activeDate, setActiveDate] =
+    useState(todayISO());
 
   const dayItems = useMemo(
     () =>
@@ -88,7 +114,9 @@ export default function MobileDayTable({
         <div className="flex items-center justify-between">
           <button
             onClick={() =>
-              setActiveDate((d) => addDays(d, -1))
+              setActiveDate((d) =>
+                addDays(d, -1)
+              )
             }
             className="h-9 w-9 rounded-full border border-gray-200 flex items-center justify-center text-gray-500"
           >
@@ -103,14 +131,18 @@ export default function MobileDayTable({
               {dayItems.length === 0
                 ? "No scheduled content"
                 : `${dayItems.length} item${
-                    dayItems.length > 1 ? "s" : ""
+                    dayItems.length > 1
+                      ? "s"
+                      : ""
                   } scheduled`}
             </div>
           </div>
 
           <button
             onClick={() =>
-              setActiveDate((d) => addDays(d, 1))
+              setActiveDate((d) =>
+                addDays(d, 1)
+              )
             }
             className="h-9 w-9 rounded-full border border-gray-200 flex items-center justify-center text-gray-500"
           >
@@ -120,7 +152,9 @@ export default function MobileDayTable({
 
         {activeDate !== todayISO() && (
           <button
-            onClick={() => setActiveDate(todayISO())}
+            onClick={() =>
+              setActiveDate(todayISO())
+            }
             className="mt-3 w-full rounded-lg border border-gray-200 py-1.5 text-xs font-medium text-gray-600"
           >
             Jump to Today
@@ -150,15 +184,20 @@ export default function MobileDayTable({
               </tr>
             </thead>
 
-            <tbody className="">
+            <tbody>
               {dayItems.map((item) => {
+                const meta =
+                  PLATFORM_META[item.platform];
+
                 const Icon =
-                  PLATFORM_META[item.platform].icon;
+                  meta?.icon ?? Mail;
 
                 return (
                   <tr
                     key={item.id}
-                    onClick={() => onSelect(item)}
+                    onClick={() =>
+                      onSelect(item)
+                    }
                     className="
                       cursor-pointer
                       hover:bg-gray-50
@@ -177,7 +216,10 @@ export default function MobileDayTable({
                           px-2.5
                           py-1
                           font-medium
-                          ${PLATFORM_META[item.platform].className}
+                          ${
+                            meta?.className ??
+                            "bg-gray-100 text-gray-700 border-gray-200"
+                          }
                         `}
                       >
                         <Icon size={12} />

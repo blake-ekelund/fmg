@@ -3,20 +3,28 @@ import {
   Platform,
   ContentStatus,
 } from "../../types";
+
 import { PublishDateField } from "../fields/PublishDateField";
 import { BrandSelector } from "../fields/BrandSelector";
 import { PlatformSelector } from "../fields/PlatformSelector";
+import { Send, Rocket, Trash2 } from "lucide-react";
 
 type Props = {
   publishDate: string;
   setPublishDate: (v: string) => void;
+
   brands: Brand[];
   setBrands: (b: Brand[]) => void;
+
   platforms: Platform[];
   setPlatforms: (p: Platform[]) => void;
+
   status: ContentStatus;
   setStatus: (s: ContentStatus) => void;
+
   locked: boolean;
+
+  onDelete?: () => void;
 };
 
 export function SetupSection({
@@ -26,24 +34,38 @@ export function SetupSection({
   setBrands,
   platforms,
   setPlatforms,
+  status,
+  setStatus,
   locked,
+  onDelete,
 }: Props) {
   function toggle<T>(list: T[], value: T, set: (v: T[]) => void) {
-    set(list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
+    set(
+      list.includes(value)
+        ? list.filter((x) => x !== value)
+        : [...list, value]
+    );
   }
 
   return (
-    <div className="space-y-5 pt-6">
+    <div className="space-y-6 pt-6">
+
+      {/* -------- Publish Date -------- */}
+
       <PublishDateField
         value={publishDate}
         onChange={setPublishDate}
       />
+
+      {/* -------- Brand -------- */}
 
       <BrandSelector
         brands={brands}
         onToggle={(b) => toggle(brands, b, setBrands)}
         locked={locked}
       />
+
+      {/* -------- Platform -------- */}
 
       <PlatformSelector
         platforms={platforms}
