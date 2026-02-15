@@ -38,8 +38,7 @@ const PLATFORM_META: Record<
 
 const STATUS_DOT: Record<ContentStatus, string> = {
   Draft: "bg-gray-400",        // neutral
-  "In Review": "bg-amber-500", // caution / pending
-  Reviewed: "bg-sky-500",      // verified
+  Review: "bg-sky-500",      // verified
   Published: "bg-emerald-600", // live / success
 };
 
