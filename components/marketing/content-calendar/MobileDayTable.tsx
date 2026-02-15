@@ -52,11 +52,7 @@ const STATUS_META: Record<
 > = {
   Draft:
     "bg-gray-100 text-gray-600 border-gray-200",
-
-  "In Review":
-    "bg-amber-50 text-amber-700 border-amber-200",
-
-  Reviewed:
+  Review:
     "bg-sky-50 text-sky-700 border-sky-200",
 
   Published:
