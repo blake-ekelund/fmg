@@ -1,5 +1,6 @@
 "use client";
 
+import { ContentStatus } from "./types";
 import { ContentItem, Platform } from "./types";
 import {
   Instagram,
@@ -51,14 +52,14 @@ const BRAND_META = {
   Sassy: "bg-rose-100 text-rose-700",
 } as const;
 
-const STATUS_META = {
-  "Not Started":
-    "bg-gray-100 text-gray-600",
-  "In Progress":
-    "bg-yellow-100 text-yellow-700",
-  Ready:
-    "bg-green-100 text-green-700",
-} as const;
+const STATUS_STYLES: Record<
+  ContentStatus,
+  string
+> = {
+  Draft: "bg-gray-100 text-gray-600",
+  Review: "bg-yellow-100 text-yellow-700",
+  Published: "bg-green-100 text-green-700",
+};
 
 export default function TableView({
   items,
