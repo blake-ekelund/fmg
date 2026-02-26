@@ -123,8 +123,7 @@ export default function CustomersPage() {
 
   return (
     <div className="px-8 py-10 space-y-10">
-      <CustomersHeader />
-
+    <CustomersHeader />
       <CustomersFilters
         search={search}
         setSearch={setSearch}
