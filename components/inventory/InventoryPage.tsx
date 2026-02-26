@@ -11,7 +11,7 @@ import ForecastSection from "./forecasting/ForecastSection";
 import { InventoryRow } from "./types";
 
 import InventoryUploadModal from "./current/InventoryUploadModal";
-import SalesUploadModal from "./current/InventoryUploadModal";
+import SalesUploadModal from "./current/SalesUploadModal";
 
 type InventorySection = "current" | "products" | "forecast";
 
@@ -33,10 +33,24 @@ export default function InventoryPage() {
      Fetch Snapshot Data
   -------------------------------------------------- */
   const fetchSnapshot = useCallback(async () => {
+    // 1️⃣ Get latest upload id
+    const { data: latestUpload } = await supabase
+      .from("inventory_uploads")
+      .select("id")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!latestUpload) {
+      setRows([]);
+      return;
+    }
+
+    // 2️⃣ Fetch rows only for that upload
     const { data } = await supabase
       .from("inventory_snapshot_items")
       .select("*")
-      .order("created_at", { ascending: false });
+      .eq("upload_id", latestUpload.id);
 
     setRows(data ?? []);
   }, []);

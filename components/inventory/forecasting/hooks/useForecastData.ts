@@ -27,14 +27,27 @@ export function useForecastData() {
       /* -------------------------------
          2. Latest inventory snapshot
       -------------------------------- */
-      const { data: inventory } = await supabase
-        .from("inventory_snapshot_items")
-        .select("id, part, on_hand, on_order")
-        .order("created_at", { ascending: false });
+      // 1️⃣ Get latest upload
+      const { data: latestUpload } = await supabase
+        .from("inventory_uploads")
+        .select("id")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
 
-      const inventoryMap = new Map(
-        (inventory ?? []).map((r) => [r.part, r])
-      );
+      let inventoryMap = new Map<string, any>();
+
+      if (latestUpload) {
+        // 2️⃣ Pull only that upload's rows
+        const { data: inventory } = await supabase
+          .from("inventory_snapshot_items")
+          .select("id, part, on_hand, on_order")
+          .eq("upload_id", latestUpload.id);
+
+        inventoryMap = new Map(
+          (inventory ?? []).map((r) => [r.part, r])
+        );
+      }
 
       /* -------------------------------
          3. Last 90 days units by product
