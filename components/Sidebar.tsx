@@ -26,7 +26,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
     <aside
       className={clsx(
         "hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-white border-r border-gray-100 transition-all duration-300 z-40",
-        collapsed ? "w-20" : "w-64"
+        collapsed ? "w-20" : "w-56"
       )}
     >
       {/* Brand */}

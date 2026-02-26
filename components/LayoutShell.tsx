@@ -39,7 +39,7 @@ export default function LayoutShell({
           "pt-16 md:pt-0",
 
           /* Desktop sidebar spacing */
-          sidebarCollapsed ? "md:ml-20" : "md:ml-64"
+          sidebarCollapsed ? "md:ml-20" : "md:ml-56"
         )}
       >
         {/* Mobile top navigation */}

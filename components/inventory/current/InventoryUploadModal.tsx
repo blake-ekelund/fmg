@@ -1,24 +1,50 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { X, UploadCloud } from "lucide-react";
 import { uploadInventorySnapshot } from "../actions";
 
 function todayISO() {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
-    2,
-    "0"
-  )}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
 }
 
-export default function InventoryUploadModal() {
-  const [open, setOpen] = useState(false);
+export default function InventoryUploadModal({
+  open,
+  onClose,
+  onUploaded,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onUploaded?: () => void;
+}) {
   const [warehouse, setWarehouse] = useState("");
   const [pulledDate, setPulledDate] = useState(todayISO());
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Reset form when opening
+  useEffect(() => {
+    if (!open) return;
+    setWarehouse("");
+    setPulledDate(todayISO());
+    setFile(null);
+    setLoading(false);
+    setError(null);
+  }, [open]);
+
+  // Escape to close
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
 
   async function upload() {
     if (!file || !warehouse) return;
@@ -30,44 +56,24 @@ export default function InventoryUploadModal() {
         warehouse,
         pulledDate,
       });
-      window.location.reload();
+
+      // Let parent refresh timestamps / tables
+      onUploaded?.();
+      onClose();
     } catch {
       setError("Upload failed. Please check the file and try again.");
       setLoading(false);
     }
   }
 
-  // Escape to close
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open]);
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="
-          px-4 py-2 rounded-xl text-sm font-medium
-          bg-orange-400 text-white
-          hover:bg-orange-500 transition
-        "
-      >
-        Update Inventory
-      </button>
-    );
-  }
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
-        onClick={() => setOpen(false)}
+        onClick={onClose}
       />
 
       {/* Modal */}
@@ -77,10 +83,13 @@ export default function InventoryUploadModal() {
           rounded-3xl bg-white p-6 space-y-6
           shadow-[0_20px_60px_-15px_rgba(0,0,0,0.25)]
         "
+        role="dialog"
+        aria-modal="true"
+        aria-label="Upload inventory snapshot"
       >
         {/* Close */}
         <button
-          onClick={() => setOpen(false)}
+          onClick={onClose}
           className="
             absolute top-4 right-4
             p-1 rounded-full
@@ -153,9 +162,7 @@ export default function InventoryUploadModal() {
             type="file"
             accept=".csv,.xls,.xlsx"
             className="hidden"
-            onChange={(e) =>
-              setFile(e.target.files?.[0] ?? null)
-            }
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
 
           <label
@@ -171,24 +178,17 @@ export default function InventoryUploadModal() {
             <span className="text-gray-600 truncate">
               {file ? file.name : "Select file (.csv, .xls, .xlsx)"}
             </span>
-            <UploadCloud
-              size={18}
-              className="text-gray-400"
-            />
+            <UploadCloud size={18} className="text-gray-400" />
           </label>
         </div>
 
         {/* Error */}
-        {error && (
-          <div className="text-sm text-red-600">
-            {error}
-          </div>
-        )}
+        {error && <div className="text-sm text-red-600">{error}</div>}
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-2">
           <button
-            onClick={() => setOpen(false)}
+            onClick={onClose}
             className="
               px-4 py-2 rounded-xl text-sm
               text-gray-600 hover:text-gray-800

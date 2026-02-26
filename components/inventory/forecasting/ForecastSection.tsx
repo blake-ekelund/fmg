@@ -33,7 +33,7 @@ export default function ForecastSection() {
 
   /* ---------------- Months ---------------- */
   const months = useMemo(
-    () => Array.from({ length: 6 }).map((_, i) => addMonths(new Date(), i)),
+    () => Array.from({ length: 12 }).map((_, i) => addMonths(new Date(), i)),
     []
   );
 
@@ -110,7 +110,7 @@ export default function ForecastSection() {
       {/* Header */}
       <div className="space-y-2 md:space-y-0 md:flex md:items-center md:justify-between">
         <h2 className="text-base font-medium">
-          Inventory Forecast (Next 6 Months)
+          Inventory Forecast (Next 12 Months)
         </h2>
 
         {/* Filters */}

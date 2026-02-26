@@ -1,14 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabaseClient";
 
-import InventoryHeader from "./current/InventoryHeader";
 import InventoryFilters from "./current/InventoryFilters";
 import InventoryTable from "./current/InventoryTable";
 import ProductListSection from "./list/ProductListSection";
 import ForecastSection from "./forecasting/ForecastSection";
 import { InventoryRow } from "./types";
+
+import InventoryUploadModal from "./current/InventoryUploadModal";
+import SalesUploadModal from "./current/InventoryUploadModal";
 
 type InventorySection = "current" | "products" | "forecast";
 
@@ -20,133 +23,191 @@ export default function InventoryPage() {
     onlyShort: false,
   });
 
-  /* ---------------------------------------------
-     Fetch snapshot data ONLY for "Current"
-  --------------------------------------------- */
-  useEffect(() => {
-    if (section !== "current") return;
+  const [lastInventoryUpload, setLastInventoryUpload] = useState<string | null>(null);
+  const [lastSalesUpload, setLastSalesUpload] = useState<string | null>(null);
 
-    supabase
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [showSalesModal, setShowSalesModal] = useState(false);
+
+  /* --------------------------------------------------
+     Fetch Snapshot Data
+  -------------------------------------------------- */
+  const fetchSnapshot = useCallback(async () => {
+    const { data } = await supabase
       .from("inventory_snapshot_items")
       .select("*")
+      .order("created_at", { ascending: false });
+
+    setRows(data ?? []);
+  }, []);
+
+  useEffect(() => {
+    if (section === "current") fetchSnapshot();
+  }, [section, fetchSnapshot]);
+
+  /* --------------------------------------------------
+     Fetch Upload Metadata
+  -------------------------------------------------- */
+  const fetchUploadDates = useCallback(async () => {
+    const { data: inv } = await supabase
+      .from("inventory_uploads")
+      .select("created_at")
       .order("created_at", { ascending: false })
-      .then(({ data }) => setRows(data ?? []));
-  }, [section]);
+      .limit(1)
+      .maybeSingle();
 
-  /* ---------------------------------------------
-     Filtering (Current inventory only)
-  --------------------------------------------- */
-  const filtered = rows.filter((r) => {
-    if (
-      filters.search &&
-      !`${r.part} ${r.description ?? ""}`
-        .toLowerCase()
-        .includes(filters.search.toLowerCase())
-    ) {
-      return false;
-    }
+    const { data: sales } = await supabase
+      .from("sales_orders_raw")
+      .select("created_at")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (filters.onlyShort && r.short <= 0) {
-      return false;
-    }
+    setLastInventoryUpload(inv?.created_at ?? null);
+    setLastSalesUpload(sales?.created_at ?? null);
+  }, []);
 
-    return true;
-  });
+  useEffect(() => {
+    fetchUploadDates();
+  }, [fetchUploadDates]);
+
+  /* --------------------------------------------------
+     Filtering
+  -------------------------------------------------- */
+  const filtered = useMemo(() => {
+    return rows.filter((r) => {
+      if (
+        filters.search &&
+        !`${r.part} ${r.description ?? ""}`
+          .toLowerCase()
+          .includes(filters.search.toLowerCase())
+      ) {
+        return false;
+      }
+
+      if (filters.onlyShort && r.short <= 0) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [rows, filters]);
 
   return (
-    <div
-      className="
-        px-4 py-6
-        md:px-8 md:py-10
-        space-y-8 md:space-y-10
-      "
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+      className="px-4 py-4 md:px-8 md:py-5 space-y-6"
     >
-      {/* Header */}
-      <header
-        className="
-          flex flex-col gap-4
-          md:flex-row md:items-center md:justify-between
-        "
+
+      {/* --------------------------------------------------
+         Header
+      -------------------------------------------------- */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: 0.3 }}
+        className="border-b border-gray-200 pb-3"
       >
-        <div className="space-y-2">
-          <h1
-            className="
-              text-2xl font-semibold tracking-tight
-              md:text-4xl
-            "
+
+        <div className="flex items-center justify-between">
+
+          {/* Left: Title + Tabs */}
+          <div className="flex items-end gap-8">
+
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Inventory
+            </h1>
+
+            <nav className="flex gap-6 text-sm font-medium">
+              <InlineTab active={section === "current"} onClick={() => setSection("current")}>
+                Current
+              </InlineTab>
+              <InlineTab active={section === "products"} onClick={() => setSection("products")}>
+                Products
+              </InlineTab>
+              <InlineTab active={section === "forecast"} onClick={() => setSection("forecast")}>
+                Forecast
+              </InlineTab>
+            </nav>
+
+          </div>
+
+          {/* Right: Upload Blocks */}
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: {},
+              visible: {
+                transition: { staggerChildren: 0.08 }
+              }
+            }}
+            className="flex gap-8"
           >
-            Inventory
-          </h1>
-          <p
-            className="
-              text-sm text-gray-500
-              md:text-base md:max-w-xl
-            "
-          >
-            Track current stock, manage products, and plan inventory needs.
-          </p>
-        </div>
 
-        <InventoryHeader />
-      </header>
-
-      {/* Section Tabs */}
-      <nav
-        className="
-          -mx-4 px-4
-          md:mx-0 md:px-0
-          flex gap-2 overflow-x-auto
-          border-b border-gray-200 pb-2
-          scrollbar-none
-        "
-      >
-        <TabButton
-          active={section === "current"}
-          onClick={() => setSection("current")}
-        >
-          Current
-        </TabButton>
-
-        <TabButton
-          active={section === "products"}
-          onClick={() => setSection("products")}
-        >
-          Products
-        </TabButton>
-
-        <TabButton
-          active={section === "forecast"}
-          onClick={() => setSection("forecast")}
-        >
-          Forecast
-        </TabButton>
-      </nav>
-
-      {/* Section Content */}
-      <div className="space-y-8 md:space-y-12">
-        {section === "current" && (
-          <>
-            <InventoryFilters
-              filters={filters}
-              setFilters={setFilters}
+            <UploadBlock
+              label="Inventory"
+              value={lastInventoryUpload}
+              onClick={() => setShowInventoryModal(true)}
             />
 
+            <UploadBlock
+              label="Sales"
+              value={lastSalesUpload}
+              onClick={() => setShowSalesModal(true)}
+            />
+
+          </motion.div>
+
+        </div>
+      </motion.div>
+
+      {/* --------------------------------------------------
+         Content
+      -------------------------------------------------- */}
+      <div className="space-y-6">
+
+        {section === "current" && (
+          <>
+            <InventoryFilters filters={filters} setFilters={setFilters} />
             <InventoryTable rows={filtered} />
           </>
         )}
 
         {section === "products" && <ProductListSection />}
-
         {section === "forecast" && <ForecastSection />}
       </div>
-    </div>
+
+      {/* --------------------------------------------------
+         Modals
+      -------------------------------------------------- */}
+      <InventoryUploadModal
+        open={showInventoryModal}
+        onClose={() => setShowInventoryModal(false)}
+        onUploaded={() => {
+          fetchUploadDates();
+          fetchSnapshot();
+        }}
+      />
+
+      <SalesUploadModal
+        open={showSalesModal}
+        onClose={() => setShowSalesModal(false)}
+        onUploaded={() => {
+          fetchUploadDates();
+        }}
+      />
+
+    </motion.div>
   );
 }
 
-/* ---------------------------------------------
-   Tab Button
---------------------------------------------- */
-function TabButton({
+/* --------------------------------------------------
+   Tabs with animated underline
+-------------------------------------------------- */
+function InlineTab({
   active,
   onClick,
   children,
@@ -158,17 +219,67 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`
-        shrink-0
-        rounded-xl px-3 py-1.5 text-sm transition
-        ${
-          active
-            ? "bg-gray-100 text-black"
-            : "text-gray-500 hover:text-black hover:bg-gray-50"
-        }
-      `}
+      className={`relative pb-2 transition-colors duration-200 ${
+        active ? "text-[#ebb700]" : "text-gray-500 hover:text-gray-900"
+      }`}
     >
       {children}
+
+      {active && (
+        <motion.span
+          layoutId="tab-underline"
+          className="absolute left-0 bottom-0 h-[2px] w-full rounded-full bg-[#ebb700]"
+        />
+      )}
     </button>
+  );
+}
+
+/* --------------------------------------------------
+   Upload Block with entrance animation
+-------------------------------------------------- */
+function UploadBlock({
+  label,
+  value,
+  onClick,
+}: {
+  label: string;
+  value: string | null;
+  onClick: () => void;
+}) {
+  const formatted = value
+    ? new Date(value).toLocaleString([], {
+        month: "2-digit",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+
+  return (
+    <motion.div
+      variants={{
+        hidden: { opacity: 0, y: 6 },
+        visible: { opacity: 1, y: 0 }
+      }}
+      transition={{ duration: 0.25 }}
+      className="text-right text-xs space-y-1"
+    >
+      <div className="text-gray-500">
+        {label} Data
+      </div>
+
+      <button
+        onClick={onClick}
+        className={`font-medium transition ${
+          value
+            ? "text-gray-800 hover:text-[#ebb700]"
+            : "text-gray-400 hover:text-[#ebb700]"
+        }`}
+      >
+        {formatted}
+      </button>
+    </motion.div>
   );
 }
