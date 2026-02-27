@@ -1,4 +1,3 @@
-// /modal/tabs/DetailsTab.tsx
 "use client";
 
 import {
@@ -26,7 +25,7 @@ export type CustomerSummary = {
 };
 
 type MonthlyRow = {
-  month_key: string;
+  month_key: string; // "YYYY-MM"
   month_date: string;
   orders: number;
   revenue: number;
@@ -53,14 +52,17 @@ export default function DetailsTab({
     );
   }
 
-  const daysSinceLastOrder =
-    summary.last_order_date
-      ? Math.floor(
-          (Date.now() -
-            new Date(summary.last_order_date).getTime()) /
-            (1000 * 60 * 60 * 24)
-        )
-      : null;
+  /* ================= SAFE DATE HANDLING ================= */
+
+  const daysSinceLastOrder = summary.last_order_date
+    ? (() => {
+        const [y, m, d] = summary.last_order_date.split("-").map(Number);
+        const last = new Date(y, m - 1, d); // local time, no UTC shift
+        return Math.floor(
+          (Date.now() - last.getTime()) / (1000 * 60 * 60 * 24)
+        );
+      })()
+    : null;
 
   const recencyStatus =
     daysSinceLastOrder == null
@@ -89,7 +91,6 @@ export default function DetailsTab({
       {/* ================= SUMMARY STRIP ================= */}
       <section className="border border-slate-200 rounded-2xl p-6 bg-white space-y-6">
 
-        {/* Meta Row */}
         <div className="flex items-start justify-between">
 
           <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
@@ -106,10 +107,8 @@ export default function DetailsTab({
           >
             {recencyStatus}
           </div>
-
         </div>
 
-        {/* Revenue Highlight */}
         <div>
           <div className="text-xs uppercase tracking-wider text-slate-500">
             Lifetime Revenue
@@ -119,7 +118,6 @@ export default function DetailsTab({
           </div>
         </div>
 
-        {/* KPI Row */}
         <div className="grid grid-cols-4 gap-6 pt-4 border-t border-slate-200 text-sm">
           <KPI label="Orders" value={summary.lifetime_orders ?? 0} />
           <KPI label="Avg Order" value={formatMoney(summary.lifetime_aov ?? 0)} />
@@ -129,11 +127,7 @@ export default function DetailsTab({
           />
           <KPI
             label="Days Since"
-            value={
-              daysSinceLastOrder != null
-                ? `${daysSinceLastOrder}`
-                : "—"
-            }
+            value={daysSinceLastOrder != null ? `${daysSinceLastOrder}` : "—"}
           />
         </div>
 
@@ -155,12 +149,13 @@ export default function DetailsTab({
               <BarChart data={normalizedData}>
                 <XAxis
                   dataKey="month"
-                  tickFormatter={(value: string) =>
-                    new Date(value + "-01").toLocaleDateString("en-US", {
+                  tickFormatter={(value: string) => {
+                    const [y, m] = value.split("-").map(Number);
+                    return new Date(y, m - 1, 1).toLocaleDateString("en-US", {
                       month: "short",
                       year: "2-digit",
-                    })
-                  }
+                    });
+                  }}
                   tick={{ fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
@@ -181,11 +176,11 @@ export default function DetailsTab({
                   ]}
                   labelFormatter={(label: any) => {
                     if (!label) return "";
-                    return new Date(String(label) + "-01")
-                      .toLocaleDateString("en-US", {
-                        month: "long",
-                        year: "numeric",
-                      });
+                    const [y, m] = String(label).split("-").map(Number);
+                    return new Date(y, m - 1, 1).toLocaleDateString("en-US", {
+                      month: "long",
+                      year: "numeric",
+                    });
                   }}
                 />
 
@@ -200,7 +195,6 @@ export default function DetailsTab({
           </div>
         )}
       </section>
-
     </div>
   );
 }
@@ -232,32 +226,18 @@ function build24MonthSeries(raw: MonthlyRow[] = []) {
   return months;
 }
 
-function KPI({
-  label,
-  value,
-}: {
-  label: string;
-  value: any;
-}) {
+function KPI({ label, value }: { label: string; value: any }) {
   return (
     <div>
       <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">
         {label}
       </div>
-      <div className="text-lg font-semibold text-slate-900">
-        {value}
-      </div>
+      <div className="text-lg font-semibold text-slate-900">{value}</div>
     </div>
   );
 }
 
-function MetaItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: any;
-}) {
+function MetaItem({ label, value }: { label: string; value: any }) {
   return (
     <div>
       <div className="text-xs uppercase tracking-wider text-slate-500">
