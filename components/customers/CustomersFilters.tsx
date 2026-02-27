@@ -1,26 +1,37 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Search, ArrowUp, ArrowDown } from "lucide-react";
-import clsx from "clsx";
+import { Search } from "lucide-react";
+
+type Option = { label: string; value: string };
 
 export default function CustomersFilters({
   search,
   setSearch,
-  sortDir,
-  setSortDir,
+  status,
+  setStatus,
+  statusOptions,
+  channel,
+  setChannel,
+  channelOptions,
 }: {
   search: string;
   setSearch: (v: string) => void;
-  sortDir: "asc" | "desc";
-  setSortDir: (v: "asc" | "desc") => void;
+
+  status: string;
+  setStatus: (v: string) => void;
+  statusOptions: Option[];
+
+  channel: string;
+  setChannel: (v: string) => void;
+  channelOptions: Option[];
 }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15, duration: 0.25 }}
-      className="flex items-center justify-between"
+      className="flex items-center justify-between gap-6 flex-wrap"
     >
       {/* Search */}
       <div className="relative w-full max-w-md">
@@ -36,28 +47,53 @@ export default function CustomersFilters({
         />
       </div>
 
-      {/* Sort Direction Toggle */}
-      <button
-        onClick={() =>
-          setSortDir(sortDir === "asc" ? "desc" : "asc")
-        }
-        className={clsx(
-          "ml-6 flex items-center gap-2 text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition",
-          "text-slate-600"
-        )}
-      >
-        {sortDir === "asc" ? (
-          <>
-            <ArrowUp size={14} />
-            Asc
-          </>
-        ) : (
-          <>
-            <ArrowDown size={14} />
-            Desc
-          </>
-        )}
-      </button>
+      {/* Filters */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <FilterSelect
+          label="Status"
+          value={status}
+          onChange={setStatus}
+          options={statusOptions}
+        />
+
+        <FilterSelect
+          label="Channel"
+          value={channel}
+          onChange={setChannel}
+          options={channelOptions}
+        />
+      </div>
     </motion.div>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { label: string; value: string }[];
+}) {
+  return (
+    <div className="flex flex-col text-xs">
+      <span className="text-slate-400 mb-1">{label}</span>
+
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="text-sm bg-white border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-300/60 transition"
+      >
+        <option value="">All</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }

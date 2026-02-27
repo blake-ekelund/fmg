@@ -39,12 +39,6 @@ export const navItems: readonly NavItem[] = [
     icon: LayoutDashboard,
   },
   {
-    label: "Sales",
-    href: "/sales",
-    accent: "green",
-    icon: TrendingUp,
-  },
-  {
     label: "Inventory",
     href: "/inventory",
     accent: "orange",
@@ -55,6 +49,12 @@ export const navItems: readonly NavItem[] = [
     href: "/customers",
     accent: "lavender",
     icon: Users,
+  },
+  {
+    label: "Sales",
+    href: "/sales",
+    accent: "green",
+    icon: TrendingUp,
   },
   {
     label: "Marketing",

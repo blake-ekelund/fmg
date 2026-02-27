@@ -1,17 +1,21 @@
+// /modal/CustomerOrdersModal.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import { Order } from "./types";
 import { X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
-function formatMoney(n: number) {
-  return n?.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }) ?? "$0";
-}
+import ModalShell from "./modal/components/ModalShell";
+import SidebarNav from "./modal/components/SidebarNav";
+import DetailsTab from "./modal/tabs/DetailsTab";
+import OrdersTab from "./modal/tabs/OrdersTab";
+import ContactTab from "./modal/tabs/ContactTab";
+
+import useCustomerSummary from "./modal/hooks/useCustomerSummary";
+import useCustomerOrders from "./modal/hooks/useCustomerOrders";
+import useOrderItems from "./modal/hooks/useOrderItems";
+
+type Tab = "details" | "orders" | "contact";
 
 export default function CustomerOrdersModal({
   customerId,
@@ -20,47 +24,115 @@ export default function CustomerOrdersModal({
   customerId: string | null;
   onClose: () => void;
 }) {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [tab, setTab] = useState<Tab>("details");
 
   useEffect(() => {
     if (!customerId) return;
+    setTab("details");
+  }, [customerId]);
 
-    async function load() {
-      const { data } = await supabase
-        .from("sales_orders_raw")
-        .select("id, datecompleted, totalprice, channel")
-        .eq("customerid", customerId)
-        .order("datecompleted", { ascending: false });
+  const { summary, loading: summaryLoading } = useCustomerSummary(customerId);
 
-      setOrders(data ?? []);
-    }
+  const ordersEnabled = tab === "orders";
+  const {
+    orders,
+    setOrders,
+    loading: ordersLoading,
+    orderPage,
+    setOrderPage,
+    totalCount: orderTotalCount,
+    totalPages: orderTotalPages,
+  } = useCustomerOrders(customerId, ordersEnabled);
 
-    load();
+  const items = useOrderItems({ orders, setOrders });
+
+  useEffect(() => {
+    if (!customerId) return;
+    items.reset();
+    setOrders([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
   if (!customerId) return null;
 
-  return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl w-full max-w-xl p-6">
-          <div className="flex justify-between mb-4">
-            <div className="font-semibold">Customer Orders</div>
-            <button onClick={onClose}>
-              <X size={18} />
-            </button>
-          </div>
+  const totalSpend =
+    (summary?.sales_2023 ?? 0) +
+    (summary?.sales_2024 ?? 0) +
+    (summary?.sales_2025 ?? 0) +
+    (summary?.sales_2026 ?? 0);
 
-          {orders.map((o) => (
-            <div key={o.id} className="flex justify-between py-2 border-b">
-              <div>{o.datecompleted}</div>
-              <div>{o.channel}</div>
-              <div>{formatMoney(o.totalprice)}</div>
-            </div>
-          ))}
-        </div>
+  const totalOrders = orderTotalCount;
+  const aov = totalOrders > 0 ? totalSpend / totalOrders : 0;
+
+  const summaryName = summary?.name ?? "Customer";
+
+  return (
+    <ModalShell onClose={onClose}>
+      <SidebarNav summaryName={summaryName} tab={tab} setTab={setTab} />
+
+      <div className="flex-1 p-8 overflow-hidden relative">
+        <button
+          onClick={onClose}
+          className="absolute top-6 right-6 text-slate-400 hover:text-slate-700"
+        >
+          <X size={18} />
+        </button>
+
+        <AnimatePresence mode="wait">
+          {tab === "details" && (
+            <motion.div
+              key="details"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <DetailsTab
+                loading={summaryLoading}
+                summary={summary}
+                totalOrders={totalOrders}
+                totalSpend={totalSpend}
+                aov={aov}
+              />
+            </motion.div>
+          )}
+
+          {tab === "orders" && (
+            <motion.div
+              key="orders"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+              className="h-full overflow-hidden"
+            >
+              <OrdersTab
+                orders={orders}
+                ordersLoading={ordersLoading}
+                orderPage={orderPage}
+                setOrderPage={setOrderPage}
+                orderTotalPages={orderTotalPages}
+                expandedOrder={items.expandedOrder}
+                toggleOrder={items.toggleOrder}
+                getItemMeta={items.getItemMeta}
+                loadItems={items.loadItems}
+              />
+            </motion.div>
+          )}
+
+          {tab === "contact" && (
+            <motion.div
+              key="contact"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2 }}
+            >
+              <ContactTab summary={summary} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-    </div>
+    </ModalShell>
   );
 }

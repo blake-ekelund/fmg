@@ -1,26 +1,263 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Customer } from "../types";
+import type { Customer } from "../types";
 
-export function useCustomers() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
+type Params = {
+  page: number;
+  pageSize: number;
+  search: string;
+  status: string;
+  channel: string;
+  sortColumn: string;
+  sortDir: "asc" | "desc";
+};
 
-useEffect(() => {
-  async function load() {
-    const { data, error } = await supabase
-      .from("customer_summary")
-      .select("*");
+function getDateCutoffs() {
+  const now = new Date();
 
-    console.log("CUSTOMER DATA:", data);
-    console.log("ERROR:", error);
+  const active = new Date(now);
+  active.setDate(now.getDate() - 180);
 
-    setCustomers(data ?? []);
-    setLoading(false);
+  const risk = new Date(now);
+  risk.setDate(now.getDate() - 365);
+
+  return { active, risk };
+}
+
+/* -------------------------------------------------- */
+/* Shared Filter Builder */
+/* -------------------------------------------------- */
+
+export function applyFilters(  query: any,
+  search: string,
+  status: string,
+  channel: string
+) {
+  if (search) {
+    const q = search.trim();
+
+    query = query.or(
+      [
+        `name.ilike.%${q}%`,
+        `customerid.ilike.%${q}%`,
+        `bill_to_state.ilike.%${q}%`,
+      ].join(",")
+    );
   }
 
-  load();
-}, []);
+  if (channel) {
+    query = query.eq("channel", channel);
+  }
 
-  return { customers, loading };
+  if (status) {
+    const { active, risk } = getDateCutoffs();
+
+    if (status === "active") {
+      query = query.gte(
+        "last_order_date",
+        active.toISOString()
+      );
+    }
+
+    if (status === "at_risk") {
+      query = query
+        .lt("last_order_date", active.toISOString())
+        .gte("last_order_date", risk.toISOString());
+    }
+
+    if (status === "churned") {
+      query = query.lt("last_order_date", risk.toISOString());
+    }
+
+    if (status === "no_orders") {
+      query = query.is("last_order_date", null);
+    }
+  }
+
+  return query;
+}
+
+/* -------------------------------------------------- */
+/* Hook */
+/* -------------------------------------------------- */
+
+export function useCustomers({
+  page,
+  pageSize,
+  search,
+  status,
+  channel,
+  sortColumn,
+  sortDir,
+}: Params) {
+  const [customers, setCustomers] =
+    useState<Customer[]>([]);
+  const [loading, setLoading] =
+    useState(false);
+  const [totalCount, setTotalCount] =
+    useState(0);
+  const [channelOptions, setChannelOptions] =
+    useState<{ label: string; value: string }[]>([]);
+  const [stats, setStats] = useState({
+    active: 0,
+    atRisk: 0,
+    churned: 0,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
+      /* ---------------------------
+         TABLE QUERY (Paginated)
+      ---------------------------- */
+
+      let tableQuery = supabase
+        .from("customer_summary")
+        .select("*", { count: "exact" });
+
+      tableQuery = applyFilters(
+        tableQuery,
+        search,
+        status,
+        channel
+      );
+
+      tableQuery = tableQuery
+        .order(sortColumn, {
+          ascending: sortDir === "asc",
+          nullsFirst: false,
+        })
+        .order("customerid", {
+          ascending: false,
+        })
+        .range(from, to);
+
+      const { data, count, error } =
+        await tableQuery;
+
+      /* ---------------------------
+         STATS QUERY (Full Dataset)
+      ---------------------------- */
+
+      let statsQuery = supabase
+        .from("customer_summary")
+        .select("last_order_date")
+        .range(0, 4999); // covers your stated max
+
+      statsQuery = applyFilters(
+        statsQuery,
+        search,
+        status,
+        channel
+      );
+
+      const { data: statsData } =
+        await statsQuery;
+
+      if (!cancelled) {
+        if (error) {
+          console.error(error);
+        } else {
+          setCustomers((data as Customer[]) ?? []);
+          setTotalCount(count ?? 0);
+
+          const full = statsData ?? [];
+
+          const now = new Date();
+
+          const activeCutoff = new Date(now);
+          activeCutoff.setDate(now.getDate() - 180);
+
+          const riskCutoff = new Date(now);
+          riskCutoff.setDate(now.getDate() - 365);
+
+          let activeCount = 0;
+          let atRiskCount = 0;
+          let churnedCount = 0;
+
+          for (const c of full as any[]) {
+            if (!c.last_order_date) {
+              // decide: separate bucket or treat as churn?
+              continue;
+            }
+
+            const d = new Date(c.last_order_date);
+
+            if (d >= activeCutoff) {
+              activeCount++;
+            } else if (d >= riskCutoff) {
+              atRiskCount++;
+            } else {
+              churnedCount++;
+            }
+          }
+
+          setStats({
+            active: activeCount,
+            atRisk: atRiskCount,
+            churned: churnedCount,
+          });
+        }
+
+        setLoading(false);
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    page,
+    pageSize,
+    search,
+    status,
+    channel,
+    sortColumn,
+    sortDir,
+  ]);
+
+  /* ---------------------------
+     Channel Options
+  ---------------------------- */
+
+  useEffect(() => {
+    async function loadChannels() {
+      const { data } =
+        await supabase
+          .from("customer_summary")
+          .select("channel")
+          .not("channel", "is", null);
+
+      if (!data) return;
+
+      const unique = Array.from(
+        new Set(data.map((d) => d.channel))
+      ).sort();
+
+      setChannelOptions(
+        unique.map((c) => ({
+          label: c,
+          value: c,
+        }))
+      );
+    }
+
+    loadChannels();
+  }, []);
+
+  return {
+    customers,
+    loading,
+    totalCount,
+    channelOptions,
+    stats,
+  };
 }
