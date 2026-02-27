@@ -1,26 +1,28 @@
-// /modal/tabs/OrdersTab.tsx
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { Order } from "../../types"; // adjust path
+import { Fragment } from "react";
+import { ChevronDown, Download } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Order } from "../../types";
 import { formatDate, formatMoney } from "../utils/format";
+import { supabase } from "@/lib/supabaseClient";
+
+type LineItem = {
+  sku?: string;
+  description?: string;
+  quantity?: number;
+  price?: number;
+};
 
 export default function OrdersTab({
   orders,
   ordersLoading,
-  orderPage,
-  setOrderPage,
-  orderTotalPages,
   expandedOrder,
   toggleOrder,
   getItemMeta,
-  loadItems,
 }: {
-  orders: Order[];
+  orders: (Order & { items?: LineItem[] })[];
   ordersLoading: boolean;
-  orderPage: number;
-  setOrderPage: (n: number) => void;
-  orderTotalPages: number;
   expandedOrder: string | null;
   toggleOrder: (orderId: string) => void;
   getItemMeta: (orderId: string) => {
@@ -29,154 +31,281 @@ export default function OrdersTab({
     totalPages: number;
     loading: boolean;
   };
-  loadItems: (orderId: string, page: number) => Promise<void>;
 }) {
-  return (
-    <div className="h-full overflow-hidden">
-      {ordersLoading && (
-        <div className="text-sm text-slate-400 mb-4">Loading orders...</div>
-      )}
 
-      <div className="grid grid-cols-12 px-4 py-2 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/70 border border-slate-200/60 rounded-2xl">
-        <div className="col-span-3">Order</div>
-        <div className="col-span-3">Date</div>
-        <div className="col-span-3">Channel</div>
-        <div className="col-span-2 text-right">Total</div>
-        <div className="col-span-1" />
+  function buildCSV(rows: (string | number)[][]) {
+    return rows
+      .map((r) =>
+        r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")
+      )
+      .join("\n");
+  }
+
+  function downloadBlob(filename: string, csv: string) {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function downloadOrder(order: Order & { items?: LineItem[] }) {
+    const items = order.items ?? [];
+    if (!items.length) return;
+
+    const headers = [
+      "Order ID",
+      "Order Date",
+      "Channel",
+      "Order Total",
+      "SKU",
+      "Description",
+      "Quantity",
+      "Line Total",
+    ];
+
+    const rows = items.map((it) => [
+      order.id,
+      formatDate(order.datecompleted),
+      order.channel ?? "",
+      order.totalprice ?? 0,
+      it.sku ?? "",
+      it.description ?? "",
+      it.quantity ?? 0,
+      it.price ?? 0,
+    ]);
+
+    const csv = buildCSV([headers, ...rows]);
+    downloadBlob(`order-${order.id}.csv`, csv);
+  }
+
+async function downloadAllOrders() {
+  if (!orders.length) return;
+
+  const orderIds = orders.map((o) => Number(o.id));
+
+  // Fetch all items for all loaded orders
+  const { data: itemsData } = await supabase
+    .from("so_items_raw")
+    .select(
+      "soid, productnum, description, qtyfulfilled, qtyordered, totalprice"
+    )
+    .in("soid", orderIds);
+
+  const headers = [
+    "Order ID",
+    "Order Date",
+    "Channel",
+    "Order Total",
+    "SKU",
+    "Description",
+    "Quantity",
+    "Line Total",
+  ];
+
+  const rows: (string | number)[][] = [];
+
+  orders.forEach((order) => {
+    const orderItems =
+      itemsData?.filter((i) => i.soid === Number(order.id)) ?? [];
+
+    if (!orderItems.length) {
+      rows.push([
+        order.id,
+        formatDate(order.datecompleted),
+        order.channel ?? "",
+        order.totalprice ?? 0,
+        "",
+        "",
+        "",
+        "",
+      ]);
+    } else {
+      orderItems.forEach((it) => {
+        rows.push([
+          order.id,
+          formatDate(order.datecompleted),
+          order.channel ?? "",
+          order.totalprice ?? 0,
+          it.productnum ?? "",
+          it.description ?? "",
+          it.qtyfulfilled ?? it.qtyordered ?? 0,
+          it.totalprice ?? 0,
+        ]);
+      });
+    }
+  });
+
+  const csv = buildCSV([headers, ...rows]);
+  downloadBlob("all-orders.csv", csv);
+}
+
+  return (
+    <div className="h-full overflow-y-auto">
+
+      {/* ================= TOP ACTION BAR ================= */}
+      <div className="flex justify-end mb-4">
+        <button
+          onClick={downloadAllOrders}
+          className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition"
+        >
+          <Download size={14} />
+          Download All Orders
+        </button>
       </div>
 
-      <div className="mt-3 h-[calc(100%-92px)] overflow-y-auto pr-2 space-y-2">
-        {orders.length === 0 && !ordersLoading && (
-          <div className="py-10 text-center text-sm text-slate-400">
-            No orders found.
-          </div>
-        )}
+      {ordersLoading && (
+        <div className="text-sm text-slate-400 mb-4">
+          Loading orders...
+        </div>
+      )}
 
-        {orders.map((o) => {
-          const isOpen = expandedOrder === (o as any).id;
-          const id = String((o as any).id);
-          const meta = getItemMeta(id);
+      <table className="w-full border-separate border-spacing-0 text-sm">
 
-          return (
-            <div
-              key={id}
-              className="rounded-2xl border border-slate-200/60 bg-white shadow-sm"
-            >
-              <button
-                type="button"
-                onClick={() => toggleOrder(id)}
-                className="w-full text-left"
-              >
-                <div className="grid grid-cols-12 items-center px-4 py-3 hover:bg-slate-50/60 transition">
-                  <div className="col-span-3 font-medium">#{id}</div>
-                  <div className="col-span-3">
-                    {formatDate((o as any).datecompleted)}
-                  </div>
-                  <div className="col-span-3 truncate">
-                    {(o as any).channel ?? "—"}
-                  </div>
-                  <div className="col-span-2 text-right font-semibold">
-                    {formatMoney((o as any).totalprice)}
-                  </div>
-                  <div className="col-span-1 flex justify-end">
+        {/* ================= STICKY HEADER ================= */}
+        <thead className="sticky top-0 z-10 bg-white shadow-xs">
+          <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
+            <th className="py-3 px-4">Order</th>
+            <th className="py-3 px-4">Date</th>
+            <th className="py-3 px-4">Channel</th>
+            <th className="py-3 px-4 text-right">Total</th>
+            <th className="py-3 px-4 w-10"></th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          {orders.map((o) => {
+            const id = String(o.id);
+            const isOpen = expandedOrder === id;
+            const meta = getItemMeta(id);
+            const items = o.items ?? [];
+
+            return (
+              <Fragment key={id}>
+
+                <tr
+                  className={`border-b border-slate-100 hover:bg-slate-50 transition cursor-pointer ${
+                    isOpen ? "bg-slate-50" : ""
+                  }`}
+                  onClick={() => toggleOrder(id)}
+                >
+                  <td className="py-3 px-4 font-medium text-slate-900">
+                    #{id}
+                  </td>
+
+                  <td className="py-3 px-4 text-slate-600">
+                    {formatDate(o.datecompleted)}
+                  </td>
+
+                  <td className="py-3 px-4 text-slate-600">
+                    {o.channel ?? "—"}
+                  </td>
+
+                  <td className="py-3 px-4 text-right font-semibold text-slate-900">
+                    {formatMoney(o.totalprice)}
+                  </td>
+
+                  <td className="py-3 px-4 text-right">
                     <ChevronDown
                       size={16}
-                      className={`transition-transform ${
+                      className={`transition-transform duration-200 ${
                         isOpen ? "rotate-180" : ""
                       }`}
                     />
-                  </div>
-                </div>
-              </button>
+                  </td>
+                </tr>
 
-              {isOpen && (
-                <div className="border-t border-slate-200/60">
-                  <div className="grid grid-cols-12 px-4 py-2 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/60">
-                    <div className="col-span-3">SKU</div>
-                    <div className="col-span-6">Description</div>
-                    <div className="col-span-1 text-right">Qty</div>
-                    <div className="col-span-2 text-right">Line $</div>
-                  </div>
-
-                  {meta.loading && (
-                    <div className="px-4 py-3 text-sm text-slate-400">
-                      Loading items...
-                    </div>
-                  )}
-
-                  <div className="divide-y divide-slate-100">
-                    {(((o as any).items ?? []) as any[]).map((it, idx) => (
-                      <div
-                        key={`${it.sku ?? "x"}-${idx}`}
-                        className="grid grid-cols-12 px-4 py-2 text-sm"
-                      >
-                        <div className="col-span-3 truncate">{it.sku ?? "—"}</div>
-                        <div className="col-span-6 truncate">
-                          {it.description ?? "—"}
-                        </div>
-                        <div className="col-span-1 text-right">
-                          {it.quantity ?? 0}
-                        </div>
-                        <div className="col-span-2 text-right font-medium">
-                          {formatMoney(it.price)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {meta.totalPages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-3 text-sm">
-                      <div className="text-slate-500">
-                        Items page {meta.page} / {meta.totalPages}
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
-                          disabled={meta.page <= 1 || meta.loading}
-                          onClick={() => loadItems(id, meta.page - 1)}
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={5} className="p-0">
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.25, ease: "easeOut" }}
+                          className="overflow-hidden"
                         >
-                          Prev
-                        </button>
-                        <button
-                          className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
-                          disabled={meta.page >= meta.totalPages || meta.loading}
-                          onClick={() => loadItems(id, meta.page + 1)}
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                          <div className="border-l-4 border-[#ebb700] bg-slate-50 px-4 py-6">
 
-      {orderTotalPages > 1 && (
-        <div className="mt-3 flex items-center justify-between px-2 text-sm">
-          <div className="text-slate-500">
-            Orders page {orderPage} / {orderTotalPages}
-          </div>
-          <div className="flex gap-2">
-            <button
-              className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
-              disabled={orderPage <= 1}
-              onClick={() => setOrderPage(orderPage - 1)}
-            >
-              Prev
-            </button>
-            <button
-              className="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
-              disabled={orderPage >= orderTotalPages}
-              onClick={() => setOrderPage(orderPage + 1)}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="text-sm font-medium text-slate-700">
+                                Line Items
+                              </div>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  downloadOrder(o);
+                                }}
+                                className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+                              >
+                                <Download size={14} />
+                                Download
+                              </button>
+                            </div>
+
+                            {meta.loading && (
+                              <div className="text-sm text-slate-400">
+                                Loading items...
+                              </div>
+                            )}
+
+                            {!meta.loading && (
+                              <table className="w-full text-xs bg-white rounded-lg overflow-hidden">
+                                <thead>
+                                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200 bg-slate-100">
+                                    <th className="py-2 px-3">SKU</th>
+                                    <th className="py-2 px-3">Description</th>
+                                    <th className="py-2 px-3 text-right">Qty</th>
+                                    <th className="py-2 px-3 text-right">Line Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {items.map((it, idx) => (
+                                    <tr
+                                      key={`${it.sku ?? "x"}-${idx}`}
+                                      className="border-b border-slate-100 last:border-none"
+                                    >
+                                      <td className="py-2 px-3">{it.sku ?? "—"}</td>
+                                      <td className="py-2 px-3">{it.description ?? "—"}</td>
+                                      <td className="py-2 px-3 text-right">
+                                        {it.quantity ?? 0}
+                                      </td>
+                                      <td className="py-2 px-3 text-right font-medium">
+                                        {formatMoney(it.price)}
+                                      </td>
+                                    </tr>
+                                  ))}
+
+                                  {items.length === 0 && (
+                                    <tr>
+                                      <td colSpan={4} className="py-6 text-slate-400 px-3">
+                                        No line items found.
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            )}
+
+                          </div>
+                        </motion.div>
+                      </td>
+                    </tr>
+                  )}
+                </AnimatePresence>
+
+              </Fragment>
+            );
+          })}
+
+        </tbody>
+      </table>
     </div>
   );
 }

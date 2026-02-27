@@ -1,15 +1,16 @@
-// /modal/hooks/useOrderItems.ts
 "use client";
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Order } from "../../types"; // adjust path
+import { Order } from "../../types";
 
 const ITEM_PAGE_SIZE = 15;
 
 export default function useOrderItems(opts: {
-  orders: Order[];
-  setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
+  orders: (Order & { items?: any[] })[];
+  setOrders: React.Dispatch<
+    React.SetStateAction<(Order & { items?: any[] })[]>
+  >;
 }) {
   const { setOrders } = opts;
 
@@ -31,17 +32,20 @@ export default function useOrderItems(opts: {
 
     setItemLoading((p) => ({ ...p, [orderId]: true }));
 
+    const numericId = Number(orderId); // convert only for DB query
+
     const { data, count } = await supabase
       .from("so_items_raw")
-      .select("productnum, description, qtyfulfilled, qtyordered, totalprice", {
-        count: "exact",
-      })
-      .eq("soid", Number(orderId))
+      .select(
+        "productnum, description, qtyfulfilled, qtyordered, totalprice",
+        { count: "exact" }
+      )
+      .eq("soid", numericId)
       .range(from, to);
 
     setOrders((prev) =>
-      prev.map((o: any) =>
-        o.id === orderId
+      prev.map((o) =>
+        String(o.id) === orderId
           ? {
               ...o,
               items:

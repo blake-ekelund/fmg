@@ -16,7 +16,7 @@ import SalesUploadModal from "./current/SalesUploadModal";
 type InventorySection = "current" | "products" | "forecast";
 
 export default function InventoryPage() {
-  const [section, setSection] = useState<InventorySection>("current");
+  const [section, setSection] = useState<InventorySection>("forecast");
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [filters, setFilters] = useState({
     search: "",
@@ -135,15 +135,18 @@ export default function InventoryPage() {
             </h1>
 
             <nav className="flex gap-6 text-sm font-medium">
-              <InlineTab active={section === "current"} onClick={() => setSection("current")}>
-                Current
-              </InlineTab>
-              <InlineTab active={section === "products"} onClick={() => setSection("products")}>
-                Products
-              </InlineTab>
               <InlineTab active={section === "forecast"} onClick={() => setSection("forecast")}>
                 Forecast
               </InlineTab>
+              
+              <InlineTab active={section === "current"} onClick={() => setSection("current")}>
+                Current
+              </InlineTab>
+
+              <InlineTab active={section === "products"} onClick={() => setSection("products")}>
+                Products
+              </InlineTab>
+
             </nav>
 
           </div>
