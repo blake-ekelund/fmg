@@ -29,7 +29,7 @@ export default function useCustomerSalesAnalysis(
         .from("customer_sales_analysis")
         .select("*")
         .eq("customerid", customerId)
-        .in("year", [2025, 2026])   // 👈 Filter here
+        .in("year", [2024, 2025, 2026])   // 👈 Filter here
         .order("year", { ascending: false });
 
       if (error) {
