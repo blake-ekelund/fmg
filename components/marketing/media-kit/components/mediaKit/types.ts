@@ -35,3 +35,9 @@ export const ASSET_TYPES: AssetType[] = [
   "fragrance",
   "other",
 ];
+
+export type AssetMeta = {
+  exists: boolean;
+  updatedAt?: string | null;
+  path?: string | null; // REQUIRED for downloads
+};

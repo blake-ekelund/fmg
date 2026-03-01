@@ -1,4 +1,5 @@
 import { Pencil } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 import { ProductRow, AssetType, ASSET_TYPES } from "./types";
 import { AssetBadge } from "./AssetBadges";
 import { CopyBadge } from "./CopyBadge";
@@ -20,11 +21,36 @@ export function MediaKitTableRow({ product, assetMeta, onEdit }: Props) {
     ingredients: !!copy?.ingredients_text?.trim(),
   };
 
+  const handleAssetClick = async (type: AssetType) => {
+    const meta = assetMeta[type];
+
+    // If no file, keep existing behavior
+    if (!meta?.exists || !meta?.path) {
+      onEdit(type);
+      return;
+    }
+
+    // Generate signed URL (private bucket)
+    const { data, error } = await supabase.storage
+      .from("media-kit")
+      .createSignedUrl(meta.path, 60);
+
+    if (error || !data?.signedUrl) {
+      console.error("Signed URL error:", error);
+      onEdit(type); // fallback
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <tr className="hover:bg-gray-50 border-b border-gray-100">
       <td className="px-4 py-3 align-top">
         <div className="space-y-0.5">
-          <div className="font-mono text-xs text-gray-600">{product.part}</div>
+          <div className="font-mono text-xs text-gray-600">
+            {product.part}
+          </div>
           <div className="font-medium text-gray-900">
             {product.display_name}
           </div>
@@ -45,14 +71,28 @@ export function MediaKitTableRow({ product, assetMeta, onEdit }: Props) {
 
       <td className="px-4 py-3">
         <div className="flex flex-wrap gap-2 min-w-[360px]">
-          {ASSET_TYPES.map((type: AssetType) => (
-            <button key={type} onClick={() => onEdit(type)}>
-              <AssetBadge
-                type={type}
-                status={assetMeta[type]?.exists ? "present" : "missing"}
-              />
-            </button>
-          ))}
+          {ASSET_TYPES.map((type: AssetType) => {
+            const meta = assetMeta[type];
+            const downloadable = meta?.exists && meta?.path;
+
+            return (
+              <button
+                key={type}
+                onClick={() => handleAssetClick(type)}
+                title={
+                  downloadable
+                    ? "Download asset"
+                    : "Add / edit asset"
+                }
+                className="cursor-pointer hover:scale-[1.02] transition"
+              >
+                <AssetBadge
+                  type={type}
+                  status={meta?.exists ? "present" : "missing"}
+                />
+              </button>
+            );
+          })}
         </div>
       </td>
 

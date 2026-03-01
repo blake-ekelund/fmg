@@ -111,7 +111,7 @@ export default function MediaKitPage() {
     async function loadAssets() {
       const { data, error } = await supabase
         .from("media_kit_assets")
-        .select("part, asset_type, updated_at");
+        .select("part, asset_type, storage_path, updated_at"); // ← add storage_path
 
       if (error) {
         console.error("Failed to load assets", error);
@@ -120,13 +120,17 @@ export default function MediaKitPage() {
 
       setAssetMetaBySku((prev) => {
         const next = { ...prev };
+
         for (const row of data ?? []) {
           if (!next[row.part]) continue;
+
           next[row.part][row.asset_type as Section] = {
             exists: true,
             updatedAt: row.updated_at,
+            path: row.storage_path, // ← critical addition
           };
         }
+
         return next;
       });
     }
@@ -135,7 +139,7 @@ export default function MediaKitPage() {
   }, [products]);
 
   /* -------------------------
-     Apply filters (derived)
+     Apply filters
   -------------------------- */
   const filteredProducts = products.filter((p) => {
     const q = search.toLowerCase();
@@ -163,7 +167,6 @@ export default function MediaKitPage() {
   return (
     <>
       <div className="space-y-6">
-        {/* Filters */}
         <div className="overflow-x-auto">
           <FiltersBar
             search={search}
@@ -176,7 +179,6 @@ export default function MediaKitPage() {
           />
         </div>
 
-        {/* Table */}
         <section className="overflow-x-auto">
           <MediaKitTable
             products={filteredProducts}
@@ -187,7 +189,6 @@ export default function MediaKitPage() {
         </section>
       </div>
 
-      {/* Editor Modal */}
       {activeSku && (
         <SkuAssetEditorModal
           open={true}

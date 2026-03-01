@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { Order } from "../../types"; // adjust if your types live elsewhere
 
-const ORDER_PAGE_SIZE = 15;
+const ORDER_PAGE_SIZE = 25;
 
 export default function useCustomerOrders(
   customerId: string | null,
