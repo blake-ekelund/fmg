@@ -1,9 +1,9 @@
 import { Pencil } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { ProductRow, AssetType, ASSET_TYPES } from "./types";
+import { ProductRow, AssetType, ASSET_TYPES, AssetMeta} from "./types";
 import { AssetBadge } from "./AssetBadges";
 import { CopyBadge } from "./CopyBadge";
-import { Section, AssetMeta } from "../modalSections/types";
+import { Section } from "../modalSections/types";
 
 type Props = {
   product: ProductRow;

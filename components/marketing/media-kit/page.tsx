@@ -5,10 +5,10 @@ import { supabase } from "@/lib/supabaseClient";
 
 import { MediaKitTable } from "./components/mediaKit/MediaKitTable";
 import { FiltersBar } from "./components/mediaKit/FiltersBar";
-import { ProductRow } from "./components/mediaKit/types";
+import { ProductRow, AssetMeta } from "./components/mediaKit/types";
 import { SkuAssetEditorModal } from "./components/SkuAssetEditorModal";
 
-import { Section, AssetMeta } from "./components/modalSections/types";
+import { Section } from "./components/modalSections/types";
 import { emptyAssetMeta } from "@/lib/mediaKit/emptyAssetMeta";
 
 /* -------------------------

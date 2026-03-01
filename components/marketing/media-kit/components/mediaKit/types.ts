@@ -39,5 +39,5 @@ export const ASSET_TYPES: AssetType[] = [
 export type AssetMeta = {
   exists: boolean;
   updatedAt?: string | null;
-  path?: string | null; // REQUIRED for downloads
+  path?: string | null; // ← add this
 };

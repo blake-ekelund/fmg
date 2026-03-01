@@ -10,5 +10,6 @@ export type Section =
 
 export type AssetMeta = {
   exists: boolean;
-  updatedAt?: string;
+  updatedAt?: string | null;
+  path?: string | null; // ← add this
 };
