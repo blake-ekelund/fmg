@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useBrand } from "@/components/BrandContext";
 
 import { MediaKitTable } from "./components/mediaKit/MediaKitTable";
 import { FiltersBar } from "./components/mediaKit/FiltersBar";
@@ -32,6 +33,7 @@ function hasAllAssets(assetMeta: Record<Section, AssetMeta>) {
 }
 
 export default function MediaKitPage() {
+  const { brand } = useBrand();
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSku, setActiveSku] = useState<ProductRow | null>(null);
@@ -51,7 +53,7 @@ export default function MediaKitPage() {
   async function load() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("inventory_products")
       .select(`
         part,
@@ -67,6 +69,12 @@ export default function MediaKitPage() {
       `)
       .order("part");
 
+    if (brand !== "all") {
+      query = query.eq("brand", brand);
+    }
+
+    const { data, error } = await query;
+
     if (error) {
       console.error("Failed to load products", error);
       setLoading(false);
@@ -74,11 +82,13 @@ export default function MediaKitPage() {
     }
 
     const normalized: ProductRow[] =
-      (data ?? []).map((row: any) => ({
+      (data ?? []).map((row) => ({
         part: row.part,
         display_name: row.display_name,
         fragrance: row.fragrance,
-        media_kit_products: row.media_kit_products ?? null,
+        media_kit_products: Array.isArray(row.media_kit_products)
+          ? row.media_kit_products[0] ?? null
+          : row.media_kit_products ?? null,
       }));
 
     setProducts(normalized);
@@ -87,7 +97,7 @@ export default function MediaKitPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [brand]);
 
   /* -------------------------
      Initialize asset meta

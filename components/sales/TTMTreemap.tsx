@@ -1,10 +1,24 @@
 "use client";
 
 import { ResponsiveContainer, Treemap, Tooltip } from "recharts";
+import type { TooltipContentProps } from "recharts/types/component/Tooltip";
+import { CHART_NAVY_PALETTE } from "@/lib/colors";
 
 type Item = {
   name: string;
   value: number; // TTM total
+};
+
+type TreemapCellProps = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  name: string;
+  value: number;
+  index: number;
+  colors: readonly string[];
+  total: number;
 };
 
 function fmtMoney(n: number) {
@@ -23,7 +37,7 @@ function fmtPct(n: number) {
  * - No bold
  * - Adds % of total
  */
-function TreemapCell(props: any) {
+function TreemapCell(props: TreemapCellProps) {
   const {
     x,
     y,
@@ -111,34 +125,17 @@ export function TTMTreemap({
     },
   ];
 
-  // Soft, deterministic palette
-  const colors = [
-    "#1B3C53",
-    "#234C6A",
-    "#456882",
-    "#2F5D7A",
-    "#3E6E8A",
-    "#5A7F98",
-    "#2A475D",
-    "#355D77",
-    "#4B7895",
-    "#6A8FA6",
-    "#2E5168",
-    "#3C6A86",
-    "#517E97",
-    "#6D95AC",
-    "#2B4A60",
-  ];
+  const colors = CHART_NAVY_PALETTE;
 
   return (
-    <div className="w-full rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="mb-3 flex items-baseline justify-between">
-        <div className="text-sm font-medium text-gray-800">
+    <div className="w-full rounded-xl border border-gray-200 bg-white p-5">
+      <div className="mb-4 flex items-baseline justify-between">
+        <h3 className="text-xs font-semibold text-gray-900">
           {title}
-        </div>
-        <div className="text-xs text-gray-500">
-          Share of trailing 12-month revenue
-        </div>
+        </h3>
+        <span className="text-[10px] text-gray-400">
+          Share of TTM revenue
+        </span>
       </div>
 
       <div className="h-75">
@@ -146,7 +143,7 @@ export function TTMTreemap({
           <Treemap
             data={data}
             dataKey="value"
-            stroke="#ffffff"
+            stroke="rgba(255,255,255,0.9)"
             content={(p) =>
               TreemapCell({
                 ...p,
@@ -156,7 +153,7 @@ export function TTMTreemap({
             }
           >
             <Tooltip
-              content={({ active, payload }: any) => {
+              content={({ active, payload }: TooltipContentProps<number, string>) => {
                 if (!active || !payload?.length)
                   return null;
 

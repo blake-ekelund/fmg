@@ -97,8 +97,8 @@ export default function SalesUploadModal({
 
       setStep("complete");
       setLoading(false);
-    } catch (err: any) {
-      setError(err?.message || "Upload failed.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
       setStep("error");
       setLoading(false);
     }

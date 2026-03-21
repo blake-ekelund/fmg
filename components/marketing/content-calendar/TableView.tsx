@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   Mail,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 /* ---------------------------------------------
    Visual mappings
@@ -16,7 +17,7 @@ import {
 const PLATFORM_META: Record<
   Platform,
   {
-    icon: React.ComponentType<any>;
+    icon: LucideIcon;
     className: string;
   }
 > = {

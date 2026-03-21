@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import clsx from "clsx";
 
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
+import TopBar from "@/components/TopBar";
+
+const COLLAPSED_WIDTH = 64;
+const DEFAULT_WIDTH = 224; // ~w-56
 
 export default function LayoutShell({
   children,
@@ -16,39 +19,36 @@ export default function LayoutShell({
   const isAuthRoute = pathname.startsWith("/auth");
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
 
-  // Auth pages should not use app chrome
   if (isAuthRoute) {
     return <>{children}</>;
   }
 
+  const marginLeft = sidebarCollapsed ? COLLAPSED_WIDTH : sidebarWidth;
+
   return (
-    <div className="min-h-screen bg-white">
-      {/* Desktop sidebar only */}
+    <div className="min-h-screen bg-gray-50/60">
+      {/* Desktop sidebar */}
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((v) => !v)}
+        width={sidebarWidth}
+        onWidthChange={setSidebarWidth}
       />
 
-      {/* Main content wrapper */}
+      {/* Main content */}
       <div
-        className={clsx(
-          "flex min-h-screen flex-col transition-all duration-300",
-
-          /* Mobile spacing for fixed header */
-          "pt-16 md:pt-0",
-
-          /* Desktop sidebar spacing */
-          sidebarCollapsed ? "md:ml-20" : "md:ml-56"
-        )}
+        className="flex min-h-screen flex-col pt-16 md:pt-0"
+        style={{
+          marginLeft: `${marginLeft}px`,
+          transition: "margin-left 200ms ease",
+        }}
       >
-        {/* Mobile top navigation */}
         <MobileNav />
+        <TopBar />
 
-        {/* Page content */}
-        <main className="flex-1">
-          {children}
-        </main>
+        <main className="flex-1">{children}</main>
       </div>
     </div>
   );

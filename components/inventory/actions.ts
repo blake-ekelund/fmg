@@ -45,7 +45,7 @@ function chunkArray<T>(arr: T[], size: number) {
   return out;
 }
 
-async function insertInChunks(table: string, rows: any[], chunkSize = 1000) {
+async function insertInChunks(table: string, rows: Record<string, unknown>[], chunkSize = 1000) {
   for (const chunk of chunkArray(rows, chunkSize)) {
     const { error } = await supabase.from(table).insert(chunk);
     if (error) throw error;
@@ -95,11 +95,6 @@ export async function uploadInventorySnapshot(
     blankrows: false,
   });
 
-  console.log("========== RAW ROWS PREVIEW ==========");
-  console.log(rawRows.slice(0, 15));
-  console.log("Total raw rows:", rawRows.length);
-  console.log("======================================");
-
   if (rawRows.length < 5) {
     throw new Error("Spreadsheet does not contain enough rows");
   }
@@ -110,8 +105,6 @@ export async function uploadInventorySnapshot(
     )
   );
 
-  console.log("Detected headerIndex:", headerIndex);
-
   if (headerIndex === -1) {
     throw new Error("Could not find header row (Part column missing)");
   }
@@ -120,9 +113,7 @@ export async function uploadInventorySnapshot(
     String(h).trim()
   );
 
-  console.log("Header row:", headerRow);
-
-  const normalize = (v: any) =>
+  const normalize = (v: unknown) =>
     String(v).replace(/\s+/g, " ").trim().toLowerCase();
 
   const getCol = (name: string) =>
@@ -142,21 +133,6 @@ export async function uploadInventorySnapshot(
   const colCommitted = getCol("Committed");
   const colShort = getCol("Short");
 
-  console.log("Column indexes:");
-  console.log({
-    colPart,
-    colDesc,
-    colUom,
-    colOnHand,
-    colAllocated,
-    colNotAvailable,
-    colDropShip,
-    colAvailable,
-    colOnOrder,
-    colCommitted,
-    colShort,
-  });
-
   if (colPart === -1) {
     throw new Error("Part column not found in header");
   }
@@ -174,20 +150,12 @@ export async function uploadInventorySnapshot(
 
   if (uploadError) throw uploadError;
 
-  const items: any[] = [];
-
-  let foundTarget = false;
+  const items: Record<string, unknown>[] = [];
 
   for (let i = headerIndex + 1; i < rawRows.length; i++) {
     const row = rawRows[i];
 
     const part = String(row[colPart] ?? "").trim();
-
-    if (part.includes("100-00-01")) {
-      console.log("FOUND TARGET ROW AT INDEX:", i);
-      console.log("ROW DATA:", row);
-      foundTarget = true;
-    }
 
     if (!part) continue;
 
@@ -208,16 +176,11 @@ export async function uploadInventorySnapshot(
     });
   }
 
-  console.log("Did we detect 100-00-01?", foundTarget);
-  console.log("Total parsed items:", items.length);
-
   if (!items.length) {
     throw new Error("No inventory rows parsed from file");
   }
 
   await insertInChunks("inventory_snapshot_items", items, 2000);
-
-  console.log("Inserted rows:", items.length);
 
   return { uploadId: upload.id, rowsInserted: items.length };
 }
@@ -269,7 +232,7 @@ export async function uploadSalesData({
     const ordersSheet =
       ordersWorkbook.Sheets[ordersWorkbook.SheetNames[0]];
 
-    const ordersRows = XLSX.utils.sheet_to_json<any>(ordersSheet, {
+    const ordersRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ordersSheet, {
       defval: "",
     });
 
@@ -315,7 +278,7 @@ export async function uploadSalesData({
     const itemsWorkbook = XLSX.read(itemsBuffer, { type: "buffer" });
     const itemsSheet = itemsWorkbook.Sheets[itemsWorkbook.SheetNames[0]];
 
-    const itemsRows = XLSX.utils.sheet_to_json<any>(itemsSheet, {
+    const itemsRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(itemsSheet, {
       defval: "",
     });
 
@@ -385,13 +348,14 @@ export async function uploadSalesData({
       ordersInserted: ordersToInsert.length,
       itemsInserted: itemsToInsert.length,
     };
-  } catch (e: any) {
+  } catch (e: unknown) {
     // Mark upload failed (best-effort)
+    const message = e instanceof Error ? e.message : "Upload failed";
     await supabase
       .from("sales_uploads")
       .update({
         status: "failed",
-        error_text: e?.message ? String(e.message) : "Upload failed",
+        error_text: message,
       })
       .eq("id", uploadId);
 

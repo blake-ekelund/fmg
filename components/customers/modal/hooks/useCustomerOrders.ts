@@ -42,7 +42,7 @@ export default function useCustomerOrders(
         .range(from, to);
 
       if (!cancelled) {
-        setOrders((data ?? []) as any);
+        setOrders((data ?? []) as Order[]);
         setTotalCount(count ?? 0);
         setLoading(false);
       }

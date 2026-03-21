@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import clsx from "clsx";
 import ForecastRow from "./ForecastRow";
 import { ForecastRow as Row } from "./types";
 import { project, colorFor } from "./utils/forecast";
@@ -10,133 +11,54 @@ type Props = {
   onUpdateOnOrder: (part: string, value: number) => void;
 };
 
-export default function ForecastTable({
-  rows,
-  months,
-  onUpdateAvg,
-  onUpdateOnOrder,
-}: Props) {
+function fmt(n: number): string {
+  return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+export default function ForecastTable({ rows, months, onUpdateAvg, onUpdateOnOrder }: Props) {
   const now = useMemo(() => new Date(), []);
 
   return (
     <>
-      {/* ========================= */}
-      {/* Mobile: Card View */}
-      {/* ========================= */}
-      <div className="space-y-4 md:hidden">
+      {/* ─── Mobile Cards ─── */}
+      <div className="space-y-3 md:hidden">
         {rows.map((r) => (
-          <div
+          <MobileCard
             key={r.part}
-            className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4"
-          >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-medium text-gray-900">
-                  {r.display_name}
-                </div>
-                <div className="font-mono text-xs text-gray-500">
-                  {r.part}
-                </div>
-                {r.fragrance && (
-                  <div className="text-xs text-gray-500">
-                    {r.fragrance}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Inputs */}
-            <div className="grid grid-cols-3 gap-3 text-sm tabular-nums">
-              <Stat label="On Hand" value={r.on_hand} />
-
-              <EditableStat
-                label="On Order"
-                value={r.on_order}
-                onChange={(v) => onUpdateOnOrder(r.part, v)}
-              />
-
-              <EditableStat
-                label="Avg / Mo"
-                value={r.avg_monthly_demand}
-                onChange={(v) => onUpdateAvg(r.part, v)}
-              />
-            </div>
-
-            {/* Forecast */}
-            <div className="pt-2 border-t border-gray-100 space-y-2">
-              <div className="text-xs font-medium text-gray-500">
-                Forecast
-              </div>
-
-              <div className="space-y-1 text-sm tabular-nums">
-                {months.map((m, i) => {
-                  const v = project(r, i, now);
-
-                  return (
-                    <div
-                      key={m.toISOString()}
-                      className="flex items-center justify-between"
-                    >
-                      <span className="text-gray-500">
-                        {m.toLocaleDateString("en-US", {
-                          month: "short",
-                          year: "2-digit",
-                        })}
-                      </span>
-
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-xs ${colorFor(
-                          v,
-                          r.avg_monthly_demand
-                        )}`}
-                      >
-                        {Math.round(v).toLocaleString()}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+            row={r}
+            months={months}
+            now={now}
+            onUpdateAvg={onUpdateAvg}
+            onUpdateOnOrder={onUpdateOnOrder}
+          />
         ))}
 
         {rows.length === 0 && (
-          <div className="p-4 text-sm text-gray-500">
+          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">
             No forecast data available.
           </div>
         )}
       </div>
 
-      {/* ========================= */}
-      {/* Desktop: Table View */}
-      {/* ========================= */}
+      {/* ─── Desktop Table ─── */}
       <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-200 bg-white">
-        <table className="w-full text-[12px]">
+        <table className="w-full text-xs">
           <thead>
-            <tr className="text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-200">
-              <th className="px-2 py-1.5 text-center w-8">Status</th>
-              <th className="px-2 py-1.5 text-left">Part</th>
-              <th className="px-2 py-1.5 text-left">Name</th>
-              <th className="px-2 py-1.5 text-left">Fragrance</th>
-              <th className="px-2 py-1.5 text-right">On Hand</th>
-              <th className="px-2 py-1.5 text-right">On Order</th>
-              <th className="px-2 py-1.5 text-right">Avg / Mo</th>
-
+            <tr className="border-b border-gray-200 text-[10px] uppercase tracking-wider text-gray-400">
+              <th className="px-2 py-2.5 text-center w-8 font-medium">Status</th>
+              <th className="px-2 py-2.5 text-left font-medium whitespace-nowrap">Part</th>
+              <th className="px-2 py-2.5 text-left font-medium">Name</th>
+              <th className="px-2 py-2.5 text-left font-medium">Fragrance</th>
+              <th className="px-2 py-2.5 text-right font-medium">On Hand</th>
+              <th className="px-2 py-2.5 text-right font-medium">On Order</th>
+              <th className="px-2 py-2.5 text-right font-medium">Avg / Mo</th>
               {months.map((m) => (
-                <th
-                  key={m.toISOString()}
-                  className="px-2 py-1.5 text-right whitespace-nowrap"
-                >
-                  {m.toLocaleDateString("en-US", {
-                    month: "short",
-                    year: "2-digit",
-                  })}
+                <th key={m.toISOString()} className="px-2 py-2.5 text-right whitespace-nowrap font-medium">
+                  {m.toLocaleDateString("en-US", { month: "short", year: "2-digit" })}
                 </th>
               ))}
             </tr>
           </thead>
-
           <tbody>
             {rows.map((r) => (
               <ForecastRow
@@ -151,7 +73,7 @@ export default function ForecastTable({
         </table>
 
         {rows.length === 0 && (
-          <div className="p-6 text-sm text-gray-500">
+          <div className="p-8 text-center text-sm text-gray-400">
             No forecast data available.
           </div>
         )}
@@ -160,62 +82,84 @@ export default function ForecastTable({
   );
 }
 
-/* ---------------------------------------------
-   Mobile helpers
---------------------------------------------- */
+/* ─── Mobile Card ─── */
 
-function Stat({
-  label,
-  value,
+function MobileCard({
+  row: r,
+  months,
+  now,
+  onUpdateAvg,
+  onUpdateOnOrder,
 }: {
-  label: string;
-  value: number;
+  row: Row;
+  months: Date[];
+  now: Date;
+  onUpdateAvg: (part: string, value: number) => void;
+  onUpdateOnOrder: (part: string, value: number) => void;
 }) {
-  return (
-    <div>
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="text-gray-900">{value.toLocaleString()}</div>
-    </div>
-  );
-}
-
-function EditableStat({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  const [local, setLocal] = useState(
-    value === 0 ? "" : value.toString()
-  );
+  const [onOrderLocal, setOnOrderLocal] = useState(r.on_order === 0 ? "" : r.on_order.toString());
+  const [avgLocal, setAvgLocal] = useState(r.avg_monthly_demand === 0 ? "" : r.avg_monthly_demand.toString());
 
   useEffect(() => {
-    setLocal(value === 0 ? "" : value.toString());
-  }, [value]);
+    setOnOrderLocal(r.on_order === 0 ? "" : r.on_order.toString());
+  }, [r.on_order]);
+
+  useEffect(() => {
+    setAvgLocal(r.avg_monthly_demand === 0 ? "" : r.avg_monthly_demand.toString());
+  }, [r.avg_monthly_demand]);
 
   return (
-    <div>
-      <div className="text-xs text-gray-500">{label}</div>
+    <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+      {/* Header */}
+      <div>
+        <div className="text-sm font-medium text-gray-900">{r.display_name}</div>
+        <div className="font-mono text-xs text-gray-400">{r.part}</div>
+        {r.fragrance && <div className="text-xs text-gray-500">{r.fragrance}</div>}
+      </div>
 
-      <input
-        inputMode="numeric"
-        value={local}
-        onChange={(e) => {
-          const v = e.target.value;
-          setLocal(v);
+      {/* Stats + editable */}
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">On Hand</div>
+          <div className="text-sm tabular-nums font-medium text-gray-900">{fmt(r.on_hand)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">On Order</div>
+          <input
+            inputMode="numeric"
+            value={onOrderLocal}
+            onChange={(e) => { setOnOrderLocal(e.target.value); if (e.target.value) onUpdateOnOrder(r.part, Number(e.target.value)); }}
+            className="mt-0.5 w-full rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition"
+          />
+        </div>
+        <div>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Avg / Mo</div>
+          <input
+            inputMode="numeric"
+            value={avgLocal}
+            onChange={(e) => { setAvgLocal(e.target.value); if (e.target.value) onUpdateAvg(r.part, Number(e.target.value)); }}
+            className="mt-0.5 w-full rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition"
+          />
+        </div>
+      </div>
 
-          if (v === "") return;
-          onChange(Number(v));
-        }}
-        className="
-          mt-0.5 w-full rounded-md
-          border border-gray-200
-          px-2 py-1 text-sm
-        "
-      />
+      {/* Forecast months */}
+      <div className="border-t border-gray-100 pt-3 space-y-1">
+        <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">12-Month Forecast</div>
+        {months.map((m, i) => {
+          const v = project(r, i, now);
+          return (
+            <div key={m.toISOString()} className="flex items-center justify-between text-xs">
+              <span className="text-gray-500">
+                {m.toLocaleDateString("en-US", { month: "short", year: "2-digit" })}
+              </span>
+              <span className={clsx("px-2 py-0.5 rounded-md text-xs tabular-nums font-medium", colorFor(v, r.avg_monthly_demand))}>
+                {fmt(Math.round(v))}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

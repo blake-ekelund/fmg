@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useCustomers } from "./hooks/useCustomers";
-import { applyFilters } from "./hooks/useCustomers";
+import { useCustomers, applyFilters } from "./hooks/useCustomers";
 import CustomersHeader from "./CustomersHeader";
 import CustomersFilters from "./CustomersFilters";
 import CustomersTable from "./CustomersTable";
-import CustomerOrdersModal from "./CustomerOrdersModal";
+import CustomersCardGrid from "./CustomersCardGrid";
+import { LayoutGrid, List } from "lucide-react";
+import clsx from "clsx";
 
 type SortDir = "asc" | "desc";
 type SortColumn =
@@ -33,10 +34,22 @@ export default function CustomersPage() {
   const [sortDir, setSortDir] =
     useState<SortDir>("desc");
 
-  const [activeCustomerId, setActiveCustomerId] =
-    useState<string | null>(null);
-
   const [downloading, setDownloading] = useState(false);
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+
+  /* Export column picker state */
+  const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
+    Name: true,
+    ID: true,
+    State: true,
+    Channel: true,
+    Status: true,
+    "Sales 2024": true,
+    "Sales 2025": true,
+    "Last Order Date": true,
+    Email: true,
+    Phone: true,
+  });
 
   const {
     customers = [],
@@ -86,6 +99,20 @@ export default function CustomersPage() {
      DOWNLOAD (Full Filtered Dataset)
   -------------------------------------------- */
 
+  /* Column key -> DB field mapping */
+  const columnFieldMap: Record<string, string> = {
+    Name: "name",
+    ID: "customerid",
+    State: "bill_to_state",
+    Channel: "channel",
+    Status: "last_order_date",
+    "Sales 2024": "sales_2024",
+    "Sales 2025": "sales_2025",
+    "Last Order Date": "last_order_date",
+    Email: "email",
+    Phone: "phone",
+  };
+
   async function handleDownload() {
     try {
       setDownloading(true);
@@ -106,14 +133,36 @@ export default function CustomersPage() {
 
       if (!data || data.length === 0) return;
 
-      const headers = Object.keys(data[0]);
+      const selectedCols = Object.entries(exportColumns)
+        .filter(([, checked]) => checked)
+        .map(([key]) => key);
+
+      if (selectedCols.length === 0) return;
+
+      const headers = selectedCols;
 
       const csvRows = [
         headers.join(","),
-        ...data.map(row =>
-          headers.map(h =>
-            JSON.stringify(row[h] ?? "")
-          ).join(",")
+        ...data.map((row: Record<string, unknown>) =>
+          selectedCols
+            .map((col) => {
+              const field = columnFieldMap[col];
+              if (!field) return '""';
+
+              if (col === "Status") {
+                const d = row["last_order_date"] as string | null;
+                if (!d) return '"No Orders"';
+                const days =
+                  (Date.now() - new Date(d).getTime()) /
+                  (1000 * 60 * 60 * 24);
+                if (days <= 180) return '"Active"';
+                if (days <= 365) return '"At Risk"';
+                return '"Churned"';
+              }
+
+              return JSON.stringify(row[field] ?? "");
+            })
+            .join(",")
         ),
       ];
 
@@ -138,12 +187,15 @@ export default function CustomersPage() {
   }
 
   return (
-    <div className="px-4 py-4 md:px-8 md:py-5 space-y-6">
+    <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
 
       {/* Header */}
       <CustomersHeader
         stats={stats}
         onDownload={handleDownload}
+        downloading={downloading}
+        exportColumns={exportColumns}
+        setExportColumns={setExportColumns}
       />
 
       {/* Filters */}
@@ -162,51 +214,74 @@ export default function CustomersPage() {
         channelOptions={channelOptions}
       />
 
-      {/* Table */}
-      <CustomersTable
-        customers={customers}
-        loading={loading}
-        onViewLastOrder={(id) =>
-          setActiveCustomerId(id)
-        }
-        sortColumn={sortColumn}
-        sortDir={sortDir}
-        onSort={handleSort}
-      />
+      {/* View toggle */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setViewMode("table")}
+          className={clsx(
+            "p-2 rounded-lg border transition",
+            viewMode === "table"
+              ? "bg-gray-900 text-white border-gray-900"
+              : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+          )}
+          title="Table view"
+        >
+          <List size={16} />
+        </button>
+        <button
+          onClick={() => setViewMode("cards")}
+          className={clsx(
+            "p-2 rounded-lg border transition",
+            viewMode === "cards"
+              ? "bg-gray-900 text-white border-gray-900"
+              : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+          )}
+          title="Card view"
+        >
+          <LayoutGrid size={16} />
+        </button>
+      </div>
+
+      {/* Table / Card Grid */}
+      {viewMode === "table" ? (
+        <CustomersTable
+          customers={customers}
+          loading={loading}
+          sortColumn={sortColumn}
+          sortDir={sortDir}
+          onSort={handleSort}
+        />
+      ) : (
+        <CustomersCardGrid
+          customers={customers}
+          loading={loading}
+        />
+      )}
 
       {/* Pagination */}
-      <div className="flex items-center justify-between text-sm pt-2">
-        <div className="text-slate-500">
+      <div className="flex items-center justify-between text-xs pt-2">
+        <span className="text-gray-400 tabular-nums">
           Page {page + 1} of {totalPages}
-        </div>
+        </span>
 
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <button
             disabled={!canGoPrev}
-            onClick={() =>
-              setPage((p) => Math.max(0, p - 1))
-            }
-            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 text-xs font-medium hover:bg-gray-50 transition disabled:opacity-30 disabled:cursor-default"
           >
             Previous
           </button>
-
           <button
             disabled={!canGoNext}
-            onClick={() =>
-              setPage((p) => p + 1)
-            }
-            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40"
+            onClick={() => setPage((p) => p + 1)}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 text-xs font-medium hover:bg-gray-50 transition disabled:opacity-30 disabled:cursor-default"
           >
             Next
           </button>
         </div>
       </div>
 
-      <CustomerOrdersModal
-        customerId={activeCustomerId}
-        onClose={() => setActiveCustomerId(null)}
-      />
     </div>
   );
 }

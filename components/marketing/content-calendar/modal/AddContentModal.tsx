@@ -270,17 +270,9 @@ export default function AddContentModal({
           await logActivity(
             row.id,
             "status_changed",
-            "Moved to Review",
-            userId,
-            { from: "Draft", to: "Review" }
-          );
-
-          await logActivity(
-            row.id,
-            "status_changed",
             "Moved to Published",
             userId,
-            { from: "Review", to: "Published" }
+            { from: "Draft", to: "Published" }
           );
         }
       }

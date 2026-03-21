@@ -150,7 +150,7 @@ async function downloadAllOrders() {
       <div className="flex justify-end mb-4">
         <button
           onClick={downloadAllOrders}
-          className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition"
+          className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition"
         >
           <Download size={14} />
           Download All Orders
@@ -158,7 +158,7 @@ async function downloadAllOrders() {
       </div>
 
       {ordersLoading && (
-        <div className="text-sm text-slate-400 mb-4">
+        <div className="text-sm text-gray-400 mb-4">
           Loading orders...
         </div>
       )}
@@ -167,7 +167,7 @@ async function downloadAllOrders() {
 
         {/* ================= STICKY HEADER ================= */}
         <thead className="sticky top-0 z-10 bg-white shadow-xs">
-          <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
+          <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
             <th className="py-3 px-4">Order</th>
             <th className="py-3 px-4">Date</th>
             <th className="py-3 px-4">Channel</th>
@@ -188,24 +188,24 @@ async function downloadAllOrders() {
               <Fragment key={id}>
 
                 <tr
-                  className={`border-b border-slate-100 hover:bg-slate-50 transition cursor-pointer ${
-                    isOpen ? "bg-slate-50" : ""
+                  className={`border-b border-gray-100 hover:bg-gray-50 transition cursor-pointer ${
+                    isOpen ? "bg-gray-50" : ""
                   }`}
                   onClick={() => toggleOrder(id)}
                 >
-                  <td className="py-3 px-4 font-medium text-slate-900">
+                  <td className="py-3 px-4 font-medium text-gray-900">
                     #{id}
                   </td>
 
-                  <td className="py-3 px-4 text-slate-600">
+                  <td className="py-3 px-4 text-gray-600">
                     {formatDate(o.datecompleted)}
                   </td>
 
-                  <td className="py-3 px-4 text-slate-600">
+                  <td className="py-3 px-4 text-gray-600">
                     {o.channel ?? "—"}
                   </td>
 
-                  <td className="py-3 px-4 text-right font-semibold text-slate-900">
+                  <td className="py-3 px-4 text-right font-semibold text-gray-900">
                     {formatMoney(o.totalprice)}
                   </td>
 
@@ -230,10 +230,10 @@ async function downloadAllOrders() {
                           transition={{ duration: 0.25, ease: "easeOut" }}
                           className="overflow-hidden"
                         >
-                          <div className="border-l-4 border-[#ebb700] bg-slate-50 px-4 py-6">
+                          <div className="border-l-4 border-accent-gold bg-gray-50 px-4 py-6">
 
                             <div className="flex items-center justify-between mb-4">
-                              <div className="text-sm font-medium text-slate-700">
+                              <div className="text-sm font-medium text-gray-700">
                                 Line Items
                               </div>
 
@@ -242,7 +242,7 @@ async function downloadAllOrders() {
                                   e.stopPropagation();
                                   downloadOrder(o);
                                 }}
-                                className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+                                className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
                               >
                                 <Download size={14} />
                                 Download
@@ -250,7 +250,7 @@ async function downloadAllOrders() {
                             </div>
 
                             {meta.loading && (
-                              <div className="text-sm text-slate-400">
+                              <div className="text-sm text-gray-400">
                                 Loading items...
                               </div>
                             )}
@@ -258,7 +258,7 @@ async function downloadAllOrders() {
                             {!meta.loading && (
                               <table className="w-full text-xs bg-white rounded-lg overflow-hidden">
                                 <thead>
-                                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200 bg-slate-100">
+                                  <tr className="text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200 bg-gray-100">
                                     <th className="py-2 px-3">SKU</th>
                                     <th className="py-2 px-3">Description</th>
                                     <th className="py-2 px-3 text-right">Qty</th>
@@ -269,7 +269,7 @@ async function downloadAllOrders() {
                                   {items.map((it, idx) => (
                                     <tr
                                       key={`${it.sku ?? "x"}-${idx}`}
-                                      className="border-b border-slate-100 last:border-none"
+                                      className="border-b border-gray-100 last:border-none"
                                     >
                                       <td className="py-2 px-3">{it.sku ?? "—"}</td>
                                       <td className="py-2 px-3">{it.description ?? "—"}</td>
@@ -284,7 +284,7 @@ async function downloadAllOrders() {
 
                                   {items.length === 0 && (
                                     <tr>
-                                      <td colSpan={4} className="py-6 text-slate-400 px-3">
+                                      <td colSpan={4} className="py-6 text-gray-400 px-3">
                                         No line items found.
                                       </td>
                                     </tr>

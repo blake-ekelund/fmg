@@ -28,6 +28,7 @@ export type Product = {
   fragrance: string | null;
   size: string | null;
   part_type: string;
+  brand: "NI" | "Sassy";
 
   cogs: number;
   min_qty: number;
@@ -35,7 +36,6 @@ export type Product = {
 
   is_forecasted: boolean;
 
-  // 👇 newly added, default 0 for now
   lead_time_months: number;
   avg_monthly_demand: number;
 };

@@ -102,7 +102,7 @@ export default function SalesAnalysisTab({
 
   if (loading) {
     return (
-      <div className="text-sm text-slate-400">
+      <div className="text-sm text-gray-400">
         Loading sales analysis...
       </div>
     );
@@ -110,7 +110,7 @@ export default function SalesAnalysisTab({
 
   if (!filteredData.length) {
     return (
-      <div className="text-sm text-slate-400">
+      <div className="text-sm text-gray-400">
         No sales data found.
       </div>
     );
@@ -130,13 +130,13 @@ export default function SalesAnalysisTab({
   ) {
     return (
       <section>
-        <h3 className="text-sm font-semibold text-slate-700 mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-4">
           {title}
         </h3>
 
-        <div className="overflow-auto border border-slate-200 rounded-xl">
+        <div className="overflow-auto border border-gray-200 rounded-xl">
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-xs uppercase text-slate-500">
+            <thead className="bg-gray-100 text-xs uppercase text-gray-500">
               <tr>
                 <th className="py-3 px-4 text-left">
                   {title.includes("Fragrance")
@@ -169,7 +169,7 @@ export default function SalesAnalysisTab({
               {rows.map((row) => (
                 <tr
                   key={row.name}
-                  className="border-t border-slate-100"
+                  className="border-t border-gray-100"
                 >
                   <td className="py-2 px-4 font-medium">
                     {row.name}
@@ -196,7 +196,7 @@ export default function SalesAnalysisTab({
                     return (
                       <td
                         key={`${year}-pct`}
-                        className="py-2 px-4 text-right text-slate-500"
+                        className="py-2 px-4 text-right text-gray-500"
                       >
                         {(pct * 100).toFixed(1)}%
                       </td>
@@ -206,7 +206,7 @@ export default function SalesAnalysisTab({
               ))}
 
               {/* GRAND TOTAL ROW */}
-              <tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold">
+              <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
                 <td className="py-2 px-4">Grand Total</td>
 
                 {years.map((year) => (

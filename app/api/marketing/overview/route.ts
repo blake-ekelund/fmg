@@ -11,7 +11,9 @@ function pctChange(current: number, prior: number) {
   return (current - prior) / prior;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const brand = searchParams.get("brand"); // "NI" | "Sassy" | null
   const today = new Date().toISOString().slice(0, 10);
 
   // --- Shopify: current 30 days ---
@@ -28,7 +30,9 @@ export async function GET() {
     .gte("day", new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10))
     .lt("day", new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
 
-  const sum = (rows: any[]) =>
+  type MetricRow = { total_orders: number; total_amount_spent: number; sessions: number };
+
+  const sum = (rows: MetricRow[]) =>
     rows.reduce(
       (acc, r) => {
         acc.orders += r.total_orders ?? 0;
@@ -72,7 +76,7 @@ export async function GET() {
   };
 
   // --- Upcoming content: next 7 days ---
-  const { data: upcomingContent } = await supabase
+  let contentQuery = supabase
     .from("marketing_content")
     .select("publish_date, platform, content_type, description, status")
     .gte("publish_date", today)
@@ -83,6 +87,12 @@ export async function GET() {
         .slice(0, 10)
     )
     .order("publish_date", { ascending: true });
+
+  if (brand === "NI" || brand === "Sassy") {
+    contentQuery = contentQuery.eq("brand", brand);
+  }
+
+  const { data: upcomingContent } = await contentQuery;
 
   return NextResponse.json({
     shopify,

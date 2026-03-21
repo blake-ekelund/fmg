@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Customer } from "./types";
 
 function formatMoney(n: number | null | undefined) {
@@ -49,19 +50,18 @@ type SortColumn =
 
 export default function CustomersTable({
   customers = [],
-  onViewLastOrder,
   loading,
   sortColumn,
   sortDir,
   onSort,
 }: {
   customers?: Customer[];
-  onViewLastOrder: (customerId: string) => void;
   loading: boolean;
   sortColumn: SortColumn;
   sortDir: "asc" | "desc";
   onSort: (column: SortColumn) => void;
 }) {
+  const router = useRouter();
   const safeCustomers = customers ?? [];
 
   function HeaderCell({
@@ -176,10 +176,10 @@ export default function CustomersTable({
               key={c.customerid}
               role="button"
               tabIndex={0}
-              onClick={() => onViewLastOrder(c.customerid)}
+              onClick={() => router.push(`/customers/${encodeURIComponent(c.customerid)}`)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
-                  onViewLastOrder(c.customerid);
+                  router.push(`/customers/${encodeURIComponent(c.customerid)}`);
                 }
               }}
               className="grid grid-cols-12 px-2 py-2 text-xs items-center border-b border-slate-100 hover:bg-slate-50/60 cursor-pointer transition focus:outline-none focus:bg-slate-50"

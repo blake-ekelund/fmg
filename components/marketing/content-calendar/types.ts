@@ -2,6 +2,13 @@
    Core Enums
 ---------------------------------- */
 
+import type { Brand, BrandFilter } from "@/types/brand";
+
+export type { Brand, BrandFilter };
+
+/** @deprecated Use BrandFilter from @/types/brand */
+export type BrandView = BrandFilter;
+
 export type Platform =
   | "Instagram"
   | "Facebook"
@@ -9,9 +16,6 @@ export type Platform =
   | "Shopify"
   | "Subscriber-List";
 
-export type Brand = "NI" | "Sassy";
-
-export type BrandView = "all" | Brand;
 export type ViewMode = "calendar" | "table";
 
 /* ----------------------------------

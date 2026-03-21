@@ -8,6 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-accent-gold: #ebb700;
+  --color-chart-navy: #1B3C53;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

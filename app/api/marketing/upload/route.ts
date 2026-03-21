@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const rows = parsed.data as any[];
+  const rows = parsed.data as Record<string, string>[];
 
   const payload = rows.map((r) => ({
     day: r["Day"],

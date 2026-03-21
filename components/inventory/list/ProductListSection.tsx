@@ -1,73 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useBrand } from "@/components/BrandContext";
+import { useProducts } from "../hooks/useProducts";
 import { Product } from "../types";
 import AddEditProductModal from "../AddEditProductModal";
 
 type StatusFilter = "current" | "archived" | "all";
 
 export default function ProductListSection() {
-  const [products, setProducts] = useState<Product[]>([]);
+  const { brand } = useBrand();
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   /* ---------------- Filters ---------------- */
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("current");
 
-  /* ---------------- Data ---------------- */
+  /* ---------------- Data via shared hook ---------------- */
 
-  async function load() {
-    setLoading(true);
-    const { data } = await supabase
-      .from("inventory_products")
-      .select("*")
-      .order("part");
-
-    setProducts(data ?? []);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
+  const { products, loading, reload } = useProducts({
+    brand,
+    search: query,
+    status,
+  });
 
   async function toggleForecast(part: string, value: boolean) {
-    setProducts((prev) =>
-      prev.map((p) =>
-        p.part === part ? { ...p, is_forecasted: value } : p
-      )
-    );
-
     await supabase
       .from("inventory_products")
       .update({ is_forecasted: value })
       .eq("part", part);
+
+    reload();
   }
-
-  /* ---------------- Filtering Logic ---------------- */
-
-  const filteredProducts = useMemo(() => {
-    const q = query.trim().toLowerCase();
-
-    return products.filter((p) => {
-      // Status filter
-      if (status === "current" && !p.is_forecasted) return false;
-      if (status === "archived" && p.is_forecasted) return false;
-
-      // Text search
-      if (!q) return true;
-
-      return (
-        p.part.toLowerCase().includes(q) ||
-        p.display_name?.toLowerCase().includes(q) ||
-        p.fragrance?.toLowerCase().includes(q)
-      );
-    });
-  }, [products, query, status]);
 
   /* ---------------- Table ---------------- */
 
@@ -234,7 +201,7 @@ return (
 
     {/* Table */}
     <ProductTable
-      rows={filteredProducts}
+      rows={products}
       emptyLabel="No matching products."
     />
 
@@ -246,7 +213,7 @@ return (
           setAddOpen(false);
           setActiveProduct(null);
         }}
-        onSaved={load}
+        onSaved={reload}
       />
     )}
   </div>

@@ -3,131 +3,80 @@
 import { useState } from "react";
 import { MoreHorizontal, X } from "lucide-react";
 
+import PageHeader from "@/components/ui/PageHeader";
+import TabNav, { type Tab } from "@/components/ui/TabNav";
+
 import MarketingOverviewSection from "@/components/marketing/overview/overview";
 import MarketingContentSection from "@/components/marketing/content-calendar/index";
 import MarketingShopifySection from "@/components/marketing/shopify/shopify";
-import MarketingMediaSection from "@/components/marketing/media-kit/page";
-import MarketingShareSection from "@/components/marketing/photo-share/page";
+import MarketingShareSection from "@/components/marketing/photo-share/PhotoSharePage";
+import SocialMediaSection from "@/components/marketing/social-media/SocialMediaSection";
 
 type MarketingSection =
   | "overview"
   | "content-calendar"
   | "shopify"
-  | "media-kit"
-  | "photo-share";
+  | "photo-share"
+  | "social-media";
+
+const TABS: Tab<MarketingSection>[] = [
+  { value: "overview", label: "Overview" },
+  { value: "content-calendar", label: "Calendar" },
+  { value: "social-media", label: "Social Media" },
+  { value: "shopify", label: "Analytics" },
+  { value: "photo-share", label: "Photo Share" },
+];
+
+const MOBILE_TABS: Tab<MarketingSection>[] = TABS.slice(0, 2);
+const MORE_TABS: Tab<MarketingSection>[] = TABS.slice(2);
 
 export default function MarketingPage() {
-  const [section, setSection] =
-    useState<MarketingSection>("overview");
-
+  const [section, setSection] = useState<MarketingSection>("overview");
   const [moreOpen, setMoreOpen] = useState(false);
 
   return (
-    <div className="px-4 md:px-8 py-8 md:py-10 space-y-8 md:space-y-10">
-      {/* Header */}
-      <header className="space-y-2">
-        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-          Marketing
-        </h1>
-        <p className="text-sm md:text-base text-gray-500 max-w-xl">
-          Measure attention, engagement, and how it converts to sales.
-        </p>
-      </header>
+    <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
+      <PageHeader
+        title="Marketing"
+        subtitle="Measure attention, engagement, and how it converts to sales."
+      />
 
-      {/* ========================= */}
-      {/* NAVIGATION                */}
-      {/* ========================= */}
-
-      {/* Mobile: Overview / Calendar / More */}
-      <nav className="md:hidden relative z-0 mt-2 flex items-center gap-2 border-b border-gray-200 pb-2">
-        <TabButton
-          active={section === "overview"}
-          onClick={() => setSection("overview")}
-        >
-          Overview
-        </TabButton>
-
-        <TabButton
-          active={section === "content-calendar"}
-          onClick={() => setSection("content-calendar")}
-        >
-          Calendar
-        </TabButton>
-
+      {/* Mobile nav: first 2 tabs + More button */}
+      <div className="md:hidden flex items-center gap-1">
+        <TabNav tabs={MOBILE_TABS} active={section} onChange={setSection} />
         <button
           onClick={() => setMoreOpen(true)}
-          className="rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-black hover:bg-gray-50 transition"
+          className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition"
         >
           <MoreHorizontal size={18} />
         </button>
-      </nav>
+      </div>
 
-      {/* Desktop: full tab set */}
-      <nav className="hidden md:flex relative z-0 gap-2 border-b border-gray-200 pb-2">
-        <TabButton
-          active={section === "overview"}
-          onClick={() => setSection("overview")}
-        >
-          Overview
-        </TabButton>
+      {/* Desktop nav: all tabs */}
+      <div className="hidden md:block">
+        <TabNav tabs={TABS} active={section} onChange={setSection} />
+      </div>
 
-        <TabButton
-          active={section === "content-calendar"}
-          onClick={() => setSection("content-calendar")}
-        >
-          Calendar
-        </TabButton>
-
-        <TabButton
-          active={section === "shopify"}
-          onClick={() => setSection("shopify")}
-        >
-          Analytics
-        </TabButton>
-
-        <TabButton
-          active={section === "media-kit"}
-          onClick={() => setSection("media-kit")}
-        >
-          Media Kit
-        </TabButton>
-
-        <TabButton
-          active={section === "photo-share"}
-          onClick={() => setSection("photo-share")}
-        >
-          Photo Share
-        </TabButton>
-      </nav>
-
-      {/* ========================= */}
-      {/* CONTENT                   */}
-      {/* ========================= */}
-      <div className="space-y-12">
+      {/* Content */}
+      <div>
         {section === "overview" && <MarketingOverviewSection />}
         {section === "content-calendar" && <MarketingContentSection />}
         {section === "shopify" && <MarketingShopifySection />}
-        {section === "media-kit" && <MarketingMediaSection />}
+        {section === "social-media" && <SocialMediaSection />}
         {section === "photo-share" && <MarketingShareSection />}
       </div>
 
-      {/* ========================= */}
-      {/* MOBILE MORE SHEET         */}
-      {/* ========================= */}
+      {/* Mobile "More" sheet */}
       {moreOpen && (
         <div className="fixed inset-0 z-50">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/30"
             onClick={() => setMoreOpen(false)}
           />
 
-          {/* Sheet */}
-          <div className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-white shadow-xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <span className="text-sm font-medium text-gray-700">
-                More
-              </span>
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <span className="text-sm font-medium text-gray-700">More</span>
               <button
                 onClick={() => setMoreOpen(false)}
                 className="p-1 rounded-lg hover:bg-gray-100"
@@ -136,83 +85,23 @@ export default function MarketingPage() {
               </button>
             </div>
 
-            <div className="px-6 py-4 space-y-2">
-              <MoreItem
-                onClick={() => {
-                  setSection("shopify");
-                  setMoreOpen(false);
-                }}
-              >
-                Analytics
-              </MoreItem>
-
-              <MoreItem
-                onClick={() => {
-                  setSection("media-kit");
-                  setMoreOpen(false);
-                }}
-              >
-                Media Kit
-              </MoreItem>
-
-              <MoreItem
-                onClick={() => {
-                  setSection("photo-share");
-                  setMoreOpen(false);
-                }}
-              >
-                Photo Share
-              </MoreItem>
+            <div className="px-5 py-3 space-y-1">
+              {MORE_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  onClick={() => {
+                    setSection(tab.value);
+                    setMoreOpen(false);
+                  }}
+                  className="w-full rounded-lg px-4 py-3 text-left text-sm hover:bg-gray-50 transition"
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-/* ---------------------------------------------
-   Tab Button
---------------------------------------------- */
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-        active
-          ? "bg-gray-100 text-black"
-          : "text-gray-500 hover:text-black hover:bg-gray-50"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* ---------------------------------------------
-   More Item
---------------------------------------------- */
-function MoreItem({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full rounded-xl px-4 py-3 text-left text-sm hover:bg-gray-50 transition"
-    >
-      {children}
-    </button>
   );
 }

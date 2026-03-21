@@ -3,9 +3,10 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import type { CustomerSummary } from "../tabs/DetailsTab";
 
 export default function useCustomerSummary(customerId: string | null) {
-  const [summary, setSummary] = useState<any>(null);
+  const [summary, setSummary] = useState<CustomerSummary | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {

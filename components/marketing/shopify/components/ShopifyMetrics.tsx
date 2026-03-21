@@ -18,7 +18,7 @@ function MetricCard({
   );
 }
 
-export function ShopifyMetrics({ data }: { data: any }) {
+export function ShopifyMetrics({ data }: { data: import("../types").ShopifyAggregatedData }) {
   return (
     <>
       {/* Funnel Volume */}

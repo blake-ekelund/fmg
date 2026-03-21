@@ -23,6 +23,7 @@ export default function AddEditProductModal({
     fragrance: product?.fragrance ?? "",
     size: product?.size ?? "",
     part_type: product?.part_type ?? "",
+    brand: product?.brand ?? "NI",
     cogs: product?.cogs ?? 0,
     min_qty: product?.min_qty ?? 0,
     max_qty: product?.max_qty ?? 0,
@@ -31,12 +32,15 @@ export default function AddEditProductModal({
     avg_monthly_demand: product?.avg_monthly_demand ?? 0,
   });
 
+  const [saving, setSaving] = useState(false);
+
   function update<K extends keyof Product>(k: K, v: Product[K]) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
   async function save() {
     if (!form.part || !form.display_name || !form.part_type) return;
+    setSaving(true);
 
     if (isEdit) {
       await supabase
@@ -60,49 +64,32 @@ export default function AddEditProductModal({
       />
 
       {/* Modal */}
-        <div
-          className="
-            relative w-full md:max-w-2xl
-            bg-white
-            rounded-t-2xl md:rounded-2xl
-            shadow-xl
-            ring-1 ring-black/5
-            max-h-[90vh]
-            flex flex-col
-            overflow-hidden
-          "
-      >
+      <div className="relative w-full md:max-w-2xl bg-white rounded-t-2xl md:rounded-2xl shadow-xl ring-1 ring-black/5 max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4">
-          <h3 className="text-lg font-medium">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-lg font-semibold">
             {isEdit ? "Edit Product" : "Add Product"}
           </h3>
 
           <button
             onClick={onClose}
-            className="
-              p-2 rounded-lg
-              text-gray-400
-              hover:text-gray-700
-              hover:bg-gray-100/60
-              transition
-            "
+            className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
           >
             <X size={18} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-8">
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
           {/* Product Details */}
           <section className="space-y-4">
-            <h4 className="text-sm font-medium text-gray-500">
+            <h4 className="text-xs font-medium uppercase tracking-wider text-gray-400">
               Product Details
             </h4>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
-                label="Part #"
+                label="SKU / Part #"
                 value={form.part}
                 disabled={isEdit}
                 onChange={(v) => update("part", v)}
@@ -123,8 +110,17 @@ export default function AddEditProductModal({
                 }
               />
 
+              <Select
+                label="Brand"
+                value={form.brand}
+                options={["NI", "Sassy"]}
+                onChange={(v) =>
+                  update("brand", v as "NI" | "Sassy")
+                }
+              />
+
               <Input
-                label="Part Type"
+                label="Part Type / Category"
                 value={form.part_type}
                 onChange={(v) => update("part_type", v)}
               />
@@ -140,16 +136,22 @@ export default function AddEditProductModal({
                 value={form.size ?? ""}
                 onChange={(v) => update("size", v)}
               />
+
+              <NumberInput
+                label="COGS ($)"
+                value={form.cogs}
+                onChange={(v) => update("cogs", v)}
+              />
             </div>
           </section>
 
           {/* Inventory Rules */}
           <section className="space-y-4">
-            <h4 className="text-sm font-medium text-gray-500">
+            <h4 className="text-xs font-medium uppercase tracking-wider text-gray-400">
               Inventory Rules
             </h4>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <NumberInput
                 label="Min Qty"
                 value={form.min_qty}
@@ -161,19 +163,31 @@ export default function AddEditProductModal({
                 value={form.max_qty}
                 onChange={(v) => update("max_qty", v)}
               />
+
+              <NumberInput
+                label="Lead Time (mo)"
+                value={form.lead_time_months}
+                onChange={(v) => update("lead_time_months", v)}
+              />
+
+              <NumberInput
+                label="Avg Monthly Demand"
+                value={form.avg_monthly_demand}
+                onChange={(v) => update("avg_monthly_demand", v)}
+              />
             </div>
           </section>
 
           {/* Forecast */}
           <section>
-            <label className="flex items-center gap-3 text-sm">
+            <label className="flex items-center gap-3 text-sm cursor-pointer">
               <input
                 type="checkbox"
                 checked={form.is_forecasted}
                 onChange={(e) =>
                   update("is_forecasted", e.target.checked)
                 }
-                className="h-4 w-4 accent-orange-500"
+                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400"
               />
               Include in forecast
             </label>
@@ -181,32 +195,20 @@ export default function AddEditProductModal({
         </div>
 
         {/* Footer */}
-        <div
-          className="
-            flex items-center justify-end gap-3
-            px-5 py-4
-            bg-white/80
-            backdrop-blur
-          "
-        >
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-100 bg-gray-50/50">
           <button
             onClick={onClose}
-            className="text-sm text-gray-600"
+            className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition"
           >
             Cancel
           </button>
 
           <button
             onClick={save}
-            className="
-              px-5 py-2.5 rounded-xl
-              text-sm font-medium
-              bg-orange-400 text-white
-              hover:bg-orange-500
-              shadow-sm
-            "
+            disabled={saving || !form.part || !form.display_name}
+            className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-800 transition shadow-sm disabled:opacity-50"
           >
-            {isEdit ? "Save Changes" : "Add Product"}
+            {saving ? "Saving..." : isEdit ? "Save Changes" : "Add Product"}
           </button>
         </div>
       </div>
@@ -214,7 +216,7 @@ export default function AddEditProductModal({
   );
 }
 
-/* ---------- Soft Inputs ---------- */
+/* ─── Form Inputs ─── */
 
 function Input({
   label,
@@ -236,17 +238,7 @@ function Input({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="
-          w-full rounded-xl
-          bg-gray-50
-          px-3 py-2
-          text-sm
-          ring-1 ring-gray-200
-          focus:ring-2 focus:ring-orange-400
-          focus:bg-white
-          disabled:bg-gray-100
-          transition
-        "
+        className="w-full rounded-lg bg-white px-3 py-2 text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:bg-gray-50 disabled:text-gray-400 transition"
       />
     </div>
   );
@@ -270,16 +262,7 @@ function NumberInput({
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="
-          w-full rounded-xl
-          bg-gray-50
-          px-3 py-2
-          text-sm text-right
-          ring-1 ring-gray-200
-          focus:ring-2 focus:ring-orange-400
-          focus:bg-white
-          transition
-        "
+        className="w-full rounded-lg bg-white px-3 py-2 text-sm text-right border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300 transition tabular-nums"
       />
     </div>
   );
@@ -304,16 +287,7 @@ function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="
-          w-full rounded-xl
-          bg-gray-50
-          px-3 py-2
-          text-sm
-          ring-1 ring-gray-200
-          focus:ring-2 focus:ring-orange-400
-          focus:bg-white
-          transition
-        "
+        className="w-full rounded-lg bg-white px-3 py-2 text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
       >
         {options.map((o) => (
           <option key={o}>{o}</option>

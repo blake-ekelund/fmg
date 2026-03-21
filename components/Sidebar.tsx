@@ -2,142 +2,191 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, LogOut } from "lucide-react";
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  LogOut,
+  GripVertical,
+} from "lucide-react";
 import clsx from "clsx";
-import { navItems, accentBg } from "./navConfig";
+import { useRef, useCallback, useEffect } from "react";
+import { getNavForRole } from "./navConfig";
+import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+
+/* ---------------------------
+   Constants
+--------------------------- */
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 320;
+const COLLAPSED_WIDTH = 64;
 
 type Props = {
   collapsed: boolean;
   onToggle: () => void;
+  width: number;
+  onWidthChange: (w: number) => void;
 };
 
-export default function Sidebar({ collapsed, onToggle }: Props) {
+export default function Sidebar({
+  collapsed,
+  onToggle,
+  width,
+  onWidthChange,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const supabase = supabaseBrowser();
+  const { profile } = useUser();
+  const sections = getNavForRole(profile?.access ?? "user");
+  const dragRef = useRef<boolean>(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
 
   async function handleLogout() {
     await supabase.auth.signOut();
     router.replace("/auth/sign-in");
   }
 
+  /* ---- Drag-to-resize ---- */
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = e.clientX - startXRef.current;
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidthRef.current + delta));
+      onWidthChange(next);
+    },
+    [onWidthChange]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    dragRef.current = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [handleMouseMove, handleMouseUp]);
+
+  function startDrag(e: React.MouseEvent) {
+    e.preventDefault();
+    dragRef.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = width;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+
+  const sidebarWidth = collapsed ? COLLAPSED_WIDTH : width;
+
+  function isActive(href: string) {
+    if (href === "/dashboard") return pathname === "/dashboard";
+    // Strip query params for matching
+    const base = href.split("?")[0];
+    // Exact match first, then prefix match with trailing slash to avoid
+    // /sales matching /sales-hub
+    if (pathname === base) return true;
+    return pathname.startsWith(base + "/");
+  }
+
   return (
     <aside
-      className={clsx(
-        "hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-white border-r border-gray-100 transition-all duration-300 z-40",
-        collapsed ? "w-20" : "w-56"
-      )}
+      className="hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-white border-r border-gray-200 z-40 select-none"
+      style={{
+        width: sidebarWidth,
+        transition: dragRef.current ? "none" : "width 200ms ease",
+      }}
     >
-      {/* Brand */}
-      <div className="h-16 px-8 flex items-center justify-between border-b border-gray-100">
+      {/* Header */}
+      <div className="h-14 px-4 flex items-center justify-between border-b border-gray-100 shrink-0">
         {!collapsed && (
-          <span className="font-semibold tracking-tight text-lg">
+          <span className="font-semibold tracking-tight text-base">
             FMG
           </span>
         )}
         <button
           aria-label="Toggle sidebar"
           onClick={onToggle}
-          className="text-gray-500 hover:text-black transition"
+          className="p-1.5 rounded-md text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition"
         >
-          <Menu size={18} />
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
 
-      {/* Nav */}
-      <nav className="mt-8 px-6 space-y-6 flex-1">
-        {navItems.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-5">
+        {sections.map((section) => (
+          <div key={section.label || "__root"}>
+            {/* Section label */}
+            {section.label && !collapsed && (
+              <div className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                {section.label}
+              </div>
+            )}
+            {section.label && collapsed && (
+              <div className="mx-auto mb-1.5 h-px w-6 bg-gray-200" />
+            )}
 
-          return (
-            <NavItem
-              key={item.label}
-              {...item}
-              collapsed={collapsed}
-              active={isActive}
-            />
-          );
-        })}
+            {/* Items */}
+            <div className="space-y-0.5">
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const active = isActive(item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={clsx(
+                      "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
+                      collapsed && "justify-center px-0",
+                      active
+                        ? "bg-gray-100 text-gray-900"
+                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                    )}
+                  >
+                    <Icon size={16} className="shrink-0" />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Logout */}
-      <div className="px-6 pb-6">
+      <div className="px-3 pb-4 shrink-0">
         <button
           onClick={handleLogout}
           className={clsx(
-            "group flex items-center gap-3 text-sm font-medium tracking-wide transition text-gray-500 hover:text-black w-full",
-            collapsed && "justify-center"
+            "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors text-gray-500 hover:bg-gray-50 hover:text-gray-900 w-full",
+            collapsed && "justify-center px-0"
           )}
         >
-          <span className="opacity-70 group-hover:opacity-100 transition">
-            <LogOut size={16} />
-          </span>
+          <LogOut size={16} className="shrink-0" />
           {!collapsed && <span>Log out</span>}
         </button>
       </div>
-    </aside>
-  );
-}
 
-/* -------------------------
-   Nav Item
--------------------------- */
-
-function NavItem({
-  label,
-  href,
-  icon: Icon,
-  accent,
-  collapsed,
-  active,
-}: {
-  label: string;
-  href: string;
-  icon: React.ComponentType<{ size?: number }>;
-  accent: keyof typeof accentBg;
-  collapsed: boolean;
-  active: boolean;
-}) {
-  return (
-    <Link href={href} className="group block">
-      <div
-        className={clsx(
-          "flex items-center gap-3 text-sm font-medium tracking-wide transition",
-          collapsed && "justify-center",
-          "text-gray-500",
-          "group-hover:text-black",
-          active && "text-black"
-        )}
-      >
-        <span
-          className={clsx(
-            "transition",
-            active
-              ? "opacity-100"
-              : "opacity-70 group-hover:opacity-100"
-          )}
-        >
-          <Icon size={16} />
-        </span>
-
-        {!collapsed && <span>{label}</span>}
-      </div>
-
+      {/* Drag handle (only when expanded) */}
       {!collapsed && (
         <div
-          className={clsx(
-            "mt-2 h-[2px] w-4 rounded-full transition",
-            active
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100",
-            accentBg[accent]
-          )}
-        />
+          onMouseDown={startDrag}
+          className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize group hover:bg-accent-gold/30 transition-colors"
+          title="Drag to resize"
+        >
+          <div className="absolute top-1/2 -translate-y-1/2 right-0 translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <GripVertical size={12} className="text-gray-400" />
+          </div>
+        </div>
       )}
-    </Link>
+    </aside>
   );
 }

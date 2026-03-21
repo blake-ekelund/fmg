@@ -1,17 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { useBrand } from "@/components/BrandContext";
 
 import {
   ContentItem,
   ViewMode,
-  BrandView,
 } from "./types";
 
 import ViewToggle from "./ToggleView";
-import BrandToggle from "./ToggleBrand";
 import CalendarView from "./CalendarView";
 import TableView from "./TableView";
 import MobileDayTable from "./MobileDayTable";
@@ -20,10 +19,9 @@ import DayModal from "./DayModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 
 export default function MarketingContentSection() {
+  const { brand } = useBrand();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [view, setView] = useState<ViewMode>("calendar");
-  const [brandView, setBrandView] =
-    useState<BrandView>("all");
 
   const [month, setMonth] = useState(new Date());
 
@@ -43,26 +41,26 @@ export default function MarketingContentSection() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [brand]);
 
   async function load() {
-    const { data } = await supabase
+    let q = supabase
       .from("marketing_content")
       .select("*")
       .order("publish_date");
 
+    if (brand !== "all") {
+      q = q.eq("brand", brand);
+    }
+
+    const { data } = await q;
     if (data) setItems(data);
   }
 
   /* ---------------------------------------------
-     Brand-filtered items
+     Visible items (brand filtering applied server-side)
   --------------------------------------------- */
-  const visibleItems = useMemo(() => {
-    if (brandView === "all") return items;
-    return items.filter(
-      (i) => i.brand === brandView
-    );
-  }, [items, brandView]);
+  const visibleItems = items;
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -94,11 +92,6 @@ export default function MarketingContentSection() {
         </h2>
 
         <div className="flex items-center justify-between md:justify-end gap-3">
-          <BrandToggle
-            brand={brandView}
-            onChange={setBrandView}
-          />
-
           {/* Desktop only */}
           <ViewToggle
             view={view}

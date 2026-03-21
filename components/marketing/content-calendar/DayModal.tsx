@@ -11,6 +11,7 @@ import {
   X,
   Trash2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 /**
  * Local-safe ISO → Date parser
@@ -23,7 +24,7 @@ function dateFromISO(iso: string) {
 
 const PLATFORM_ICONS: Record<
   Platform,
-  React.ComponentType<any>
+  LucideIcon
 > = {
   Instagram,
   Facebook,

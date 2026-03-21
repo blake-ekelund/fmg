@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useBrand } from "@/components/BrandContext";
 import { ForecastRow } from "../types";
 
 type Units90Row = {
@@ -8,6 +9,7 @@ type Units90Row = {
 };
 
 export function useForecastData() {
+  const { brand } = useBrand();
   const [rows, setRows] = useState<ForecastRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,11 +20,17 @@ export function useForecastData() {
       /* -------------------------------
          1. Products
       -------------------------------- */
-      const { data: products } = await supabase
+      let productsQuery = supabase
         .from("inventory_products")
         .select("*")
         .eq("is_forecasted", true)
         .order("part");
+
+      if (brand !== "all") {
+        productsQuery = productsQuery.eq("brand", brand);
+      }
+
+      const { data: products } = await productsQuery;
 
       /* -------------------------------
          2. Latest inventory snapshot
@@ -35,7 +43,14 @@ export function useForecastData() {
         .limit(1)
         .single();
 
-      let inventoryMap = new Map<string, any>();
+      type InventorySnapshotItem = {
+        id: string;
+        part: string;
+        on_hand: number;
+        on_order: number;
+      };
+
+      let inventoryMap = new Map<string, InventorySnapshotItem>();
 
       if (latestUpload) {
         // 2️⃣ Pull only that upload's rows
@@ -55,9 +70,6 @@ export function useForecastData() {
       const { data: units90 } = await supabase
         .from("units_by_product_last_90_days")
         .select("part, units_last_90_days");
-
-console.log("UNITS 90D RAW FROM DB:", units90?.slice(0, 10));
-
 
       const units90Map = new Map<string, number>(
         (units90 as Units90Row[] | null)?.map((r) => [
@@ -96,7 +108,7 @@ console.log("UNITS 90D RAW FROM DB:", units90?.slice(0, 10));
     }
 
     load();
-  }, []);
+  }, [brand]);
 
   return { rows, setRows, loading };
 }

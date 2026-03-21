@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { formatMoney } from "../utils/format";
 import type { CustomerContact } from "../hooks/useCustomerContact";
 
@@ -9,10 +8,6 @@ export default function ContactTab({
 }: {
   summary: CustomerContact | null;
 }) {
-
-  useEffect(() => {
-    console.log("📇 ContactTab summary received:", summary);
-  }, [summary]);
 
   if (!summary) {
     return (

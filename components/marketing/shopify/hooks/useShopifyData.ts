@@ -2,14 +2,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShopifyDateRange } from "../types";
+import { ShopifyDateRange, ShopifyAggregatedData } from "../types";
 
 export function useShopifyData({
   range,
 }: {
   range: ShopifyDateRange;
 }) {
-  const [data, setData] = useState<any | null>(null);
+  const [data, setData] = useState<ShopifyAggregatedData | null>(null);
   const [status, setStatus] = useState<{
     lastDay: string | null;
     nextRequiredDay: string | null;

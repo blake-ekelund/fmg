@@ -11,13 +11,14 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 /* ---------------------------------------------
    Visual mappings
 --------------------------------------------- */
 const PLATFORM_META: Record<
   Platform,
-  { icon: React.ComponentType<any>; className: string }
+  { icon: LucideIcon; className: string }
 > = {
   Instagram: {
     icon: Instagram,

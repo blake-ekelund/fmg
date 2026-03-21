@@ -1,6 +1,19 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useBrand } from "@/components/BrandContext";
 import type { Customer } from "../types";
+
+/**
+ * Represents a Supabase PostgREST query builder that supports
+ * the filter methods used in applyFilters (.or, .eq, .gte, .lt, .is).
+ */
+interface FilterableQuery<T> {
+  or: (filters: string) => T;
+  eq: (column: string, value: string) => T;
+  gte: (column: string, value: string) => T;
+  lt: (column: string, value: string) => T;
+  is: (column: string, value: null) => T;
+}
 
 type Params = {
   page: number;
@@ -28,11 +41,12 @@ function getDateCutoffs() {
 /* Shared Filter Builder */
 /* -------------------------------------------------- */
 
-export function applyFilters(  query: any,
+export function applyFilters<T extends FilterableQuery<T>>(
+  query: T,
   search: string,
   status: string,
   channel: string
-) {
+): T {
   if (search) {
     const q = search.trim();
 
@@ -90,6 +104,8 @@ export function useCustomers({
   sortColumn,
   sortDir,
 }: Params) {
+  const { brand } = useBrand();
+
   const [customers, setCustomers] =
     useState<Customer[]>([]);
   const [loading, setLoading] =
@@ -128,6 +144,10 @@ export function useCustomers({
         channel
       );
 
+      if (brand !== "all") {
+        tableQuery = tableQuery.ilike("brands_purchased", `%${brand}%`);
+      }
+
       tableQuery = tableQuery
         .order(sortColumn, {
           ascending: sortDir === "asc",
@@ -157,6 +177,10 @@ export function useCustomers({
         channel
       );
 
+      if (brand !== "all") {
+        statsQuery = statsQuery.ilike("brands_purchased", `%${brand}%`);
+      }
+
       const { data: statsData } =
         await statsQuery;
 
@@ -181,7 +205,7 @@ export function useCustomers({
           let atRiskCount = 0;
           let churnedCount = 0;
 
-          for (const c of full as any[]) {
+          for (const c of full) {
             if (!c.last_order_date) {
               // decide: separate bucket or treat as churn?
               continue;
@@ -222,6 +246,7 @@ export function useCustomers({
     channel,
     sortColumn,
     sortDir,
+    brand,
   ]);
 
   /* ---------------------------

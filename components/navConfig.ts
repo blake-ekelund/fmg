@@ -4,87 +4,146 @@ import {
   Boxes,
   Users,
   Megaphone,
-  Lightbulb,
+  KanbanSquare,
   Building,
+  PackageSearch,
+  Hash,
+  Database,
+  Rocket,
+  Handshake,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { UserRole } from "./UserContext";
 
 /* ---------------------------
    Types
 --------------------------- */
-export type Accent =
-  | "pink"
-  | "green"
-  | "orange"
-  | "lavender"
-  | "yellow"
-  | "amber"  
-  | "black";
+export type NavSection = {
+  label: string;
+  items: NavItem[];
+};
 
 export type NavItem = {
   label: string;
   href: string;
-  accent: Accent;
   icon: LucideIcon;
+  /** If set, only these roles can see this item. If omitted, visible to all. */
+  roles?: UserRole[];
 };
 
+/** Roles that can see everything */
+const FULL_ACCESS: UserRole[] = ["owner", "admin", "user"];
+
 /* ---------------------------
-   Navigation Items
+   Navigation Structure
 --------------------------- */
-export const navItems: readonly NavItem[] = [
+export const navSections: readonly NavSection[] = [
   {
-    label: "Overview",
-    href: "/",
-    accent: "pink",
-    icon: LayoutDashboard,
+    label: "",
+    items: [
+      {
+        label: "Overview",
+        href: "/dashboard",
+        icon: LayoutDashboard,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+    ],
   },
   {
-    label: "Inventory",
-    href: "/inventory",
-    accent: "orange",
-    icon: Boxes,
-  },
-  {
-    label: "Customers",
-    href: "/customers",
-    accent: "lavender",
-    icon: Users,
+    label: "Products",
+    items: [
+      {
+        label: "Product List",
+        href: "/products",
+        icon: PackageSearch,
+        roles: FULL_ACCESS,
+      },
+      {
+        label: "Inventory",
+        href: "/inventory",
+        icon: Boxes,
+        roles: FULL_ACCESS,
+      },
+    ],
   },
   {
     label: "Sales",
-    href: "/sales",
-    accent: "green",
-    icon: TrendingUp,
+    items: [
+      {
+        label: "Customer List",
+        href: "/customers",
+        icon: Users,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Sales Analysis",
+        href: "/sales",
+        icon: TrendingUp,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Sales Hub",
+        href: "/sales-hub",
+        icon: Rocket,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Rep Groups",
+        href: "/rep-groups",
+        icon: Handshake,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+    ],
   },
   {
     label: "Marketing",
-    href: "/marketing",
-    accent: "yellow",
-    icon: Megaphone,
+    items: [
+      {
+        label: "Social Media",
+        href: "/marketing",
+        icon: Hash,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+    ],
   },
   {
-    label: "Task List",
-    href: "/task-list",
-    icon: Lightbulb,
-    accent: "amber", // or whatever fits FMG
+    label: "Workspace",
+    items: [
+      {
+        label: "Task List",
+        href: "/task-list",
+        icon: KanbanSquare,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Data",
+        href: "/data",
+        icon: Database,
+        roles: FULL_ACCESS,
+      },
+      {
+        label: "Company",
+        href: "/company",
+        icon: Building,
+        roles: ["owner", "admin"],
+      },
+    ],
   },
-  {
-    label: "Company",
-    href: "/company",
-    icon: Building,
-    accent: "black", // or whatever fits FMG
-  },  
-] as const;
+];
 
-/* ---------------------------
-   Brand Accent System
---------------------------- */
-export const accentBg: Record<Accent, string> = {
-  pink: "bg-pink-400",
-  green: "bg-lime-500",
-  orange: "bg-orange-400",
-  lavender: "bg-purple-400",
-  yellow: "bg-yellow-400",
-  amber: "bg-orange-800",
-  black: "bg-gray-800"
-};
+/** Filter nav sections for a given role */
+export function getNavForRole(role: UserRole | null): NavSection[] {
+  if (!role) return [];
+
+  return navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !item.roles || item.roles.includes(role)),
+    }))
+    .filter((section) => section.items.length > 0);
+}
+
+/* Flat list for MobileNav */
+export const navItems: readonly NavItem[] = navSections.flatMap(
+  (s) => s.items
+);

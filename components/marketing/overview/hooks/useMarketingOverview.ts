@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useBrand } from "@/components/BrandContext";
 
 type ShopifyOverview = {
   current: {
@@ -30,6 +31,7 @@ type ContentItem = {
 };
 
 export function useMarketingOverview() {
+  const { brand } = useBrand();
   const [shopify, setShopify] = useState<ShopifyOverview | null>(null);
   const [upcomingContent, setUpcomingContent] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,14 +39,15 @@ export function useMarketingOverview() {
   useEffect(() => {
     setLoading(true);
 
-    fetch("/api/marketing/overview")
+    const params = brand !== "all" ? `?brand=${brand}` : "";
+    fetch(`/api/marketing/overview${params}`)
       .then((r) => r.json())
       .then((json) => {
         setShopify(json.shopify ?? null);
         setUpcomingContent(json.upcomingContent ?? []);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [brand]);
 
   return {
     shopify,

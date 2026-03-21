@@ -1,96 +1,48 @@
 "use client";
 
 import { useState } from "react";
+import PageHeader from "@/components/ui/PageHeader";
+import clsx from "clsx";
 
 import TeamSection from "./team/TeamSection";
-import InvitesSection from "./invites/InvitesSection";
-import RolesSection from "./roles/RolesSection";
 import PlatformsSection from "./platform/PlatformsSection";
 
-type CompanySection = "team" | "invites" | "roles" | "platforms";
+type CompanyTab = "team" | "platforms";
+
+const TABS: { value: CompanyTab; label: string }[] = [
+  { value: "team", label: "Team" },
+  { value: "platforms", label: "Platforms & Logins" },
+];
 
 export default function CompanyPage() {
-  const [section, setSection] =
-    useState<CompanySection>("team");
+  const [tab, setTab] = useState<CompanyTab>("team");
 
   return (
-    <div className="px-8 py-10 space-y-10">
-      {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-semibold tracking-tight">
-            Company
-          </h1>
-          <p className="mt-3 text-gray-500 max-w-xl">
-            Manage your team, roles, access, and internal platforms.
-          </p>
-        </div>
-      </header>
+    <div className="px-4 md:px-8 py-6 md:py-8 space-y-5">
+      <PageHeader subtitle="Manage your team and company tools" />
 
-      {/* Section Tabs */}
-      <nav className="flex gap-2 border-b border-gray-200 pb-2">
-        <TabButton
-          active={section === "team"}
-          onClick={() => setSection("team")}
-        >
-          Team
-        </TabButton>
-
-        <TabButton
-          active={section === "invites"}
-          onClick={() => setSection("invites")}
-        >
-          Invites
-        </TabButton>
-
-        <TabButton
-          active={section === "roles"}
-          onClick={() => setSection("roles")}
-        >
-          Roles & Access
-        </TabButton>
-
-        <TabButton
-          active={section === "platforms"}
-          onClick={() => setSection("platforms")}
-        >
-          Platforms
-        </TabButton>
+      {/* Tab nav */}
+      <nav className="flex gap-1 rounded-lg bg-white border border-gray-200 p-1 max-w-md">
+        {TABS.map((t) => (
+          <button
+            key={t.value}
+            onClick={() => setTab(t.value)}
+            className={clsx(
+              "flex-1 rounded-md px-3 py-2 text-sm font-medium transition",
+              tab === t.value
+                ? "bg-gray-100 text-gray-900"
+                : "text-gray-500 hover:text-gray-900"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
       </nav>
 
-      {/* Section Content */}
-      <div className="space-y-12">
-        {section === "team" && <TeamSection />}
-        {section === "invites" && <InvitesSection />}
-        {section === "roles" && <RolesSection />}
-        {section === "platforms" && <PlatformsSection />}
+      <div>
+        {tab === "team" && <TeamSection />}
+        {tab === "platforms" && <PlatformsSection />}
       </div>
     </div>
-  );
-}
-
-/* ---------------------------------------------
-   Tab Button (identical to Inventory/Marketing)
---------------------------------------------- */
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-xl px-3 py-1.5 text-sm transition ${
-        active
-          ? "bg-gray-100 text-black"
-          : "text-gray-500 hover:text-black hover:bg-gray-50"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

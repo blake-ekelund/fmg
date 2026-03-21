@@ -8,6 +8,7 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
+import { CHART_NAVY } from "@/lib/colors";
 
 /* ---------- HELPERS ---------- */
 
@@ -56,16 +57,24 @@ export function TTMStackedBars({
   const data = buildMonthlyTotals(months, products);
 
   return (
-    <div className="h-80 w-full rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="mb-2 text-sm font-medium text-gray-700">
+    <div className="h-80 w-full rounded-xl border border-gray-200 bg-white p-5">
+      <h3 className="mb-3 text-xs font-semibold text-gray-900">
         Monthly Sales — Total
-      </div>
+      </h3>
 
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data}>
-          <XAxis dataKey="month" />
+        <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+          <XAxis
+            dataKey="month"
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            axisLine={{ stroke: "#e5e7eb" }}
+            tickLine={false}
+          />
 
           <YAxis
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            axisLine={false}
+            tickLine={false}
             tickFormatter={(v) =>
               typeof v === "number"
                 ? `$${fmtMoney(v)}`
@@ -74,6 +83,12 @@ export function TTMStackedBars({
           />
 
           <Tooltip
+            contentStyle={{
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              fontSize: 12,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+            }}
             formatter={(value) =>
               typeof value === "number"
                 ? `$${fmtMoney(value)}`
@@ -81,11 +96,10 @@ export function TTMStackedBars({
             }
           />
 
-          {/* SINGLE BAR PER MONTH */}
           <Bar
             dataKey="total"
-            fill="#1B3C53"
-            radius={[6, 6, 0, 0]}
+            fill={CHART_NAVY}
+            radius={[4, 4, 0, 0]}
           />
         </BarChart>
       </ResponsiveContainer>

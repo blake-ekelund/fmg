@@ -6,6 +6,8 @@ import { Analytics } from "@vercel/analytics/next"
 
 import LayoutShell from "@/components/LayoutShell";
 import AuthGate from "@/components/AuthGate";
+import { BrandProvider } from "@/components/BrandContext";
+import { UserProvider } from "@/components/UserContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,7 +40,11 @@ export default function RootLayout({
         )}
       >
         <AuthGate>
-          <LayoutShell>{children}</LayoutShell>
+          <UserProvider>
+            <BrandProvider>
+              <LayoutShell>{children}</LayoutShell>
+            </BrandProvider>
+          </UserProvider>
         </AuthGate>
       </body>
     </html>

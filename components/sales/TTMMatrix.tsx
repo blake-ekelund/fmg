@@ -121,7 +121,7 @@ export function Trailing12MonthMatrix({
         )
       : new Set(Array.from(ALLOWED_FRAGRANCES).concat(["Other"]));
 
-  const primaryRows = rows.reduce<Record<string, any>>((acc, r) => {
+  const primaryRows = rows.reduce<Record<string, { key: string; label: string; byMonth: Record<string, number> }>>((acc, r) => {
     const key = primaryKey(r);
     const bucket = topKeys.has(key) ? key : "__OTHER__"; // __OTHER__ only relevant in products mode
 
@@ -178,27 +178,27 @@ export function Trailing12MonthMatrix({
   /* ---------- RENDER ---------- */
 
   return (
-    <div className="overflow-x-auto rounded-xl bg-white ring-1 ring-gray-200/60">
+    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table className="min-w-max w-full text-xs table-fixed">
         <thead className="bg-gray-50 sticky top-0">
           <tr>
-            <th className="sticky left-0 bg-gray-50 px-2 py-1 text-left" style={{ width: 260 }}>
+            <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider" style={{ width: 260 }}>
               {headerLabel}
             </th>
 
             {months.map((m) => (
-              <th key={m} className="px-2 py-1 text-right">
+              <th key={m} className="px-3 py-2.5 text-right text-[10px] font-medium text-gray-500 uppercase tracking-wider">
                 {formatMonthLabel(m)}
               </th>
             ))}
 
-            <th className="px-2 py-1 text-right font-semibold">TTM</th>
+            <th className="px-3 py-2.5 text-right text-[10px] font-semibold text-gray-900 uppercase tracking-wider">TTM</th>
           </tr>
         </thead>
 
         <tbody>
           {/* ---------- PRIMARY ROWS ---------- */}
-          {normalItems.map((p: any) => {
+          {normalItems.map((p) => {
             const isOpen = expandedKey === p.key;
             const ttm = rowTTM(months, p.byMonth);
 
@@ -206,23 +206,23 @@ export function Trailing12MonthMatrix({
               <>
                 <tr
                   key={p.key}
-                  className="hover:bg-gray-50 cursor-pointer"
+                  className="hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition-colors"
                   onClick={() => setExpandedKey(isOpen ? null : p.key)}
                 >
-                  <td className="sticky left-0 bg-white px-2 py-1" style={{ width: 260 }}>
+                  <td className="sticky left-0 z-10 bg-white px-3 py-2.5" style={{ width: 260 }}>
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-400">{isOpen ? "▾" : "▸"}</span>
-                      <span>{p.label}</span>
+                      <span className="text-gray-400 text-[10px]">{isOpen ? "▾" : "▸"}</span>
+                      <span className="font-medium text-gray-900">{p.label}</span>
                     </div>
                   </td>
 
                   {months.map((m) => (
-                    <td key={m} className="px-2 py-1 text-right">
+                    <td key={m} className="px-3 py-2.5 text-right tabular-nums text-gray-600">
                       {p.byMonth[m] ? fmt(p.byMonth[m]) : "—"}
                     </td>
                   ))}
 
-                  <td className="px-2 py-1 text-right font-medium">{fmt(ttm)}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{fmt(ttm)}</td>
                 </tr>
 
                 {/* ---------- DETAIL ROWS ---------- */}
@@ -230,33 +230,33 @@ export function Trailing12MonthMatrix({
                   Object.values(
                     rows
                       .filter((r) => primaryKey(r) === p.label)
-                      .reduce<Record<string, any>>((acc, r) => {
+                      .reduce<Record<string, { label: string; byMonth: Record<string, number> }>>((acc, r) => {
                         const d = detailKey(r);
                         if (!acc[d]) acc[d] = { label: d, byMonth: {} };
                         acc[d].byMonth[r.month] = (acc[d].byMonth[r.month] ?? 0) + r.revenue;
                         return acc;
                       }, {})
                   )
-                    .sort((a: any, b: any) => rowTTM(months, b.byMonth) - rowTTM(months, a.byMonth))
-                    .map((d: any) => {
+                    .sort((a, b) => rowTTM(months, b.byMonth) - rowTTM(months, a.byMonth))
+                    .map((d) => {
                       const dttm = rowTTM(months, d.byMonth);
 
                       return (
-                        <tr key={`${p.key}-${d.label}`} className="bg-gray-50">
+                        <tr key={`${p.key}-${d.label}`} className="bg-gray-50/60 border-b border-gray-50">
                           <td
-                            className="sticky left-0 bg-gray-50 px-6 py-1 text-gray-600"
+                            className="sticky left-0 z-10 bg-gray-50/60 pl-9 pr-3 py-1.5 text-[11px] text-gray-500"
                             style={{ width: 260 }}
                           >
                             {d.label}
                           </td>
 
                           {months.map((m) => (
-                            <td key={m} className="px-2 py-1 text-right text-gray-600">
+                            <td key={m} className="px-3 py-1.5 text-right text-[11px] tabular-nums text-gray-500">
                               {d.byMonth[m] ? fmt(d.byMonth[m]) : "—"}
                             </td>
                           ))}
 
-                          <td className="px-2 py-1 text-right text-gray-600">{fmt(dttm)}</td>
+                          <td className="px-3 py-1.5 text-right text-[11px] tabular-nums text-gray-600">{fmt(dttm)}</td>
                         </tr>
                       );
                     })}
@@ -266,34 +266,34 @@ export function Trailing12MonthMatrix({
 
           {/* ---------- OTHER (ALWAYS SECOND TO LAST) ---------- */}
           {otherRow && (
-            <tr className="bg-gray-50 font-medium">
-              <td className="sticky left-0 bg-gray-50 px-2 py-1" style={{ width: 260 }}>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <td className="sticky left-0 z-10 bg-gray-50 px-3 py-2.5 font-medium text-gray-700" style={{ width: 260 }}>
                 Other
               </td>
 
               {months.map((m) => (
-                <td key={m} className="px-2 py-1 text-right">
+                <td key={m} className="px-3 py-2.5 text-right tabular-nums text-gray-600">
                   {otherRow.byMonth[m] ? fmt(otherRow.byMonth[m]) : "—"}
                 </td>
               ))}
 
-              <td className="px-2 py-1 text-right">{fmt(rowTTM(months, otherRow.byMonth))}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-700">{fmt(rowTTM(months, otherRow.byMonth))}</td>
             </tr>
           )}
 
           {/* ---------- TOTAL SALES (ALWAYS LAST) ---------- */}
-          <tr className="bg-gray-100 font-semibold">
-            <td className="sticky left-0 bg-gray-100 px-2 py-1" style={{ width: 260 }}>
+          <tr className="bg-gray-900 text-white">
+            <td className="sticky left-0 z-10 bg-gray-900 px-3 py-3 font-semibold rounded-bl-xl" style={{ width: 260 }}>
               Total Sales
             </td>
 
             {totalsByMonth.map((v, i) => (
-              <td key={i} className="px-2 py-1 text-right">
+              <td key={i} className="px-3 py-3 text-right tabular-nums font-medium">
                 {fmt(v)}
               </td>
             ))}
 
-            <td className="px-2 py-1 text-right">{fmt(ttmTotal)}</td>
+            <td className="px-3 py-3 text-right tabular-nums font-semibold rounded-br-xl">{fmt(ttmTotal)}</td>
           </tr>
         </tbody>
       </table>

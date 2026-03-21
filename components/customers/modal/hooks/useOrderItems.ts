@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Order } from "../../types";
+import { Order, OrderItem } from "../../types";
 
 const ITEM_PAGE_SIZE = 15;
 
 export default function useOrderItems(opts: {
-  orders: (Order & { items?: any[] })[];
+  orders: (Order & { items?: OrderItem[] })[];
   setOrders: React.Dispatch<
-    React.SetStateAction<(Order & { items?: any[] })[]>
+    React.SetStateAction<(Order & { items?: OrderItem[] })[]>
   >;
 }) {
   const { setOrders } = opts;

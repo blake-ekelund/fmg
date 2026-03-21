@@ -16,6 +16,23 @@ type Props = {
 type PhotoAssetUpdate =
   Database["public"]["Tables"]["photo_share_assets"]["Update"];
 
+/** Workaround: the Database type is missing Relationships on each table,
+ *  which causes .update() to resolve to `never` on the typed client.
+ *  This helper bypasses that by casting through unknown. */
+function updatePhotoAsset(
+  client: ReturnType<typeof supabaseBrowser>,
+  id: string,
+  values: PhotoAssetUpdate,
+) {
+  return (client.from("photo_share_assets") as unknown as {
+    update: (v: PhotoAssetUpdate) => {
+      eq: (col: string, val: string) => PromiseLike<{ error: unknown }>;
+    };
+  })
+    .update(values)
+    .eq("id", id);
+}
+
 export default function EditPhotoModal({
   asset,
   open,
@@ -57,11 +74,7 @@ export default function EditPhotoModal({
       allow_third_party_use: allowThirdParty,
     };
 
-    const { error } = await (
-      supabase.from("photo_share_assets") as any
-    )
-      .update(update)
-      .eq("id", asset.id);
+    const { error } = await updatePhotoAsset(supabase, asset.id, update);
 
     setSaving(false);
 
@@ -81,11 +94,7 @@ export default function EditPhotoModal({
       is_active: false,
     };
 
-    const { error } = await (
-      supabase.from("photo_share_assets") as any
-    )
-      .update(update)
-      .eq("id", asset.id);
+    const { error } = await updatePhotoAsset(supabase, asset.id, update);
 
     if (!error) {
       onSaved();

@@ -1,7 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { Search } from "lucide-react";
+import clsx from "clsx";
 
 type Option = { label: string; value: string };
 
@@ -17,83 +17,94 @@ export default function CustomersFilters({
 }: {
   search: string;
   setSearch: (v: string) => void;
-
   status: string;
   setStatus: (v: string) => void;
   statusOptions: Option[];
-
   channel: string;
   setChannel: (v: string) => void;
   channelOptions: Option[];
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.15, duration: 0.25 }}
-      className="flex items-center justify-between gap-6 flex-wrap"
-    >
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       {/* Search */}
-      <div className="relative w-full max-w-md">
-        <Search
-          size={16}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-        />
+      <div className="relative flex-1 max-w-sm">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search customer..."
-          className="w-full bg-white border border-slate-200/70 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300/60 transition"
+          placeholder="Search customer…"
+          className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
         />
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <FilterSelect
-          label="Status"
-          value={status}
-          onChange={setStatus}
-          options={statusOptions}
-        />
+      {/* Filter pills */}
+      <div className="flex items-center gap-3">
+        {/* Status pills */}
+        <div className="flex gap-1">
+          <PillButton active={status === ""} onClick={() => setStatus("")}>
+            All
+          </PillButton>
+          {statusOptions.map((opt) => (
+            <PillButton
+              key={opt.value}
+              active={status === opt.value}
+              onClick={() => setStatus(status === opt.value ? "" : opt.value)}
+              color={
+                opt.value === "active" ? "green" :
+                opt.value === "at_risk" ? "amber" :
+                opt.value === "churned" ? "gray" : undefined
+              }
+            >
+              {opt.label}
+            </PillButton>
+          ))}
+        </div>
 
-        <FilterSelect
-          label="Channel"
-          value={channel}
-          onChange={setChannel}
-          options={channelOptions}
-        />
+        {/* Channel select */}
+        {channelOptions.length > 0 && (
+          <select
+            value={channel}
+            onChange={(e) => setChannel(e.target.value)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
+          >
+            <option value="">All Channels</option>
+            {channelOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
-    </motion.div>
+    </div>
   );
 }
 
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
+function PillButton({
+  active,
+  onClick,
+  color,
+  children,
 }: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { label: string; value: string }[];
+  active: boolean;
+  onClick: () => void;
+  color?: "green" | "amber" | "gray";
+  children: React.ReactNode;
 }) {
-  return (
-    <div className="flex flex-col text-xs">
-      <span className="text-slate-400 mb-1">{label}</span>
+  let activeClasses = "bg-gray-900 text-white border-gray-900";
+  if (color === "green") activeClasses = "bg-green-50 text-green-700 border-green-200";
+  if (color === "amber") activeClasses = "bg-amber-50 text-amber-700 border-amber-200";
+  if (color === "gray") activeClasses = "bg-gray-100 text-gray-600 border-gray-300";
 
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="text-sm bg-white border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-300/60 transition"
-      >
-        <option value="">All</option>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </div>
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        "rounded-lg px-3 py-2 text-xs font-medium border transition",
+        active ? activeClasses : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+      )}
+    >
+      {children}
+    </button>
   );
 }

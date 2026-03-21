@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useBrand } from "@/components/BrandContext";
 
 export type SalesMatrixRow = {
   month: string;
@@ -22,6 +23,7 @@ export function useSalesTTM(
   endYear: number,
   endMonth: number // 1–12
 ) {
+  const { brand } = useBrand();
   const [rows, setRows] = useState<SalesMatrixRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,6 +69,10 @@ export function useSalesTTM(
           .order("month", { ascending: true })
           .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
 
+        if (brand !== "all") {
+          query = query.eq("brand", brand);
+        }
+
         if (search) {
           query = query.or(
             `productnum.ilike.%${search}%,display_name.ilike.%${search}%,fragrance.ilike.%${search}%`
@@ -77,10 +83,19 @@ export function useSalesTTM(
         if (error || !data || data.length === 0) break;
 
         allRows.push(
-          ...data.map((r) => ({
-            ...r,
-            revenue: Number(r.revenue) || 0,
-          }))
+          ...data
+            .filter((r) => {
+              const pnum = (r.productnum || "").toUpperCase();
+              const name = (r.display_name || "").toUpperCase();
+              return (
+                pnum !== "SUBTOTAL" && pnum !== "SHIPPING" &&
+                name !== "SUBTOTAL" && name !== "SHIPPING"
+              );
+            })
+            .map((r) => ({
+              ...r,
+              revenue: Number(r.revenue) || 0,
+            }))
         );
 
         if (data.length < PAGE_SIZE) break;
@@ -92,7 +107,7 @@ export function useSalesTTM(
     }
 
     load();
-  }, [search, endYear, endMonth]);
+  }, [search, endYear, endMonth, brand]);
 
   return { rows, loading };
 }
