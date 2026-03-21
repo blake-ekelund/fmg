@@ -28,6 +28,7 @@ export type Database = {
           email?: string;
           access?: "user" | "admin" | "owner";
         };
+        Relationships: [];
       };
 
       /* ── Photo Share ────────────────────────────── */
@@ -70,6 +71,7 @@ export type Database = {
           uploaded_at?: string;
           is_active?: boolean;
         };
+        Relationships: [];
       };
 
       /* ── Products ───────────────────────────────── */
@@ -126,6 +128,7 @@ export type Database = {
           avg_monthly_demand?: number;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       /* ── Inventory Uploads ──────────────────────── */
@@ -152,6 +155,7 @@ export type Database = {
           original_filename?: string;
           uploaded_by?: string | null;
         };
+        Relationships: [];
       };
 
       /* ── Inventory Snapshot Items ────────────────── */
@@ -205,6 +209,7 @@ export type Database = {
           committed?: number;
           short?: number;
         };
+        Relationships: [];
       };
 
       /* ── Marketing Content ──────────────────────── */
@@ -246,6 +251,7 @@ export type Database = {
           created_by?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       /* ── Marketing Content Activity ─────────────── */
@@ -275,6 +281,7 @@ export type Database = {
           metadata?: Json | null;
           performed_by?: string | null;
         };
+        Relationships: [];
       };
 
       /* ── Marketing Content Media ────────────────── */
@@ -290,6 +297,7 @@ export type Database = {
         Update: {
           content_id?: string;
         };
+        Relationships: [];
       };
 
       /* ── Media Kit Products ─────────────────────── */
@@ -322,6 +330,7 @@ export type Database = {
           retailer_notes?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       /* ── Media Kit Assets ───────────────────────── */
@@ -360,6 +369,7 @@ export type Database = {
           uploaded_by?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       /* ── Shopify Daily Metrics ──────────────────── */
@@ -396,6 +406,7 @@ export type Database = {
           bounces?: number;
           online_store_visitors?: number;
         };
+        Relationships: [];
       };
 
       /* ── Sales Orders Raw ────────────────────────── */
@@ -483,6 +494,7 @@ export type Database = {
           channel?: string | null;
           upload_id?: string | null;
         };
+        Relationships: [];
       };
 
       /* ── SO Items Raw ─────────────────────────────── */
@@ -533,6 +545,7 @@ export type Database = {
           typename?: string | null;
           upload_id?: string | null;
         };
+        Relationships: [];
       };
 
       /* ── Sales Uploads ────────────────────────────── */
@@ -571,6 +584,7 @@ export type Database = {
           items_rows?: number | null;
           error_text?: string | null;
         };
+        Relationships: [];
       };
 
       /* ── Tasks ──────────────────────────────────── */
@@ -600,6 +614,7 @@ export type Database = {
           owner?: string | null;
           status?: string | null;
         };
+        Relationships: [];
       };
 
       /* ── Social Media Posts ─────────────────────── */
@@ -641,6 +656,7 @@ export type Database = {
           content_id?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
     };
 
