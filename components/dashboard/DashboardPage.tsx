@@ -5,7 +5,7 @@ import { useDashboardSales } from "./hooks/useDashboardSales";
 import { useDashboardCustomerHealth } from "./hooks/useDashboardCustomerHealth";
 import KPICard from "./KPICard";
 import SalesChart from "./SalesChart";
-import CustomerHealthChart from "./CustomerHealthChart";
+import CustomerHealthSection from "./CustomerHealthChart";
 import type { BrandFilter } from "@/types/brand";
 import clsx from "clsx";
 
@@ -67,7 +67,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ─── Sales KPIs ─── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <KPICard
           label="Wholesale YTD"
           value={fmt(kpis.wholesale_ytd_2026)}
@@ -92,18 +92,6 @@ export default function DashboardPage() {
           variantLabel="F/(U)"
           color="violet"
         />
-        <KPICard
-          label="New Customers"
-          value={healthKpis.new_ttm.toLocaleString()}
-          subtitle="TTM total"
-          color="emerald"
-        />
-        <KPICard
-          label="At Risk"
-          value={healthKpis.at_risk_current.toLocaleString()}
-          subtitle="Current count"
-          color="amber"
-        />
       </div>
 
       {/* ─── Sales Charts ─── */}
@@ -125,7 +113,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ─── Customer Health ─── */}
-      <CustomerHealthChart data={healthData} loading={healthLoading} />
+      <CustomerHealthSection data={healthData} kpis={healthKpis} loading={healthLoading} />
     </div>
   );
 }
