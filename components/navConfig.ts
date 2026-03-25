@@ -22,6 +22,14 @@ import type { UserRole } from "./UserContext";
 --------------------------- */
 export type NavSection = {
   label: string;
+  icon?: LucideIcon;
+  /** Tailwind color classes for the section accent */
+  color?: {
+    text: string;      // e.g. "text-emerald-600"
+    bg: string;        // e.g. "bg-emerald-50"
+    activeBg: string;  // e.g. "bg-emerald-100"
+    dot: string;       // e.g. "bg-emerald-500"
+  };
   items: NavItem[];
 };
 
@@ -53,6 +61,13 @@ export const navSections: readonly NavSection[] = [
   },
   {
     label: "Products",
+    icon: PackageSearch,
+    color: {
+      text: "text-violet-600",
+      bg: "bg-violet-50",
+      activeBg: "bg-violet-100",
+      dot: "bg-violet-500",
+    },
     items: [
       {
         label: "Product List",
@@ -70,6 +85,13 @@ export const navSections: readonly NavSection[] = [
   },
   {
     label: "Sales",
+    icon: TrendingUp,
+    color: {
+      text: "text-emerald-600",
+      bg: "bg-emerald-50",
+      activeBg: "bg-emerald-100",
+      dot: "bg-emerald-500",
+    },
     items: [
       {
         label: "Wholesale",
@@ -105,6 +127,13 @@ export const navSections: readonly NavSection[] = [
   },
   {
     label: "Marketing",
+    icon: Megaphone,
+    color: {
+      text: "text-amber-600",
+      bg: "bg-amber-50",
+      activeBg: "bg-amber-100",
+      dot: "bg-amber-500",
+    },
     items: [
       {
         label: "Social Media",
@@ -122,6 +151,13 @@ export const navSections: readonly NavSection[] = [
   },
   {
     label: "Workspace",
+    icon: KanbanSquare,
+    color: {
+      text: "text-sky-600",
+      bg: "bg-sky-50",
+      activeBg: "bg-sky-100",
+      dot: "bg-sky-500",
+    },
     items: [
       {
         label: "Task List",
