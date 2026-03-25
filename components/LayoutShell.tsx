@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import TopBar from "@/components/TopBar";
+import { useUser } from "@/components/UserContext";
+import { getAllowedPaths, getDefaultRoute } from "@/components/navConfig";
 
 const COLLAPSED_WIDTH = 64;
 const DEFAULT_WIDTH = 224; // ~w-56
@@ -16,10 +18,27 @@ export default function LayoutShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const isAuthRoute = pathname.startsWith("/auth");
+  const { profile, loading } = useUser();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
+
+  /* ---- Route guard: redirect restricted roles to their allowed pages ---- */
+  useEffect(() => {
+    if (isAuthRoute || loading || !profile) return;
+
+    const allowed = getAllowedPaths(profile.access);
+    // Check if current path starts with any allowed path
+    const isAllowed = allowed.some(
+      (p) => pathname === p || pathname.startsWith(p + "/")
+    );
+
+    if (!isAllowed) {
+      router.replace(getDefaultRoute(profile.access));
+    }
+  }, [pathname, profile, loading, isAuthRoute, router]);
 
   if (isAuthRoute) {
     return <>{children}</>;

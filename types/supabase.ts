@@ -696,15 +696,40 @@ export type Database = {
           customer_name: string | null;
           email: string | null;
           phone: string | null;
+          billto_address: string | null;
           billto_city: string | null;
           billto_state: string | null;
+          billto_zip: string | null;
+          shipto_address: string | null;
           shipto_city: string | null;
           shipto_state: string | null;
+          shipto_zip: string | null;
           first_order_date: string | null;
           last_order_date: string | null;
           order_count: number | null;
           lifetime_revenue: number | null;
           primary_channel: string | null;
+        };
+      };
+
+      /* ── D2C Customer Summary ──────────────────── */
+      d2c_customer_summary: {
+        Row: {
+          person_key: string;
+          name: string;
+          email: string | null;
+          bill_to_state: string | null;
+          customerid: string;
+          channel: string;
+          first_order_date: string | null;
+          last_order_date: string | null;
+          lifetime_orders: number;
+          lifetime_revenue: number;
+          lifetime_aov: number;
+          sales_2023: number | null;
+          sales_2024: number | null;
+          sales_2025: number | null;
+          sales_2026: number | null;
         };
       };
 

@@ -9,7 +9,7 @@ import { useUser } from "./UserContext";
 export default function MobileNav() {
   const [open, setOpen] = useState(false);
   const { profile } = useUser();
-  const navSections = getNavForRole(profile?.access ?? "user");
+  const navSections = getNavForRole(profile?.access ?? null);
 
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";

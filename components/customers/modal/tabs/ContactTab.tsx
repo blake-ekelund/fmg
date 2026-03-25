@@ -24,9 +24,11 @@ export default function ContactTab({
       <div className="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm space-y-2">
         <div className="font-semibold mb-3 text-slate-700">Billing</div>
         <div>{summary.customer_name ?? "—"}</div>
+        {summary.billto_address && <div>{summary.billto_address}</div>}
         <div>
-          {summary.billto_city ?? "—"}
-          {summary.billto_state ? `, ${summary.billto_state}` : ""}
+          {[summary.billto_city, summary.billto_state].filter(Boolean).join(", ")}
+          {summary.billto_zip ? ` ${summary.billto_zip}` : ""}
+          {!summary.billto_city && !summary.billto_state && !summary.billto_zip && "—"}
         </div>
       </div>
 
@@ -43,9 +45,11 @@ export default function ContactTab({
       {/* SHIPPING */}
       <div className="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm space-y-2">
         <div className="font-semibold mb-3 text-slate-700">Shipping</div>
+        {summary.shipto_address && <div>{summary.shipto_address}</div>}
         <div>
-          {summary.shipto_city ?? "—"}
-          {summary.shipto_state ? `, ${summary.shipto_state}` : ""}
+          {[summary.shipto_city, summary.shipto_state].filter(Boolean).join(", ")}
+          {summary.shipto_zip ? ` ${summary.shipto_zip}` : ""}
+          {!summary.shipto_city && !summary.shipto_state && !summary.shipto_zip && "—"}
         </div>
       </div>
 

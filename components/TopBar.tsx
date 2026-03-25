@@ -26,6 +26,7 @@ function usePageTitle(): string {
   }
 
   if (pathname.startsWith("/products/")) return "Product Detail";
+  if (pathname === "/customers/d2c") return "D2C Customers";
   if (pathname.startsWith("/customers/")) return "Customer Detail";
   if (pathname === "/docs") return "Docs";
 

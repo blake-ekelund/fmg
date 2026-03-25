@@ -8,10 +8,14 @@ export type CustomerContact = {
   customer_name: string | null;
   email: string | null;
   phone: string | null;
+  billto_address: string | null;
   billto_city: string | null;
   billto_state: string | null;
+  billto_zip: string | null;
+  shipto_address: string | null;
   shipto_city: string | null;
   shipto_state: string | null;
+  shipto_zip: string | null;
   first_order_date: string | null;
   last_order_date: string | null;
   order_count: number | null;

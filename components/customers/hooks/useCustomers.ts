@@ -23,6 +23,7 @@ type Params = {
   channel: string;
   sortColumn: string;
   sortDir: "asc" | "desc";
+  enabled?: boolean;
 };
 
 function getDateCutoffs() {
@@ -103,6 +104,7 @@ export function useCustomers({
   channel,
   sortColumn,
   sortDir,
+  enabled = true,
 }: Params) {
   const { brand } = useBrand();
 
@@ -121,6 +123,8 @@ export function useCustomers({
   });
 
   useEffect(() => {
+    if (!enabled) return;
+
     let cancelled = false;
 
     async function load() {
@@ -247,6 +251,7 @@ export function useCustomers({
     sortColumn,
     sortDir,
     brand,
+    enabled,
   ]);
 
   /* ---------------------------

@@ -38,7 +38,7 @@ export default function Sidebar({
   const pathname = usePathname();
   const supabase = supabaseBrowser();
   const { profile } = useUser();
-  const sections = getNavForRole(profile?.access ?? "user");
+  const sections = getNavForRole(profile?.access ?? null);
   const dragRef = useRef<boolean>(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
@@ -87,6 +87,7 @@ export default function Sidebar({
 
   function isActive(href: string) {
     if (href === "/dashboard") return pathname === "/dashboard";
+    if (href === "/customers") return pathname === "/customers";
     // Strip query params for matching
     const base = href.split("?")[0];
     // Exact match first, then prefix match with trailing slash to avoid

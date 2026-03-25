@@ -14,6 +14,7 @@ import clsx from "clsx";
 import { formatDate, formatMoney } from "../utils/format";
 import { CHART_NAVY } from "@/lib/colors";
 import type { CustomerContact } from "../hooks/useCustomerContact";
+import type { CustomField } from "../hooks/useCustomerCustomFields";
 
 export type CustomerSummary = {
   customerid: string;
@@ -47,12 +48,14 @@ export default function DetailsTab({
   contact,
   contactLoading,
   monthlyData,
+  customFields = [],
 }: {
   loading: boolean;
   summary: CustomerSummary | null;
   contact: CustomerContact | null;
   contactLoading: boolean;
   monthlyData: MonthlyRow[];
+  customFields?: CustomField[];
 }) {
   if (loading && contactLoading) {
     return (
@@ -119,6 +122,28 @@ export default function DetailsTab({
                 No contact info on file
               </div>
             )}
+
+            {/* Territory info from custom fields */}
+            {(() => {
+              const territory = customFields.filter((f) =>
+                ["Territory Agency", "Territory Code", "Territory Sales Rep Name"].includes(f.name)
+              ).filter((f) => f.value.trim() !== "");
+
+              if (territory.length === 0) return null;
+
+              return (
+                <div className="border-t border-gray-100 pt-3 mt-1 space-y-2">
+                  {territory.map((f) => (
+                    <div key={f.key} className="flex items-baseline gap-2">
+                      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider shrink-0 w-28">
+                        {f.name.replace("Territory ", "")}
+                      </span>
+                      <span className="text-sm text-gray-700">{f.value}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -149,13 +174,20 @@ export default function DetailsTab({
               </div>
               <div className="flex items-start gap-1.5">
                 <MapPin size={12} className="text-gray-400 mt-0.5 shrink-0" />
-                <span className="text-sm text-gray-700">
-                  {contact?.billto_city || contact?.billto_state
-                    ? `${contact.billto_city ?? ""}${
-                        contact.billto_city && contact.billto_state ? ", " : ""
-                      }${contact.billto_state ?? ""}`
-                    : "—"}
-                </span>
+                <div className="text-sm text-gray-700 leading-relaxed">
+                  {contact?.billto_address || contact?.billto_city || contact?.billto_state ? (
+                    <>
+                      {contact.billto_address && <div>{contact.billto_address}</div>}
+                      <div>
+                        {[
+                          contact.billto_city,
+                          contact.billto_state,
+                        ].filter(Boolean).join(", ")}
+                        {contact.billto_zip ? ` ${contact.billto_zip}` : ""}
+                      </div>
+                    </>
+                  ) : "—"}
+                </div>
               </div>
             </div>
 
@@ -166,13 +198,20 @@ export default function DetailsTab({
               </div>
               <div className="flex items-start gap-1.5">
                 <MapPin size={12} className="text-gray-400 mt-0.5 shrink-0" />
-                <span className="text-sm text-gray-700">
-                  {contact?.shipto_city || contact?.shipto_state
-                    ? `${contact.shipto_city ?? ""}${
-                        contact.shipto_city && contact.shipto_state ? ", " : ""
-                      }${contact.shipto_state ?? ""}`
-                    : "—"}
-                </span>
+                <div className="text-sm text-gray-700 leading-relaxed">
+                  {contact?.shipto_address || contact?.shipto_city || contact?.shipto_state ? (
+                    <>
+                      {contact.shipto_address && <div>{contact.shipto_address}</div>}
+                      <div>
+                        {[
+                          contact.shipto_city,
+                          contact.shipto_state,
+                        ].filter(Boolean).join(", ")}
+                        {contact.shipto_zip ? ` ${contact.shipto_zip}` : ""}
+                      </div>
+                    </>
+                  ) : "—"}
+                </div>
               </div>
             </div>
           </div>

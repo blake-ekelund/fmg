@@ -32,8 +32,7 @@ import useCustomerMonthlyOrders from "./modal/hooks/useCustomerMonthlyOrders";
 import useCustomerSalesAnalysis from "./modal/hooks/useCustomerSalesAnalysis";
 import useCustomerContact from "./modal/hooks/useCustomerContact";
 import useCustomerActivities from "./modal/hooks/useCustomerActivities";
-import RFMCard from "./analytics/RFMCard";
-import LTVCard from "./analytics/LTVCard";
+import useCustomerCustomFields from "./modal/hooks/useCustomerCustomFields";
 import type { Customer } from "./types";
 
 type Tab = "details" | "orders" | "analysis" | "touchpoints";
@@ -87,6 +86,9 @@ export default function CustomerDetailPage({
     toggleComplete,
     deleteActivity,
   } = useCustomerActivities(customerId);
+
+  const { fields: customFields, loading: customFieldsLoading } =
+    useCustomerCustomFields(customerId);
 
   useEffect(() => {
     if (tab !== "orders") items.reset();
@@ -434,46 +436,6 @@ export default function CustomerDetailPage({
         </div>
       )}
 
-      {/* ─── Analytics Summary ─── */}
-      {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <RFMCard
-            customer={{
-              customerid: customerId,
-              name: customerName,
-              bill_to_state: contact?.billto_state ?? "",
-              channel: contact?.primary_channel ?? "",
-              first_order_date: summary.first_order_date ?? null,
-              last_order_date: summary.last_order_date ?? null,
-              last_order_amount: summary.last_order_amount ?? null,
-              sales_2023: summary.sales_2023 ?? null,
-              sales_2024: summary.sales_2024 ?? null,
-              sales_2025: summary.sales_2025 ?? null,
-              sales_2026: summary.sales_2026 ?? null,
-              total_orders: summary.lifetime_orders ?? null,
-              total_spend: summary.lifetime_revenue ?? null,
-            }}
-          />
-          <LTVCard
-            customer={{
-              customerid: customerId,
-              name: customerName,
-              bill_to_state: contact?.billto_state ?? "",
-              channel: contact?.primary_channel ?? "",
-              first_order_date: summary.first_order_date ?? null,
-              last_order_date: summary.last_order_date ?? null,
-              last_order_amount: summary.last_order_amount ?? null,
-              sales_2023: summary.sales_2023 ?? null,
-              sales_2024: summary.sales_2024 ?? null,
-              sales_2025: summary.sales_2025 ?? null,
-              sales_2026: summary.sales_2026 ?? null,
-              total_orders: summary.lifetime_orders ?? null,
-              total_spend: summary.lifetime_revenue ?? null,
-            }}
-          />
-        </div>
-      )}
-
       {/* ─── Two-Panel Layout ─── */}
       <div className="flex gap-6 items-start">
         {/* LEFT PANEL (larger) */}
@@ -515,6 +477,7 @@ export default function CustomerDetailPage({
                 contact={contact}
                 contactLoading={contactLoading}
                 monthlyData={monthlyData}
+                customFields={customFields}
               />
             )}
 

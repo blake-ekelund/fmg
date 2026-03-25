@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import type { UserRole } from "./UserContext";
+import { getDefaultRoute } from "./navConfig";
 
 export default function AuthGate({
   children,
@@ -31,7 +33,16 @@ export default function AuthGate({
 
       // Signed in → should not be on auth pages
       if (session && isAuthRoute) {
-        router.replace("/dashboard");
+        // Fetch role to determine correct landing page
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("access")
+          .eq("id", session.user.id)
+          .single();
+
+        const row = profile as { access: string } | null;
+        const role = (row?.access ?? "user") as UserRole;
+        router.replace(getDefaultRoute(role));
         return;
       }
 

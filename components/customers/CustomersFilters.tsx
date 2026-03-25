@@ -2,10 +2,12 @@
 
 import { Search } from "lucide-react";
 import clsx from "clsx";
+import type { CustomerViewMode } from "./constants";
 
 type Option = { label: string; value: string };
 
 export default function CustomersFilters({
+  viewMode = "wholesale",
   search,
   setSearch,
   status,
@@ -15,6 +17,7 @@ export default function CustomersFilters({
   setChannel,
   channelOptions,
 }: {
+  viewMode?: CustomerViewMode;
   search: string;
   setSearch: (v: string) => void;
   status: string;
@@ -32,7 +35,7 @@ export default function CustomersFilters({
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search customer…"
+          placeholder={viewMode === "d2c" ? "Search name or email…" : "Search customer…"}
           className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
         />
       </div>
@@ -60,8 +63,8 @@ export default function CustomersFilters({
           ))}
         </div>
 
-        {/* Channel select */}
-        {channelOptions.length > 0 && (
+        {/* Channel select (wholesale only) */}
+        {viewMode === "wholesale" && channelOptions.length > 0 && (
           <select
             value={channel}
             onChange={(e) => setChannel(e.target.value)}
@@ -88,13 +91,14 @@ function PillButton({
 }: {
   active: boolean;
   onClick: () => void;
-  color?: "green" | "amber" | "gray";
+  color?: "green" | "amber" | "gray" | "blue";
   children: React.ReactNode;
 }) {
   let activeClasses = "bg-gray-900 text-white border-gray-900";
   if (color === "green") activeClasses = "bg-green-50 text-green-700 border-green-200";
   if (color === "amber") activeClasses = "bg-amber-50 text-amber-700 border-amber-200";
   if (color === "gray") activeClasses = "bg-gray-100 text-gray-600 border-gray-300";
+  if (color === "blue") activeClasses = "bg-blue-50 text-blue-700 border-blue-200";
 
   return (
     <button

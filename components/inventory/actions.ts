@@ -263,7 +263,7 @@ export async function uploadSalesData({
         row["shipToCountry"] ?? row["Ship To Country"] ?? null,
       status: row["status"] ?? row["Status"] ?? null,
       totalprice: parseNumber(row["totalPrice"] ?? row["Total Price"]),
-      customfields: row["customfields"] ?? null,
+      customfields: row["customFields"] ?? row["Custom Fields"] ?? row["customfields"] ?? null,
       channel: row["channel"] ?? row["Channel"] ?? null,
       upload_id: uploadId,
     }));

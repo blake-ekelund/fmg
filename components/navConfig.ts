@@ -3,6 +3,7 @@ import {
   TrendingUp,
   Boxes,
   Users,
+  ShoppingBag,
   Megaphone,
   KanbanSquare,
   Building,
@@ -45,7 +46,7 @@ export const navSections: readonly NavSection[] = [
         label: "Overview",
         href: "/dashboard",
         icon: LayoutDashboard,
-        roles: [...FULL_ACCESS, "sales"],
+        roles: FULL_ACCESS,
       },
     ],
   },
@@ -70,9 +71,15 @@ export const navSections: readonly NavSection[] = [
     label: "Sales",
     items: [
       {
-        label: "Customer List",
+        label: "Wholesale",
         href: "/customers",
         icon: Users,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "D2C",
+        href: "/customers/d2c",
+        icon: ShoppingBag,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
@@ -113,7 +120,7 @@ export const navSections: readonly NavSection[] = [
         label: "Task List",
         href: "/task-list",
         icon: KanbanSquare,
-        roles: [...FULL_ACCESS, "sales"],
+        roles: [...FULL_ACCESS, "sales", "marketing"],
       },
       {
         label: "Data",
@@ -141,6 +148,22 @@ export function getNavForRole(role: UserRole | null): NavSection[] {
       items: section.items.filter((item) => !item.roles || item.roles.includes(role)),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+/** Default landing page per role */
+export function getDefaultRoute(role: UserRole | null): string {
+  if (role === "sales") return "/customers";
+  if (role === "marketing") return "/marketing";
+  return "/dashboard";
+}
+
+/** Get all allowed href paths for a role (used for route guarding) */
+export function getAllowedPaths(role: UserRole | null): string[] {
+  if (!role) return [];
+  return navSections
+    .flatMap((s) => s.items)
+    .filter((item) => !item.roles || item.roles.includes(role))
+    .map((item) => item.href);
 }
 
 /* Flat list for MobileNav */
