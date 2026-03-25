@@ -44,6 +44,18 @@ export default function LayoutShell({
     return <>{children}</>;
   }
 
+  /* Block render until profile is loaded — prevents nav flash */
+  if (loading || !profile) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50/60">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+          <span className="text-sm text-gray-400">Loading…</span>
+        </div>
+      </div>
+    );
+  }
+
   const marginLeft = sidebarCollapsed ? COLLAPSED_WIDTH : sidebarWidth;
 
   return (

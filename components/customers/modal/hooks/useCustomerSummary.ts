@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { CustomerSummary } from "../tabs/DetailsTab";
 
-export default function useCustomerSummary(customerId: string | null) {
+export default function useCustomerSummary(customerId: string | null, isD2C = false) {
   const [summary, setSummary] = useState<CustomerSummary | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -17,10 +17,13 @@ export default function useCustomerSummary(customerId: string | null) {
     async function load() {
       setLoading(true);
 
+      const table = isD2C ? "d2c_customer_summary" : "customer_summary";
+      const filterField = isD2C ? "person_key" : "customerid";
+
       const { data } = await supabase
-        .from("customer_summary")
+        .from(table)
         .select("*")
-        .eq("customerid", customerId)
+        .eq(filterField, customerId)
         .maybeSingle();
 
       if (!cancelled) {
@@ -33,7 +36,7 @@ export default function useCustomerSummary(customerId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [customerId]);
+  }, [customerId, isD2C]);
 
   return { summary, loading };
 }

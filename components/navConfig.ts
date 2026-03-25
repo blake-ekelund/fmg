@@ -12,6 +12,7 @@ import {
   Database,
   Rocket,
   Handshake,
+  Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -109,6 +110,12 @@ export const navSections: readonly NavSection[] = [
         label: "Social Media",
         href: "/marketing",
         icon: Hash,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Workflows",
+        href: "/workflows",
+        icon: Workflow,
         roles: [...FULL_ACCESS, "marketing"],
       },
     ],

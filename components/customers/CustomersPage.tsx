@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { Mail, Workflow, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useCustomers, applyFilters } from "./hooks/useCustomers";
 import { useD2CCustomers } from "./hooks/useD2CCustomers";
@@ -9,6 +10,7 @@ import CustomersFilters from "./CustomersFilters";
 import CustomersTable from "./CustomersTable";
 import CustomersCardGrid from "./CustomersCardGrid";
 import type { CustomerViewMode } from "./constants";
+import type { Customer, D2CCustomer } from "./types";
 
 type SortDir = "asc" | "desc";
 type SortColumn =
@@ -39,6 +41,25 @@ export default function CustomersPage({
     useState<SortDir>("desc");
 
   const [downloading, setDownloading] = useState(false);
+
+  /* ─── Multi-select ─── */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const handleToggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // handleToggleAll is defined below hooks (needs customer data)
+
+  // Clear selection on page / filter / view change
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [page, search, status, channel, viewMode]);
 
   /* Export column picker state */
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
@@ -114,6 +135,18 @@ export default function CustomersPage({
   const loading = isD2C ? d2cLoading : wholesaleLoading;
   const totalCount = isD2C ? d2cTotalCount : wholesaleTotalCount;
   const stats = isD2C ? d2cStats : wholesaleStats;
+
+  const handleToggleAll = useCallback(() => {
+    const currentCustomers = isD2C ? d2cCustomers : wholesaleCustomers;
+    const allIds = (currentCustomers ?? []).map((c) =>
+      isD2C ? (c as D2CCustomer).person_key : (c as Customer).customerid
+    );
+    setSelectedIds((prev) => {
+      const allSelected = allIds.every((id) => prev.has(id));
+      if (allSelected) return new Set();
+      return new Set(allIds);
+    });
+  }, [isD2C, d2cCustomers, wholesaleCustomers]);
 
   /* Reset page when filters/sort/view change */
   useEffect(() => {
@@ -336,6 +369,9 @@ export default function CustomersPage({
         sortDir={sortDir}
         onSort={handleSort}
         viewMode={viewMode}
+        selectedIds={selectedIds}
+        onToggleSelect={handleToggleSelect}
+        onToggleAll={handleToggleAll}
       />
 
       {/* Pagination */}
@@ -361,6 +397,47 @@ export default function CustomersPage({
           </button>
         </div>
       </div>
+
+      {/* ─── Floating Action Bar ─── */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-2xl border border-gray-200 bg-white/95 backdrop-blur-sm shadow-lg px-5 py-3">
+          <span className="text-xs font-semibold text-gray-700 tabular-nums">
+            {selectedIds.size} selected
+          </span>
+
+          <div className="w-px h-5 bg-gray-200" />
+
+          <button
+            onClick={() => {
+              // TODO: Open Send Email modal
+              alert(`Send email to ${selectedIds.size} customer(s) — coming soon`);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 transition"
+          >
+            <Mail size={13} />
+            Send Email
+          </button>
+
+          <button
+            onClick={() => {
+              // TODO: Open Assign Workflow modal
+              alert(`Assign workflow to ${selectedIds.size} customer(s) — coming soon`);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-xs font-medium hover:bg-gray-50 transition"
+          >
+            <Workflow size={13} />
+            Assign Workflow
+          </button>
+
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="inline-flex items-center gap-1 px-2 py-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
+            title="Clear selection"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
     </div>
   );

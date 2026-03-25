@@ -49,8 +49,10 @@ type NavNeighbor = { customerid: string; name: string } | null;
 
 export default function CustomerDetailPage({
   customerId,
+  isD2C = false,
 }: {
   customerId: string;
+  isD2C?: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("details");
@@ -58,7 +60,7 @@ export default function CustomerDetailPage({
 
   /* ─── Data hooks ─── */
 
-  const { summary, loading: summaryLoading } = useCustomerSummary(customerId);
+  const { summary, loading: summaryLoading } = useCustomerSummary(customerId, isD2C);
   const { contact, loading: contactLoading } = useCustomerContact(customerId);
 
   // Always load monthly data — needed for TTM trend in header + details tab chart
@@ -103,20 +105,22 @@ export default function CustomerDetailPage({
     let cancelled = false;
 
     async function loadNeighbors() {
-      // Previous: customer with name just before this one alphabetically
+      const table = isD2C ? "d2c_customer_summary" : "customer_summary";
+      const idField = isD2C ? "person_key" : "customerid";
+
       const [prevRes, nextRes] = await Promise.all([
         Promise.resolve(
           supabase
-            .from("customer_summary")
-            .select("customerid, name")
+            .from(table)
+            .select(`${idField}, name`)
             .lt("name", summary?.name ?? "")
             .order("name", { ascending: false })
             .limit(1)
         ),
         Promise.resolve(
           supabase
-            .from("customer_summary")
-            .select("customerid, name")
+            .from(table)
+            .select(`${idField}, name`)
             .gt("name", summary?.name ?? "")
             .order("name", { ascending: true })
             .limit(1)
@@ -125,15 +129,14 @@ export default function CustomerDetailPage({
 
       if (cancelled) return;
 
+      const prevRow = prevRes.data?.[0] as Record<string, string> | undefined;
+      const nextRow = nextRes.data?.[0] as Record<string, string> | undefined;
+
       setPrevCustomer(
-        prevRes.data?.[0]
-          ? { customerid: prevRes.data[0].customerid, name: prevRes.data[0].name }
-          : null
+        prevRow ? { customerid: prevRow[idField], name: prevRow.name } : null
       );
       setNextCustomer(
-        nextRes.data?.[0]
-          ? { customerid: nextRes.data[0].customerid, name: nextRes.data[0].name }
-          : null
+        nextRow ? { customerid: nextRow[idField], name: nextRow.name } : null
       );
     }
 
@@ -264,16 +267,16 @@ export default function CustomerDetailPage({
       {/* Back link + prev/next nav */}
       <div className="flex items-center justify-between">
         <Link
-          href="/customers"
+          href={isD2C ? "/customers/d2c" : "/customers"}
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition"
         >
-          <ArrowLeft size={16} /> Back to customers
+          <ArrowLeft size={16} /> Back to {isD2C ? "D2C" : "wholesale"} customers
         </Link>
 
         <div className="flex items-center gap-1">
           {prevCustomer ? (
             <Link
-              href={`/customers/${encodeURIComponent(prevCustomer.customerid)}`}
+              href={`${isD2C ? "/customers/d2c" : "/customers"}/${encodeURIComponent(prevCustomer.customerid)}`}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50 transition"
               title={prevCustomer.name}
             >
@@ -287,7 +290,7 @@ export default function CustomerDetailPage({
           )}
           {nextCustomer ? (
             <Link
-              href={`/customers/${encodeURIComponent(nextCustomer.customerid)}`}
+              href={`${isD2C ? "/customers/d2c" : "/customers"}/${encodeURIComponent(nextCustomer.customerid)}`}
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50 transition"
               title={nextCustomer.name}
             >

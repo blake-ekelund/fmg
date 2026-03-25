@@ -46,6 +46,9 @@ export default function CustomersTable({
   sortDir,
   onSort,
   viewMode = "wholesale",
+  selectedIds,
+  onToggleSelect,
+  onToggleAll,
 }: {
   customers?: (Customer | D2CCustomer)[];
   loading: boolean;
@@ -53,10 +56,20 @@ export default function CustomersTable({
   sortDir: "asc" | "desc";
   onSort: (column: SortColumn) => void;
   viewMode?: CustomerViewMode;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleAll?: () => void;
 }) {
   const router = useRouter();
   const safeCustomers = customers ?? [];
   const isD2C = viewMode === "d2c";
+  const hasSelection = !!selectedIds && !!onToggleSelect && !!onToggleAll;
+
+  function getRowId(c: Customer | D2CCustomer): string {
+    return isD2C ? (c as D2CCustomer).person_key : (c as Customer).customerid;
+  }
+
+  const allSelected = hasSelection && safeCustomers.length > 0 && safeCustomers.every((c) => selectedIds.has(getRowId(c)));
 
   function HeaderCell({
     label,
@@ -93,11 +106,42 @@ export default function CustomersTable({
     );
   }
 
+  function CheckboxCell({ id }: { id: string }) {
+    if (!hasSelection) return null;
+    return (
+      <div
+        className="flex items-center justify-center"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          checked={selectedIds.has(id)}
+          onChange={() => onToggleSelect(id)}
+          className="w-3.5 h-3.5 rounded border-slate-300 text-gray-900 focus:ring-gray-500 cursor-pointer"
+        />
+      </div>
+    );
+  }
+
+  /* ─── Grid columns: checkbox takes 1 col when selection is active ─── */
+  const gridCols = hasSelection ? "grid-cols-[32px_repeat(12,minmax(0,1fr))]" : "grid-cols-12";
+
   if (isD2C) {
     return (
       <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
         {/* D2C Header */}
-        <div className="grid grid-cols-12 px-2 py-3 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/70 border-b border-slate-200/60">
+        <div className={`grid ${gridCols} px-2 py-3 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/70 border-b border-slate-200/60`}>
+          {hasSelection && (
+            <div className="flex items-center justify-center">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onToggleAll}
+                className="w-3.5 h-3.5 rounded border-slate-300 text-gray-900 focus:ring-gray-500 cursor-pointer"
+              />
+            </div>
+          )}
           <div className="col-span-3">
             <HeaderCell label="Customer" column="name" />
           </div>
@@ -123,11 +167,20 @@ export default function CustomersTable({
         {!loading &&
           (safeCustomers as D2CCustomer[]).map((c) => {
             const status = getCustomerStatus(c.last_order_date);
+            const isSelected = hasSelection && selectedIds.has(c.person_key);
             return (
               <div
                 key={c.person_key}
-                className="grid grid-cols-12 px-2 py-2 text-xs items-center border-b border-slate-100 hover:bg-slate-50/60 transition"
+                role="button"
+                tabIndex={0}
+                onClick={() => router.push(`/customers/d2c/${encodeURIComponent(c.person_key)}`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ")
+                    router.push(`/customers/d2c/${encodeURIComponent(c.person_key)}`);
+                }}
+                className={`grid ${gridCols} px-2 py-2 text-xs items-center border-b border-slate-100 hover:bg-slate-50/60 cursor-pointer transition focus:outline-none focus:bg-slate-50 ${isSelected ? "bg-gray-50" : ""}`}
               >
+                {hasSelection && <CheckboxCell id={c.person_key} />}
                 <div className="col-span-3">
                   <div className="font-medium text-slate-800 truncate">{c.name}</div>
                   <div className="text-[11px] text-slate-400 truncate">{c.email ?? "—"}</div>
@@ -156,7 +209,17 @@ export default function CustomersTable({
   return (
     <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="grid grid-cols-12 px-2 py-3 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/70 border-b border-slate-200/60">
+      <div className={`grid ${gridCols} px-2 py-3 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/70 border-b border-slate-200/60`}>
+        {hasSelection && (
+          <div className="flex items-center justify-center">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={onToggleAll}
+              className="w-3.5 h-3.5 rounded border-slate-300 text-gray-900 focus:ring-gray-500 cursor-pointer"
+            />
+          </div>
+        )}
         <div className="col-span-3">
           <HeaderCell label="Customer" column="name" />
         </div>
@@ -182,6 +245,7 @@ export default function CustomersTable({
       {!loading &&
         (safeCustomers as Customer[]).map((c) => {
           const status = getCustomerStatus(c.last_order_date);
+          const isSelected = hasSelection && selectedIds.has(c.customerid);
           return (
             <div
               key={c.customerid}
@@ -193,8 +257,9 @@ export default function CustomersTable({
                   router.push(`/customers/${encodeURIComponent(c.customerid)}`);
                 }
               }}
-              className="grid grid-cols-12 px-2 py-2 text-xs items-center border-b border-slate-100 hover:bg-slate-50/60 cursor-pointer transition focus:outline-none focus:bg-slate-50"
+              className={`grid ${gridCols} px-2 py-2 text-xs items-center border-b border-slate-100 hover:bg-slate-50/60 cursor-pointer transition focus:outline-none focus:bg-slate-50 ${isSelected ? "bg-gray-50" : ""}`}
             >
+              {hasSelection && <CheckboxCell id={c.customerid} />}
               <div className="col-span-3">
                 <div className="text-xs text-slate-400">{c.customerid}</div>
                 <div className="font-medium text-slate-800">{c.name}</div>
