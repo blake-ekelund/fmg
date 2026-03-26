@@ -116,7 +116,7 @@ export const navSections: readonly NavSection[] = [
     items: [
       {
         label: "Social Media",
-        href: "/marketing",
+        href: "/social-media",
         icon: Hash,
         roles: [...FULL_ACCESS, "marketing"],
       },
@@ -193,7 +193,7 @@ export function getNavForRole(role: UserRole | null): NavSection[] {
 /** Default landing page per role */
 export function getDefaultRoute(role: UserRole | null): string {
   if (role === "sales") return "/customers";
-  if (role === "marketing") return "/marketing";
+  if (role === "marketing") return "/social-media";
   return "/dashboard";
 }
 
