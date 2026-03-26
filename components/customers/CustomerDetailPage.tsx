@@ -23,6 +23,7 @@ import { supabase } from "@/lib/supabaseClient";
 import DetailsTab from "./modal/tabs/DetailsTab";
 import OrdersTab from "./modal/tabs/OrdersTab";
 import SalesAnalysisTab from "./modal/tabs/SalesAnalysisTab";
+import WorkflowsTab from "./modal/tabs/WorkflowsTab";
 import ActivitySection, { type ActivitySectionHandle } from "./modal/tabs/ActivitySection";
 
 import useCustomerSummary from "./modal/hooks/useCustomerSummary";
@@ -35,7 +36,7 @@ import useCustomerActivities from "./modal/hooks/useCustomerActivities";
 import useCustomerCustomFields from "./modal/hooks/useCustomerCustomFields";
 import type { Customer } from "./types";
 
-type Tab = "details" | "orders" | "analysis" | "touchpoints";
+type Tab = "details" | "orders" | "analysis" | "workflows" | "touchpoints";
 
 type RelatedCustomer = {
   customerid: string;
@@ -258,6 +259,7 @@ export default function CustomerDetailPage({
     { value: "details", label: "Details" },
     { value: "orders", label: "Orders", badge: orderCount },
     { value: "analysis", label: "Sales Analysis" },
+    { value: "workflows", label: "Workflows" },
     { value: "touchpoints", label: "Touchpoints", badge: activityCount },
   ];
 
@@ -500,6 +502,10 @@ export default function CustomerDetailPage({
                 data={analysisData}
                 loading={analysisLoading}
               />
+            )}
+
+            {tab === "workflows" && (
+              <WorkflowsTab customerId={customerId} />
             )}
 
             {tab === "touchpoints" && (

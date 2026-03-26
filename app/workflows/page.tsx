@@ -16,8 +16,11 @@ import {
   Trash2,
   Save,
   X,
+  Users,
+  Settings2,
 } from "lucide-react";
 import clsx from "clsx";
+import WorkflowEnrollments from "@/components/workflows/WorkflowEnrollments";
 
 /* ─── Types ─── */
 type StepType = "trigger" | "delay" | "email" | "condition";
@@ -254,6 +257,7 @@ function WorkflowCard({
   onToggle: () => void;
   onUpdateWorkflow: (wf: WorkflowData) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"steps" | "enrolled">("enrolled");
   const [editSteps, setEditSteps] = useState<FlowStep[]>(workflow.steps);
   const [dirty, setDirty] = useState(false);
 
@@ -396,6 +400,38 @@ function WorkflowCard({
       {/* Expanded */}
       {expanded && (
         <div className="border-t border-gray-100">
+          {/* Tabs */}
+          <div className="flex items-center gap-0 px-6 border-b border-gray-100">
+            <button
+              onClick={() => setActiveTab("enrolled")}
+              className={clsx(
+                "px-4 py-3 text-xs font-medium border-b-2 transition-all flex items-center gap-1.5",
+                activeTab === "enrolled"
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              )}
+            >
+              <Users size={13} />
+              Enrolled Customers
+            </button>
+            <button
+              onClick={() => setActiveTab("steps")}
+              className={clsx(
+                "px-4 py-3 text-xs font-medium border-b-2 transition-all flex items-center gap-1.5",
+                activeTab === "steps"
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              )}
+            >
+              <Settings2 size={13} />
+              Steps
+            </button>
+          </div>
+
+          {activeTab === "enrolled" ? (
+            <WorkflowEnrollments workflowId={workflow.id} />
+          ) : (
+          <>
           {/* Save bar — only when changes made */}
           {dirty && (
             <div className="flex items-center justify-end gap-2 px-6 py-3 bg-amber-50/50 border-b border-amber-100">
@@ -481,6 +517,8 @@ function WorkflowCard({
                 </button>
               </div>
             </div>
+          </>
+          )}
         </div>
       )}
     </div>
