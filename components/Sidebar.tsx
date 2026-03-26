@@ -7,7 +7,7 @@ import {
   PanelLeftOpen,
   LogOut,
   GripVertical,
-  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import clsx from "clsx";
 import { useRef, useCallback, useEffect, useState } from "react";
@@ -20,7 +20,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 --------------------------- */
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 320;
-const COLLAPSED_WIDTH = 64;
+const COLLAPSED_WIDTH = 56;
 
 type Props = {
   collapsed: boolean;
@@ -44,10 +44,10 @@ export default function Sidebar({
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
 
-  /* Track which sections are open — auto-open section containing active page */
+  /* Track which sections are open */
   const [openSections, setOpenSections] = useState<Set<string>>(new Set());
 
-  // Auto-open the section that contains the current route
+  // Auto-open section containing active page
   useEffect(() => {
     for (const section of sections) {
       if (!section.label) continue;
@@ -116,8 +116,13 @@ export default function Sidebar({
 
   function isActive(href: string) {
     if (href === "/dashboard") return pathname === "/dashboard";
-    if (href === "/customers") return pathname === "/customers" || pathname.startsWith("/customers/[") || (pathname.startsWith("/customers/") && !pathname.startsWith("/customers/d2c"));
-    if (href === "/customers/d2c") return pathname === "/customers/d2c" || pathname.startsWith("/customers/d2c/");
+    if (href === "/customers")
+      return (
+        pathname === "/customers" ||
+        (pathname.startsWith("/customers/") && !pathname.startsWith("/customers/d2c"))
+      );
+    if (href === "/customers/d2c")
+      return pathname === "/customers/d2c" || pathname.startsWith("/customers/d2c/");
     const base = href.split("?")[0];
     if (pathname === base) return true;
     return pathname.startsWith(base + "/");
@@ -129,41 +134,39 @@ export default function Sidebar({
 
   return (
     <aside
-      className="hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-white border-r border-gray-200/80 z-40 select-none"
+      className="hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-[#fafafa] border-r border-gray-200/60 z-40 select-none"
       style={{
         width: sidebarWidth,
         transition: dragRef.current ? "none" : "width 200ms ease",
       }}
     >
       {/* Header */}
-      <div className="h-14 px-4 flex items-center justify-between border-b border-gray-100 shrink-0">
+      <div className="h-14 px-4 flex items-center justify-between shrink-0">
         {!collapsed && (
-          <span className="font-bold tracking-tight text-base bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+          <span className="font-semibold tracking-tight text-[15px] text-gray-900">
             FMG
           </span>
         )}
         <button
           aria-label="Toggle sidebar"
           onClick={onToggle}
-          className="p-1.5 rounded-md text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition"
+          className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 transition"
         >
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-1">
+      <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
         {sections.map((section) => {
           const isRoot = !section.label;
           const isOpen = openSections.has(section.label);
           const hasActive = sectionHasActive(section);
-          const SectionIcon = section.icon;
-          const color = section.color;
 
           /* ─── Root items (Overview) — no dropdown ─── */
           if (isRoot) {
             return (
-              <div key="__root" className="space-y-0.5">
+              <div key="__root" className="mb-1">
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const active = isActive(item.href);
@@ -172,14 +175,14 @@ export default function Sidebar({
                       key={item.href}
                       href={item.href}
                       className={clsx(
-                        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-all",
+                        "flex items-center gap-2.5 rounded-md px-2 py-[7px] text-[13px] transition-colors",
                         collapsed && "justify-center px-0",
                         active
-                          ? "bg-gray-900 text-white shadow-sm"
-                          : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                          ? "bg-gray-200/70 text-gray-900 font-medium"
+                          : "text-gray-500 hover:bg-gray-200/40 hover:text-gray-700"
                       )}
                     >
-                      <Icon size={16} className="shrink-0" />
+                      <Icon size={15} className="shrink-0" strokeWidth={active ? 2 : 1.5} />
                       {!collapsed && <span className="truncate">{item.label}</span>}
                     </Link>
                   );
@@ -188,75 +191,59 @@ export default function Sidebar({
             );
           }
 
-          /* ─── Collapsible section ─── */
-
-          /* Collapsed sidebar: show section icon with colored dot */
+          /* ─── Collapsed sidebar: just show section icon ─── */
           if (collapsed) {
+            const SectionIcon = section.icon;
             return (
-              <div key={section.label} className="py-1">
-                <div className="relative flex justify-center">
-                  {SectionIcon && (
-                    <div
-                      className={clsx(
-                        "p-2 rounded-lg transition-colors cursor-pointer",
-                        hasActive
-                          ? `${color?.bg ?? "bg-gray-100"} ${color?.text ?? "text-gray-900"}`
-                          : "text-gray-400 hover:bg-gray-50 hover:text-gray-600"
-                      )}
-                      title={section.label}
-                    >
-                      <SectionIcon size={16} />
-                    </div>
-                  )}
-                  {hasActive && (
-                    <span className={`absolute -right-0.5 top-0.5 w-1.5 h-1.5 rounded-full ${color?.dot ?? "bg-gray-500"}`} />
-                  )}
-                </div>
+              <div key={section.label} className="flex justify-center py-0.5">
+                {SectionIcon && (
+                  <div
+                    className={clsx(
+                      "p-2 rounded-md transition-colors cursor-pointer",
+                      hasActive
+                        ? "bg-gray-200/70 text-gray-900"
+                        : "text-gray-400 hover:bg-gray-200/40 hover:text-gray-600"
+                    )}
+                    title={section.label}
+                  >
+                    <SectionIcon size={15} />
+                  </div>
+                )}
               </div>
             );
           }
 
-          /* Expanded sidebar: collapsible dropdown */
+          /* ─── Expanded: collapsible section ─── */
           return (
-            <div key={section.label} className="space-y-0.5">
-              {/* Section header button */}
+            <div key={section.label}>
+              {/* Section header */}
               <button
                 onClick={() => toggleSection(section.label)}
                 className={clsx(
-                  "flex items-center gap-2 w-full rounded-lg px-2.5 py-2 text-[13px] font-semibold transition-all",
+                  "flex items-center gap-1.5 w-full rounded-md px-2 py-[5px] text-[11px] font-medium uppercase tracking-wider transition-colors",
                   hasActive
-                    ? `${color?.text ?? "text-gray-900"}`
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "text-gray-500"
+                    : "text-gray-400 hover:text-gray-500"
                 )}
               >
-                {SectionIcon && (
-                  <span className={clsx(
-                    "flex items-center justify-center w-6 h-6 rounded-md transition-colors",
-                    hasActive
-                      ? `${color?.bg ?? "bg-gray-100"} ${color?.text ?? "text-gray-900"}`
-                      : "bg-gray-100 text-gray-400"
-                  )}>
-                    <SectionIcon size={13} />
-                  </span>
-                )}
-                <span className="flex-1 text-left truncate">{section.label}</span>
-                <ChevronDown
-                  size={14}
+                <ChevronRight
+                  size={11}
                   className={clsx(
-                    "shrink-0 transition-transform duration-200 text-gray-400",
-                    isOpen && "rotate-180"
+                    "shrink-0 transition-transform duration-150",
+                    isOpen && "rotate-90"
                   )}
                 />
+                <span className="truncate">{section.label}</span>
               </button>
 
-              {/* Dropdown items */}
+              {/* Section items */}
               <div
                 className={clsx(
-                  "overflow-hidden transition-all duration-200 ease-in-out",
-                  isOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+                  "overflow-hidden transition-all duration-150 ease-in-out",
+                  isOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
                 )}
               >
-                <div className="ml-3 pl-3 border-l-2 border-gray-100 space-y-0.5 pb-1">
+                <div className="space-y-px py-0.5">
                   {section.items.map((item) => {
                     const Icon = item.icon;
                     const active = isActive(item.href);
@@ -266,17 +253,18 @@ export default function Sidebar({
                         key={item.href}
                         href={item.href}
                         className={clsx(
-                          "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all",
+                          "flex items-center gap-2.5 rounded-md px-2 pl-[22px] py-[6px] text-[13px] transition-colors",
                           active
-                            ? `${color?.activeBg ?? "bg-gray-100"} ${color?.text ?? "text-gray-900"} font-semibold`
-                            : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                            ? "bg-gray-200/70 text-gray-900 font-medium"
+                            : "text-gray-500 hover:bg-gray-200/40 hover:text-gray-700"
                         )}
                       >
-                        <Icon size={14} className={clsx("shrink-0", active && (color?.text ?? "text-gray-900"))} />
+                        <Icon
+                          size={14}
+                          className="shrink-0"
+                          strokeWidth={active ? 2 : 1.5}
+                        />
                         <span className="truncate">{item.label}</span>
-                        {active && (
-                          <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${color?.dot ?? "bg-gray-500"}`} />
-                        )}
                       </Link>
                     );
                   })}
@@ -287,11 +275,11 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* User info + Logout */}
-      <div className="px-2.5 pb-4 shrink-0 border-t border-gray-100 pt-3">
+      {/* User + Logout */}
+      <div className="px-2 pb-3 shrink-0 pt-2 border-t border-gray-200/60">
         {!collapsed && profile && (
-          <div className="px-2.5 mb-2">
-            <div className="text-xs font-medium text-gray-700 truncate">
+          <div className="px-2 py-2">
+            <div className="text-[12px] font-medium text-gray-700 truncate">
               {profile.first_name || profile.email}
             </div>
             <div className="text-[11px] text-gray-400 capitalize">{profile.access}</div>
@@ -300,24 +288,24 @@ export default function Sidebar({
         <button
           onClick={handleLogout}
           className={clsx(
-            "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors text-gray-400 hover:bg-red-50 hover:text-red-600 w-full",
+            "flex items-center gap-2.5 rounded-md px-2 py-[7px] text-[13px] transition-colors text-gray-400 hover:bg-gray-200/40 hover:text-gray-600 w-full",
             collapsed && "justify-center px-0"
           )}
         >
-          <LogOut size={16} className="shrink-0" />
+          <LogOut size={14} className="shrink-0" />
           {!collapsed && <span>Log out</span>}
         </button>
       </div>
 
-      {/* Drag handle (only when expanded) */}
+      {/* Drag handle */}
       {!collapsed && (
         <div
           onMouseDown={startDrag}
-          className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize group hover:bg-gray-200/50 transition-colors"
+          className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize group hover:bg-gray-300/40 transition-colors"
           title="Drag to resize"
         >
           <div className="absolute top-1/2 -translate-y-1/2 right-0 translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <GripVertical size={12} className="text-gray-400" />
+            <GripVertical size={10} className="text-gray-400" />
           </div>
         </div>
       )}
