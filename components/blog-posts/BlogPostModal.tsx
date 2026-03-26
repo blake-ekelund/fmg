@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Trash2, Eye, Pencil } from "lucide-react";
+import { X, Trash2, Eye, Pencil, Code } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
+import RichTextEditor from "./RichTextEditor";
 import type { BlogPost, BlogPostStatus } from "./types";
 import { COLUMNS } from "./types";
 
@@ -16,7 +17,7 @@ type Props = {
 };
 
 const BRANDS = ["NI", "Sassy"] as const;
-type ViewMode = "preview" | "edit";
+type ViewMode = "preview" | "edit" | "html";
 
 export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted }: Props) {
   const [title, setTitle] = useState("");
@@ -124,35 +125,45 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
               {post ? "Blog Post" : "New Post"}
             </h2>
 
-            {/* Preview / Edit toggle */}
-            {body && (
-              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
-                <button
-                  onClick={() => setViewMode("preview")}
-                  className={clsx(
-                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition",
-                    viewMode === "preview"
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  <Eye size={12} />
-                  Preview
-                </button>
-                <button
-                  onClick={() => setViewMode("edit")}
-                  className={clsx(
-                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition",
-                    viewMode === "edit"
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  <Pencil size={12} />
-                  Edit
-                </button>
-              </div>
-            )}
+            {/* Preview / Edit / HTML toggle */}
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setViewMode("preview")}
+                className={clsx(
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition",
+                  viewMode === "preview"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                <Eye size={12} />
+                Preview
+              </button>
+              <button
+                onClick={() => setViewMode("edit")}
+                className={clsx(
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition",
+                  viewMode === "edit"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                <Pencil size={12} />
+                Edit
+              </button>
+              <button
+                onClick={() => setViewMode("html")}
+                className={clsx(
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition",
+                  viewMode === "html"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                <Code size={12} />
+                HTML
+              </button>
+            </div>
           </div>
 
           <button onClick={onClose} className="p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition">
@@ -201,32 +212,27 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                   dangerouslySetInnerHTML={{ __html: body || "<p class='text-gray-400'>No content yet…</p>" }}
                 />
               </div>
-            ) : (
-              /* ─── Edit Mode ─── */
+            ) : viewMode === "edit" ? (
+              /* ─── Rich Text Edit Mode (Google Docs style) ─── */
               <div className="px-6 py-4 space-y-4">
                 {/* Title */}
                 <div>
-                  <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Title</label>
                   <input
                     ref={titleRef}
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Blog post title…"
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition"
+                    className="w-full text-2xl font-bold text-gray-900 placeholder:text-gray-300 outline-none border-none bg-transparent pb-2"
                   />
+                  <div className="h-px bg-gray-100" />
                 </div>
 
-                {/* Body HTML editor */}
-                <div>
-                  <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Body (HTML)</label>
-                  <textarea
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    placeholder="Write your blog post content in HTML…"
-                    rows={18}
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-[13px] font-mono text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition resize-y leading-relaxed"
-                  />
-                </div>
+                {/* Rich text editor */}
+                <RichTextEditor
+                  value={body}
+                  onChange={setBody}
+                  placeholder="Start writing your blog post…"
+                />
 
                 {/* SEO Meta */}
                 <div>
@@ -268,6 +274,29 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                       className="flex-1 min-w-[100px] text-sm text-gray-900 placeholder:text-gray-400 outline-none bg-transparent"
                     />
                   </div>
+                </div>
+              </div>
+            ) : (
+              /* ─── HTML Source Mode ─── */
+              <div className="px-6 py-4 space-y-4">
+                <div>
+                  <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Title</label>
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Blog post title…"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Body (HTML Source)</label>
+                  <textarea
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    placeholder="Raw HTML content…"
+                    rows={20}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-[12px] font-mono text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 transition resize-y leading-relaxed bg-gray-50"
+                  />
                 </div>
               </div>
             )}
