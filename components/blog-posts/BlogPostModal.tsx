@@ -28,23 +28,8 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
   const [brand, setBrand] = useState<"NI" | "Sassy">("NI");
   const [status, setStatus] = useState<BlogPostStatus>("ai_draft");
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteStep, setDeleteStep] = useState<"idle" | "feedback">("idle");
-  const [deleteReasons, setDeleteReasons] = useState<string[]>([]);
-  const [deleteComment, setDeleteComment] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const titleRef = useRef<HTMLInputElement>(null);
-
-  const DELETE_REASON_TAGS = [
-    "Off-brand voice",
-    "Inaccurate information",
-    "Too generic",
-    "Wrong topic",
-    "Poor structure",
-    "Too salesy",
-    "Duplicate content",
-    "Not relevant",
-  ];
 
   useEffect(() => {
     if (open && post) {
@@ -65,9 +50,7 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
       setStatus("ai_draft");
       setViewMode("edit");
     }
-    setDeleteStep("idle");
-    setDeleteReasons([]);
-    setDeleteComment("");
+    // reset delete state handled by parent
     if (open) setTimeout(() => titleRef.current?.focus(), 50);
   }, [open, post]);
 
@@ -98,26 +81,7 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
     onClose();
   }
 
-  async function handleDelete() {
-    if (!post) return;
-    setDeleting(true);
-
-    // Save feedback first
-    if (deleteReasons.length > 0 || deleteComment.trim()) {
-      await supabase.from("content_feedback").insert({
-        content_type: "blog",
-        content_id: post.id,
-        action: "delete",
-        reasons: deleteReasons,
-        comment: deleteComment.trim() || null,
-      });
-    }
-
-    await supabase.from("blog_posts").delete().eq("id", post.id);
-    setDeleting(false);
-    onDeleted?.();
-    onClose();
-  }
+  // Delete is handled by parent via DeleteFeedbackModal
 
   function addTag(e: React.KeyboardEvent) {
     if (e.key === "Enter" && tagInput.trim()) {
@@ -440,78 +404,13 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
             {/* Delete */}
             {post && (
               <div className="pt-2 border-t border-gray-200">
-                {deleteStep === "idle" ? (
-                  <button
-                    onClick={() => setDeleteStep("feedback")}
-                    className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-red-500 transition"
-                  >
-                    <Trash2 size={12} />
-                    Delete post
-                  </button>
-                ) : (
-                  <div className="space-y-2.5">
-                    <p className="text-[11px] font-medium text-gray-700">
-                      Why are you deleting this?
-                    </p>
-
-                    {/* Reason tags */}
-                    <div className="flex flex-wrap gap-1">
-                      {DELETE_REASON_TAGS.map((reason) => {
-                        const selected = deleteReasons.includes(reason);
-                        return (
-                          <button
-                            key={reason}
-                            onClick={() =>
-                              setDeleteReasons((prev) =>
-                                selected
-                                  ? prev.filter((r) => r !== reason)
-                                  : [...prev, reason]
-                              )
-                            }
-                            className={clsx(
-                              "text-[10px] font-medium px-2 py-1 rounded-md transition",
-                              selected
-                                ? "bg-red-100 text-red-700 ring-1 ring-red-200"
-                                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                            )}
-                          >
-                            {reason}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Comment */}
-                    <textarea
-                      value={deleteComment}
-                      onChange={(e) => setDeleteComment(e.target.value)}
-                      placeholder="Additional feedback (optional)…"
-                      rows={2}
-                      className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-[11px] text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-red-200 resize-none"
-                    />
-
-                    {/* Actions */}
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={handleDelete}
-                        disabled={deleting}
-                        className="flex-1 text-[11px] font-medium py-1.5 rounded-md bg-red-500 text-white hover:bg-red-600 transition disabled:opacity-50"
-                      >
-                        {deleting ? "Deleting…" : "Delete Post"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setDeleteStep("idle");
-                          setDeleteReasons([]);
-                          setDeleteComment("");
-                        }}
-                        className="flex-1 text-[11px] font-medium py-1.5 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 transition"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <button
+                  onClick={() => onDeleted?.()}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-red-500 transition"
+                >
+                  <Trash2 size={12} />
+                  Delete post
+                </button>
               </div>
             )}
           </div>

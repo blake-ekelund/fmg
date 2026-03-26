@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import KanbanBoard from "@/components/blog-posts/KanbanBoard";
 import BlogPostModal from "@/components/blog-posts/BlogPostModal";
 import GeneratePostModal from "@/components/blog-posts/GeneratePostModal";
+import DeleteFeedbackModal from "@/components/blog-posts/DeleteFeedbackModal";
 import type { BlogPost, BlogPostStatus } from "@/components/blog-posts/types";
 
 export default function BlogPostsPage() {
@@ -21,13 +22,15 @@ export default function BlogPostsPage() {
 
   // Email template modal
   const [emailPost, setEmailPost] = useState<BlogPost | null>(null);
+  // Delete feedback modal
+  const [deletePost, setDeletePost] = useState<BlogPost | null>(null);
 
   /* ─── Load posts ─── */
   const loadPosts = useCallback(async () => {
     const { data } = await supabase
       .from("blog_posts")
       .select("*")
-      .neq("status", "published")
+      .not("status", "in", '("published","deleted")')
       .order("created_at", { ascending: false });
     setPosts((data as BlogPost[]) ?? []);
     setLoading(false);
@@ -138,7 +141,11 @@ export default function BlogPostsPage() {
         post={editPost}
         onClose={() => setModalOpen(false)}
         onSaved={loadPosts}
-        onDeleted={loadPosts}
+        onDeleted={() => {
+          // Close edit modal, open delete feedback modal
+          setDeletePost(editPost);
+          setModalOpen(false);
+        }}
       />
 
       {/* Generate with AI modal */}
@@ -243,6 +250,19 @@ export default function BlogPostsPage() {
           </div>
         </div>
       )}
+
+      {/* Delete feedback modal */}
+      <DeleteFeedbackModal
+        open={!!deletePost}
+        postId={deletePost?.id ?? ""}
+        postTitle={deletePost?.title ?? ""}
+        contentType="blog"
+        onClose={() => setDeletePost(null)}
+        onDeleted={() => {
+          setDeletePost(null);
+          loadPosts();
+        }}
+      />
     </div>
   );
 }
