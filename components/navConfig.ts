@@ -13,6 +13,10 @@ import {
   Rocket,
   Handshake,
   Workflow,
+  FileText,
+  CalendarDays,
+  ImageIcon,
+  Tag,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -139,6 +143,30 @@ export const navSections: readonly NavSection[] = [
         label: "Social Media",
         href: "/marketing",
         icon: Hash,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Blog Posts",
+        href: "/blog-posts",
+        icon: FileText,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Content Calendar",
+        href: "/content-calendar",
+        icon: CalendarDays,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Asset Library",
+        href: "/assets",
+        icon: ImageIcon,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Promotions",
+        href: "/promotions",
+        icon: Tag,
         roles: [...FULL_ACCESS, "marketing"],
       },
       {
