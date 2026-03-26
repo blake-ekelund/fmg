@@ -109,6 +109,17 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
     setStatus(newStatus);
   }
 
+  async function quickAction(newStatus: BlogPostStatus) {
+    setStatus(newStatus);
+    if (!post) return;
+    await supabase
+      .from("blog_posts")
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq("id", post.id);
+    onSaved();
+    onClose();
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
@@ -357,7 +368,7 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                 <div className="flex flex-col gap-1 mt-1.5">
                   {status === "ai_draft" && (
                     <button
-                      onClick={() => { moveToStatus("human_review"); setTimeout(handleSave, 0); }}
+                      onClick={() => { quickAction("human_review"); }}
                       className="px-2.5 py-1.5 rounded-md bg-blue-50 text-blue-700 text-[12px] font-medium hover:bg-blue-100 transition text-left"
                     >
                       Move to Review
@@ -366,13 +377,13 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                   {status === "human_review" && (
                     <>
                       <button
-                        onClick={() => { moveToStatus("ai_draft"); setTimeout(handleSave, 0); }}
+                        onClick={() => { quickAction("ai_draft"); }}
                         className="px-2.5 py-1.5 rounded-md bg-purple-50 text-purple-700 text-[12px] font-medium hover:bg-purple-100 transition text-left"
                       >
                         Send Back to Draft
                       </button>
                       <button
-                        onClick={() => { moveToStatus("ready"); setTimeout(handleSave, 0); }}
+                        onClick={() => { quickAction("ready"); }}
                         className="px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-700 text-[12px] font-medium hover:bg-emerald-100 transition text-left"
                       >
                         Mark Ready
@@ -382,13 +393,13 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                   {status === "ready" && (
                     <>
                       <button
-                        onClick={() => { moveToStatus("published"); setTimeout(handleSave, 0); }}
+                        onClick={() => { quickAction("published"); }}
                         className="px-2.5 py-1.5 rounded-md bg-gray-900 text-white text-[12px] font-medium hover:bg-gray-800 transition text-left"
                       >
                         Mark Published
                       </button>
                       <button
-                        onClick={() => { moveToStatus("human_review"); setTimeout(handleSave, 0); }}
+                        onClick={() => { quickAction("human_review"); }}
                         className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-600 text-[12px] font-medium hover:bg-gray-200 transition text-left"
                       >
                         Send Back to Review
