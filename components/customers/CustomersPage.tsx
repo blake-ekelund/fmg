@@ -11,6 +11,7 @@ import CustomersTable from "./CustomersTable";
 import CustomersCardGrid from "./CustomersCardGrid";
 import type { CustomerViewMode } from "./constants";
 import type { Customer, D2CCustomer } from "./types";
+import AssignWorkflowModal from "./AssignWorkflowModal";
 
 type SortDir = "asc" | "desc";
 type SortColumn =
@@ -45,6 +46,7 @@ export default function CustomersPage({
 
   /* ─── Multi-select ─── */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
 
   const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -158,6 +160,23 @@ export default function CustomersPage({
       if (allSelected) return new Set();
       return new Set(allIds);
     });
+  }, [isD2C, d2cCustomers, wholesaleCustomers]);
+
+  /* ─── Customer name map for workflow modal ─── */
+  const customerNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (isD2C) {
+      (d2cCustomers ?? []).forEach((c) => {
+        const dc = c as D2CCustomer;
+        map[dc.person_key] = dc.name || dc.person_key;
+      });
+    } else {
+      (wholesaleCustomers ?? []).forEach((c) => {
+        const wc = c as Customer;
+        map[wc.customerid] = wc.name || wc.customerid;
+      });
+    }
+    return map;
   }, [isD2C, d2cCustomers, wholesaleCustomers]);
 
   /* Reset page when filters/sort/view change */
@@ -435,10 +454,7 @@ export default function CustomersPage({
           </button>
 
           <button
-            onClick={() => {
-              // TODO: Open Assign Workflow modal
-              alert(`Assign workflow to ${selectedIds.size} customer(s) — coming soon`);
-            }}
+            onClick={() => setWorkflowModalOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-xs font-medium hover:bg-gray-50 transition"
           >
             <Workflow size={13} />
@@ -455,6 +471,15 @@ export default function CustomersPage({
         </div>
       )}
 
+      {/* ─── Assign Workflow Modal ─── */}
+      <AssignWorkflowModal
+        open={workflowModalOpen}
+        onClose={() => setWorkflowModalOpen(false)}
+        selectedIds={selectedIds}
+        customerType={isD2C ? "d2c" : "wholesale"}
+        customerNames={customerNames}
+        onComplete={() => setSelectedIds(new Set())}
+      />
     </div>
   );
 }
