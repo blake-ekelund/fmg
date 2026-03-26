@@ -10,11 +10,9 @@ import {
   ChevronDown,
   ChevronUp,
   Zap,
-  CheckCircle2,
   GripVertical,
   ArrowUp,
   ArrowDown,
-  Pencil,
   Trash2,
   Save,
   X,
@@ -81,19 +79,6 @@ function stepBg(type: StepType) {
   }
 }
 
-function stepBorder(type: StepType) {
-  switch (type) {
-    case "trigger":
-      return "border-violet-200";
-    case "email":
-      return "border-blue-200";
-    case "delay":
-      return "border-amber-200";
-    default:
-      return "border-gray-200";
-  }
-}
-
 function stepLabel(type: StepType) {
   switch (type) {
     case "trigger":
@@ -105,61 +90,6 @@ function stepLabel(type: StepType) {
     default:
       return "Step";
   }
-}
-
-/* ─── Flow Visual Step ─── */
-function FlowStepCard({ step, isLast }: { step: FlowStep; isLast: boolean }) {
-  return (
-    <div className="flex flex-col items-center">
-      <div
-        className={clsx(
-          "w-full max-w-sm rounded-xl border-2 bg-white shadow-sm overflow-hidden transition-all hover:shadow-md",
-          stepBorder(step.type)
-        )}
-      >
-        <div className="flex items-center gap-3 px-4 py-3">
-          <div
-            className={clsx(
-              "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-              stepBg(step.type)
-            )}
-          >
-            <StepIcon type={step.type} />
-          </div>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-gray-800 truncate">
-              {step.title}
-            </div>
-            {step.subtitle && (
-              <div className="text-[11px] text-gray-500">{step.subtitle}</div>
-            )}
-          </div>
-        </div>
-        {step.details && step.details.length > 0 && (
-          <div className="px-4 pb-3 space-y-1.5">
-            {step.details.map((d, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-2 text-xs text-gray-600"
-              >
-                <CheckCircle2
-                  size={13}
-                  className="text-gray-300 mt-0.5 shrink-0"
-                />
-                <span>{d}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      {!isLast && (
-        <div className="flex flex-col items-center py-1">
-          <div className="w-0.5 h-6 bg-gray-200" />
-          <ChevronDown size={14} className="text-gray-300 -mt-1" />
-        </div>
-      )}
-    </div>
-  );
 }
 
 /* ─── Editable Step Row ─── */
@@ -324,22 +254,21 @@ function WorkflowCard({
   onToggle: () => void;
   onUpdateWorkflow: (wf: WorkflowData) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [editSteps, setEditSteps] = useState<FlowStep[]>(workflow.steps);
+  const [dirty, setDirty] = useState(false);
 
-  function startEdit() {
-    setEditSteps([...workflow.steps]);
-    setEditing(true);
-  }
-
-  function cancelEdit() {
-    setEditSteps(workflow.steps);
-    setEditing(false);
+  function markDirty<T>(fn: (v: T) => void) {
+    return (v: T) => { fn(v); setDirty(true); };
   }
 
   function saveEdit() {
     onUpdateWorkflow({ ...workflow, steps: editSteps });
-    setEditing(false);
+    setDirty(false);
+  }
+
+  function cancelEdit() {
+    setEditSteps(workflow.steps);
+    setDirty(false);
   }
 
   function moveStep(from: number, to: number) {
@@ -347,16 +276,19 @@ function WorkflowCard({
     const [item] = arr.splice(from, 1);
     arr.splice(to, 0, item);
     setEditSteps(arr);
+    setDirty(true);
   }
 
   function updateStep(idx: number, step: FlowStep) {
     const arr = [...editSteps];
     arr[idx] = step;
     setEditSteps(arr);
+    setDirty(true);
   }
 
   function deleteStep(idx: number) {
     setEditSteps((prev) => prev.filter((_, i) => i !== idx));
+    setDirty(true);
   }
 
   function addStep(type: StepType) {
@@ -464,39 +396,28 @@ function WorkflowCard({
       {/* Expanded */}
       {expanded && (
         <div className="border-t border-gray-100">
-          {/* Toggle: Visual ↔ Edit */}
-          <div className="flex items-center justify-end gap-2 px-6 py-3 bg-gray-50/50 border-b border-gray-100">
-            {!editing ? (
+          {/* Save bar — only when changes made */}
+          {dirty && (
+            <div className="flex items-center justify-end gap-2 px-6 py-3 bg-amber-50/50 border-b border-amber-100">
               <button
-                onClick={startEdit}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-white hover:shadow-sm border border-gray-200 transition-all"
+                onClick={cancelEdit}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 transition"
               >
-                <Pencil size={12} />
-                Edit Steps
+                <X size={12} />
+                Discard
               </button>
-            ) : (
-              <>
-                <button
-                  onClick={cancelEdit}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 transition"
-                >
-                  <X size={12} />
-                  Cancel
-                </button>
-                <button
-                  onClick={saveEdit}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-gray-900 hover:bg-gray-800 transition shadow-sm"
-                >
-                  <Save size={12} />
-                  Save Changes
-                </button>
-              </>
-            )}
-          </div>
+              <button
+                onClick={saveEdit}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-gray-900 hover:bg-gray-800 transition shadow-sm"
+              >
+                <Save size={12} />
+                Save Changes
+              </button>
+            </div>
+          )}
 
-          {editing ? (
-            /* ─── Edit Table ─── */
-            <div className="px-6 py-4">
+          {/* Steps Table */}
+          <div className="px-6 py-4">
               <div className="rounded-xl border border-gray-200 overflow-hidden">
                 <table className="w-full">
                   <thead>
@@ -560,20 +481,6 @@ function WorkflowCard({
                 </button>
               </div>
             </div>
-          ) : (
-            /* ─── Visual Flow ─── */
-            <div className="bg-gradient-to-b from-gray-50/50 to-white px-6 py-8">
-              <div className="flex flex-col items-center space-y-0">
-                {workflow.steps.map((step, i) => (
-                  <FlowStepCard
-                    key={step.id}
-                    step={step}
-                    isLast={i === workflow.steps.length - 1}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
