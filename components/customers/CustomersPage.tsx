@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Mail, Workflow, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useCustomers, applyFilters } from "./hooks/useCustomers";
@@ -34,6 +34,7 @@ export default function CustomersPage({
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [channel, setChannel] = useState("");
+  const [agency, setAgency] = useState("");
 
   const [sortColumn, setSortColumn] =
     useState<SortColumn>("last_order_date");
@@ -59,7 +60,7 @@ export default function CustomersPage({
   // Clear selection on page / filter / view change
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, status, channel, viewMode]);
+  }, [page, search, status, channel, agency, viewMode]);
 
   /* Export column picker state */
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
@@ -102,6 +103,8 @@ export default function CustomersPage({
     loading: wholesaleLoading = false,
     totalCount: wholesaleTotalCount = 0,
     channelOptions = [],
+    agencyOptions = [],
+    agencyMap = {},
     stats: wholesaleStats = { active: 0, atRisk: 0, churned: 0 },
   } = useCustomers({
     page,
@@ -130,10 +133,19 @@ export default function CustomersPage({
     enabled: viewMode === "d2c",
   });
 
+  /* ─── Filter wholesale by agency (client-side) ─── */
+  const filteredWholesale = useMemo(() => {
+    if (!agency) return wholesaleCustomers;
+    return wholesaleCustomers.filter((c) => {
+      const a = agencyMap[c.customerid];
+      return a?.agency_name === agency;
+    });
+  }, [wholesaleCustomers, agency, agencyMap]);
+
   /* ─── Active data based on view mode ─── */
   const isD2C = viewMode === "d2c";
   const loading = isD2C ? d2cLoading : wholesaleLoading;
-  const totalCount = isD2C ? d2cTotalCount : wholesaleTotalCount;
+  const totalCount = isD2C ? d2cTotalCount : (agency ? filteredWholesale.length : wholesaleTotalCount);
   const stats = isD2C ? d2cStats : wholesaleStats;
 
   const handleToggleAll = useCallback(() => {
@@ -151,7 +163,7 @@ export default function CustomersPage({
   /* Reset page when filters/sort/view change */
   useEffect(() => {
     setPage(0);
-  }, [search, status, channel, sortColumn, sortDir]);
+  }, [search, status, channel, agency, sortColumn, sortDir]);
 
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : 1;
   const canGoNext = page + 1 < totalPages;
@@ -359,11 +371,14 @@ export default function CustomersPage({
         channel={channel}
         setChannel={setChannel}
         channelOptions={channelOptions}
+        agency={agency}
+        setAgency={setAgency}
+        agencyOptions={agencyOptions}
       />
 
       {/* Table */}
       <CustomersTable
-        customers={isD2C ? d2cCustomers : wholesaleCustomers}
+        customers={isD2C ? d2cCustomers : (agency ? filteredWholesale : wholesaleCustomers)}
         loading={loading}
         sortColumn={sortColumn}
         sortDir={sortDir}
@@ -372,6 +387,7 @@ export default function CustomersPage({
         selectedIds={selectedIds}
         onToggleSelect={handleToggleSelect}
         onToggleAll={handleToggleAll}
+        agencyMap={agencyMap}
       />
 
       {/* Pagination */}

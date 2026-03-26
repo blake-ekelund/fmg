@@ -16,6 +16,9 @@ export default function CustomersFilters({
   channel,
   setChannel,
   channelOptions,
+  agency = "",
+  setAgency,
+  agencyOptions = [],
 }: {
   viewMode?: CustomerViewMode;
   search: string;
@@ -26,6 +29,9 @@ export default function CustomersFilters({
   channel: string;
   setChannel: (v: string) => void;
   channelOptions: Option[];
+  agency?: string;
+  setAgency?: (v: string) => void;
+  agencyOptions?: Option[];
 }) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -41,7 +47,7 @@ export default function CustomersFilters({
       </div>
 
       {/* Filter pills */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         {/* Status pills */}
         <div className="flex gap-1">
           <PillButton active={status === ""} onClick={() => setStatus("")}>
@@ -72,6 +78,22 @@ export default function CustomersFilters({
           >
             <option value="">All Channels</option>
             {channelOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Agency select (wholesale only) */}
+        {viewMode === "wholesale" && agencyOptions.length > 0 && setAgency && (
+          <select
+            value={agency}
+            onChange={(e) => setAgency(e.target.value)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
+          >
+            <option value="">All Agencies</option>
+            {agencyOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>

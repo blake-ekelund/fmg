@@ -49,6 +49,7 @@ export default function CustomersTable({
   selectedIds,
   onToggleSelect,
   onToggleAll,
+  agencyMap = {},
 }: {
   customers?: (Customer | D2CCustomer)[];
   loading: boolean;
@@ -59,6 +60,7 @@ export default function CustomersTable({
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onToggleAll?: () => void;
+  agencyMap?: Record<string, { agency_name: string; rep_name: string }>;
 }) {
   const router = useRouter();
   const safeCustomers = customers ?? [];
@@ -125,7 +127,9 @@ export default function CustomersTable({
   }
 
   /* ─── Grid columns: checkbox takes 1 col when selection is active ─── */
-  const gridCols = hasSelection ? "grid-cols-[32px_repeat(12,minmax(0,1fr))]" : "grid-cols-12";
+  const wholesaleGridCols = hasSelection ? "grid-cols-[32px_repeat(13,minmax(0,1fr))]" : "grid-cols-13";
+  const d2cGridCols = hasSelection ? "grid-cols-[32px_repeat(12,minmax(0,1fr))]" : "grid-cols-12";
+  const gridCols = isD2C ? d2cGridCols : wholesaleGridCols;
 
   if (isD2C) {
     return (
@@ -223,8 +227,10 @@ export default function CustomersTable({
         <div className="col-span-3">
           <HeaderCell label="Customer" column="name" />
         </div>
+        <div className="col-span-2">
+          <HeaderCell label="Agency" />
+        </div>
         <HeaderCell label="Status" />
-        <HeaderCell label="Channel" />
         <HeaderCell label="State" />
         <HeaderCell label="Last Order" column="last_order_date" align="center" />
         <HeaderCell label="Last $" column="last_order_amount" align="right" />
@@ -264,12 +270,23 @@ export default function CustomersTable({
                 <div className="text-xs text-slate-400">{c.customerid}</div>
                 <div className="font-medium text-slate-800">{c.name}</div>
               </div>
+              <div className="col-span-2">
+                {agencyMap[c.customerid] ? (
+                  <div>
+                    <div className="text-xs font-medium text-slate-700">{agencyMap[c.customerid].agency_name}</div>
+                    {agencyMap[c.customerid].rep_name && agencyMap[c.customerid].rep_name !== "NOT REP ASSIGNED" && (
+                      <div className="text-[10px] text-slate-400">{agencyMap[c.customerid].rep_name}</div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-slate-300">—</span>
+                )}
+              </div>
               <div>
                 <span className={`px-2 py-1 rounded-full text-[11px] font-medium ${status.color}`}>
                   {status.label}
                 </span>
               </div>
-              <div className="text-xs">{c.channel}</div>
               <div className="text-xs">{c.bill_to_state ?? "—"}</div>
               <div className="text-xs text-center">{formatDate(c.last_order_date)}</div>
               <div className="text-xs font-medium text-right">{formatMoney(c.last_order_amount)}</div>

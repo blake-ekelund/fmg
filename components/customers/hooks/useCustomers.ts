@@ -116,6 +116,10 @@ export function useCustomers({
     useState(0);
   const [channelOptions, setChannelOptions] =
     useState<{ label: string; value: string }[]>([]);
+  const [agencyOptions, setAgencyOptions] =
+    useState<{ label: string; value: string }[]>([]);
+  const [agencyMap, setAgencyMap] =
+    useState<Record<string, { agency_name: string; rep_name: string }>>({});
   const [stats, setStats] = useState({
     active: 0,
     atRisk: 0,
@@ -255,7 +259,7 @@ export function useCustomers({
   ]);
 
   /* ---------------------------
-     Channel Options
+     Channel + Agency Options
   ---------------------------- */
 
   useEffect(() => {
@@ -280,7 +284,35 @@ export function useCustomers({
       );
     }
 
+    async function loadAgencies() {
+      const { data } = await supabase
+        .from("customer_agency")
+        .select("customerid, agency_name, rep_name");
+
+      if (!data) return;
+
+      // Build lookup map
+      const map: Record<string, { agency_name: string; rep_name: string }> = {};
+      for (const row of data) {
+        map[row.customerid] = {
+          agency_name: row.agency_name ?? "",
+          rep_name: row.rep_name ?? "",
+        };
+      }
+      setAgencyMap(map);
+
+      // Build unique agency options
+      const names = new Set<string>();
+      for (const row of data) {
+        if (row.agency_name) names.add(row.agency_name);
+      }
+      setAgencyOptions(
+        Array.from(names).sort().map((n) => ({ label: n, value: n }))
+      );
+    }
+
     loadChannels();
+    loadAgencies();
   }, []);
 
   return {
@@ -288,6 +320,8 @@ export function useCustomers({
     loading,
     totalCount,
     channelOptions,
+    agencyOptions,
+    agencyMap,
     stats,
   };
 }
