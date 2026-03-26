@@ -60,7 +60,7 @@ export default function CustomersTable({
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onToggleAll?: () => void;
-  agencyMap?: Record<string, { agency_name: string; rep_name: string }>;
+  agencyMap?: Record<string, { agency_code: string; rep_name: string }>;
 }) {
   const router = useRouter();
   const safeCustomers = customers ?? [];
@@ -273,7 +273,7 @@ export default function CustomersTable({
               <div className="col-span-2">
                 {agencyMap[c.customerid] ? (
                   <div>
-                    <div className="text-xs font-medium text-slate-700">{agencyMap[c.customerid].agency_name}</div>
+                    <div className="text-xs font-medium text-slate-700">{agencyMap[c.customerid].agency_code}</div>
                     {agencyMap[c.customerid].rep_name && agencyMap[c.customerid].rep_name !== "NOT REP ASSIGNED" && (
                       <div className="text-[10px] text-slate-400">{agencyMap[c.customerid].rep_name}</div>
                     )}

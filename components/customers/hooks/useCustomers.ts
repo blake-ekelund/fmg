@@ -119,7 +119,7 @@ export function useCustomers({
   const [agencyOptions, setAgencyOptions] =
     useState<{ label: string; value: string }[]>([]);
   const [agencyMap, setAgencyMap] =
-    useState<Record<string, { agency_name: string; rep_name: string }>>({});
+    useState<Record<string, { agency_code: string; rep_name: string }>>({});
   const [stats, setStats] = useState({
     active: 0,
     atRisk: 0,
@@ -287,15 +287,15 @@ export function useCustomers({
     async function loadAgencies() {
       const { data } = await supabase
         .from("customer_agency")
-        .select("customerid, agency_name, rep_name");
+        .select("customerid, agency_code, rep_name");
 
       if (!data) return;
 
       // Build lookup map
-      const map: Record<string, { agency_name: string; rep_name: string }> = {};
+      const map: Record<string, { agency_code: string; rep_name: string }> = {};
       for (const row of data) {
         map[row.customerid] = {
-          agency_name: row.agency_name ?? "",
+          agency_code: row.agency_code ?? "",
           rep_name: row.rep_name ?? "",
         };
       }
@@ -304,7 +304,7 @@ export function useCustomers({
       // Build unique agency options
       const names = new Set<string>();
       for (const row of data) {
-        if (row.agency_name) names.add(row.agency_name);
+        if (row.agency_code) names.add(row.agency_code);
       }
       setAgencyOptions(
         Array.from(names).sort().map((n) => ({ label: n, value: n }))

@@ -138,7 +138,7 @@ export default function CustomersPage({
     if (!agency) return wholesaleCustomers;
     return wholesaleCustomers.filter((c) => {
       const a = agencyMap[c.customerid];
-      return a?.agency_name === agency;
+      return a?.agency_code === agency;
     });
   }, [wholesaleCustomers, agency, agencyMap]);
 
