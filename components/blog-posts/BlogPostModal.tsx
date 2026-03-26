@@ -357,19 +357,19 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                 <div className="flex flex-col gap-1 mt-1.5">
                   {status === "ai_draft" && (
                     <button
-                      onClick={() => { moveToStatus("review"); setTimeout(handleSave, 0); }}
+                      onClick={() => { moveToStatus("human_review"); setTimeout(handleSave, 0); }}
                       className="px-2.5 py-1.5 rounded-md bg-blue-50 text-blue-700 text-[12px] font-medium hover:bg-blue-100 transition text-left"
                     >
                       Move to Review
                     </button>
                   )}
-                  {status === "review" && (
+                  {status === "human_review" && (
                     <>
                       <button
-                        onClick={() => { moveToStatus("changes_needed"); setTimeout(handleSave, 0); }}
-                        className="px-2.5 py-1.5 rounded-md bg-amber-50 text-amber-700 text-[12px] font-medium hover:bg-amber-100 transition text-left"
+                        onClick={() => { moveToStatus("ai_draft"); setTimeout(handleSave, 0); }}
+                        className="px-2.5 py-1.5 rounded-md bg-purple-50 text-purple-700 text-[12px] font-medium hover:bg-purple-100 transition text-left"
                       >
-                        Needs Changes
+                        Send Back to Draft
                       </button>
                       <button
                         onClick={() => { moveToStatus("ready"); setTimeout(handleSave, 0); }}
@@ -379,20 +379,12 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                       </button>
                     </>
                   )}
-                  {status === "changes_needed" && (
-                    <button
-                      onClick={() => { moveToStatus("review"); setTimeout(handleSave, 0); }}
-                      className="px-2.5 py-1.5 rounded-md bg-blue-50 text-blue-700 text-[12px] font-medium hover:bg-blue-100 transition text-left"
-                    >
-                      Back to Review
-                    </button>
-                  )}
                   {status === "ready" && (
                     <button
-                      onClick={() => { moveToStatus("review"); setTimeout(handleSave, 0); }}
+                      onClick={() => { moveToStatus("human_review"); setTimeout(handleSave, 0); }}
                       className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-600 text-[12px] font-medium hover:bg-gray-200 transition text-left"
                     >
-                      Send Back
+                      Send Back to Review
                     </button>
                   )}
                 </div>

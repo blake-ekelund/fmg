@@ -19,10 +19,9 @@ const PLATFORMS: SocialPlatform[] = ["Instagram", "Facebook", "TikTok"];
 const POST_TYPES = ["photo", "reel", "story", "carousel", "video"];
 
 const QUICK_ACTIONS: Record<SocialPostStatus, { label: string; to: SocialPostStatus }[]> = {
-  ai_draft:       [{ label: "Move to Review", to: "review" }],
-  review:         [{ label: "Needs Changes", to: "changes_needed" }, { label: "Mark Ready", to: "ready" }],
-  changes_needed: [{ label: "Back to Review", to: "review" }],
-  ready:          [{ label: "Send Back", to: "review" }],
+  ai_draft:      [{ label: "Move to Review", to: "human_review" }],
+  human_review:  [{ label: "Send Back to Draft", to: "ai_draft" }, { label: "Mark Ready", to: "ready" }],
+  ready:         [{ label: "Send Back to Review", to: "human_review" }],
 };
 
 export default function SocialPostModal({ post, defaultPlatform, onClose, onSaved, onDeleted }: Props) {

@@ -1,16 +1,18 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { Plus } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import KanbanBoard from "@/components/blog-posts/KanbanBoard";
 import BlogPostModal from "@/components/blog-posts/BlogPostModal";
+import GeneratePostModal from "@/components/blog-posts/GeneratePostModal";
 import type { BlogPost, BlogPostStatus } from "@/components/blog-posts/types";
 
 export default function BlogPostsPage() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [editPost, setEditPost] = useState<BlogPost | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -45,7 +47,6 @@ export default function BlogPostsPage() {
     const postId = draggingId;
     setDraggingId(null);
 
-    // Don't do anything if dropped in same column
     const currentPost = posts.find((p) => p.id === postId);
     if (!currentPost || currentPost.status === newStatus) return;
 
@@ -54,7 +55,6 @@ export default function BlogPostsPage() {
       prev.map((p) => (p.id === postId ? { ...p, status: newStatus } : p))
     );
 
-    // Persist
     const { error } = await supabase
       .from("blog_posts")
       .update({ status: newStatus, updated_at: new Date().toISOString() })
@@ -62,19 +62,13 @@ export default function BlogPostsPage() {
 
     if (error) {
       console.error("Failed to update status:", error);
-      loadPosts(); // rollback on failure
+      loadPosts();
     }
   }
 
   /* ─── Card click ─── */
   function handleCardClick(post: BlogPost) {
     setEditPost(post);
-    setModalOpen(true);
-  }
-
-  /* ─── New post ─── */
-  function handleNewPost() {
-    setEditPost(null);
     setModalOpen(true);
   }
 
@@ -90,11 +84,11 @@ export default function BlogPostsPage() {
         </div>
 
         <button
-          onClick={handleNewPost}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm"
+          onClick={() => setGenerateOpen(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 transition shadow-sm"
         >
-          <Plus size={16} />
-          New Post
+          <Sparkles size={16} />
+          Generate with AI
         </button>
       </div>
 
@@ -114,13 +108,20 @@ export default function BlogPostsPage() {
         />
       )}
 
-      {/* Modal */}
+      {/* Edit modal (click into existing post) */}
       <BlogPostModal
         open={modalOpen}
         post={editPost}
         onClose={() => setModalOpen(false)}
         onSaved={loadPosts}
         onDeleted={loadPosts}
+      />
+
+      {/* Generate with AI modal */}
+      <GeneratePostModal
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onGenerated={loadPosts}
       />
     </div>
   );
