@@ -15,6 +15,9 @@ export default function BlogPostsPage() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [editPost, setEditPost] = useState<BlogPost | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [generatingPosts, setGeneratingPosts] = useState<
+    { id: string; title: string; brand: "NI" | "Sassy" }[]
+  >([]);
 
   /* ─── Load posts ─── */
   const loadPosts = useCallback(async () => {
@@ -50,7 +53,6 @@ export default function BlogPostsPage() {
     const currentPost = posts.find((p) => p.id === postId);
     if (!currentPost || currentPost.status === newStatus) return;
 
-    // Optimistic update
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, status: newStatus } : p))
     );
@@ -70,6 +72,16 @@ export default function BlogPostsPage() {
   function handleCardClick(post: BlogPost) {
     setEditPost(post);
     setModalOpen(true);
+  }
+
+  /* ─── AI Generation submitted ─── */
+  function handleGenerateSubmitted(info: { id: string; title: string; brand: "NI" | "Sassy" }) {
+    setGeneratingPosts((prev) => [...prev, info]);
+  }
+
+  function handleGenerateComplete(placeholderId: string) {
+    setGeneratingPosts((prev) => prev.filter((p) => p.id !== placeholderId));
+    loadPosts();
   }
 
   return (
@@ -105,10 +117,11 @@ export default function BlogPostsPage() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDrop={handleDrop}
+          generatingPosts={generatingPosts}
         />
       )}
 
-      {/* Edit modal (click into existing post) */}
+      {/* Edit modal */}
       <BlogPostModal
         open={modalOpen}
         post={editPost}
@@ -121,7 +134,8 @@ export default function BlogPostsPage() {
       <GeneratePostModal
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
-        onGenerated={loadPosts}
+        onGenerated={handleGenerateComplete}
+        onSubmitted={handleGenerateSubmitted}
       />
     </div>
   );

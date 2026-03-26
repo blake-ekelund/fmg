@@ -14,6 +14,7 @@ type Props = {
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: () => void;
   onDrop: (status: string) => void;
+  generatingSlot?: React.ReactNode;
 };
 
 export default function KanbanColumn({
@@ -24,6 +25,7 @@ export default function KanbanColumn({
   onDragStart,
   onDragEnd,
   onDrop,
+  generatingSlot,
 }: Props) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -66,6 +68,9 @@ export default function KanbanColumn({
 
       {/* Card list */}
       <div className="flex-1 px-2 pb-2 space-y-1.5 min-h-[120px]">
+        {/* Generating placeholder cards */}
+        {generatingSlot}
+
         <AnimatePresence mode="popLayout">
           {posts.map((post) => (
             <KanbanCard

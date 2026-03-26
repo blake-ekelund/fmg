@@ -1,8 +1,15 @@
 "use client";
 
 import KanbanColumn from "./KanbanColumn";
+import GeneratingCard from "./GeneratingCard";
 import type { BlogPost, BlogPostStatus } from "./types";
 import { COLUMNS } from "./types";
+
+type GeneratingPost = {
+  id: string;
+  title: string;
+  brand: "NI" | "Sassy";
+};
 
 type Props = {
   posts: BlogPost[];
@@ -11,6 +18,7 @@ type Props = {
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: () => void;
   onDrop: (status: BlogPostStatus) => void;
+  generatingPosts?: GeneratingPost[];
 };
 
 export default function KanbanBoard({
@@ -20,6 +28,7 @@ export default function KanbanBoard({
   onDragStart,
   onDragEnd,
   onDrop,
+  generatingPosts = [],
 }: Props) {
   // Group posts by status
   const grouped = COLUMNS.map((col) => ({
@@ -39,6 +48,13 @@ export default function KanbanBoard({
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           onDrop={(status) => onDrop(status as BlogPostStatus)}
+          generatingSlot={
+            col.status === "ai_draft" && generatingPosts.length > 0
+              ? generatingPosts.map((gp) => (
+                  <GeneratingCard key={gp.id} title={gp.title} brand={gp.brand} />
+                ))
+              : undefined
+          }
         />
       ))}
     </div>
