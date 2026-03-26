@@ -72,9 +72,10 @@ export function useDashboardSales(brand: BrandFilter) {
       let d_ytd_26 = 0, d_ytd_25 = 0;
 
       for (const row of rows as { month: string; segment: string; revenue: string }[]) {
-        const d = new Date(row.month);
-        const year = d.getFullYear();
-        const monthIdx = d.getMonth(); // 0-based
+        // Parse "YYYY-MM-DD" directly to avoid UTC timezone shift
+        const [yearStr, monthStr] = row.month.split("-");
+        const year = Number(yearStr);
+        const monthIdx = Number(monthStr) - 1; // 0-based
         const revenue = Number(row.revenue) || 0;
 
         if (year === 2025 && row.segment === "Wholesale") {

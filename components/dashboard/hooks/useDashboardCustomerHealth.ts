@@ -72,8 +72,10 @@ export function useDashboardCustomerHealth(brand: BrandFilter) {
       };
 
       const formatted: HealthRow[] = (rows as RawRow[]).map((r) => {
-        const d = new Date(r.month);
-        const label = `${SHORT_MONTHS[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`;
+        // Parse "YYYY-MM-DD" directly to avoid UTC timezone shift
+        const [yearStr, monthStr] = r.month.split("-");
+        const monthIdx = Number(monthStr) - 1; // 0-based
+        const label = `${SHORT_MONTHS[monthIdx]} '${yearStr.slice(2)}`;
         return {
           month: label,
           new_customers: Number(r.new_customers) || 0,
