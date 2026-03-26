@@ -380,12 +380,20 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                     </>
                   )}
                   {status === "ready" && (
-                    <button
-                      onClick={() => { moveToStatus("human_review"); setTimeout(handleSave, 0); }}
-                      className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-600 text-[12px] font-medium hover:bg-gray-200 transition text-left"
-                    >
-                      Send Back to Review
-                    </button>
+                    <>
+                      <button
+                        onClick={() => { moveToStatus("published"); setTimeout(handleSave, 0); }}
+                        className="px-2.5 py-1.5 rounded-md bg-gray-900 text-white text-[12px] font-medium hover:bg-gray-800 transition text-left"
+                      >
+                        Mark Published
+                      </button>
+                      <button
+                        onClick={() => { moveToStatus("human_review"); setTimeout(handleSave, 0); }}
+                        className="px-2.5 py-1.5 rounded-md bg-gray-100 text-gray-600 text-[12px] font-medium hover:bg-gray-200 transition text-left"
+                      >
+                        Send Back to Review
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

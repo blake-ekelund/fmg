@@ -17,6 +17,7 @@ import {
   CalendarDays,
   ImageIcon,
   Tag,
+  Archive,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -148,6 +149,12 @@ export const navSections: readonly NavSection[] = [
         label: "Workflows",
         href: "/workflows",
         icon: Workflow,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Archives",
+        href: "/archives",
+        icon: Archive,
         roles: [...FULL_ACCESS, "marketing"],
       },
     ],

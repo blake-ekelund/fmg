@@ -24,6 +24,7 @@ export default function BlogPostsPage() {
     const { data } = await supabase
       .from("blog_posts")
       .select("*")
+      .neq("status", "published")
       .order("created_at", { ascending: false });
     setPosts((data as BlogPost[]) ?? []);
     setLoading(false);

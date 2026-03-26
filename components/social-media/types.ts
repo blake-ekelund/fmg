@@ -1,4 +1,4 @@
-export type SocialPostStatus = "ai_draft" | "human_review" | "ready";
+export type SocialPostStatus = "ai_draft" | "human_review" | "ready" | "published";
 
 export type SocialPlatform = "Instagram" | "Facebook" | "TikTok";
 

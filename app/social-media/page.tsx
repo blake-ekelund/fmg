@@ -32,6 +32,7 @@ export default function SocialMediaPage() {
     const { data } = await supabase
       .from("social_media_posts")
       .select("*")
+      .neq("status", "published")
       .order("created_at", { ascending: false });
     if (data) setPosts(data as SocialPost[]);
     setLoading(false);
