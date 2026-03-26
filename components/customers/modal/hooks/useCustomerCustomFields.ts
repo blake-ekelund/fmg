@@ -10,7 +10,10 @@ export type CustomField = {
   value: string;
 };
 
-export default function useCustomerCustomFields(customerId: string | null) {
+export default function useCustomerCustomFields(
+  customerId: string | null,
+  isD2C = false
+) {
   const [fields, setFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -22,15 +25,23 @@ export default function useCustomerCustomFields(customerId: string | null) {
     async function load() {
       setLoading(true);
 
-      // Get the most recent order's custom fields for this customer
-      const { data, error } = await supabase
+      let query = supabase
         .from("sales_orders_current")
         .select("customfields")
-        .eq("customerid", customerId)
         .not("customfields", "is", null)
         .order("datecompleted", { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
+
+      if (isD2C) {
+        // For D2C, person_key = COALESCE(NULLIF(TRIM(email),''), billtoname)
+        query = query
+          .in("customerid", ["12345", "12483", "13704"])
+          .or(`email.eq.${customerId},billtoname.eq.${customerId}`);
+      } else {
+        query = query.eq("customerid", customerId);
+      }
+
+      const { data, error } = await query.single();
 
       if (!cancelled) {
         if (error || !data?.customfields) {
@@ -82,7 +93,7 @@ export default function useCustomerCustomFields(customerId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [customerId]);
+  }, [customerId, isD2C]);
 
   return { fields, loading };
 }

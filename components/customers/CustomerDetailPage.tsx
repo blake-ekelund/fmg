@@ -61,24 +61,25 @@ export default function CustomerDetailPage({
   /* ─── Data hooks ─── */
 
   const { summary, loading: summaryLoading } = useCustomerSummary(customerId, isD2C);
-  const { contact, loading: contactLoading } = useCustomerContact(customerId);
+  const { contact, loading: contactLoading } = useCustomerContact(customerId, isD2C);
 
   // Always load monthly data — needed for TTM trend in header + details tab chart
   const { monthlyData, loading: monthlyLoading } = useCustomerMonthlyOrders(
     customerId,
-    true
+    true,
+    isD2C
   );
 
   const {
     orders,
     setOrders,
     loading: ordersLoading,
-  } = useCustomerOrders(customerId, tab === "orders");
+  } = useCustomerOrders(customerId, tab === "orders", isD2C);
 
   const items = useOrderItems({ orders, setOrders });
 
   const { data: analysisData, loading: analysisLoading } =
-    useCustomerSalesAnalysis(customerId, tab === "analysis");
+    useCustomerSalesAnalysis(customerId, tab === "analysis", isD2C);
 
   const {
     activities,
@@ -90,7 +91,7 @@ export default function CustomerDetailPage({
   } = useCustomerActivities(customerId);
 
   const { fields: customFields, loading: customFieldsLoading } =
-    useCustomerCustomFields(customerId);
+    useCustomerCustomFields(customerId, isD2C);
 
   useEffect(() => {
     if (tab !== "orders") items.reset();

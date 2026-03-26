@@ -12,7 +12,8 @@ export type CustomerMonthlyRow = {
 
 export default function useCustomerMonthlyOrders(
   customerId: string | null,
-  enabled: boolean = true
+  enabled: boolean = true,
+  isD2C = false
 ) {
   const [monthlyData, setMonthlyData] = useState<CustomerMonthlyRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,10 +27,13 @@ export default function useCustomerMonthlyOrders(
     async function load() {
       setLoading(true);
 
+      const table = isD2C ? "d2c_customer_monthly_orders" : "customer_monthly_orders";
+      const filterField = isD2C ? "person_key" : "customerid";
+
       const { data, error } = await supabase
-        .from("customer_monthly_orders")
+        .from(table)
         .select("month_key, month_date, orders, revenue")
-        .eq("customerid", String(customerId))
+        .eq(filterField, String(customerId))
         .order("month_date", { ascending: true });
 
       if (!cancelled) {
@@ -48,7 +52,7 @@ export default function useCustomerMonthlyOrders(
     return () => {
       cancelled = true;
     };
-  }, [customerId, enabled]);
+  }, [customerId, enabled, isD2C]);
 
   return { monthlyData, loading };
 }
