@@ -31,7 +31,23 @@ type Props = {
 };
 
 export default function SocialKanbanCard({ post, isDragging, onClick, onDragStart, onDragEnd }: Props) {
-  const caption = post.caption ?? "(No caption)";
+  const isGenerating = post.status === ("generating" as string);
+  const caption = isGenerating ? "Generating..." : (post.caption ?? "(No caption)");
+
+  if (isGenerating) {
+    return (
+      <div className="bg-gradient-to-br from-fuchsia-50 to-purple-50 rounded-lg border border-fuchsia-200 px-3 py-4 animate-pulse">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-4 h-4 rounded-full bg-fuchsia-300 animate-spin" />
+          <span className="text-xs font-medium text-fuchsia-600">Generating with AI...</span>
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-2.5 bg-fuchsia-200/50 rounded w-3/4" />
+          <div className="h-2.5 bg-fuchsia-200/50 rounded w-1/2" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div

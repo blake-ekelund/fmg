@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState, useMemo } from "react";
-import { Plus, Mail, X, Send, Hash } from "lucide-react";
+import { Plus, Mail, X, Send, Hash, Sparkles } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
 import SocialKanbanBoard from "@/components/social-media/SocialKanbanBoard";
 import SocialPostModal from "@/components/social-media/SocialPostModal";
+import GenerateSocialPostModal from "@/components/social-media/GenerateSocialPostModal";
 import type { SocialPost, SocialPostStatus, SocialPlatform } from "@/components/social-media/types";
 
 const PLATFORMS: { value: SocialPlatform | "all"; label: string }[] = [
@@ -26,6 +27,9 @@ export default function SocialMediaPage() {
   const [editPost, setEditPost] = useState<SocialPost | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
+  // Generate AI modal
+  const [generateOpen, setGenerateOpen] = useState(false);
+
   // Email template modal
   const [emailPost, setEmailPost] = useState<SocialPost | null>(null);
 
@@ -42,6 +46,14 @@ export default function SocialMediaPage() {
   }, []);
 
   useEffect(() => { loadPosts(); }, [loadPosts]);
+
+  // Poll while any posts are generating
+  useEffect(() => {
+    const hasGenerating = posts.some((p) => p.status === ("generating" as SocialPostStatus));
+    if (!hasGenerating) return;
+    const interval = setInterval(loadPosts, 5000);
+    return () => clearInterval(interval);
+  }, [posts, loadPosts]);
 
   /* ── Filter ─────────────────────────────── */
   const visible = useMemo(() => {
@@ -103,12 +115,20 @@ export default function SocialMediaPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Social Media</h1>
           <p className="text-sm text-gray-500 mt-0.5">Manage, review, and publish social posts.</p>
         </div>
-        <button
-          onClick={openNew}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-800 transition"
-        >
-          <Plus size={14} /> New Post
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setGenerateOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-fuchsia-600 px-4 py-2 text-xs font-medium text-white hover:bg-fuchsia-700 transition"
+          >
+            <Sparkles size={14} /> Generate with AI
+          </button>
+          <button
+            onClick={openNew}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-800 transition"
+          >
+            <Plus size={14} /> New Post
+          </button>
+        </div>
       </div>
 
       {/* Platform filter */}
@@ -145,7 +165,14 @@ export default function SocialMediaPage() {
         />
       )}
 
-      {/* Modal */}
+      {/* Generate AI Modal */}
+      <GenerateSocialPostModal
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onGenerated={loadPosts}
+      />
+
+      {/* Edit/New Post Modal */}
       {modalOpen && (
         <SocialPostModal
           post={editPost}

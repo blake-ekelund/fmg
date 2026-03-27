@@ -23,7 +23,9 @@ export default function SocialKanbanBoard({
 }: Props) {
   const grouped = COLUMNS.map((col) => ({
     ...col,
-    posts: posts.filter((p) => p.status === col.status),
+    posts: posts.filter((p) =>
+      p.status === col.status || (col.status === "ai_draft" && p.status === ("generating" as SocialPostStatus))
+    ),
   }));
 
   return (

@@ -1,4 +1,4 @@
-export type SocialPostStatus = "ai_draft" | "human_review" | "ready" | "published";
+export type SocialPostStatus = "generating" | "ai_draft" | "human_review" | "ready" | "published";
 
 export type SocialPlatform = "Instagram" | "Facebook" | "TikTok";
 
@@ -17,6 +17,7 @@ export type SocialPost = {
   status: SocialPostStatus;
   post_type: string;
   content_id: string | null;
+  carousel_slides: { slide: number; text_overlay: string; image_url: string; image_desc: string }[] | null;
   created_at: string;
   updated_at: string;
 };
