@@ -3,45 +3,55 @@
 import { useState } from "react";
 import { X, Sparkles } from "lucide-react";
 import clsx from "clsx";
+import { supabase } from "@/lib/supabaseClient";
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** Called when the generation finishes (with the placeholder ID to remove) */
-  onGenerated: (placeholderId: string) => void;
-  /** Called immediately on submit so page can show placeholder */
-  onSubmitted: (info: { id: string; title: string; brand: "NI" | "Sassy" }) => void;
+  onGenerated: () => void;
 };
 
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aXNqdWJ3ZXpoeGZ4b2NvYXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwNDcyNDMsImV4cCI6MjA4NDYyMzI0M30.F7-Yg5JVryMzueXtaOz8TIunbhC-QxUgJz89ZWKxO6Q";
 
-let counter = 0;
-
-export default function GeneratePostModal({ open, onClose, onGenerated, onSubmitted }: Props) {
+export default function GeneratePostModal({ open, onClose, onGenerated }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [brand, setBrand] = useState<"NI" | "Sassy">("NI");
 
   if (!open) return null;
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!title.trim() || !description.trim()) return;
 
-    const placeholderId = `generating-${++counter}-${Date.now()}`;
     const submitTitle = title.trim();
     const submitDescription = description.trim();
     const submitBrand = brand;
 
-    // Notify parent immediately → shows placeholder card
-    onSubmitted({ id: placeholderId, title: submitTitle, brand: submitBrand });
+    // 1. Insert a real DB row with "generating" status immediately
+    const { data: inserted } = await supabase
+      .from("blog_posts")
+      .insert({
+        title: submitTitle,
+        body: "<p>Generating...</p>",
+        brand: submitBrand,
+        status: "generating",
+        seo_meta: null,
+        tags: null,
+        hero_image_url: "",
+      })
+      .select("id")
+      .single();
 
-    // Reset form & close modal
+    const rowId = inserted?.id;
+
+    // Reset form & close modal — the "generating" row is now visible in the DB
     setTitle("");
     setDescription("");
     onClose();
+    onGenerated(); // Refresh the list to show the generating card
 
-    // Fire request in background
+    // 2. Fire edge function in background — it will UPDATE the row when done
     fetch("https://vxisjubwezhxfxocoawk.supabase.co/functions/v1/generate-blog-posts", {
       method: "POST",
       headers: {
@@ -53,11 +63,20 @@ export default function GeneratePostModal({ open, onClose, onGenerated, onSubmit
         brand: submitBrand,
         title: submitTitle,
         description: submitDescription,
+        row_id: rowId,
       }),
     })
-      .then((res) => res.json())
-      .then(() => onGenerated(placeholderId))
-      .catch(() => onGenerated(placeholderId));
+      .then(() => onGenerated())
+      .catch(() => {
+        // If generation failed, update status to show error
+        if (rowId) {
+          supabase
+            .from("blog_posts")
+            .update({ status: "ai_draft", body: "<p>Generation failed. Please try again.</p>" })
+            .eq("id", rowId)
+            .then(() => onGenerated());
+        }
+      });
   }
 
   return (
@@ -139,7 +158,7 @@ export default function GeneratePostModal({ open, onClose, onGenerated, onSubmit
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
-              placeholder="Describe the angle, key points, or direction you want. e.g. Focus on how cold-pressing preserves antioxidants, mention our ExSeed complex, include tips for choosing quality skincare products..."
+              placeholder="Describe the angle, key points, or direction you want..."
               className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-300 transition resize-none"
             />
           </div>

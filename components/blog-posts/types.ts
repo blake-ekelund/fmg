@@ -1,4 +1,4 @@
-export type BlogPostStatus = "ai_draft" | "human_review" | "ready" | "published";
+export type BlogPostStatus = "generating" | "ai_draft" | "human_review" | "ready" | "published";
 
 export type BlogPost = {
   id: string;

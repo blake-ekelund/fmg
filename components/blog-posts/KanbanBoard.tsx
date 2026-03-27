@@ -5,12 +5,6 @@ import GeneratingCard from "./GeneratingCard";
 import type { BlogPost, BlogPostStatus } from "./types";
 import { COLUMNS } from "./types";
 
-type GeneratingPost = {
-  id: string;
-  title: string;
-  brand: "NI" | "Sassy";
-};
-
 type Props = {
   posts: BlogPost[];
   draggingId: string | null;
@@ -18,7 +12,6 @@ type Props = {
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: () => void;
   onDrop: (status: BlogPostStatus) => void;
-  generatingPosts?: GeneratingPost[];
 };
 
 export default function KanbanBoard({
@@ -28,12 +21,15 @@ export default function KanbanBoard({
   onDragStart,
   onDragEnd,
   onDrop,
-  generatingPosts = [],
 }: Props) {
-  // Group posts by status
+  // Separate generating posts from regular posts
+  const generatingPosts = posts.filter((p) => p.status === "generating");
+  const regularPosts = posts.filter((p) => p.status !== "generating");
+
+  // Group regular posts by status
   const grouped = COLUMNS.map((col) => ({
     ...col,
-    posts: posts.filter((p) => p.status === col.status),
+    posts: regularPosts.filter((p) => p.status === col.status),
   }));
 
   return (

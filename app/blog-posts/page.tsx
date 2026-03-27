@@ -16,9 +16,6 @@ export default function BlogPostsPage() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [editPost, setEditPost] = useState<BlogPost | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [generatingPosts, setGeneratingPosts] = useState<
-    { id: string; title: string; brand: "NI" | "Sassy" }[]
-  >([]);
 
   // Email template modals
   const [emailPost, setEmailPost] = useState<BlogPost | null>(null);
@@ -110,15 +107,13 @@ export default function BlogPostsPage() {
     setModalOpen(true);
   }
 
-  /* ─── AI Generation ─── */
-  function handleGenerateSubmitted(info: { id: string; title: string; brand: "NI" | "Sassy" }) {
-    setGeneratingPosts((prev) => [...prev, info]);
-  }
-
-  function handleGenerateComplete(placeholderId: string) {
-    setGeneratingPosts((prev) => prev.filter((p) => p.id !== placeholderId));
-    loadPosts();
-  }
+  /* ─── Auto-refresh to pick up generating → ai_draft transitions ─── */
+  useEffect(() => {
+    const hasGenerating = posts.some((p) => p.status === "generating");
+    if (!hasGenerating) return;
+    const interval = setInterval(loadPosts, 5000); // Poll every 5s while something is generating
+    return () => clearInterval(interval);
+  }, [posts, loadPosts]);
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 space-y-5">
@@ -153,7 +148,6 @@ export default function BlogPostsPage() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDrop={handleDrop}
-          generatingPosts={generatingPosts}
         />
       )}
 
@@ -174,8 +168,7 @@ export default function BlogPostsPage() {
       <GeneratePostModal
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
-        onGenerated={handleGenerateComplete}
-        onSubmitted={handleGenerateSubmitted}
+        onGenerated={loadPosts}
       />
 
       {/* Email template modal — shown when post moves to Human Review */}
