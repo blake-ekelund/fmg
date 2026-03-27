@@ -80,9 +80,27 @@ export default function BlogPostsPage() {
     // Show email template when moved to "human_review" or "ready"
     if (newStatus === "human_review") {
       setReviewEmailPost({ ...currentPost, status: newStatus });
+      // Create task for Julie
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      await supabase.from("tasks").insert({
+        name: `Review Blog Post: ${currentPost.title}`,
+        description: `Review AI-drafted blog post "${currentPost.title}" (${currentPost.brand}). Link: ${window.location.origin}/blog-posts?post=${currentPost.id}`,
+        owner: "Julie",
+        priority: "Medium",
+        status: "Not Started",
+        due_date: tomorrow.toISOString().split("T")[0],
+        completed: false,
+      });
     }
     if (newStatus === "ready") {
       setEmailPost({ ...currentPost, status: newStatus });
+      // Update task owner from Julie to Brooke
+      await supabase
+        .from("tasks")
+        .update({ owner: "Brooke", status: "Not Started", description: `Publish blog post "${currentPost.title}" (${currentPost.brand}) to Shopify. Link: ${window.location.origin}/blog-posts?post=${currentPost.id}` })
+        .ilike("name", `%${currentPost.title}%`)
+        .eq("owner", "Julie");
     }
   }
 
@@ -178,7 +196,7 @@ export default function BlogPostsPage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">Ready for Review</h3>
-                  <p className="text-[11px] text-gray-500">Notify Jessica for human review</p>
+                  <p className="text-[11px] text-gray-500">Notify Julie for human review</p>
                 </div>
               </div>
               <button
@@ -205,21 +223,24 @@ export default function BlogPostsPage() {
               <div>
                 <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400 mb-1.5 block">Message</span>
                 <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-700 leading-relaxed space-y-3">
-                  <p>Hi Jessica,</p>
+                  <p>Julie,</p>
                   <p>
-                    A new blog post has been drafted by AI and is ready for your review. Please review and either approve, request changes, or move to ready when satisfied.
+                    A new blog post has been drafted and is ready for your review. Please click the link below to review, then move to Ready when satisfied.
                   </p>
-                  <div className="rounded-lg bg-white border border-gray-200 px-3 py-2.5">
+                  <a
+                    href={`${window.location.origin}/blog-posts?post=${reviewEmailPost.id}`}
+                    className="block rounded-lg bg-white border border-gray-200 px-3 py-2.5 hover:bg-gray-50 transition"
+                  >
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded bg-sky-50 flex items-center justify-center shrink-0">
                         <Mail size={14} className="text-sky-500" />
                       </div>
                       <div className="min-w-0">
                         <div className="text-xs font-medium text-gray-800 truncate">{reviewEmailPost.title}</div>
-                        <div className="text-[10px] text-gray-400">{reviewEmailPost.brand} • Blog Post</div>
+                        <div className="text-[10px] text-gray-400">{reviewEmailPost.brand} • Click to review</div>
                       </div>
                     </div>
-                  </div>
+                  </a>
                   <p className="text-gray-500">Thanks!</p>
                 </div>
               </div>
