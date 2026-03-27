@@ -30,8 +30,9 @@ body {
 
 /* ─── Blog Post Rich Image Layouts ─── */
 
-/* Catch-all: any plain <img> inside the blog article wraps with text */
-article.prose img:not([class]) {
+/* Catch-all: any plain <img> NOT inside a special div wraps with text */
+article.prose > p img,
+article.prose > img:not([class]) {
   float: right;
   width: 220px;
   height: auto;
@@ -42,8 +43,8 @@ article.prose img:not([class]) {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   shape-margin: 1rem;
 }
-/* Alternate: every other plain img floats left */
-article.prose img:not([class]):nth-of-type(even) {
+/* Alternate: every other inline img floats left */
+article.prose > p:nth-of-type(even) img {
   float: left;
   margin: 0.25rem 1.5rem 1rem 0;
 }
@@ -58,19 +59,24 @@ article.prose::after {
   clear: both;
 }
 
-/* Hero: moderate height, rounded, not full-bleed */
+/* Hero: proper banner — full width, fixed aspect ratio */
 .blog-hero {
-  margin: 0 0 1.5rem;
-  border-radius: 12px;
+  margin: 0 0 2rem;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  aspect-ratio: 21 / 9;
 }
 .blog-hero img {
-  width: 100%;
-  height: auto;
-  max-height: 320px;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  float: none !important;
   object-fit: cover;
   display: block;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 /* Product callout: small image floated with text wrapping around */
