@@ -202,8 +202,8 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                   )}
                 </div>
 
-                {/* Hero image */}
-                {post?.hero_image_url && (
+                {/* Hero image (only if body doesn't already contain blog-hero) */}
+                {post?.hero_image_url && !body.includes("blog-hero") && (
                   <div className="rounded-xl overflow-hidden border border-gray-200 mb-6">
                     <img
                       src={post.hero_image_url}

@@ -27,3 +27,163 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ─── Blog Post Rich Image Layouts ─── */
+
+/* Hero: full-width banner image */
+.blog-hero {
+  margin: 0 -2rem 2rem;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+.blog-hero img {
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: cover;
+  display: block;
+}
+
+/* Product callout: float image beside text, magazine style */
+.blog-product-callout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  margin: 2rem 0;
+  padding: 1.25rem;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+.blog-product-callout img {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 10px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+.blog-product-callout h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.blog-product-callout p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #555;
+  line-height: 1.6;
+}
+
+/* Image pair: two images side by side */
+.blog-image-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+.blog-image-pair img {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* Pull quote with background image */
+.blog-pull-quote {
+  position: relative;
+  margin: 2.5rem 0;
+  padding: 3rem 2rem;
+  border-radius: 12px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.blog-pull-quote::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.35));
+  backdrop-filter: blur(2px);
+}
+.blog-pull-quote blockquote {
+  position: relative;
+  z-index: 1;
+  color: white;
+  font-size: 1.25rem;
+  font-weight: 500;
+  font-style: italic;
+  line-height: 1.6;
+  text-align: center;
+  max-width: 560px;
+  margin: 0 auto;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.blog-pull-quote blockquote::before {
+  content: "\201C";
+  display: block;
+  font-size: 3rem;
+  line-height: 1;
+  opacity: 0.6;
+  margin-bottom: 0.5rem;
+}
+
+/* End CTA with product image */
+.blog-end-cta {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  margin: 2.5rem 0 1rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #f8f7f4, #faf9f7);
+  border-radius: 12px;
+  border: 1px solid #eee;
+}
+.blog-end-cta img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 10px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+.blog-end-cta .cta-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 0.5rem;
+}
+.blog-end-cta .cta-link {
+  font-size: 0.9rem;
+  color: #2563eb;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Responsive: stack on mobile */
+@media (max-width: 640px) {
+  .blog-product-callout {
+    flex-direction: column;
+  }
+  .blog-product-callout img {
+    width: 100%;
+    height: 200px;
+  }
+  .blog-image-pair {
+    grid-template-columns: 1fr;
+  }
+  .blog-end-cta {
+    flex-direction: column;
+    text-align: center;
+  }
+  .blog-hero {
+    margin: 0 -1rem 1.5rem;
+  }
+}
