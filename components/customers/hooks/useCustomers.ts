@@ -58,6 +58,8 @@ export function applyFilters<T extends FilterableQuery<T>>(
         `name.ilike.%${q}%`,
         `customerid.ilike.%${q}%`,
         `bill_to_state.ilike.%${q}%`,
+        `agency_code.ilike.%${q}%`,
+        `rep_name.ilike.%${q}%`,
       ].join(",")
     );
   }
