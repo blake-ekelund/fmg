@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   ContentItem,
@@ -11,13 +12,6 @@ import {
   StrategyType,
 } from "../types";
 
-import { ModalShell } from "./ModalShell";
-import { SetupSection } from "./sections/SetupSection";
-import { ContentSection } from "./sections/ContentSection";
-import { ActivitySection } from "./sections/ActivitySection";
-
-type Section = "setup" | "content" | "activity";
-
 type Props = {
   date: string | null;
   item?: ContentItem | null;
@@ -26,9 +20,18 @@ type Props = {
   onBack?: () => void;
 };
 
-/* -------------------------------------------------- */
-/* Activity Logger                                    */
-/* -------------------------------------------------- */
+const PLATFORMS: Platform[] = ["Instagram", "Facebook", "TikTok", "Shopify", "Subscriber-List"];
+const CONTENT_TYPES: ContentType[] = ["Photo", "Carousel", "Reel", "Live", "Blog", "Newsletter"];
+const STRATEGIES: StrategyType[] = ["Awareness", "Engagement", "Conversion", "Retention", "Launch", "Education"];
+const BRANDS: Brand[] = ["NI", "Sassy"];
+
+const PLATFORM_COLORS: Record<string, string> = {
+  Instagram: "border-pink-300 bg-pink-50 text-pink-700",
+  Facebook: "border-blue-300 bg-blue-50 text-blue-700",
+  TikTok: "border-slate-300 bg-slate-50 text-slate-700",
+  Shopify: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  "Subscriber-List": "border-amber-300 bg-amber-50 text-amber-700",
+};
 
 async function logActivity(
   contentId: string,
@@ -37,243 +40,73 @@ async function logActivity(
   performedBy: string,
   metadata?: { from?: ContentStatus; to?: ContentStatus }
 ) {
-  const { error } = await supabase
-    .from("marketing_content_activity")
-    .insert({
-      content_id: contentId,
-      event_type: eventType,
-      event_label: eventLabel,
-      metadata: metadata ?? null,
-      performed_by: performedBy,
-    });
-
-  if (error) console.error("Activity log error:", error);
+  await supabase.from("marketing_content_activity").insert({
+    content_id: contentId,
+    event_type: eventType,
+    event_label: eventLabel,
+    metadata: metadata ?? null,
+    performed_by: performedBy,
+  });
 }
-
-/* -------------------------------------------------- */
-/* Valid Workflow Transitions                         */
-/* -------------------------------------------------- */
-
-const allowedTransitions: Record<ContentStatus, ContentStatus[]> = {
-  Draft: ["Review"],
-  Review: ["Published"],
-  Published: [],
-};
-
-/* -------------------------------------------------- */
-/* Modal Component                                    */
-/* -------------------------------------------------- */
 
 export default function AddContentModal({
   date,
   item,
   onClose,
   onSaved,
-  onBack,
 }: Props) {
-  const [activeSection, setActiveSection] =
-    useState<Section>("setup");
-
   const [publishDate, setPublishDate] = useState(
-    item?.publish_date ??
-      date ??
-      new Date().toISOString().split("T")[0]
+    item?.publish_date ?? date ?? new Date().toISOString().split("T")[0]
   );
-
-  const [brands, setBrands] = useState<Brand[]>(
-    item ? [item.brand] : ["NI"]
-  );
-
-  const [platforms, setPlatforms] =
-    useState<Platform[]>(
-      item ? [item.platform] : ["Instagram"]
-    );
-
-  const [contentType, setContentType] =
-    useState<ContentType | "">(
-      item?.content_type ?? ""
-    );
-
-  const [strategy, setStrategy] =
-    useState<StrategyType | "">(
-      item?.strategy ?? ""
-    );
-
-  const [description, setDescription] =
-    useState(item?.description ?? "");
-
-  const [status, setStatus] =
-    useState<ContentStatus>(
-      item?.status ?? "Draft"
-    );
-
-  const [files, setFiles] = useState<File[]>([]);
+  const [brand, setBrand] = useState<Brand>(item?.brand ?? "NI");
+  const [platform, setPlatform] = useState<Platform>(item?.platform ?? "Instagram");
+  const [contentType, setContentType] = useState<ContentType | "">(item?.content_type ?? "");
+  const [strategy, setStrategy] = useState<StrategyType | "">(item?.strategy ?? "");
+  const [description, setDescription] = useState(item?.description ?? "");
+  const [status, setStatus] = useState<ContentStatus>(item?.status ?? "Draft");
   const [loading, setLoading] = useState(false);
 
-  /* -------------------------------------------------- */
-  /* Delete Logic                                       */
-  /* -------------------------------------------------- */
+  const isEditing = !!item;
+  const canSave = publishDate && brand && platform && contentType && strategy;
 
-  async function handleDelete() {
-    if (!item?.id) return;
-
-    if (!confirm("Delete this content?")) return;
-
-    const { error } = await supabase
-      .from("marketing_content")
-      .delete()
-      .eq("id", item.id);
-
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    onSaved();
-  }
-
-  /* -------------------------------------------------- */
-  /* Save Logic                                         */
-  /* -------------------------------------------------- */
-
-  async function save() {
-    if (
-      !publishDate ||
-      !brands.length ||
-      !platforms.length ||
-      !contentType ||
-      !strategy
-    ) {
-      console.warn("Missing required fields");
-      return;
-    }
-
+  async function handleSave() {
+    if (!canSave) return;
     setLoading(true);
 
     try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) throw new Error("Not authenticated");
 
-      if (authError) throw authError;
-      if (!user?.id)
-        throw new Error("User not authenticated");
+      const payload = {
+        publish_date: publishDate,
+        brand,
+        platform,
+        content_type: contentType,
+        strategy,
+        description,
+        status,
+      };
 
-      const userId = user.id;
-
-      /* ============================================= */
-      /* UPDATE EXISTING                               */
-      /* ============================================= */
-
-      if (item) {
-        if (
-          item.status !== status &&
-          !allowedTransitions[item.status].includes(
-            status
-          )
-        ) {
-          throw new Error(
-            `Invalid workflow transition: ${item.status} → ${status}`
-          );
-        }
-
-        const payload = {
-          publish_date: publishDate,
-          brand: brands[0],
-          platform: platforms[0],
-          content_type: contentType,
-          strategy,
-          description,
-          status,
-        };
-
+      if (isEditing) {
         const { error } = await supabase
           .from("marketing_content")
           .update(payload)
           .eq("id", item.id);
-
         if (error) throw error;
 
         if (item.status !== status) {
-          await logActivity(
-            item.id,
-            "status_changed",
-            `Moved from ${item.status} to ${status}`,
-            userId,
-            { from: item.status, to: status }
-          );
+          await logActivity(item.id, "status_changed",
+            `Moved from ${item.status} to ${status}`, user.id,
+            { from: item.status, to: status });
         }
-
-        if (
-          item.description !== description ||
-          item.content_type !== contentType ||
-          item.strategy !== strategy
-        ) {
-          await logActivity(
-            item.id,
-            "content_updated",
-            "Content details updated",
-            userId
-          );
-        }
-
-        onSaved();
-        return;
-      }
-
-      /* ============================================= */
-      /* INSERT NEW                                    */
-      /* ============================================= */
-
-      const rows = brands.flatMap((brand) =>
-        platforms.map((platform) => ({
-          publish_date: publishDate,
-          brand,
-          platform,
-          content_type: contentType,
-          strategy,
-          description,
-          status,
-          created_by: userId,
-        }))
-      );
-
-      const { data, error } = await supabase
-        .from("marketing_content")
-        .insert(rows)
-        .select("id");
-
-      if (error) throw error;
-      if (!data) throw new Error("Insert failed");
-
-      for (const row of data) {
-        await logActivity(
-          row.id,
-          "status_changed",
-          "Draft created",
-          userId,
-          { to: "Draft" }
-        );
-
-        if (status === "Review") {
-          await logActivity(
-            row.id,
-            "status_changed",
-            "Moved to Review",
-            userId,
-            { from: "Draft", to: "Review" }
-          );
-        }
-
-        if (status === "Published") {
-          await logActivity(
-            row.id,
-            "status_changed",
-            "Moved to Published",
-            userId,
-            { from: "Draft", to: "Published" }
-          );
+      } else {
+        const { data, error } = await supabase
+          .from("marketing_content")
+          .insert({ ...payload, created_by: user.id })
+          .select("id");
+        if (error) throw error;
+        if (data?.[0]) {
+          await logActivity(data[0].id, "status_changed", "Draft created", user.id, { to: "Draft" });
         }
       }
 
@@ -285,151 +118,174 @@ export default function AddContentModal({
     }
   }
 
-  /* -------------------------------------------------- */
+  async function handleDelete() {
+    if (!item?.id || !confirm("Delete this content?")) return;
+    await supabase.from("marketing_content").delete().eq("id", item.id);
+    onSaved();
+  }
 
   return (
-    <ModalShell
-      title={item ? "Edit Content" : "Add Content"}
-      onClose={onClose}
-      onBack={onBack}
-      footer={
-        <div className="flex justify-between items-center gap-4">
-          <button
-            onClick={onClose}
-            className="text-sm text-gray-500"
-          >
-            Cancel
-          </button>
-
-          <button
-            onClick={save}
-            disabled={loading}
-            className="rounded-xl bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            {loading ? "Saving…" : "Save"}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="text-base font-semibold text-gray-800">
+            {isEditing ? "Edit Content" : "Schedule Content"}
+          </h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 transition">
+            <X size={18} />
           </button>
         </div>
-      }
-    >
-    <div className="sticky top-0 z-10 bg-white flex items-center justify-between gap-4 mb-4 pb-2 border-b border-gray-100">
-      
-      {/* Section Tabs */}
-      <div className="flex gap-2 text-sm">
-        <NavItem
-          label="Setup"
-          active={activeSection === "setup"}
-          onClick={() => setActiveSection("setup")}
-        />
-        <NavItem
-          label="Content"
-          active={activeSection === "content"}
-          onClick={() => setActiveSection("content")}
-        />
-        <NavItem
-          label="Activity"
-          active={activeSection === "activity"}
-          onClick={() => setActiveSection("activity")}
-        />
-      </div>
 
-      {/* Status Control */}
-      <StatusSelector
-        current={status}
-        onChange={(next) => setStatus(next)}
-        previous={item?.status}
-      />
+        {/* Form */}
+        <div className="px-5 py-4 space-y-4">
+          {/* Date */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+              Date
+            </label>
+            <input
+              type="date"
+              value={publishDate}
+              onChange={(e) => setPublishDate(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+            />
+          </div>
+
+          {/* Brand */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+              Brand
+            </label>
+            <div className="flex gap-2">
+              {BRANDS.map((b) => (
+                <button
+                  key={b}
+                  onClick={() => setBrand(b)}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition ${
+                    brand === b
+                      ? "border-gray-900 bg-gray-900 text-white"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {b === "NI" ? "Natural Inspirations" : "Sassy"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Platform */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+              Platform
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {PLATFORMS.map((p) => {
+                const isActive = platform === p;
+                const color = PLATFORM_COLORS[p] ?? "border-gray-200 bg-gray-50 text-gray-600";
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setPlatform(p)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                      isActive ? color : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Content Type */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+              Content Type
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {CONTENT_TYPES.map((ct) => (
+                <button
+                  key={ct}
+                  onClick={() => setContentType(ct)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                    contentType === ct
+                      ? "border-gray-900 bg-gray-900 text-white"
+                      : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                  }`}
+                >
+                  {ct}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Strategy */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+              Strategy
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {STRATEGIES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStrategy(s)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                    strategy === s
+                      ? "border-gray-900 bg-gray-900 text-white"
+                      : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Note */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+              Note <span className="text-gray-300">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Quick note about this content..."
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50/50">
+          <div>
+            {isEditing && (
+              <button
+                onClick={handleDelete}
+                className="text-xs text-rose-500 hover:text-rose-600 font-medium transition"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-2 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={loading || !canSave}
+              className="px-4 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-40 transition"
+            >
+              {loading ? "Saving..." : isEditing ? "Update" : "Schedule"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
-
-      <div className="flex-1 overflow-y-auto pr-1">
-        {activeSection === "setup" && (
-          <SetupSection
-            publishDate={publishDate}
-            setPublishDate={setPublishDate}
-            brands={brands}
-            setBrands={setBrands}
-            platforms={platforms}
-            setPlatforms={setPlatforms}
-            status={status}
-            setStatus={setStatus}
-            locked={!!item}
-            onDelete={item ? handleDelete : undefined}
-          />
-        )}
-
-        {activeSection === "content" && (
-          <ContentSection
-            contentType={contentType}
-            setContentType={setContentType}
-            strategy={strategy}
-            setStrategy={setStrategy}
-            description={description}
-            setDescription={setDescription}
-            files={files}
-            setFiles={setFiles}
-          />
-        )}
-
-        {activeSection === "activity" && (
-          <ActivitySection
-            contentId={item?.id ?? null}
-          />
-        )}
-      </div>
-    </ModalShell>
-  );
-}
-
-function NavItem({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-        active
-          ? "bg-gray-900 text-white"
-          : "text-gray-500 hover:bg-gray-100"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function StatusSelector({
-  current,
-  previous,
-  onChange,
-}: {
-  current: ContentStatus;
-  previous?: ContentStatus;
-  onChange: (s: ContentStatus) => void;
-}) {
-  const options: ContentStatus[] = [
-    "Draft",
-    "Review",
-    "Published",
-  ];
-
-  return (
-    <select
-      value={current}
-      onChange={(e) =>
-        onChange(e.target.value as ContentStatus)
-      }
-      className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium"
-    >
-      {options.map((opt) => (
-        <option key={opt} value={opt}>
-          {opt}
-        </option>
-      ))}
-    </select>
   );
 }
