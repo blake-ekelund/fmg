@@ -22,12 +22,17 @@ const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aXNqdWJ3ZXpoeGZ4b2NvYXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwNDcyNDMsImV4cCI6MjA4NDYyMzI0M30.F7-Yg5JVryMzueXtaOz8TIunbhC-QxUgJz89ZWKxO6Q";
 
 const PLATFORMS = ["Instagram", "Facebook", "TikTok"] as const;
-const POST_TYPES = ["Photo Post", "Carousel", "Reel", "Story"] as const;
+const POST_TYPES = [
+  { value: "carousel", label: "Carousel" },
+  { value: "photo", label: "Photo Post" },
+  { value: "reel", label: "Reel" },
+  { value: "story", label: "Story" },
+] as const;
 
 export default function GenerateSocialPostModal({ open, onClose, onGenerated }: Props) {
   const [brand, setBrand] = useState<"NI" | "Sassy">("NI");
   const [platform, setPlatform] = useState<typeof PLATFORMS[number]>("Instagram");
-  const [postType, setPostType] = useState<typeof POST_TYPES[number]>("Photo Post");
+  const [postType, setPostType] = useState("carousel");
   const [direction, setDirection] = useState("");
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
@@ -209,14 +214,14 @@ export default function GenerateSocialPostModal({ open, onClose, onGenerated }: 
               <div className="flex flex-wrap gap-1.5">
                 {POST_TYPES.map((t) => (
                   <button
-                    key={t}
-                    onClick={() => setPostType(t)}
+                    key={t.value}
+                    onClick={() => setPostType(t.value)}
                     className={clsx(
                       "px-3 py-1.5 rounded-lg text-xs font-medium transition",
-                      postType === t ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                      postType === t.value ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                     )}
                   >
-                    {t}
+                    {t.label}
                   </button>
                 ))}
               </div>
