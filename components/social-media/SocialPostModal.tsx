@@ -36,6 +36,11 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
   const [status, setStatus] = useState<SocialPostStatus>((post?.status as SocialPostStatus) ?? "ai_draft");
   const [postDate, setPostDate] = useState(post?.post_date ?? new Date().toISOString().slice(0, 10));
   const [imageUrl, setImageUrl] = useState(post?.image_url ?? "");
+  const [imageRefUrl, setImageRefUrl] = useState(post?.image_ref_url ?? "");
+  const [imageDirection, setImageDirection] = useState(post?.image_direction ?? "");
+  const [hashtags, setHashtags] = useState<string[]>(post?.hashtags ?? []);
+  const [cta, setCta] = useState(post?.cta ?? "");
+  const [tags, setTags] = useState<string[]>(post?.tags ?? []);
 
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -50,6 +55,11 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
       setStatus(post.status as SocialPostStatus);
       setPostDate(post.post_date);
       setImageUrl(post.image_url ?? "");
+      setImageRefUrl(post.image_ref_url ?? "");
+      setImageDirection(post.image_direction ?? "");
+      setHashtags(post.hashtags ?? []);
+      setCta(post.cta ?? "");
+      setTags(post.tags ?? []);
       setViewMode("preview");
     } else {
       setCaption("");
@@ -59,6 +69,11 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
       setStatus("ai_draft");
       setPostDate(new Date().toISOString().slice(0, 10));
       setImageUrl("");
+      setImageRefUrl("");
+      setImageDirection("");
+      setHashtags([]);
+      setCta("");
+      setTags([]);
       setViewMode("edit");
     }
   }, [post, defaultPlatform]);
@@ -73,7 +88,12 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
       brand,
       status,
       post_date: postDate,
-      image_url: imageUrl || null,
+      image_url: imageUrl || imageRefUrl || null,
+      image_ref_url: imageRefUrl || null,
+      image_direction: imageDirection || null,
+      hashtags: hashtags.length > 0 ? hashtags : null,
+      cta: cta || null,
+      tags: tags.length > 0 ? tags : null,
       updated_at: new Date().toISOString(),
     };
 
@@ -160,14 +180,68 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
                   <span className="text-xs text-gray-400">•</span>
                   <span className="text-xs text-gray-400">{postDate}</span>
                 </div>
-                {imageUrl && (
+
+                {/* Recommended image */}
+                {(imageRefUrl || imageUrl) && (
                   <div className="rounded-xl overflow-hidden border border-gray-200">
-                    <img src={imageUrl} alt="" className="w-full max-h-80 object-cover" />
+                    <img
+                      src={imageRefUrl || imageUrl || ""}
+                      alt=""
+                      className="w-full max-h-80 object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                    <div className="px-3 py-1.5 bg-gray-50 text-[10px] text-gray-500 uppercase tracking-wider font-medium">
+                      Recommended Image
+                    </div>
                   </div>
                 )}
+
+                {/* Caption */}
                 <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
                   {caption || "(No caption)"}
                 </div>
+
+                {/* Hashtags */}
+                {hashtags.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-1">Hashtags</div>
+                    <div className="flex flex-wrap gap-1">
+                      {hashtags.map((h, i) => (
+                        <span key={i} className="text-xs text-blue-600 bg-blue-50 rounded-full px-2 py-0.5">
+                          #{h.replace(/^#/, "")}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* CTA */}
+                {cta && (
+                  <div>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-1">Call to Action</div>
+                    <div className="text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{cta}</div>
+                  </div>
+                )}
+
+                {/* Image Direction */}
+                {imageDirection && (
+                  <div>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-1">Image Direction</div>
+                    <div className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 italic">{imageDirection}</div>
+                  </div>
+                )}
+
+                {/* Tags */}
+                {tags.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-1">Tags</div>
+                    <div className="flex flex-wrap gap-1">
+                      {tags.map((t, i) => (
+                        <span key={i} className="text-[11px] text-gray-600 bg-gray-100 rounded px-2 py-0.5">{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-4">

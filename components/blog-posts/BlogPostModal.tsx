@@ -65,6 +65,7 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
       body,
       seo_meta: seoMeta || null,
       tags: tags.length > 0 ? tags : null,
+      hero_image_url: post?.hero_image_url || null,
       brand,
       status,
       updated_at: new Date().toISOString(),
@@ -200,6 +201,18 @@ export default function BlogPostModal({ open, post, onClose, onSaved, onDeleted 
                     <p className="text-sm text-gray-500 mt-2 italic">{seoMeta}</p>
                   )}
                 </div>
+
+                {/* Hero image */}
+                {post?.hero_image_url && (
+                  <div className="rounded-xl overflow-hidden border border-gray-200 mb-6">
+                    <img
+                      src={post.hero_image_url}
+                      alt={title}
+                      className="w-full max-h-80 object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  </div>
+                )}
 
                 {/* Rendered HTML body */}
                 <article

@@ -50,6 +50,18 @@ export default function SocialKanbanCard({ post, isDragging, onClick, onDragStar
         isDragging && "shadow-lg ring-2 ring-blue-200"
       )}
     >
+      {/* Image thumbnail */}
+      {(post.image_ref_url || post.image_url) && (
+        <div className="rounded-lg overflow-hidden mb-2 border border-gray-100">
+          <img
+            src={post.image_ref_url || post.image_url || ""}
+            alt=""
+            className="w-full h-24 object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+        </div>
+      )}
+
       {/* Drag handle + caption preview */}
       <div className="flex items-start gap-1.5">
         <GripVertical

@@ -6,6 +6,7 @@ export type BlogPost = {
   body: string;
   seo_meta: string | null;
   tags: string[] | null;
+  hero_image_url: string | null;
   brand: "NI" | "Sassy";
   status: BlogPostStatus;
   created_at: string;

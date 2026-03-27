@@ -9,6 +9,11 @@ export type SocialPost = {
   post_date: string;
   caption: string | null;
   image_url: string | null;
+  image_ref_url: string | null;
+  image_direction: string | null;
+  hashtags: string[] | null;
+  cta: string | null;
+  tags: string[] | null;
   status: SocialPostStatus;
   post_type: string;
   content_id: string | null;
