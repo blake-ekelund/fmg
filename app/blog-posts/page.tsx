@@ -20,8 +20,9 @@ export default function BlogPostsPage() {
     { id: string; title: string; brand: "NI" | "Sassy" }[]
   >([]);
 
-  // Email template modal
+  // Email template modals
   const [emailPost, setEmailPost] = useState<BlogPost | null>(null);
+  const [reviewEmailPost, setReviewEmailPost] = useState<BlogPost | null>(null);
   // Delete feedback modal
   const [deletePost, setDeletePost] = useState<BlogPost | null>(null);
 
@@ -76,7 +77,10 @@ export default function BlogPostsPage() {
       return;
     }
 
-    // Show email template when moved to "ready"
+    // Show email template when moved to "human_review" or "ready"
+    if (newStatus === "human_review") {
+      setReviewEmailPost({ ...currentPost, status: newStatus });
+    }
     if (newStatus === "ready") {
       setEmailPost({ ...currentPost, status: newStatus });
     }
@@ -155,6 +159,90 @@ export default function BlogPostsPage() {
         onGenerated={handleGenerateComplete}
         onSubmitted={handleGenerateSubmitted}
       />
+
+      {/* Email template modal — shown when post moves to Human Review */}
+      {reviewEmailPost && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setReviewEmailPost(null)}
+        >
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div
+            className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center">
+                  <Mail size={16} className="text-sky-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Ready for Review</h3>
+                  <p className="text-[11px] text-gray-500">Notify Jessica for human review</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setReviewEmailPost(null)}
+                className="p-1.5 rounded-md text-gray-400 hover:bg-gray-100 transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400 w-12">To</span>
+                <div className="flex-1 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                  jekelund@fragrancemarketinggroup.com
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400 w-12">Subject</span>
+                <div className="flex-1 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                  Blog Post Ready for Review — {reviewEmailPost.title}
+                </div>
+              </div>
+              <div>
+                <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400 mb-1.5 block">Message</span>
+                <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-700 leading-relaxed space-y-3">
+                  <p>Hi Jessica,</p>
+                  <p>
+                    A new blog post has been drafted by AI and is ready for your review. Please review and either approve, request changes, or move to ready when satisfied.
+                  </p>
+                  <div className="rounded-lg bg-white border border-gray-200 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded bg-sky-50 flex items-center justify-center shrink-0">
+                        <Mail size={14} className="text-sky-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-gray-800 truncate">{reviewEmailPost.title}</div>
+                        <div className="text-[10px] text-gray-400">{reviewEmailPost.brand} • Blog Post</div>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-gray-500">Thanks!</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-gray-100 bg-gray-50/50">
+              <button
+                onClick={() => setReviewEmailPost(null)}
+                className="px-4 py-2 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-200 transition"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => setReviewEmailPost(null)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 transition"
+              >
+                <Send size={13} />
+                Send Email
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Email template modal — shown when post moves to Ready */}
       {emailPost && (
