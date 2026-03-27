@@ -21,6 +21,7 @@ type Params = {
   search: string;
   status: string;
   channel: string;
+  agency: string;
   sortColumn: string;
   sortDir: "asc" | "desc";
   enabled?: boolean;
@@ -46,7 +47,8 @@ export function applyFilters<T extends FilterableQuery<T>>(
   query: T,
   search: string,
   status: string,
-  channel: string
+  channel: string,
+  agency?: string
 ): T {
   if (search) {
     const q = search.trim();
@@ -62,6 +64,10 @@ export function applyFilters<T extends FilterableQuery<T>>(
 
   if (channel) {
     query = query.eq("channel", channel);
+  }
+
+  if (agency) {
+    query = query.eq("agency_code", agency);
   }
 
   if (status) {
@@ -102,6 +108,7 @@ export function useCustomers({
   search,
   status,
   channel,
+  agency,
   sortColumn,
   sortDir,
   enabled = true,
@@ -118,8 +125,6 @@ export function useCustomers({
     useState<{ label: string; value: string }[]>([]);
   const [agencyOptions, setAgencyOptions] =
     useState<{ label: string; value: string }[]>([]);
-  const [agencyMap, setAgencyMap] =
-    useState<Record<string, { agency_code: string; rep_name: string }>>({});
   const [stats, setStats] = useState({
     active: 0,
     atRisk: 0,
@@ -149,7 +154,8 @@ export function useCustomers({
         tableQuery,
         search,
         status,
-        channel
+        channel,
+        agency
       );
 
       if (brand !== "all") {
@@ -176,13 +182,14 @@ export function useCustomers({
       let statsQuery = supabase
         .from("customer_summary")
         .select("last_order_date")
-        .range(0, 4999); // covers your stated max
+        .range(0, 4999);
 
       statsQuery = applyFilters(
         statsQuery,
         search,
         status,
-        channel
+        channel,
+        agency
       );
 
       if (brand !== "all") {
@@ -215,7 +222,6 @@ export function useCustomers({
 
           for (const c of full) {
             if (!c.last_order_date) {
-              // decide: separate bucket or treat as churn?
               continue;
             }
 
@@ -252,6 +258,7 @@ export function useCustomers({
     search,
     status,
     channel,
+    agency,
     sortColumn,
     sortDir,
     brand,
@@ -286,28 +293,26 @@ export function useCustomers({
 
     async function loadAgencies() {
       const { data } = await supabase
-        .from("customer_agency")
-        .select("customerid, agency_code, rep_name");
+        .from("customer_summary")
+        .select("agency_code")
+        .not("agency_code", "is", null)
+        .neq("agency_code", "");
 
       if (!data) return;
 
-      // Build lookup map
-      const map: Record<string, { agency_code: string; rep_name: string }> = {};
+      const codes = new Set<string>();
       for (const row of data) {
-        map[row.customerid] = {
-          agency_code: row.agency_code ?? "",
-          rep_name: row.rep_name ?? "",
-        };
-      }
-      setAgencyMap(map);
-
-      // Build unique agency options
-      const names = new Set<string>();
-      for (const row of data) {
-        if (row.agency_code) names.add(row.agency_code);
+        if (row.agency_code) codes.add(row.agency_code);
       }
       setAgencyOptions(
-        Array.from(names).sort().map((n) => ({ label: n, value: n }))
+        Array.from(codes)
+          .sort((a, b) => {
+            const na = parseInt(a, 10);
+            const nb = parseInt(b, 10);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+            return a.localeCompare(b);
+          })
+          .map((n) => ({ label: n, value: n }))
       );
     }
 
@@ -321,7 +326,6 @@ export function useCustomers({
     totalCount,
     channelOptions,
     agencyOptions,
-    agencyMap,
     stats,
   };
 }

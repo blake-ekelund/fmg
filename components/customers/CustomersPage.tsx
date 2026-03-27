@@ -106,7 +106,6 @@ export default function CustomersPage({
     totalCount: wholesaleTotalCount = 0,
     channelOptions = [],
     agencyOptions = [],
-    agencyMap = {},
     stats: wholesaleStats = { active: 0, atRisk: 0, churned: 0 },
   } = useCustomers({
     page,
@@ -114,6 +113,7 @@ export default function CustomersPage({
     search,
     status,
     channel,
+    agency,
     sortColumn,
     sortDir,
     enabled: viewMode === "wholesale",
@@ -135,19 +135,10 @@ export default function CustomersPage({
     enabled: viewMode === "d2c",
   });
 
-  /* ─── Filter wholesale by agency (client-side) ─── */
-  const filteredWholesale = useMemo(() => {
-    if (!agency) return wholesaleCustomers;
-    return wholesaleCustomers.filter((c) => {
-      const a = agencyMap[c.customerid];
-      return a?.agency_code === agency;
-    });
-  }, [wholesaleCustomers, agency, agencyMap]);
-
   /* ─── Active data based on view mode ─── */
   const isD2C = viewMode === "d2c";
   const loading = isD2C ? d2cLoading : wholesaleLoading;
-  const totalCount = isD2C ? d2cTotalCount : (agency ? filteredWholesale.length : wholesaleTotalCount);
+  const totalCount = isD2C ? d2cTotalCount : wholesaleTotalCount;
   const stats = isD2C ? d2cStats : wholesaleStats;
 
   const handleToggleAll = useCallback(() => {
@@ -304,7 +295,7 @@ export default function CustomersPage({
       .select("*")
       .range(0, 4999);
 
-    query = applyFilters(query, search, status, channel);
+    query = applyFilters(query, search, status, channel, agency);
 
     const { data, error } = await query;
     if (error || !data?.length) return;
@@ -397,7 +388,7 @@ export default function CustomersPage({
 
       {/* Table */}
       <CustomersTable
-        customers={isD2C ? d2cCustomers : (agency ? filteredWholesale : wholesaleCustomers)}
+        customers={isD2C ? d2cCustomers : wholesaleCustomers}
         loading={loading}
         sortColumn={sortColumn}
         sortDir={sortDir}
@@ -406,7 +397,6 @@ export default function CustomersPage({
         selectedIds={selectedIds}
         onToggleSelect={handleToggleSelect}
         onToggleAll={handleToggleAll}
-        agencyMap={agencyMap}
       />
 
       {/* Pagination */}

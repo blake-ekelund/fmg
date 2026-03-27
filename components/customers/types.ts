@@ -12,6 +12,8 @@ export type Customer = {
   sales_2026: number | null;
   total_orders?: number | null;
   total_spend?: number | null;
+  agency_code?: string | null;
+  rep_name?: string | null;
 };
 
 export type D2CCustomer = {

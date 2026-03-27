@@ -49,7 +49,6 @@ export default function CustomersTable({
   selectedIds,
   onToggleSelect,
   onToggleAll,
-  agencyMap = {},
 }: {
   customers?: (Customer | D2CCustomer)[];
   loading: boolean;
@@ -60,7 +59,6 @@ export default function CustomersTable({
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onToggleAll?: () => void;
-  agencyMap?: Record<string, { agency_code: string; rep_name: string }>;
 }) {
   const router = useRouter();
   const safeCustomers = customers ?? [];
@@ -271,11 +269,11 @@ export default function CustomersTable({
                 <div className="font-medium text-slate-800">{c.name}</div>
               </div>
               <div className="col-span-2">
-                {agencyMap[c.customerid] ? (
+                {c.agency_code ? (
                   <div>
-                    <div className="text-xs font-medium text-slate-700">{agencyMap[c.customerid].agency_code}</div>
-                    {agencyMap[c.customerid].rep_name && agencyMap[c.customerid].rep_name !== "NOT REP ASSIGNED" && (
-                      <div className="text-[10px] text-slate-400">{agencyMap[c.customerid].rep_name}</div>
+                    <div className="text-xs font-medium text-slate-700">{c.agency_code}</div>
+                    {c.rep_name && c.rep_name !== "NOT REP ASSIGNED" && (
+                      <div className="text-[10px] text-slate-400">{c.rep_name}</div>
                     )}
                   </div>
                 ) : (
