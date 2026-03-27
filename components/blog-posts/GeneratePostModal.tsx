@@ -12,7 +12,9 @@ type Props = {
 };
 
 type ProductOption = {
+  part: string;
   display_name: string;
+  fragrance: string | null;
   brand: string;
 };
 
@@ -33,44 +35,40 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
     async function loadProducts() {
       const { data } = await supabase
         .from("inventory_products")
-        .select("display_name, brand")
+        .select("part, display_name, fragrance, brand")
         .in("brand", ["NI", "Sassy"])
         .not("display_name", "ilike", "%TESTER%")
         .not("display_name", "ilike", "%Marketing%")
         .not("display_name", "ilike", "%Sample%")
-        .order("display_name");
+        .order("display_name")
+        .order("fragrance");
 
       if (data) {
-        // Deduplicate by display_name + brand
-        const seen = new Set<string>();
-        const unique: ProductOption[] = [];
-        for (const p of data) {
-          const key = `${p.brand}:${p.display_name}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            unique.push(p);
-          }
-        }
-        setProductOptions(unique);
+        setProductOptions(data as ProductOption[]);
       }
     }
     loadProducts();
   }, [open]);
 
   // Filter products by selected brand
-  const filteredProducts = productOptions.filter(
-    (p) => p.brand === brand || (brand === "NI" && p.brand === "NI") || (brand === "Sassy" && p.brand === "Sassy")
-  );
+  const filteredProducts = productOptions.filter((p) => p.brand === brand);
 
   // Clear product selections when brand changes
   useEffect(() => {
     setSelectedProducts([]);
   }, [brand]);
 
-  function toggleProduct(name: string) {
+  function toggleProduct(part: string) {
     setSelectedProducts((prev) =>
-      prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]
+      prev.includes(part) ? prev.filter((p) => p !== part) : [...prev, part]
     );
+  }
+
+  // Get display label for a selected product
+  function getProductLabel(part: string) {
+    const p = productOptions.find((o) => o.part === part);
+    if (!p) return part;
+    return `${p.display_name}${p.fragrance ? ` — ${p.fragrance}` : ""}`;
   }
 
   if (!open) return null;
@@ -81,7 +79,11 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
     const submitTitle = title.trim();
     const submitDescription = description.trim();
     const submitBrand = brand;
-    const submitProducts = selectedProducts;
+    // Send display_name values (what the image matcher uses) to the edge function
+    const submitProducts = selectedProducts
+      .map((part) => productOptions.find((p) => p.part === part))
+      .filter(Boolean)
+      .map((p) => p!.display_name);
 
     // 1. Insert placeholder row
     const { data: inserted } = await supabase
@@ -141,7 +143,7 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -248,26 +250,32 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
               <div className="mt-1.5 rounded-lg border border-gray-200 bg-white max-h-40 overflow-y-auto shadow-sm">
                 {filteredProducts.map((p) => (
                   <button
-                    key={p.display_name}
-                    onClick={() => toggleProduct(p.display_name)}
+                    key={p.part}
+                    onClick={() => toggleProduct(p.part)}
                     className={clsx(
                       "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-gray-50 transition border-b border-gray-50 last:border-0",
-                      selectedProducts.includes(p.display_name) && "bg-purple-50"
+                      selectedProducts.includes(p.part) && "bg-purple-50"
                     )}
                   >
                     <div
                       className={clsx(
                         "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition",
-                        selectedProducts.includes(p.display_name)
+                        selectedProducts.includes(p.part)
                           ? "bg-purple-600 border-purple-600"
                           : "border-gray-300"
                       )}
                     >
-                      {selectedProducts.includes(p.display_name) && (
+                      {selectedProducts.includes(p.part) && (
                         <Check size={10} className="text-white" />
                       )}
                     </div>
-                    <span className="text-gray-700">{p.display_name}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[11px] font-mono text-gray-400 shrink-0">{p.part}</span>
+                      <span className="text-gray-700 truncate">{p.display_name}</span>
+                      {p.fragrance && (
+                        <span className="text-[11px] text-gray-400 shrink-0">· {p.fragrance}</span>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -276,14 +284,14 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
             {/* Selected product chips */}
             {selectedProducts.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {selectedProducts.map((name) => (
+                {selectedProducts.map((part) => (
                   <span
-                    key={name}
+                    key={part}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px] font-medium"
                   >
-                    {name}
+                    {getProductLabel(part)}
                     <button
-                      onClick={() => toggleProduct(name)}
+                      onClick={() => toggleProduct(part)}
                       className="hover:text-purple-900"
                     >
                       <X size={10} />
