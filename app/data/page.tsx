@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Upload, FileSpreadsheet, ShoppingCart, CheckCircle } from "lucide-react";
+import { Upload, FileSpreadsheet, ShoppingCart, CheckCircle, DollarSign, BarChart3 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -79,7 +79,7 @@ export default function DataPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
-      <PageHeader subtitle="Upload and manage your inventory and sales data" />
+      <PageHeader subtitle="Upload and manage your inventory, sales, and financial data" />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Inventory Upload Card */}
@@ -173,6 +173,84 @@ export default function DataPage() {
               <Upload size={14} />
               Upload Sales
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Financials Section ─── */}
+      <div className="pt-2">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          Financials — QuickBooks
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* P&L Upload Card */}
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-50">
+                <DollarSign size={18} className="text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900">Profit & Loss</h2>
+                <p className="text-xs text-gray-500">P&L statement exported from QuickBooks</p>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Last uploaded</span>
+                <span className="text-xs font-medium text-gray-400">Never</span>
+              </div>
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                <p className="text-xs text-amber-700">
+                  Coming soon — upload format is being finalized.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50">
+              <button
+                disabled
+                className="flex items-center gap-2 rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-400 cursor-not-allowed transition w-full justify-center"
+              >
+                <Upload size={14} />
+                Upload P&L
+              </button>
+            </div>
+          </div>
+
+          {/* Balance Sheet Upload Card */}
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-50">
+                <BarChart3 size={18} className="text-violet-600" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900">Balance Sheet</h2>
+                <p className="text-xs text-gray-500">Balance sheet exported from QuickBooks</p>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Last uploaded</span>
+                <span className="text-xs font-medium text-gray-400">Never</span>
+              </div>
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                <p className="text-xs text-amber-700">
+                  Coming soon — upload format is being finalized.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50">
+              <button
+                disabled
+                className="flex items-center gap-2 rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-400 cursor-not-allowed transition w-full justify-center"
+              >
+                <Upload size={14} />
+                Upload Balance Sheet
+              </button>
+            </div>
           </div>
         </div>
       </div>
