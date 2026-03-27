@@ -21,28 +21,26 @@ type Props = {
 };
 
 const PLATFORMS: Platform[] = ["Instagram", "Facebook", "TikTok", "Shopify", "Subscriber-List"];
-const CONTENT_TYPES: ContentType[] = ["Photo", "Carousel", "Reel", "Live", "Blog", "Newsletter"];
+const CONTENT_TYPES: ContentType[] = ["Photo", "Carousel", "Reel", "Blog", "Newsletter"];
 const STRATEGIES: StrategyType[] = ["Awareness", "Engagement", "Conversion", "Retention", "Launch", "Education"];
 const BRANDS: Brand[] = ["NI", "Sassy"];
 
 type Recurrence = "none" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly";
-const RECURRENCE_OPTIONS: { value: Recurrence; label: string }[] = [
-  { value: "none", label: "One-time" },
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "biweekly", label: "Every 2 weeks" },
-  { value: "monthly", label: "Monthly" },
-  { value: "yearly", label: "Yearly" },
-];
+
+const RECURRENCE_LABELS: Record<Recurrence, string> = {
+  none: "One-time",
+  daily: "Daily",
+  weekly: "Weekly",
+  biweekly: "Every 2 weeks",
+  monthly: "Monthly",
+  yearly: "Yearly",
+};
 
 function generateDates(start: string, recurrence: Recurrence, endDate: string): string[] {
   const dates: string[] = [start];
   if (recurrence === "none") return dates;
-
-  const s = new Date(start + "T00:00:00");
   const e = new Date(endDate + "T00:00:00");
-  const current = new Date(s);
-
+  const current = new Date(start + "T00:00:00");
   while (true) {
     switch (recurrence) {
       case "daily": current.setDate(current.getDate() + 1); break;
@@ -53,9 +51,8 @@ function generateDates(start: string, recurrence: Recurrence, endDate: string): 
     }
     if (current > e) break;
     dates.push(current.toISOString().split("T")[0]);
-    if (dates.length > 365) break; // safety
+    if (dates.length > 365) break;
   }
-
   return dates;
 }
 
@@ -83,12 +80,7 @@ async function logActivity(
   });
 }
 
-export default function AddContentModal({
-  date,
-  item,
-  onClose,
-  onSaved,
-}: Props) {
+export default function AddContentModal({ date, item, onClose, onSaved }: Props) {
   const [publishDate, setPublishDate] = useState(
     item?.publish_date ?? date ?? new Date().toISOString().split("T")[0]
   );
@@ -97,7 +89,7 @@ export default function AddContentModal({
   const [contentType, setContentType] = useState<ContentType | "">(item?.content_type ?? "");
   const [strategy, setStrategy] = useState<StrategyType | "">(item?.strategy ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
-  const [status, setStatus] = useState<ContentStatus>(item?.status ?? "Draft");
+  const [status] = useState<ContentStatus>(item?.status ?? "Draft");
   const [recurrence, setRecurrence] = useState<Recurrence>("none");
   const [recurrenceEnd, setRecurrenceEnd] = useState(() => {
     const d = new Date();
@@ -108,11 +100,13 @@ export default function AddContentModal({
 
   const isEditing = !!item;
   const canSave = publishDate && brand && platform && contentType && strategy;
+  const dateCount = !isEditing && recurrence !== "none"
+    ? generateDates(publishDate, recurrence, recurrenceEnd).length
+    : 1;
 
   async function handleSave() {
     if (!canSave) return;
     setLoading(true);
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user?.id) throw new Error("Not authenticated");
@@ -133,7 +127,6 @@ export default function AddContentModal({
           .update(payload)
           .eq("id", item.id);
         if (error) throw error;
-
         if (item.status !== status) {
           await logActivity(item.id, "status_changed",
             `Moved from ${item.status} to ${status}`, user.id,
@@ -148,7 +141,6 @@ export default function AddContentModal({
           recurrence_end: recurrence !== "none" ? recurrenceEnd : null,
           created_by: user.id,
         }));
-
         const { data, error } = await supabase
           .from("marketing_content")
           .insert(rows)
@@ -158,7 +150,6 @@ export default function AddContentModal({
           await logActivity(data[0].id, "status_changed", "Draft created", user.id, { to: "Draft" });
         }
       }
-
       onSaved();
     } catch (err) {
       console.error("Save failed:", err);
@@ -175,74 +166,65 @@ export default function AddContentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-800">
             {isEditing ? "Edit Content" : "Schedule Content"}
           </h2>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 transition">
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition">
             <X size={18} />
           </button>
         </div>
 
         {/* Form */}
         <div className="px-5 py-4 space-y-4">
-          {/* Date */}
+
+          {/* ─── Row 1: Date + Frequency + Until ─── */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
-              Date
+              Schedule
             </label>
-            <input
-              type="date"
-              value={publishDate}
-              onChange={(e) => setPublishDate(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-            />
-          </div>
-
-          {/* Recurrence — only for new items */}
-          {!isEditing && (
-            <div>
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
-                Repeat
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {RECURRENCE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setRecurrence(opt.value)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                      recurrence === opt.value
-                        ? "border-gray-900 bg-gray-900 text-white"
-                        : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
-                    }`}
+            <div className="flex gap-2 items-center">
+              <input
+                type="date"
+                value={publishDate}
+                onChange={(e) => setPublishDate(e.target.value)}
+                className="flex-1 min-w-0 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+              />
+              {!isEditing && (
+                <>
+                  <select
+                    value={recurrence}
+                    onChange={(e) => setRecurrence(e.target.value as Recurrence)}
+                    className="rounded-lg border border-gray-200 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
                   >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              {recurrence !== "none" && (
-                <div className="mt-2">
-                  <label className="block text-[10px] text-gray-400 mb-1">
-                    Repeat until
-                  </label>
-                  <input
-                    type="date"
-                    value={recurrenceEnd}
-                    onChange={(e) => setRecurrenceEnd(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-                  />
-                  <div className="text-[10px] text-gray-400 mt-1">
-                    This will create {generateDates(publishDate, recurrence, recurrenceEnd).length} entries on the calendar
-                  </div>
-                </div>
+                    {Object.entries(RECURRENCE_LABELS).map(([val, label]) => (
+                      <option key={val} value={val}>{label}</option>
+                    ))}
+                  </select>
+                  {recurrence !== "none" && (
+                    <>
+                      <span className="text-[11px] text-gray-400 shrink-0">until</span>
+                      <input
+                        type="date"
+                        value={recurrenceEnd}
+                        onChange={(e) => setRecurrenceEnd(e.target.value)}
+                        className="flex-1 min-w-0 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+                      />
+                    </>
+                  )}
+                </>
               )}
             </div>
-          )}
+            {!isEditing && recurrence !== "none" && (
+              <div className="text-[10px] text-gray-400 mt-1 tabular-nums">
+                {dateCount} entries will be created
+              </div>
+            )}
+          </div>
 
-          {/* Brand */}
+          {/* ─── Row 2: Brand (tag selection) ─── */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
               Brand
@@ -252,10 +234,12 @@ export default function AddContentModal({
                 <button
                   key={b}
                   onClick={() => setBrand(b)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition ${
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium border transition ${
                     brand === b
-                      ? "border-gray-900 bg-gray-900 text-white"
-                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      ? b === "NI"
+                        ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                        : "border-violet-400 bg-violet-50 text-violet-700"
+                      : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
                   }`}
                 >
                   {b === "NI" ? "Natural Inspirations" : "Sassy"}
@@ -264,7 +248,7 @@ export default function AddContentModal({
             </div>
           </div>
 
-          {/* Platform */}
+          {/* ─── Row 3: Platform (chips) ─── */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
               Platform
@@ -288,61 +272,51 @@ export default function AddContentModal({
             </div>
           </div>
 
-          {/* Content Type */}
+          {/* ─── Row 4: Content Type (dropdown) ─── */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
               Content Type
             </label>
-            <div className="flex flex-wrap gap-1.5">
+            <select
+              value={contentType}
+              onChange={(e) => setContentType(e.target.value as ContentType)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
+            >
+              <option value="">Select type...</option>
               {CONTENT_TYPES.map((ct) => (
-                <button
-                  key={ct}
-                  onClick={() => setContentType(ct)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                    contentType === ct
-                      ? "border-gray-900 bg-gray-900 text-white"
-                      : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
-                  }`}
-                >
-                  {ct}
-                </button>
+                <option key={ct} value={ct}>{ct}</option>
               ))}
-            </div>
+            </select>
           </div>
 
-          {/* Strategy */}
+          {/* ─── Row 5: Strategy (dropdown) ─── */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
               Strategy
             </label>
-            <div className="flex flex-wrap gap-1.5">
+            <select
+              value={strategy}
+              onChange={(e) => setStrategy(e.target.value as StrategyType)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
+            >
+              <option value="">Select strategy...</option>
               {STRATEGIES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStrategy(s)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                    strategy === s
-                      ? "border-gray-900 bg-gray-900 text-white"
-                      : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
-                  }`}
-                >
-                  {s}
-                </button>
+                <option key={s} value={s}>{s}</option>
               ))}
-            </div>
+            </select>
           </div>
 
-          {/* Note */}
+          {/* ─── Row 6: Note ─── */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
               Note <span className="text-gray-300">(optional)</span>
             </label>
-            <input
-              type="text"
+            <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Quick note about this content..."
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+              placeholder="Brief direction for the AI or team..."
+              rows={2}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"
             />
           </div>
         </div>
@@ -371,7 +345,7 @@ export default function AddContentModal({
               disabled={loading || !canSave}
               className="px-4 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-40 transition"
             >
-              {loading ? "Saving..." : isEditing ? "Update" : "Schedule"}
+              {loading ? "Saving..." : isEditing ? "Update" : dateCount > 1 ? `Schedule ${dateCount} entries` : "Schedule"}
             </button>
           </div>
         </div>

@@ -38,7 +38,6 @@ export type ContentType =
   | "Photo"
   | "Carousel"
   | "Reel"
-  | "Live"
   | "Blog"
   | "Newsletter";
 

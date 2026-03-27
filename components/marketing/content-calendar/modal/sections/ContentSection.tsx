@@ -24,7 +24,6 @@ const CONTENT_TYPE_OPTIONS: ContentType[] = [
   "Photo",
   "Carousel",
   "Reel",
-  "Live",
   "Blog",
   "Newsletter",
 ];
