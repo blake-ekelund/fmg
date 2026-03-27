@@ -56,13 +56,18 @@ export default function KanbanColumn({
       onDrop={handleDrop}
     >
       {/* Column header */}
-      <div className="flex items-center gap-2 px-3 py-2.5">
-        <span className={clsx("w-2 h-2 rounded-full shrink-0", column.accent)} />
-        <span className="text-[12px] font-semibold text-gray-700 uppercase tracking-wider">
-          {column.label}
-        </span>
-        <span className="text-[11px] font-medium text-gray-400 tabular-nums">
-          {posts.length}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className={clsx("w-2 h-2 rounded-full shrink-0", column.accent)} />
+          <span className="text-[12px] font-semibold text-gray-700 uppercase tracking-wider">
+            {column.label}
+          </span>
+          <span className="text-[11px] font-medium text-gray-400 tabular-nums">
+            {posts.length}
+          </span>
+        </div>
+        <span className="text-[10px] font-medium text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">
+          {column.owner}
         </span>
       </div>
 

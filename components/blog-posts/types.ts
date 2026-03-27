@@ -15,13 +15,14 @@ export type BlogPost = {
 export type ColumnConfig = {
   status: BlogPostStatus;
   label: string;
+  owner: string;
   accent: string;    // border/dot color
   bgHeader: string;  // header background
   count?: number;
 };
 
 export const COLUMNS: ColumnConfig[] = [
-  { status: "ai_draft",      label: "AI Draft",      accent: "bg-purple-400", bgHeader: "bg-purple-50" },
-  { status: "human_review",  label: "Human Review",  accent: "bg-blue-400",   bgHeader: "bg-blue-50" },
-  { status: "ready",         label: "Ready",         accent: "bg-emerald-400", bgHeader: "bg-emerald-50" },
+  { status: "ai_draft",      label: "AI Draft",      owner: "Blake",  accent: "bg-purple-400", bgHeader: "bg-purple-50" },
+  { status: "human_review",  label: "Human Review",  owner: "Julie",  accent: "bg-blue-400",   bgHeader: "bg-blue-50" },
+  { status: "ready",         label: "Ready",         owner: "Brooke", accent: "bg-emerald-400", bgHeader: "bg-emerald-50" },
 ];
