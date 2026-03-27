@@ -25,6 +25,40 @@ const CONTENT_TYPES: ContentType[] = ["Photo", "Carousel", "Reel", "Live", "Blog
 const STRATEGIES: StrategyType[] = ["Awareness", "Engagement", "Conversion", "Retention", "Launch", "Education"];
 const BRANDS: Brand[] = ["NI", "Sassy"];
 
+type Recurrence = "none" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly";
+const RECURRENCE_OPTIONS: { value: Recurrence; label: string }[] = [
+  { value: "none", label: "One-time" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "Every 2 weeks" },
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly" },
+];
+
+function generateDates(start: string, recurrence: Recurrence, endDate: string): string[] {
+  const dates: string[] = [start];
+  if (recurrence === "none") return dates;
+
+  const s = new Date(start + "T00:00:00");
+  const e = new Date(endDate + "T00:00:00");
+  const current = new Date(s);
+
+  while (true) {
+    switch (recurrence) {
+      case "daily": current.setDate(current.getDate() + 1); break;
+      case "weekly": current.setDate(current.getDate() + 7); break;
+      case "biweekly": current.setDate(current.getDate() + 14); break;
+      case "monthly": current.setMonth(current.getMonth() + 1); break;
+      case "yearly": current.setFullYear(current.getFullYear() + 1); break;
+    }
+    if (current > e) break;
+    dates.push(current.toISOString().split("T")[0]);
+    if (dates.length > 365) break; // safety
+  }
+
+  return dates;
+}
+
 const PLATFORM_COLORS: Record<string, string> = {
   Instagram: "border-pink-300 bg-pink-50 text-pink-700",
   Facebook: "border-blue-300 bg-blue-50 text-blue-700",
@@ -64,6 +98,12 @@ export default function AddContentModal({
   const [strategy, setStrategy] = useState<StrategyType | "">(item?.strategy ?? "");
   const [description, setDescription] = useState(item?.description ?? "");
   const [status, setStatus] = useState<ContentStatus>(item?.status ?? "Draft");
+  const [recurrence, setRecurrence] = useState<Recurrence>("none");
+  const [recurrenceEnd, setRecurrenceEnd] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 3);
+    return d.toISOString().split("T")[0];
+  });
   const [loading, setLoading] = useState(false);
 
   const isEditing = !!item;
@@ -100,9 +140,18 @@ export default function AddContentModal({
             { from: item.status, to: status });
         }
       } else {
+        const dates = generateDates(publishDate, recurrence, recurrenceEnd);
+        const rows = dates.map((d) => ({
+          ...payload,
+          publish_date: d,
+          recurrence,
+          recurrence_end: recurrence !== "none" ? recurrenceEnd : null,
+          created_by: user.id,
+        }));
+
         const { data, error } = await supabase
           .from("marketing_content")
-          .insert({ ...payload, created_by: user.id })
+          .insert(rows)
           .select("id");
         if (error) throw error;
         if (data?.[0]) {
@@ -151,6 +200,47 @@ export default function AddContentModal({
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
             />
           </div>
+
+          {/* Recurrence — only for new items */}
+          {!isEditing && (
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                Repeat
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {RECURRENCE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setRecurrence(opt.value)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                      recurrence === opt.value
+                        ? "border-gray-900 bg-gray-900 text-white"
+                        : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {recurrence !== "none" && (
+                <div className="mt-2">
+                  <label className="block text-[10px] text-gray-400 mb-1">
+                    Repeat until
+                  </label>
+                  <input
+                    type="date"
+                    value={recurrenceEnd}
+                    onChange={(e) => setRecurrenceEnd(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+                  />
+                  <div className="text-[10px] text-gray-400 mt-1">
+                    This will create {generateDates(publishDate, recurrence, recurrenceEnd).length} entries on the calendar
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Brand */}
           <div>
