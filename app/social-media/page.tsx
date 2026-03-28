@@ -12,8 +12,7 @@ import type { SocialPost, SocialPostStatus, SocialPlatform } from "@/components/
 
 const PLATFORMS: { value: SocialPlatform | "all"; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "Instagram", label: "Instagram" },
-  { value: "Facebook", label: "Facebook" },
+  { value: "Instagram / Facebook", label: "Instagram / Facebook" },
   { value: "TikTok", label: "TikTok" },
 ];
 
@@ -176,7 +175,7 @@ export default function SocialMediaPage() {
       {modalOpen && (
         <SocialPostModal
           post={editPost}
-          defaultPlatform={platform === "all" ? "Instagram" : platform}
+          defaultPlatform={platform === "all" ? "Instagram / Facebook" : platform}
           onClose={closeModal}
           onSaved={onSaved}
           onDeleted={onDeleted}

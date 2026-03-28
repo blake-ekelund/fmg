@@ -1,6 +1,6 @@
 export type SocialPostStatus = "generating" | "ai_draft" | "human_review" | "ready" | "published";
 
-export type SocialPlatform = "Instagram" | "Facebook" | "TikTok";
+export type SocialPlatform = "Instagram / Facebook" | "TikTok";
 
 export type SocialPost = {
   id: string;

@@ -21,17 +21,15 @@ type ProductOption = {
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aXNqdWJ3ZXpoeGZ4b2NvYXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwNDcyNDMsImV4cCI6MjA4NDYyMzI0M30.F7-Yg5JVryMzueXtaOz8TIunbhC-QxUgJz89ZWKxO6Q";
 
-const PLATFORMS = ["Instagram", "Facebook", "TikTok"] as const;
+const PLATFORMS = ["Instagram / Facebook", "TikTok"] as const;
 const POST_TYPES = [
   { value: "carousel", label: "Carousel" },
-  { value: "photo", label: "Photo Post" },
   { value: "reel", label: "Reel" },
-  { value: "story", label: "Story" },
 ] as const;
 
 export default function GenerateSocialPostModal({ open, onClose, onGenerated }: Props) {
   const [brand, setBrand] = useState<"NI" | "Sassy">("NI");
-  const [platform, setPlatform] = useState<typeof PLATFORMS[number]>("Instagram");
+  const [platform, setPlatform] = useState<typeof PLATFORMS[number]>("Instagram / Facebook");
   const [postType, setPostType] = useState("carousel");
   const [direction, setDirection] = useState("");
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);

@@ -15,8 +15,8 @@ type Props = {
   onDeleted?: () => void;
 };
 
-const PLATFORMS: SocialPlatform[] = ["Instagram", "Facebook", "TikTok"];
-const POST_TYPES = ["photo", "reel", "story", "carousel", "video"];
+const PLATFORMS: SocialPlatform[] = ["Instagram / Facebook", "TikTok"];
+const POST_TYPES = ["carousel", "reel"];
 
 const QUICK_ACTIONS: Record<SocialPostStatus, { label: string; to: SocialPostStatus }[]> = {
   generating:    [],
