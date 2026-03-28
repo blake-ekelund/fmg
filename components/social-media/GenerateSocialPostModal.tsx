@@ -87,12 +87,13 @@ export default function GenerateSocialPostModal({ open, onClose, onGenerated }: 
       .map((p) => p!.display_name);
 
     // Insert placeholder
-    const { data: inserted } = await supabase
+    const { data: inserted, error: insertErr } = await supabase
       .from("social_media_posts")
       .insert({
         brand: submitBrand,
         platform: submitPlatform,
         post_type: submitPostType,
+        post_date: new Date().toISOString().split("T")[0],
         caption: "Generating...",
         status: "generating",
         hashtags: null,
@@ -103,6 +104,12 @@ export default function GenerateSocialPostModal({ open, onClose, onGenerated }: 
       })
       .select("id")
       .single();
+
+    if (insertErr) {
+      console.error("Social post insert failed:", insertErr);
+      setSubmitting(false);
+      return;
+    }
 
     const rowId = inserted?.id;
 
