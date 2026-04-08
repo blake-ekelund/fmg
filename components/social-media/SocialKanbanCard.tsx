@@ -17,9 +17,7 @@ function timeAgo(date: string) {
 }
 
 const PLATFORM_STYLE: Record<string, string> = {
-  Instagram: "bg-fuchsia-50 text-fuchsia-600",
-  Facebook:  "bg-blue-50 text-blue-600",
-  TikTok:    "bg-gray-100 text-gray-700",
+  "Instagram / Facebook": "bg-purple-50 text-purple-600",
 };
 
 type Props = {
@@ -36,14 +34,14 @@ export default function SocialKanbanCard({ post, isDragging, onClick, onDragStar
 
   if (isGenerating) {
     return (
-      <div className="bg-gradient-to-br from-fuchsia-50 to-purple-50 rounded-lg border border-fuchsia-200 px-3 py-4 animate-pulse">
+      <div className="bg-gradient-to-br from-purple-50 to-violet-50 rounded-lg border border-purple-200 px-3 py-4 animate-pulse">
         <div className="flex items-center gap-2 mb-2">
-          <div className="w-4 h-4 rounded-full bg-fuchsia-300 animate-spin" />
-          <span className="text-xs font-medium text-fuchsia-600">Generating with AI...</span>
+          <div className="w-4 h-4 rounded-full bg-purple-300 animate-spin" />
+          <span className="text-xs font-medium text-purple-600">Generating with AI...</span>
         </div>
         <div className="space-y-1.5">
-          <div className="h-2.5 bg-fuchsia-200/50 rounded w-3/4" />
-          <div className="h-2.5 bg-fuchsia-200/50 rounded w-1/2" />
+          <div className="h-2.5 bg-purple-200/50 rounded w-3/4" />
+          <div className="h-2.5 bg-purple-200/50 rounded w-1/2" />
         </div>
       </div>
     );
@@ -67,16 +65,26 @@ export default function SocialKanbanCard({ post, isDragging, onClick, onDragStar
       )}
     >
       {/* Image thumbnail */}
-      {(post.image_ref_url || post.image_url) && (
-        <div className="rounded-lg overflow-hidden mb-2 border border-gray-100">
-          <img
-            src={post.image_ref_url || post.image_url || ""}
-            alt=""
-            className="w-full h-24 object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-          />
-        </div>
-      )}
+      {(() => {
+        const carouselThumb = post.carousel_slides?.[0]?.rendered_image_url;
+        const thumbUrl = carouselThumb || post.image_ref_url || post.image_url;
+        if (!thumbUrl) return null;
+        return (
+          <div className="rounded-lg overflow-hidden mb-2 border border-gray-100 relative">
+            <img
+              src={thumbUrl}
+              alt=""
+              className="w-full h-24 object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+            {post.carousel_slides && post.carousel_slides.length > 1 && (
+              <span className="absolute top-1 right-1 bg-black/60 text-white text-[9px] font-bold rounded px-1.5 py-0.5">
+                {post.carousel_slides.length} slides
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Drag handle + caption preview */}
       <div className="flex items-start gap-1.5">

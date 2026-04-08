@@ -249,7 +249,6 @@ export default function PostPreview(props: PostPreviewProps) {
     <PhoneFrame>
       {props.platform === "Instagram" && <InstagramPreview {...props} />}
       {props.platform === "Facebook" && <FacebookPreview {...props} />}
-      {props.platform === "TikTok" && <TikTokPreview {...props} />}
     </PhoneFrame>
   );
 }

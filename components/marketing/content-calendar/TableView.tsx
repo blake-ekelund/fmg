@@ -5,7 +5,6 @@ import { ContentItem, Platform } from "./types";
 import {
   Instagram,
   Facebook,
-  Music2,
   ShoppingBag,
   Mail,
 } from "lucide-react";
@@ -30,11 +29,6 @@ const PLATFORM_META: Record<
     icon: Facebook,
     className:
       "bg-blue-100 text-blue-700",
-  },
-  TikTok: {
-    icon: Music2,
-    className:
-      "bg-neutral-900 text-white",
   },
   Shopify: {
     icon: ShoppingBag,

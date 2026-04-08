@@ -15,7 +15,7 @@ import PostEditor from "./PostEditor";
    TYPES
    ═══════════════════════════════════════════════════════════ */
 
-export type SocialPlatform = "Instagram" | "Facebook" | "TikTok";
+export type SocialPlatform = "Instagram" | "Facebook";
 
 export type SocialPost =
   Database["public"]["Tables"]["social_media_posts"]["Row"];
@@ -23,7 +23,6 @@ export type SocialPost =
 const PLATFORMS: { value: SocialPlatform; label: string }[] = [
   { value: "Instagram", label: "Instagram" },
   { value: "Facebook", label: "Facebook" },
-  { value: "TikTok", label: "TikTok" },
 ];
 
 /* ═══════════════════════════════════════════════════════════

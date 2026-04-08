@@ -20,7 +20,7 @@ type Props = {
   onBack?: () => void;
 };
 
-const PLATFORMS: Platform[] = ["Instagram", "Facebook", "TikTok", "Shopify", "Subscriber-List"];
+const PLATFORMS: Platform[] = ["Instagram", "Facebook", "Shopify", "Subscriber-List"];
 const CONTENT_TYPES: ContentType[] = ["Photo", "Carousel", "Reel", "Blog", "Newsletter"];
 const STRATEGIES: StrategyType[] = ["Awareness", "Engagement", "Conversion", "Retention", "Launch", "Education"];
 const BRANDS: Brand[] = ["NI", "Sassy"];
@@ -59,7 +59,6 @@ function generateDates(start: string, recurrence: Recurrence, endDate: string): 
 const PLATFORM_COLORS: Record<string, string> = {
   Instagram: "border-pink-300 bg-pink-50 text-pink-700",
   Facebook: "border-blue-300 bg-blue-50 text-blue-700",
-  TikTok: "border-slate-300 bg-slate-50 text-slate-700",
   Shopify: "border-emerald-300 bg-emerald-50 text-emerald-700",
   "Subscriber-List": "border-amber-300 bg-amber-50 text-amber-700",
 };

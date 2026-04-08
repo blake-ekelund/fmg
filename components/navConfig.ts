@@ -18,6 +18,8 @@ import {
   ImageIcon,
   Tag,
   Archive,
+  MailPlus,
+  BarChart3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -50,7 +52,7 @@ export const navSections: readonly NavSection[] = [
     label: "",
     items: [
       {
-        label: "Overview",
+        label: "Dashboard",
         href: "/dashboard",
         icon: LayoutDashboard,
         roles: FULL_ACCESS,
@@ -92,6 +94,12 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "sales"],
       },
       {
+        label: "Shopify Analytics",
+        href: "/shopify-analytics",
+        icon: BarChart3,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
         label: "Sales Analysis",
         href: "/sales",
         icon: TrendingUp,
@@ -128,27 +136,33 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "marketing"],
       },
       {
-        label: "Content Calendar",
-        href: "/content-calendar",
-        icon: CalendarDays,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Asset Library",
-        href: "/assets",
-        icon: ImageIcon,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
         label: "Promotions",
         href: "/promotions",
         icon: Tag,
         roles: [...FULL_ACCESS, "marketing"],
       },
       {
+        label: "Content Calendar",
+        href: "/content-calendar",
+        icon: CalendarDays,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Templates",
+        href: "/templates",
+        icon: MailPlus,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
         label: "Workflows",
         href: "/workflows",
         icon: Workflow,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Asset Library",
+        href: "/assets",
+        icon: ImageIcon,
         roles: [...FULL_ACCESS, "marketing"],
       },
       {

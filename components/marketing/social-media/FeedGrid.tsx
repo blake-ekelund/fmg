@@ -24,8 +24,6 @@ function PlatformIcon({ platform }: { platform: SocialPlatform }) {
       return <Instagram size={12} />;
     case "Facebook":
       return <Facebook size={12} />;
-    case "TikTok":
-      return <Play size={12} />;
   }
 }
 

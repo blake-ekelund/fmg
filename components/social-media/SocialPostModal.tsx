@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Eye, Pencil, Trash2 } from "lucide-react";
+import { X, Eye, Pencil, Trash2, ChevronLeft, ChevronRight, Heart, MessageCircle, Send, Bookmark } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import type { SocialPost, SocialPostStatus, SocialPlatform } from "./types";
@@ -9,13 +9,11 @@ import { COLUMNS } from "./types";
 
 type Props = {
   post: SocialPost | null; // null = new post
-  defaultPlatform: SocialPlatform;
   onClose: () => void;
   onSaved: () => void;
   onDeleted?: () => void;
 };
 
-const PLATFORMS: SocialPlatform[] = ["Instagram / Facebook", "TikTok"];
 const POST_TYPES = ["carousel", "reel"];
 
 const QUICK_ACTIONS: Record<SocialPostStatus, { label: string; to: SocialPostStatus }[]> = {
@@ -26,12 +24,12 @@ const QUICK_ACTIONS: Record<SocialPostStatus, { label: string; to: SocialPostSta
   published:     [],
 };
 
-export default function SocialPostModal({ post, defaultPlatform, onClose, onSaved, onDeleted }: Props) {
+export default function SocialPostModal({ post, onClose, onSaved, onDeleted }: Props) {
   const isNew = !post;
   const [viewMode, setViewMode] = useState<"preview" | "edit">(isNew ? "edit" : "preview");
 
   const [caption, setCaption] = useState(post?.caption ?? "");
-  const [platform, setPlatform] = useState<SocialPlatform>(post?.platform ?? defaultPlatform);
+  const platform: SocialPlatform = "Instagram / Facebook";
   const [postType, setPostType] = useState(post?.post_type ?? "photo");
   const [brand, setBrand] = useState<"NI" | "Sassy">(post?.brand ?? "NI");
   const [status, setStatus] = useState<SocialPostStatus>((post?.status as SocialPostStatus) ?? "ai_draft");
@@ -45,12 +43,12 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
 
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [activeSlide, setActiveSlide] = useState(0);
 
   // Reset form when post changes
   useEffect(() => {
     if (post) {
       setCaption(post.caption ?? "");
-      setPlatform(post.platform);
       setPostType(post.post_type);
       setBrand(post.brand);
       setStatus(post.status as SocialPostStatus);
@@ -61,10 +59,10 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
       setHashtags(post.hashtags ?? []);
       setCta(post.cta ?? "");
       setTags(post.tags ?? []);
+      setActiveSlide(0);
       setViewMode("preview");
     } else {
       setCaption("");
-      setPlatform(defaultPlatform);
       setPostType("photo");
       setBrand("NI");
       setStatus("ai_draft");
@@ -77,7 +75,7 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
       setTags([]);
       setViewMode("edit");
     }
-  }, [post, defaultPlatform]);
+  }, [post]);
 
   async function handleSave() {
     if (!caption.trim()) return;
@@ -182,39 +180,153 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
                   <span className="text-xs text-gray-400">{postDate}</span>
                 </div>
 
-                {/* Recommended image */}
-                {(imageRefUrl || imageUrl) && (
-                  <div className="rounded-xl overflow-hidden border border-gray-200">
-                    <img
-                      src={imageRefUrl || imageUrl || ""}
-                      alt=""
-                      className="w-full max-h-80 object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
-                    <div className="px-3 py-1.5 bg-gray-50 text-[10px] text-gray-500 uppercase tracking-wider font-medium">
-                      Recommended Image
-                    </div>
-                  </div>
-                )}
+                {/* ── Instagram-style post preview ── */}
+                {(() => {
+                  const slides = post?.carousel_slides;
+                  const hasCarousel = slides && slides.length > 0;
+                  const totalSlides = slides?.length ?? 0;
+                  const currentSlide = slides?.[activeSlide];
+                  const brandName = brand === "NI" ? "Natural Inspirations" : "Sassy";
 
-                {/* Caption */}
-                <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {caption || "(No caption)"}
-                </div>
+                  return (
+                    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                      {/* IG header bar */}
+                      <div className="flex items-center gap-2.5 px-3 py-2.5">
+                        <div className={clsx(
+                          "w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white",
+                          brand === "NI" ? "bg-blue-600" : "bg-pink-600"
+                        )}>
+                          {brand === "NI" ? "NI" : "S"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-semibold text-gray-900 leading-tight">{brandName}</div>
+                          <div className="text-[11px] text-gray-400">{platform} &middot; {postType}</div>
+                        </div>
+                        <div className="text-gray-300">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                        </div>
+                      </div>
 
-                {/* Hashtags */}
-                {hashtags.length > 0 && (
-                  <div>
-                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-1">Hashtags</div>
-                    <div className="flex flex-wrap gap-1">
-                      {hashtags.map((h, i) => (
-                        <span key={i} className="text-xs text-blue-600 bg-blue-50 rounded-full px-2 py-0.5">
-                          #{h.replace(/^#/, "")}
-                        </span>
-                      ))}
+                      {/* Image area */}
+                      {hasCarousel ? (
+                        <div className="relative bg-gray-100 aspect-square">
+                          {/* Current slide image */}
+                          {currentSlide?.rendered_image_url ? (
+                            <img
+                              key={activeSlide}
+                              src={currentSlide.rendered_image_url}
+                              alt={currentSlide.text_overlay}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            />
+                          ) : currentSlide?.image_url ? (
+                            <img
+                              key={activeSlide}
+                              src={currentSlide.image_url}
+                              alt={currentSlide.text_overlay}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            />
+                          ) : (
+                            <div className={clsx(
+                              "w-full h-full flex items-center justify-center p-8",
+                              brand === "NI" ? "bg-[#1e3a5f]" : "bg-[#be185d]"
+                            )}>
+                              <span className="text-white text-lg font-bold text-center leading-snug">
+                                {currentSlide?.text_overlay}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Left arrow */}
+                          {activeSlide > 0 && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setActiveSlide(activeSlide - 1); }}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white transition"
+                            >
+                              <ChevronLeft size={16} className="text-gray-700" />
+                            </button>
+                          )}
+
+                          {/* Right arrow */}
+                          {activeSlide < totalSlides - 1 && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setActiveSlide(activeSlide + 1); }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white transition"
+                            >
+                              <ChevronRight size={16} className="text-gray-700" />
+                            </button>
+                          )}
+
+                          {/* Slide counter pill */}
+                          <div className="absolute top-3 right-3 bg-black/60 text-white text-[11px] font-medium rounded-full px-2.5 py-0.5">
+                            {activeSlide + 1}/{totalSlides}
+                          </div>
+                        </div>
+                      ) : (imageRefUrl || imageUrl) ? (
+                        <div className="bg-gray-100 aspect-square">
+                          <img
+                            src={imageRefUrl || imageUrl || ""}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                          />
+                        </div>
+                      ) : null}
+
+                      {/* IG action bar + dots */}
+                      <div className="px-3 pt-2.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-4">
+                            <Heart size={20} className="text-gray-800 cursor-pointer hover:text-red-500 transition" />
+                            <MessageCircle size={20} className="text-gray-800 cursor-pointer hover:text-gray-500 transition" />
+                            <Send size={20} className="text-gray-800 cursor-pointer hover:text-gray-500 transition" />
+                          </div>
+
+                          {/* Dots */}
+                          {hasCarousel && totalSlides > 1 && (
+                            <div className="flex gap-1 absolute left-1/2 -translate-x-1/2" style={{ position: "relative", left: "auto", transform: "none" }}>
+                              {slides.map((_, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setActiveSlide(i)}
+                                  className={clsx(
+                                    "rounded-full transition-all",
+                                    i === activeSlide
+                                      ? "w-1.5 h-1.5 bg-blue-500"
+                                      : "w-1.5 h-1.5 bg-gray-300 hover:bg-gray-400"
+                                  )}
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          <Bookmark size={20} className="text-gray-800 cursor-pointer hover:text-gray-500 transition" />
+                        </div>
+                      </div>
+
+                      {/* Caption area */}
+                      <div className="px-3 pb-3 pt-1">
+                        <div className="text-[13px] text-gray-900 leading-relaxed">
+                          <span className="font-semibold mr-1">{brandName.toLowerCase().replace(/\s/g, "")}</span>
+                          {caption || "(No caption)"}
+                        </div>
+
+                        {/* Hashtags inline */}
+                        {hashtags.length > 0 && (
+                          <div className="text-[13px] text-blue-500 mt-1 leading-relaxed">
+                            {hashtags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}
+                          </div>
+                        )}
+
+                        {/* Date */}
+                        <div className="text-[11px] text-gray-400 mt-2 uppercase">
+                          {new Date(postDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* CTA */}
                 {cta && (
@@ -308,25 +420,6 @@ export default function SocialPostModal({ post, defaultPlatform, onClose, onSave
                     )}
                   >
                     {b}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Platform */}
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-wider text-gray-500 mb-1.5">Platform</div>
-              <div className="flex flex-col gap-1">
-                {PLATFORMS.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => viewMode === "edit" && setPlatform(p)}
-                    className={clsx(
-                      "text-xs font-medium py-1.5 px-2 rounded-lg text-left transition",
-                      platform === p ? "bg-gray-200 text-gray-800" : "bg-white text-gray-500 border border-gray-200"
-                    )}
-                  >
-                    {p}
                   </button>
                 ))}
               </div>

@@ -19,7 +19,7 @@ type PostStatus = Database["public"]["Tables"]["social_media_posts"]["Row"]["sta
 type PostType = Database["public"]["Tables"]["social_media_posts"]["Row"]["post_type"];
 
 const BRANDS: Brand[] = ["NI", "Sassy"];
-const PLATFORMS: SocialPlatform[] = ["Instagram", "Facebook", "TikTok"];
+const PLATFORMS: SocialPlatform[] = ["Instagram", "Facebook"];
 const POST_TYPES: PostType[] = ["photo", "carousel", "reel", "story"];
 const STATUSES: PostStatus[] = ["planned", "posted"];
 
@@ -52,7 +52,7 @@ function initDraft(post: SocialPost | null, defaultPlatform: SocialPlatform): Dr
   if (post) {
     return {
       brand: post.brand,
-      platform: post.platform,
+      platform: (post.platform === "TikTok" ? "Instagram" : post.platform) as SocialPlatform,
       post_date: post.post_date,
       caption: post.caption ?? "",
       image_url: post.image_url ?? "",

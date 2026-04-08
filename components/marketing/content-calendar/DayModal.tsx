@@ -4,7 +4,6 @@ import { ContentItem, Platform } from "./types";
 import {
   Instagram,
   Facebook,
-  Music2,
   ShoppingBag,
   Mail,
   Plus,
@@ -28,7 +27,6 @@ const PLATFORM_ICONS: Record<
 > = {
   Instagram,
   Facebook,
-  TikTok: Music2,
   Shopify: ShoppingBag,
   "Subscriber-List": Mail,
 };

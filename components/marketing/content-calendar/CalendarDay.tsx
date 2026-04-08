@@ -1,10 +1,12 @@
 import { ContentItem, Platform, ContentStatus } from "./types";
+import type { DayPromo } from "./CalendarView";
 import {
   Instagram,
   Facebook,
-  Music2,
+
   ShoppingBag,
   Mail,
+  Tag,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -22,10 +24,6 @@ const PLATFORM_META: Record<
   Facebook: {
     icon: Facebook,
     className: "bg-blue-100 text-blue-700",
-  },
-  TikTok: {
-    icon: Music2,
-    className: "bg-neutral-900 text-white",
   },
   Shopify: {
     icon: ShoppingBag,
@@ -47,6 +45,7 @@ export default function CalendarDay({
   day,
   dateISO,
   items,
+  promos = [],
   past,
   isToday,
   onClick,
@@ -54,11 +53,15 @@ export default function CalendarDay({
   day: number;
   dateISO: string;
   items: ContentItem[];
+  promos?: DayPromo[];
   past: boolean;
   isToday?: boolean;
   onClick: () => void;
 }) {
-  const visibleItems = items.slice(0, 3);
+  const hasPromos = promos.length > 0;
+  // Show fewer content items when promos take space
+  const maxVisible = hasPromos ? 2 : 3;
+  const visibleItems = items.slice(0, maxVisible);
   const overflowCount = items.length - visibleItems.length;
 
   return (
@@ -72,6 +75,7 @@ export default function CalendarDay({
         border-t border-l border-gray-100
         cursor-pointer
         transition
+        flex flex-col
         ${past ? "opacity-40" : "hover:bg-gray-50"}
         ${isToday ? "ring-2 ring-blue-200 z-10" : ""}
       `}
@@ -95,8 +99,42 @@ export default function CalendarDay({
         )}
       </div>
 
+      {/* Promotion bars */}
+      {hasPromos && (
+        <div className="mt-0.5 space-y-0.5">
+          {promos.slice(0, 2).map((promo) => (
+            <div
+              key={promo.id}
+              className={`
+                flex items-center gap-1
+                ${promo.color} ${promo.textColor}
+                text-[10px] font-semibold
+                leading-tight
+                h-[16px]
+                overflow-hidden
+                ${promo.isStart && promo.isEnd ? "rounded" : ""}
+                ${promo.isStart && !promo.isEnd ? "rounded-l ml-0 -mr-2" : ""}
+                ${!promo.isStart && promo.isEnd ? "rounded-r -ml-2 mr-0" : ""}
+                ${!promo.isStart && !promo.isEnd ? "-mx-2" : ""}
+                px-1
+              `}
+              title={`${promo.name}${promo.code ? ` (${promo.code})` : ""}`}
+            >
+              {promo.isWeekStart && (
+                <>
+                  <Tag size={9} className="flex-shrink-0" />
+                  <span className="truncate">
+                    {promo.code || promo.name}
+                  </span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Content items */}
-      <div className="mt-1 space-y-1">
+      <div className="mt-0.5 space-y-0.5 flex-1 min-h-0">
         {visibleItems.map((item) => {
           const meta =
             PLATFORM_META[item.platform];

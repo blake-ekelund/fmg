@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
 
 import { ContentItem, ViewMode } from "./types";
+import type { Promotion } from "@/components/promotions/types";
 
 import ViewToggle from "./ToggleView";
 import CalendarView from "./CalendarView";
@@ -18,6 +19,7 @@ import ConfirmDeleteModal from "./ConfirmDeleteModal";
 export default function MarketingContentSection() {
   const { brand } = useBrand();
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [view, setView] = useState<ViewMode>("calendar");
 
   const [month, setMonth] = useState(new Date());
@@ -32,6 +34,7 @@ export default function MarketingContentSection() {
 
   useEffect(() => {
     load();
+    loadPromotions();
   }, [brand]);
 
   async function load() {
@@ -46,6 +49,17 @@ export default function MarketingContentSection() {
 
     const { data } = await q;
     if (data) setItems(data);
+  }
+
+  async function loadPromotions() {
+    // Only show promotions that have press_channels set (blog, social, or email)
+    const { data } = await supabase
+      .from("promotions")
+      .select("*")
+      .in("status", ["active", "scheduled"])
+      .not("press_channels", "eq", "{}");
+
+    if (data) setPromotions(data as Promotion[]);
   }
 
   const visibleItems = items;
@@ -161,6 +175,7 @@ export default function MarketingContentSection() {
               <CalendarView
                 month={month}
                 items={visibleItems}
+                promotions={promotions}
                 onSelectDate={handleDayClick}
               />
             </div>

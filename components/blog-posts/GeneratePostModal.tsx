@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Sparkles, Check } from "lucide-react";
+import { X, Sparkles, Check, Tag } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
+import type { Promotion } from "@/components/promotions/types";
 
 type Props = {
   open: boolean;
@@ -28,8 +29,9 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
   const [productsOpen, setProductsOpen] = useState(false);
+  const [blogPromos, setBlogPromos] = useState<Promotion[]>([]);
 
-  // Load product options
+  // Load product options + active blog promotions
   useEffect(() => {
     if (!open) return;
     async function loadProducts() {
@@ -47,7 +49,17 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
         setProductOptions(data as ProductOption[]);
       }
     }
+    async function loadBlogPromos() {
+      const { data } = await supabase
+        .from("promotions")
+        .select("*")
+        .eq("status", "active")
+        .contains("press_channels", ["blog"]);
+
+      if (data) setBlogPromos(data as Promotion[]);
+    }
     loadProducts();
+    loadBlogPromos();
   }, [open]);
 
   // Filter products by selected brand
@@ -73,6 +85,29 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
 
   if (!open) return null;
 
+  /** Build a concise promotion summary for the AI prompt */
+  function buildPromotionContext(): string | undefined {
+    if (blogPromos.length === 0) return undefined;
+
+    return blogPromos.map((p) => {
+      const parts: string[] = [`Promotion: "${p.name}"`];
+      if (p.code) parts.push(`Code: ${p.code}`);
+      if (p.discount_type === "percentage" && p.discount_value)
+        parts.push(`${p.discount_value}% off`);
+      if (p.discount_type === "free_shipping")
+        parts.push("Free shipping");
+      if (p.starts_at)
+        parts.push(`Starts: ${new Date(p.starts_at).toLocaleDateString()}`);
+      if (p.ends_at)
+        parts.push(`Ends: ${new Date(p.ends_at).toLocaleDateString()}`);
+      if (p.minimum_purchase)
+        parts.push(`Min purchase: $${p.minimum_purchase}`);
+      if (p.applies_to === "specific_collections" && p.collection_tags?.length)
+        parts.push(`Applies to: ${p.collection_tags.join(", ")}`);
+      return parts.join(" | ");
+    }).join("\n");
+  }
+
   async function handleSubmit() {
     if (!title.trim() || !description.trim()) return;
 
@@ -84,6 +119,16 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
       .map((part) => productOptions.find((p) => p.part === part))
       .filter(Boolean)
       .map((p) => p!.display_name);
+
+    // Build promotion context for AI
+    const promoContext = buildPromotionContext();
+
+    // Append promotion instructions to description so it works even if edge function
+    // doesn't yet handle the dedicated `promotion` field
+    let enrichedDescription = submitDescription;
+    if (promoContext) {
+      enrichedDescription += `\n\n---\nIMPORTANT: Naturally reference the following active promotion in this blog post. Weave the promotion details into the content in a way that feels organic, not like an ad. Mention the promo code and savings near the end of the post as a call to action.\n${promoContext}`;
+    }
 
     // 1. Insert placeholder row
     const { data: inserted } = await supabase
@@ -109,7 +154,7 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
     onClose();
     onGenerated();
 
-    // 2. Fire edge function with product preferences
+    // 2. Fire edge function with product preferences + promotion context
     fetch("https://vxisjubwezhxfxocoawk.supabase.co/functions/v1/generate-blog-posts", {
       method: "POST",
       headers: {
@@ -120,9 +165,10 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
         mode: "single",
         brand: submitBrand,
         title: submitTitle,
-        description: submitDescription,
+        description: enrichedDescription,
         row_id: rowId,
         products: submitProducts.length > 0 ? submitProducts : undefined,
+        promotion: promoContext || undefined,
       }),
     })
       .then(() => onGenerated())
@@ -191,6 +237,37 @@ export default function GeneratePostModal({ open, onClose, onGenerated }: Props)
               ))}
             </div>
           </div>
+
+          {/* Active blog promotion banner */}
+          {blogPromos.length > 0 && (
+            <div className="rounded-lg border border-violet-200 bg-violet-50 px-3.5 py-2.5">
+              <div className="flex items-center gap-2 mb-1">
+                <Tag size={13} className="text-violet-600" />
+                <span className="text-[11px] font-semibold text-violet-700 uppercase tracking-wider">
+                  Active Promotion{blogPromos.length > 1 ? "s" : ""} — will be referenced
+                </span>
+              </div>
+              {blogPromos.map((p) => (
+                <div key={p.id} className="flex items-center gap-2 text-sm text-violet-800 mt-1">
+                  <span className="font-semibold">{p.name}</span>
+                  {p.code && (
+                    <span className="px-1.5 py-0.5 rounded bg-violet-200 text-[11px] font-mono font-semibold">
+                      {p.code}
+                    </span>
+                  )}
+                  <span className="text-violet-500 text-xs">
+                    {p.discount_type === "percentage" && p.discount_value
+                      ? `${p.discount_value}% off`
+                      : p.discount_type === "free_shipping"
+                        ? "Free shipping"
+                        : ""}
+                    {p.ends_at &&
+                      ` · ends ${new Date(p.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Title */}
           <div>

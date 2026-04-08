@@ -5,7 +5,6 @@ import { ContentItem, Platform, ContentStatus } from "./types";
 import {
   Instagram,
   Facebook,
-  Music2,
   ShoppingBag,
   Mail,
   ChevronLeft,
@@ -29,11 +28,6 @@ const PLATFORM_META: Record<
     icon: Facebook,
     className:
       "bg-blue-50 text-blue-700 border-blue-200",
-  },
-  TikTok: {
-    icon: Music2,
-    className:
-      "bg-neutral-900 text-white border-neutral-800",
   },
   Shopify: {
     icon: ShoppingBag,

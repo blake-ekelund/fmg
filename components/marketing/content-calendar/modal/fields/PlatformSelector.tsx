@@ -3,7 +3,6 @@ import { Platform } from "../../types";
 const PLATFORM_OPTIONS: Platform[] = [
   "Instagram",
   "Facebook",
-  "TikTok",
   "Shopify",
   "Subscriber-List",
 ];

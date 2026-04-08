@@ -12,7 +12,6 @@ export type BrandView = BrandFilter;
 export type Platform =
   | "Instagram"
   | "Facebook"
-  | "TikTok"
   | "Shopify"
   | "Subscriber-List";
 
