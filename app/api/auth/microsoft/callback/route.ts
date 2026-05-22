@@ -95,17 +95,22 @@ export async function GET(request: Request) {
     return back(`Failed to save account: ${upsertErr.message}`);
   }
 
-  // Try to set up the new-mail webhook subscription. We derive the webhook URL
-  // from the request origin — guaranteed to be the URL the user actually
-  // reached us on, so it sidesteps env-var misconfiguration. Skipped on
-  // localhost (Graph can't reach a non-public URL). Failure here isn't fatal
-  // for the connect flow — we record a soft warning and the user can still send.
-  const webhookUrl = `${url.origin}/api/email/webhook`;
+  // Try to set up the new-mail webhook subscription. We derive the public
+  // origin from the X-Forwarded-* headers Vercel sets, falling back to the
+  // Host header and then to the request URL. We can't use `url.origin`
+  // directly: behind Vercel's proxy, request.url is the internal address
+  // (often http://localhost:PORT), which would skip the subscription.
+  const xfProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const xfHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const proto = xfProto ?? url.protocol.replace(/:$/, "");
+  const host = xfHost ?? request.headers.get("host") ?? url.host;
+  const publicOrigin = `${proto}://${host}`;
+  const webhookUrl = `${publicOrigin}/api/email/webhook`;
   const canSubscribe = webhookUrl.startsWith("https://");
   let subscribeNote: string;
 
   if (!canSubscribe) {
-    subscribeNote = `Webhook skipped: origin ${url.origin} isn't https — inbound replies won't sync until reconnected from a public URL.`;
+    subscribeNote = `Webhook skipped: origin ${publicOrigin} isn't https — inbound replies won't sync until reconnected from a public URL.`;
   } else {
     try {
       const clientState = generateClientState();
