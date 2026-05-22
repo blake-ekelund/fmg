@@ -21,32 +21,34 @@ type EnvConfig = {
   tenantId: string;
   clientId: string;
   clientSecret: string;
-  appUrl: string;
 };
 
 function env(): EnvConfig {
   const tenantId = process.env.MS_TENANT_ID;
   const clientId = process.env.MS_CLIENT_ID;
   const clientSecret = process.env.MS_CLIENT_SECRET;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   if (!tenantId || !clientId || !clientSecret) {
     throw new Error(
       "Microsoft env vars not set (MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET)",
     );
   }
-  return { tenantId, clientId, clientSecret, appUrl };
+  return { tenantId, clientId, clientSecret };
 }
 
-function redirectUri(): string {
-  return `${env().appUrl.replace(/\/$/, "")}/api/auth/microsoft/callback`;
-}
-
-export function buildAuthUrl(state: string): string {
+/**
+ * Build the Microsoft consent URL.
+ *
+ * The redirect_uri MUST be passed in by the caller, derived from the actual
+ * request origin. Reading it from an env var was the source of the "always
+ * redirects to localhost" bug — Vercel's NEXT_PUBLIC_APP_URL would silently
+ * point at the wrong host.
+ */
+export function buildAuthUrl(state: string, redirectUri: string): string {
   const { tenantId, clientId } = env();
   const params = new URLSearchParams({
     client_id: clientId,
     response_type: "code",
-    redirect_uri: redirectUri(),
+    redirect_uri: redirectUri,
     response_mode: "query",
     scope: GRAPH_SCOPES.join(" "),
     state,
@@ -89,14 +91,23 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
   return json as TokenResponse;
 }
 
-export function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
+/**
+ * Exchange an authorization code for tokens.
+ *
+ * Note: the redirect_uri here MUST match exactly what was used in buildAuthUrl
+ * (Microsoft validates this) — pass the same string both times.
+ */
+export function exchangeCodeForTokens(
+  code: string,
+  redirectUri: string,
+): Promise<TokenResponse> {
   const { clientId, clientSecret } = env();
   const body = new URLSearchParams({
     client_id: clientId,
     client_secret: clientSecret,
     code,
     grant_type: "authorization_code",
-    redirect_uri: redirectUri(),
+    redirect_uri: redirectUri,
     scope: GRAPH_SCOPES.join(" "),
   });
   return postToken(body);

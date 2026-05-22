@@ -11,6 +11,7 @@ import {
   createSubscription,
   generateClientState,
 } from "@/lib/email/subscriptions";
+import { publicOriginFromRequest } from "@/lib/email/origin";
 
 export const runtime = "nodejs";
 
@@ -51,9 +52,12 @@ export async function GET(request: Request) {
     return back("Invalid or expired state token");
   }
 
+  const publicOrigin = publicOriginFromRequest(request);
+  const redirectUri = `${publicOrigin}/api/auth/microsoft/callback`;
+
   let tokens;
   try {
-    tokens = await exchangeCodeForTokens(code);
+    tokens = await exchangeCodeForTokens(code, redirectUri);
   } catch (e) {
     return back(e instanceof Error ? e.message : String(e));
   }
@@ -95,32 +99,8 @@ export async function GET(request: Request) {
     return back(`Failed to save account: ${upsertErr.message}`);
   }
 
-  // Diagnostic: capture exactly what headers + URL the callback saw on prod.
-  // Written immediately after the upsert so even if subscription code throws,
-  // we still have this snapshot.
-  const dbg = {
-    step: "before-sub",
-    reqUrl: request.url,
-    host: request.headers.get("host"),
-    xfHost: request.headers.get("x-forwarded-host"),
-    xfProto: request.headers.get("x-forwarded-proto"),
-    envAppUrl: process.env.NEXT_PUBLIC_APP_URL ?? null,
-  };
-  await supabaseServer
-    .from("user_email_accounts")
-    .update({ last_error: `DBG ${JSON.stringify(dbg)}` })
-    .eq("user_id", payload.uid);
-
-  // Try to set up the new-mail webhook subscription. We derive the public
-  // origin from the X-Forwarded-* headers Vercel sets, falling back to the
-  // Host header and then to the request URL. We can't use `url.origin`
-  // directly: behind Vercel's proxy, request.url is the internal address
-  // (often http://localhost:PORT), which would skip the subscription.
-  const xfProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const xfHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const proto = xfProto ?? url.protocol.replace(/:$/, "");
-  const host = xfHost ?? request.headers.get("host") ?? url.host;
-  const publicOrigin = `${proto}://${host}`;
+  // publicOrigin was already computed above for the redirect_uri. Reuse it
+  // for the webhook URL too.
   const webhookUrl = `${publicOrigin}/api/email/webhook`;
   const canSubscribe = webhookUrl.startsWith("https://");
   let subscribeNote: string;
