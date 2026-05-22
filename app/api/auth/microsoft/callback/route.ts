@@ -102,11 +102,11 @@ export async function GET(request: Request) {
   // for the connect flow — we record a soft warning and the user can still send.
   const webhookUrl = `${url.origin}/api/email/webhook`;
   const canSubscribe = webhookUrl.startsWith("https://");
-  let subscribeNote: string | null = canSubscribe
-    ? null
-    : `Webhook skipped: origin ${url.origin} isn't https — inbound replies won't sync until reconnected from a public URL.`;
+  let subscribeNote: string;
 
-  if (canSubscribe) {
+  if (!canSubscribe) {
+    subscribeNote = `Webhook skipped: origin ${url.origin} isn't https — inbound replies won't sync until reconnected from a public URL.`;
+  } else {
     try {
       const clientState = generateClientState();
       const sub = await createSubscription(tokens.access_token, webhookUrl, clientState);
@@ -119,17 +119,18 @@ export async function GET(request: Request) {
           last_error: null,
         })
         .eq("user_id", payload.uid);
+      subscribeNote = `OK · subscribed at ${webhookUrl} · sub ${sub.id} · expires ${sub.expirationDateTime}`;
     } catch (e) {
-      subscribeNote = `Webhook subscribe failed: ${e instanceof Error ? e.message : String(e)}`;
+      subscribeNote = `Webhook subscribe failed for ${webhookUrl}: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
 
-  if (subscribeNote) {
-    await supabaseServer
-      .from("user_email_accounts")
-      .update({ last_error: subscribeNote })
-      .eq("user_id", payload.uid);
-  }
+  // Always record the subscribeNote so we can see what happened on reconnect.
+  // (The success path also overwrites last_error to null above.)
+  await supabaseServer
+    .from("user_email_accounts")
+    .update({ last_error: subscribeNote })
+    .eq("user_id", payload.uid);
 
   return NextResponse.redirect(
     new URL(`/company?tab=integrations&outlook=connected`, url.origin),
