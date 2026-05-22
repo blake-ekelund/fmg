@@ -95,6 +95,22 @@ export async function GET(request: Request) {
     return back(`Failed to save account: ${upsertErr.message}`);
   }
 
+  // Diagnostic: capture exactly what headers + URL the callback saw on prod.
+  // Written immediately after the upsert so even if subscription code throws,
+  // we still have this snapshot.
+  const dbg = {
+    step: "before-sub",
+    reqUrl: request.url,
+    host: request.headers.get("host"),
+    xfHost: request.headers.get("x-forwarded-host"),
+    xfProto: request.headers.get("x-forwarded-proto"),
+    envAppUrl: process.env.NEXT_PUBLIC_APP_URL ?? null,
+  };
+  await supabaseServer
+    .from("user_email_accounts")
+    .update({ last_error: `DBG ${JSON.stringify(dbg)}` })
+    .eq("user_id", payload.uid);
+
   // Try to set up the new-mail webhook subscription. We derive the public
   // origin from the X-Forwarded-* headers Vercel sets, falling back to the
   // Host header and then to the request URL. We can't use `url.origin`
