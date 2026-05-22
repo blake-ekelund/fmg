@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/renew-email-subscriptions",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}

@@ -10,15 +10,11 @@ import {
   PackageSearch,
   Hash,
   Database,
-  Rocket,
-  Handshake,
-  Workflow,
   FileText,
   CalendarDays,
   ImageIcon,
   Tag,
   Archive,
-  MailPlus,
   BarChart3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -105,18 +101,6 @@ export const navSections: readonly NavSection[] = [
         icon: TrendingUp,
         roles: [...FULL_ACCESS, "sales"],
       },
-      {
-        label: "Sales Hub",
-        href: "/sales-hub",
-        icon: Rocket,
-        roles: [...FULL_ACCESS, "sales"],
-      },
-      {
-        label: "Rep Groups",
-        href: "/rep-groups",
-        icon: Handshake,
-        roles: [...FULL_ACCESS, "sales"],
-      },
     ],
   },
   {
@@ -145,18 +129,6 @@ export const navSections: readonly NavSection[] = [
         label: "Content Calendar",
         href: "/content-calendar",
         icon: CalendarDays,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Templates",
-        href: "/templates",
-        icon: MailPlus,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Workflows",
-        href: "/workflows",
-        icon: Workflow,
         roles: [...FULL_ACCESS, "marketing"],
       },
       {

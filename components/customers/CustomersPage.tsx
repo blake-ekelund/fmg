@@ -12,6 +12,7 @@ import CustomersCardGrid from "./CustomersCardGrid";
 import type { CustomerViewMode } from "./constants";
 import type { Customer, D2CCustomer } from "./types";
 import AssignWorkflowModal from "./AssignWorkflowModal";
+import ComposeEmailModal from "./ComposeEmailModal";
 
 type SortDir = "asc" | "desc";
 type SortColumn =
@@ -47,6 +48,7 @@ export default function CustomersPage({
   /* ─── Multi-select ─── */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
 
   const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -433,10 +435,7 @@ export default function CustomersPage({
           <div className="w-px h-5 bg-gray-200" />
 
           <button
-            onClick={() => {
-              // TODO: Open Send Email modal
-              alert(`Send email to ${selectedIds.size} customer(s) — coming soon`);
-            }}
+            onClick={() => setEmailModalOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 transition"
           >
             <Mail size={13} />
@@ -465,6 +464,16 @@ export default function CustomersPage({
       <AssignWorkflowModal
         open={workflowModalOpen}
         onClose={() => setWorkflowModalOpen(false)}
+        selectedIds={selectedIds}
+        customerType={isD2C ? "d2c" : "wholesale"}
+        customerNames={customerNames}
+        onComplete={() => setSelectedIds(new Set())}
+      />
+
+      {/* ─── Compose Email Modal ─── */}
+      <ComposeEmailModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
         selectedIds={selectedIds}
         customerType={isD2C ? "d2c" : "wholesale"}
         customerNames={customerNames}

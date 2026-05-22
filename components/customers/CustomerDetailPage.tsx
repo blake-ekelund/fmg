@@ -24,6 +24,7 @@ import DetailsTab from "./modal/tabs/DetailsTab";
 import OrdersTab from "./modal/tabs/OrdersTab";
 import SalesAnalysisTab from "./modal/tabs/SalesAnalysisTab";
 import ActivitySection, { type ActivitySectionHandle } from "./modal/tabs/ActivitySection";
+import EmailsTab from "./modal/tabs/EmailsTab";
 
 import useCustomerSummary from "./modal/hooks/useCustomerSummary";
 import useCustomerOrders from "./modal/hooks/useCustomerOrders";
@@ -35,7 +36,7 @@ import useCustomerActivities from "./modal/hooks/useCustomerActivities";
 import useCustomerCustomFields from "./modal/hooks/useCustomerCustomFields";
 import type { Customer } from "./types";
 
-type Tab = "details" | "orders" | "analysis" | "touchpoints";
+type Tab = "details" | "orders" | "analysis" | "touchpoints" | "emails";
 
 type RelatedCustomer = {
   customerid: string;
@@ -259,6 +260,7 @@ export default function CustomerDetailPage({
     { value: "orders", label: "Orders", badge: orderCount },
     { value: "analysis", label: "Sales Analysis" },
     { value: "touchpoints", label: "Touchpoints", badge: activityCount },
+    { value: "emails", label: "Emails" },
   ];
 
   /* ─── Render ─── */
@@ -512,6 +514,10 @@ export default function CustomerDetailPage({
                 onToggleComplete={toggleComplete}
                 onDelete={deleteActivity}
               />
+            )}
+
+            {tab === "emails" && (
+              <EmailsTab customerId={customerId} isD2C={isD2C} />
             )}
           </div>
         </div>
