@@ -68,7 +68,14 @@ export async function GET(request: Request) {
       }
 
       const clientState = generateClientState();
-      const sub = await createSubscription(accessToken, clientState);
+      // Cron has no request URL context, so fall back to the configured app URL.
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+      if (!appUrl.startsWith("https://")) {
+        throw new Error(
+          `Can't create subscription from cron: NEXT_PUBLIC_APP_URL must be https (got "${appUrl}")`,
+        );
+      }
+      const sub = await createSubscription(accessToken, `${appUrl}/api/email/webhook`, clientState);
       await supabaseServer
         .from("user_email_accounts")
         .update({

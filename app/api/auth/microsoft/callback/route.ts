@@ -95,19 +95,21 @@ export async function GET(request: Request) {
     return back(`Failed to save account: ${upsertErr.message}`);
   }
 
-  // Try to set up the new-mail webhook subscription. Skipped on localhost
-  // (Graph can't reach an unreachable URL). Subscription failure isn't fatal
-  // for the connect flow — we mark a soft warning and the user can still send.
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const canSubscribe = appUrl.startsWith("https://");
+  // Try to set up the new-mail webhook subscription. We derive the webhook URL
+  // from the request origin — guaranteed to be the URL the user actually
+  // reached us on, so it sidesteps env-var misconfiguration. Skipped on
+  // localhost (Graph can't reach a non-public URL). Failure here isn't fatal
+  // for the connect flow — we record a soft warning and the user can still send.
+  const webhookUrl = `${url.origin}/api/email/webhook`;
+  const canSubscribe = webhookUrl.startsWith("https://");
   let subscribeNote: string | null = canSubscribe
     ? null
-    : "Webhook skipped: NEXT_PUBLIC_APP_URL is not an https URL — inbound replies won't sync until deployed.";
+    : `Webhook skipped: origin ${url.origin} isn't https — inbound replies won't sync until reconnected from a public URL.`;
 
   if (canSubscribe) {
     try {
       const clientState = generateClientState();
-      const sub = await createSubscription(tokens.access_token, clientState);
+      const sub = await createSubscription(tokens.access_token, webhookUrl, clientState);
       await supabaseServer
         .from("user_email_accounts")
         .update({

@@ -23,11 +23,6 @@ export type Subscription = {
   notificationUrl: string;
 };
 
-function notificationUrl(): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  return `${appUrl.replace(/\/$/, "")}/api/email/webhook`;
-}
-
 function inHours(hours: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
@@ -38,11 +33,12 @@ export function generateClientState(): string {
 
 export async function createSubscription(
   accessToken: string,
+  notificationUrl: string,
   clientState: string,
 ): Promise<Subscription> {
   const body = {
     changeType: "created",
-    notificationUrl: notificationUrl(),
+    notificationUrl,
     resource: RESOURCE,
     expirationDateTime: inHours(LIFETIME_HOURS),
     clientState,
