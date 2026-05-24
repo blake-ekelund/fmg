@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { X, Mail, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  X,
+  Mail,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+  FileText,
+  ChevronDown,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 type Props = {
@@ -25,6 +35,14 @@ type OutlookStatus =
   | { state: "disconnected" }
   | { state: "connected"; email: string };
 
+type Template = {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  updated_at: string;
+};
+
 async function authHeader(): Promise<Record<string, string>> {
   const supabase = supabaseBrowser();
   const { data } = await supabase.auth.getSession();
@@ -46,6 +64,26 @@ export default function ComposeEmailModal({
   const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outlook, setOutlook] = useState<OutlookStatus>({ state: "loading" });
+
+  /* Template state */
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const res = await fetch("/api/email/templates", {
+        headers: await authHeader(),
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      setTemplates((json.templates as Template[]) ?? []);
+    } catch {
+      /* non-critical */
+    }
+  }, []);
 
   const ids = useMemo(() => Array.from(selectedIds), [selectedIds]);
 
@@ -73,6 +111,12 @@ export default function ComposeEmailModal({
     };
   }, [open]);
 
+  // Load templates when the modal opens.
+  useEffect(() => {
+    if (!open) return;
+    loadTemplates();
+  }, [open, loadTemplates]);
+
   // Reset state when the modal closes.
   useEffect(() => {
     if (!open) {
@@ -81,12 +125,60 @@ export default function ComposeEmailModal({
       setResult(null);
       setError(null);
       setSending(false);
+      setTemplatesOpen(false);
+      setSaveOpen(false);
+      setSaveName("");
     }
   }, [open]);
 
   if (!open) return null;
 
   const previewName = ids[0] ? customerNames[ids[0]] ?? ids[0] : "";
+
+  async function applyTemplate(t: Template) {
+    setSubject(t.subject);
+    setBody(t.body);
+    setTemplatesOpen(false);
+    // Fire-and-forget: bump last_used_at so MRU sorting works.
+    fetch(`/api/email/templates/${t.id}`, {
+      method: "POST",
+      headers: await authHeader(),
+    }).catch(() => {});
+  }
+
+  async function deleteTemplate(t: Template) {
+    if (!confirm(`Delete template "${t.name}"?`)) return;
+    const res = await fetch(`/api/email/templates/${t.id}`, {
+      method: "DELETE",
+      headers: await authHeader(),
+    });
+    if (res.ok || res.status === 204) {
+      setTemplates((cur) => cur.filter((x) => x.id !== t.id));
+    }
+  }
+
+  async function saveAsTemplate() {
+    const name = saveName.trim();
+    if (!name) return;
+    setSavingTemplate(true);
+    try {
+      const res = await fetch("/api/email/templates", {
+        method: "POST",
+        headers: { ...(await authHeader()), "Content-Type": "application/json" },
+        body: JSON.stringify({ name, subject, body }),
+      });
+      if (res.ok) {
+        await loadTemplates();
+        setSaveOpen(false);
+        setSaveName("");
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setError(`Couldn't save template: ${json?.error ?? res.status}`);
+      }
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
 
   async function send() {
     setSending(true);
@@ -199,6 +291,61 @@ export default function ComposeEmailModal({
             </div>
           ) : (
             <>
+              {/* Templates */}
+              <div className="flex items-center gap-2 relative">
+                <button
+                  onClick={() => setTemplatesOpen((v) => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition"
+                >
+                  <FileText size={12} />
+                  Templates
+                  {templates.length > 0 && (
+                    <span className="text-gray-400">({templates.length})</span>
+                  )}
+                  <ChevronDown size={12} />
+                </button>
+                <span className="text-[10px] text-gray-400">
+                  Load a saved subject + body, or save the current draft below.
+                </span>
+
+                {templatesOpen && (
+                  <div className="absolute top-full mt-1 left-0 z-20 w-80 rounded-xl border border-gray-200 bg-white shadow-lg max-h-72 overflow-y-auto">
+                    {templates.length === 0 ? (
+                      <div className="px-3 py-4 text-xs text-gray-400 text-center">
+                        No templates yet. Type a subject + body and use{" "}
+                        <span className="font-medium text-gray-600">Save as template</span>{" "}
+                        below.
+                      </div>
+                    ) : (
+                      <ul className="divide-y divide-gray-100">
+                        {templates.map((t) => (
+                          <li key={t.id} className="group flex items-start hover:bg-gray-50">
+                            <button
+                              onClick={() => applyTemplate(t)}
+                              className="flex-1 text-left px-3 py-2 min-w-0"
+                            >
+                              <div className="text-xs font-medium text-gray-800 truncate">
+                                {t.name}
+                              </div>
+                              <div className="text-[11px] text-gray-500 truncate">
+                                {t.subject || "(no subject)"}
+                              </div>
+                            </button>
+                            <button
+                              onClick={() => deleteTemplate(t)}
+                              className="opacity-0 group-hover:opacity-100 px-2 py-2 text-gray-400 hover:text-red-500 transition"
+                              title="Delete template"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Subject */}
               <div>
                 <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5 block">
@@ -231,12 +378,60 @@ export default function ComposeEmailModal({
                   }
                   className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 resize-y font-mono"
                 />
-                <div className="text-[10px] text-gray-400 mt-1">
-                  Merge fields:{" "}
-                  <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{firstName}}"}</code>{" "}
-                  <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{customerName}}"}</code>{" "}
-                  <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>
+                <div className="flex items-center justify-between mt-1">
+                  <div className="text-[10px] text-gray-400">
+                    Merge fields:{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{firstName}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{customerName}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>
+                  </div>
+                  {!saveOpen ? (
+                    <button
+                      onClick={() => setSaveOpen(true)}
+                      disabled={!subject.trim() && !body.trim()}
+                      className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 hover:text-gray-900 transition disabled:opacity-40"
+                    >
+                      <Save size={11} />
+                      Save as template
+                    </button>
+                  ) : null}
                 </div>
+
+                {saveOpen && (
+                  <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2 flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={saveName}
+                      onChange={(e) => setSaveName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveAsTemplate();
+                        if (e.key === "Escape") {
+                          setSaveOpen(false);
+                          setSaveName("");
+                        }
+                      }}
+                      placeholder="Template name (e.g. Quarterly check-in)"
+                      className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                    />
+                    <button
+                      onClick={saveAsTemplate}
+                      disabled={!saveName.trim() || savingTemplate}
+                      className="inline-flex items-center gap-1 rounded-md bg-gray-900 text-white px-2 py-1 text-[11px] font-medium hover:bg-gray-800 transition disabled:opacity-40"
+                    >
+                      {savingTemplate ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSaveOpen(false);
+                        setSaveName("");
+                      }}
+                      className="text-[11px] text-gray-500 hover:text-gray-700 px-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* First-recipient preview */}
