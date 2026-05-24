@@ -22,7 +22,7 @@ export async function DELETE(
   }
 
   const { data, error } = await supabaseServer
-    .from("email_templates")
+    .from("user_email_templates")
     .delete()
     .eq("id", id)
     .eq("user_id", user.id)
@@ -52,7 +52,7 @@ export async function POST(
   }
 
   await supabaseServer
-    .from("email_templates")
+    .from("user_email_templates")
     .update({ last_used_at: new Date().toISOString() })
     .eq("id", id)
     .eq("user_id", user.id);

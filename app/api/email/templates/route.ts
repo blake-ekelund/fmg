@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const { data, error } = await supabaseServer
-    .from("email_templates")
+    .from("user_email_templates")
     .select("id, name, subject, body, last_used_at, updated_at")
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false })
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   // Update path: only allow updating a row that belongs to the caller.
   if (body.id) {
     const { data, error } = await supabaseServer
-      .from("email_templates")
+      .from("user_email_templates")
       .update({ name, subject, body: tplBody })
       .eq("id", body.id)
       .eq("user_id", user.id)
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
 
   // Insert.
   const { data, error } = await supabaseServer
-    .from("email_templates")
+    .from("user_email_templates")
     .insert({ user_id: user.id, name, subject, body: tplBody })
     .select("id, name, subject, body, last_used_at, updated_at")
     .single();
