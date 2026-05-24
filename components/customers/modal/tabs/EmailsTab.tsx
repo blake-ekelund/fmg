@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Mail, Loader2 } from "lucide-react";
 import clsx from "clsx";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import ThreadChatView, {
   formatWhen,
   stripQuotedReply,
   type ThreadRow,
 } from "@/components/email/ThreadChatView";
+import { useMyEmailAccountId } from "@/components/email/useMyEmailAccountId";
 
 export default function EmailsTab({
   customerId,
@@ -18,24 +20,30 @@ export default function EmailsTab({
   isD2C: boolean;
 }) {
   const customerType: "wholesale" | "d2c" = isD2C ? "d2c" : "wholesale";
+  const account = useMyEmailAccountId();
 
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeThread, setActiveThread] = useState<ThreadRow | null>(null);
 
   const reloadThreads = useCallback(async () => {
+    if (account.state !== "ready") return;
     const { data } = await supabase
       .from("email_threads")
       .select(
         "id, conversation_id, subject, last_message_at, last_direction, last_preview, message_count, unread_count",
       )
+      // Scope to the current user's mailbox — owners/admins would otherwise
+      // see every team member's threads with this customer.
+      .eq("account_id", account.accountId)
       .eq("customer_type", customerType)
       .eq("customer_ref", customerId)
       .order("last_message_at", { ascending: false, nullsFirst: false });
     setThreads((data as ThreadRow[]) ?? []);
-  }, [customerId, customerType]);
+  }, [account, customerId, customerType]);
 
   useEffect(() => {
+    if (account.state === "loading") return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -45,13 +53,31 @@ export default function EmailsTab({
     return () => {
       cancelled = true;
     };
-  }, [reloadThreads]);
+  }, [account.state, reloadThreads]);
 
-  if (loading) {
+  if (loading || account.state === "loading") {
     return (
       <div className="py-12 text-center text-sm text-gray-400 inline-flex items-center gap-2 justify-center w-full">
         <Loader2 size={14} className="animate-spin" />
         Loading email history…
+      </div>
+    );
+  }
+
+  if (account.state === "no-account") {
+    return (
+      <div className="py-12 text-center">
+        <Mail size={28} className="mx-auto text-gray-300 mb-3" />
+        <div className="text-sm font-medium text-gray-500">
+          Connect Outlook to use this tab
+        </div>
+        <p className="text-xs text-gray-400 mt-1">
+          Go to{" "}
+          <Link href="/company?tab=integrations" className="underline">
+            Company → Integrations
+          </Link>{" "}
+          to connect your mailbox.
+        </p>
       </div>
     );
   }

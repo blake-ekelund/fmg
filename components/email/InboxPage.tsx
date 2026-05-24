@@ -7,14 +7,17 @@ import {
   Send,
   Search,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import clsx from "clsx";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import ThreadChatView, {
   formatWhen,
   stripQuotedReply,
   type ThreadRow,
 } from "./ThreadChatView";
+import { useMyEmailAccountId } from "./useMyEmailAccountId";
 
 type Filter = "all" | "unread" | "sent" | "received";
 
@@ -25,6 +28,7 @@ type Props = {
 };
 
 export default function InboxPage({ customerType, title }: Props) {
+  const account = useMyEmailAccountId();
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
@@ -32,11 +36,15 @@ export default function InboxPage({ customerType, title }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    if (account.state !== "ready") return;
     let q = supabase
       .from("email_threads")
       .select(
         "id, conversation_id, subject, last_message_at, last_direction, last_preview, message_count, unread_count, customer_type, customer_ref, customer_name",
       )
+      // Scope to the current user's mailbox even though they're owner/admin
+      // (RLS includes an admin override that would otherwise leak everyone's).
+      .eq("account_id", account.accountId)
       .eq("customer_type", customerType)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .range(0, 499);
@@ -47,9 +55,10 @@ export default function InboxPage({ customerType, title }: Props) {
 
     const { data } = await q;
     setThreads((data as ThreadRow[]) ?? []);
-  }, [customerType, filter]);
+  }, [account, customerType, filter]);
 
   useEffect(() => {
+    if (account.state === "loading") return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -59,7 +68,7 @@ export default function InboxPage({ customerType, title }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [reload]);
+  }, [account.state, reload]);
 
   // Client-side search across subject + customer name + preview. Server
   // round-trip per keystroke would be wasteful — we already have all rows.
@@ -84,16 +93,36 @@ export default function InboxPage({ customerType, title }: Props) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            {threads.length} thread{threads.length === 1 ? "" : "s"}
-            {unreadTotal > 0 && (
+            {account.state === "ready" && (
               <>
-                {" · "}
-                <span className="text-blue-600 font-medium">{unreadTotal} unread</span>
+                {threads.length} thread{threads.length === 1 ? "" : "s"}
+                {unreadTotal > 0 && (
+                  <>
+                    {" · "}
+                    <span className="text-blue-600 font-medium">{unreadTotal} unread</span>
+                  </>
+                )}
               </>
             )}
           </p>
         </div>
       </div>
+
+      {account.state === "no-account" && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4 inline-flex items-start gap-2 text-xs text-amber-800">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Connect your Outlook mailbox in{" "}
+            <Link
+              href="/company?tab=integrations"
+              className="underline font-medium hover:text-amber-900"
+            >
+              Company → Integrations
+            </Link>
+            {" "}to see your customer email here.
+          </span>
+        </div>
+      )}
 
       {/* Filters + search */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
