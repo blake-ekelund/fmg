@@ -329,9 +329,12 @@ export default function AutomationEditor({
     email: string | null;
     last_order_date: string | null;
     lifetime_revenue: number | null;
+    warning: string | null;
   };
   const [previewCount, setPreviewCount] = useState<number | null>(null);
   const [previewSample, setPreviewSample] = useState<PreviewCandidate[]>([]);
+  const [invalidEmailCount, setInvalidEmailCount] = useState(0);
+  const [suspectEmailCount, setSuspectEmailCount] = useState(0);
   const [showSample, setShowSample] = useState(false);
   const [previewing, setPreviewing] = useState(false);
 
@@ -345,6 +348,8 @@ export default function AutomationEditor({
       if (res.ok) {
         setPreviewCount(json.enrolled ?? 0);
         setPreviewSample((json.sample_candidates as PreviewCandidate[]) ?? []);
+        setInvalidEmailCount(json.invalid_emails ?? 0);
+        setSuspectEmailCount(json.suspect_emails ?? 0);
         setShowSample(true);
       }
     } finally {
@@ -567,16 +572,30 @@ export default function AutomationEditor({
         {showSample && previewSample.length > 0 && (
           <div className="max-w-xl mx-auto mb-3 rounded-lg border border-gray-200 bg-white">
             <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
-              <div className="text-[11px] font-medium text-gray-600">
-                Preview ·{" "}
-                <span className="text-gray-900">
-                  {previewCount} customer{previewCount === 1 ? "" : "s"}
-                </span>{" "}
-                eligible right now
-                {previewSample.length < (previewCount ?? 0) && (
-                  <span className="text-gray-400">
-                    {" "}
-                    (showing first {previewSample.length})
+              <div className="text-[11px] font-medium text-gray-600 flex items-center gap-2 flex-wrap">
+                <span>
+                  Preview ·{" "}
+                  <span className="text-gray-900">
+                    {previewCount} customer{previewCount === 1 ? "" : "s"}
+                  </span>{" "}
+                  eligible
+                  {previewSample.length < (previewCount ?? 0) && (
+                    <span className="text-gray-400">
+                      {" "}
+                      (showing first {previewSample.length})
+                    </span>
+                  )}
+                </span>
+                {invalidEmailCount > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 text-red-700 px-2 py-0.5 text-[10px]">
+                    <AlertTriangle size={9} />
+                    {invalidEmailCount} bad email{invalidEmailCount === 1 ? "" : "s"}
+                  </span>
+                )}
+                {suspectEmailCount > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 text-[10px]">
+                    <AlertTriangle size={9} />
+                    {suspectEmailCount} flagged
                   </span>
                 )}
               </div>
@@ -589,34 +608,60 @@ export default function AutomationEditor({
               </button>
             </div>
             <ul className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
-              {previewSample.map((c) => (
-                <li
-                  key={`${c.customer_type}:${c.customer_ref}`}
-                  className="px-3 py-1.5 flex items-center gap-2 text-xs"
-                >
-                  <span className="font-medium text-gray-800 truncate flex-1">
-                    {c.name ?? "(no name)"}
-                  </span>
-                  <span className="text-gray-500 truncate max-w-[180px]">
-                    {c.email}
-                  </span>
-                  {c.lifetime_revenue != null && (
-                    <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
-                      ${Math.round(c.lifetime_revenue).toLocaleString()}
+              {previewSample.map((c) => {
+                const warn = c.warning;
+                const isBad =
+                  !!warn &&
+                  (warn === "Missing" ||
+                    warn === "Invalid format" ||
+                    warn.startsWith("Possible typo"));
+                return (
+                  <li
+                    key={`${c.customer_type}:${c.customer_ref}`}
+                    className="px-3 py-1.5 flex items-center gap-2 text-xs"
+                  >
+                    <span className="font-medium text-gray-800 truncate flex-1">
+                      {c.name ?? "(no name)"}
                     </span>
-                  )}
-                  {c.last_order_date && (
-                    <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
-                      last:{" "}
-                      {new Date(c.last_order_date).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                    <span
+                      className={clsx(
+                        "truncate max-w-[200px]",
+                        isBad ? "text-red-600" : "text-gray-500",
+                      )}
+                    >
+                      {c.email}
                     </span>
-                  )}
-                </li>
-              ))}
+                    {warn && (
+                      <span
+                        className={clsx(
+                          "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0",
+                          isBad
+                            ? "bg-red-50 text-red-700 border border-red-200"
+                            : "bg-amber-50 text-amber-700 border border-amber-200",
+                        )}
+                        title={warn}
+                      >
+                        <AlertTriangle size={8} />
+                        {warn.length > 22 ? warn.slice(0, 20) + "…" : warn}
+                      </span>
+                    )}
+                    {c.lifetime_revenue != null && (
+                      <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
+                        ${Math.round(c.lifetime_revenue).toLocaleString()}
+                      </span>
+                    )}
+                    {c.last_order_date && (
+                      <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
+                        {new Date(c.last_order_date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

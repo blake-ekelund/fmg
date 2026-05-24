@@ -153,7 +153,10 @@ export async function GET(request: Request) {
     email: string | null;
     last_order_date: string | null;
     lifetime_revenue: number | null;
+    warning: string | null;
   }> = [];
+  let invalidEmailCount = 0;
+  let suspectEmailCount = 0;
   const SAMPLE_CAP = 100;
   for (const a of automations) {
     const steps = stepsByAutomation.get(a.id) ?? [];
@@ -198,10 +201,14 @@ export async function GET(request: Request) {
       const { error } = await supabaseServer.from("automation_enrollments").insert(rows);
       if (!error) totalEnrolled += rows.length;
     } else {
-      // Dry mode: count the full eligible set, sample first N for the UI.
+      // Dry mode: count the full eligible set + tally email-quality issues
+      // across the whole pool, but only sample the first N for the panel.
       totalEnrolled += eligible.length;
       for (const c of eligible) {
-        if (sampleCandidates.length >= SAMPLE_CAP) break;
+        const f = flagEmail(c.email);
+        if (!f.ok) invalidEmailCount++;
+        else if (f.warning) suspectEmailCount++;
+        if (sampleCandidates.length >= SAMPLE_CAP) continue;
         sampleCandidates.push({
           customer_type: c.audience_side,
           customer_ref: c.customer_ref,
@@ -209,6 +216,7 @@ export async function GET(request: Request) {
           email: c.email,
           last_order_date: c.last_order_date,
           lifetime_revenue: c.lifetime_revenue,
+          warning: f.warning ?? null,
         });
       }
     }
@@ -231,6 +239,8 @@ export async function GET(request: Request) {
       dry: true,
       automations: automations.length,
       enrolled: totalEnrolled,
+      invalid_emails: invalidEmailCount,
+      suspect_emails: suspectEmailCount,
       due_now: due.length,
       sample_due: due.slice(0, 10),
       sample_candidates: sampleCandidates,
@@ -520,6 +530,62 @@ export async function GET(request: Request) {
     failed: failedCount,
     completed: completedCount,
   });
+}
+
+/**
+ * Lightweight quality check on a customer email. Returns a warning the UI
+ * can render. None of these block sends — the user just sees a chip so they
+ * can fix the data or exclude problematic recipients before enabling.
+ */
+function flagEmail(email: string | null): { ok: boolean; warning?: string } {
+  const e = (email ?? "").trim();
+  if (!e) return { ok: false, warning: "Missing" };
+
+  // Stricter than the casual regex: at least one char before @, a domain
+  // with a dot, no whitespace, no consecutive dots.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || /\.\./.test(e)) {
+    return { ok: false, warning: "Invalid format" };
+  }
+
+  const lower = e.toLowerCase();
+  const domain = lower.split("@")[1];
+  const local = lower.split("@")[0];
+
+  // Common domain typos — list isn't exhaustive but catches the obvious ones.
+  const TYPOS: Record<string, string> = {
+    "gmial.com": "gmail.com",
+    "gmai.com": "gmail.com",
+    "gmal.com": "gmail.com",
+    "gnail.com": "gmail.com",
+    "gmail.co": "gmail.com",
+    "gmail.cm": "gmail.com",
+    "yahooo.com": "yahoo.com",
+    "yaho.com": "yahoo.com",
+    "yahho.com": "yahoo.com",
+    "yahoo.co": "yahoo.com",
+    "hotmial.com": "hotmail.com",
+    "hotmai.com": "hotmail.com",
+    "hotamil.com": "hotmail.com",
+    "outloook.com": "outlook.com",
+    "outlok.com": "outlook.com",
+    "outllook.com": "outlook.com",
+    "aol.co": "aol.com",
+  };
+  if (TYPOS[domain]) {
+    return { ok: false, warning: `Possible typo — did you mean ${TYPOS[domain]}?` };
+  }
+
+  // Role-based / shared mailboxes — deliverable, but worth surfacing for B2B.
+  const ROLE_BASED = new Set([
+    "info", "sales", "support", "admin", "contact", "hello",
+    "noreply", "no-reply", "donotreply",
+    "marketing", "office", "orders", "billing", "accounts", "service", "team", "help",
+  ]);
+  if (ROLE_BASED.has(local)) {
+    return { ok: true, warning: "Role-based address" };
+  }
+
+  return { ok: true };
 }
 
 /* ── Trigger candidate query ─────────────────────────────────────────────── */
