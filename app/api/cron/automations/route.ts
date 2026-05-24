@@ -144,6 +144,17 @@ export async function GET(request: Request) {
 
   /* ── 2) Enroll new candidates for each automation ── */
   let totalEnrolled = 0;
+  // In dry mode, accumulate a sample of who would be enrolled so the UI
+  // can show the user the actual customer list, not just a count.
+  const sampleCandidates: Array<{
+    customer_type: AudienceSide;
+    customer_ref: string;
+    name: string | null;
+    email: string | null;
+    last_order_date: string | null;
+    lifetime_revenue: number | null;
+  }> = [];
+  const SAMPLE_CAP = 100;
   for (const a of automations) {
     const steps = stepsByAutomation.get(a.id) ?? [];
     // In live mode, skip automations with no steps configured — there'd be
@@ -166,12 +177,14 @@ export async function GET(request: Request) {
       (existing ?? []).map((r) => (r as { customer_ref: string }).customer_ref),
     );
 
-    const toEnroll = candidates
-      .filter((c) => !enrolledSet.has(c.customer_ref) && !!c.email)
-      .slice(0, MAX_NEW_ENROLLMENTS_PER_AUTOMATION);
-    if (toEnroll.length === 0) continue;
+    const eligible = candidates.filter(
+      (c) => !enrolledSet.has(c.customer_ref) && !!c.email,
+    );
+    if (eligible.length === 0) continue;
 
     if (!dry) {
+      // Live mode: cap at MAX_NEW_ENROLLMENTS_PER_AUTOMATION so cron stays bounded.
+      const toEnroll = eligible.slice(0, MAX_NEW_ENROLLMENTS_PER_AUTOMATION);
       const rows = toEnroll.map((c) => ({
         automation_id: a.id,
         customer_type: c.audience_side,
@@ -185,7 +198,19 @@ export async function GET(request: Request) {
       const { error } = await supabaseServer.from("automation_enrollments").insert(rows);
       if (!error) totalEnrolled += rows.length;
     } else {
-      totalEnrolled += toEnroll.length;
+      // Dry mode: count the full eligible set, sample first N for the UI.
+      totalEnrolled += eligible.length;
+      for (const c of eligible) {
+        if (sampleCandidates.length >= SAMPLE_CAP) break;
+        sampleCandidates.push({
+          customer_type: c.audience_side,
+          customer_ref: c.customer_ref,
+          name: c.customer_name,
+          email: c.email,
+          last_order_date: c.last_order_date,
+          lifetime_revenue: c.lifetime_revenue,
+        });
+      }
     }
   }
 
@@ -208,6 +233,7 @@ export async function GET(request: Request) {
       enrolled: totalEnrolled,
       due_now: due.length,
       sample_due: due.slice(0, 10),
+      sample_candidates: sampleCandidates,
     });
   }
 
@@ -517,6 +543,9 @@ async function findTriggerCandidates(
 
   const audience: AudienceConfig = cfg.audience ?? "d2c";
   const sides: AudienceSide[] = audience === "both" ? ["d2c", "wholesale"] : [audience];
+  // In dry mode, query up to 5,000 rows so the preview count reflects the
+  // real eligible pool, not the per-run enrollment cap.
+  const queryLimit = dry ? 5000 : MAX_NEW_ENROLLMENTS_PER_AUTOMATION * 2;
 
   /* Helper: apply the shared filters (min_spend / channel / state) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -541,18 +570,22 @@ async function findTriggerCandidates(
     crossingDate.setDate(crossingDate.getDate() - days);
     const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
     for (const side of sides) {
-      const rows = await runContactQuery(side, (q) => {
-        let out2 = applyFilters(q).lte(
-          "last_order_date",
-          crossingDate.toISOString().slice(0, 10),
-        );
-        if (lookback > 0) {
-          const oldest = new Date(crossingDate);
-          oldest.setDate(oldest.getDate() - lookback);
-          out2 = out2.gte("last_order_date", oldest.toISOString().slice(0, 10));
-        }
-        return out2;
-      });
+      const rows = await runContactQuery(
+        side,
+        (q) => {
+          let out2 = applyFilters(q).lte(
+            "last_order_date",
+            crossingDate.toISOString().slice(0, 10),
+          );
+          if (lookback > 0) {
+            const oldest = new Date(crossingDate);
+            oldest.setDate(oldest.getDate() - lookback);
+            out2 = out2.gte("last_order_date", oldest.toISOString().slice(0, 10));
+          }
+          return out2;
+        },
+        queryLimit,
+      );
       out.push(...rows);
     }
     return out;
@@ -570,10 +603,13 @@ async function findTriggerCandidates(
     const column = subtype === "first" ? "first_order_date" : "last_order_date";
     const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
     for (const side of sides) {
-      const rows = await runContactQuery(side, (q) =>
-        applyFilters(q)
-          .gte(column, oldest.toISOString().slice(0, 10))
-          .lte(column, target.toISOString().slice(0, 10)),
+      const rows = await runContactQuery(
+        side,
+        (q) =>
+          applyFilters(q)
+            .gte(column, oldest.toISOString().slice(0, 10))
+            .lte(column, target.toISOString().slice(0, 10)),
+        queryLimit,
       );
       out.push(...rows);
     }
@@ -612,19 +648,23 @@ async function findTriggerCandidates(
 
     const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
     for (const side of sides) {
-      const rows = await runContactQuery(side, (q) => {
-        let out2 = applyFilters(q);
-        if (status === "active") {
-          out2 = out2.gte("last_order_date", activeCutoff.toISOString().slice(0, 10));
-        } else if (status === "at_risk") {
-          out2 = out2
-            .lt("last_order_date", activeCutoff.toISOString().slice(0, 10))
-            .gte("last_order_date", riskCutoff.toISOString().slice(0, 10));
-        } else if (status === "churned") {
-          out2 = out2.lt("last_order_date", riskCutoff.toISOString().slice(0, 10));
-        }
-        return out2;
-      });
+      const rows = await runContactQuery(
+        side,
+        (q) => {
+          let out2 = applyFilters(q);
+          if (status === "active") {
+            out2 = out2.gte("last_order_date", activeCutoff.toISOString().slice(0, 10));
+          } else if (status === "at_risk") {
+            out2 = out2
+              .lt("last_order_date", activeCutoff.toISOString().slice(0, 10))
+              .gte("last_order_date", riskCutoff.toISOString().slice(0, 10));
+          } else if (status === "churned") {
+            out2 = out2.lt("last_order_date", riskCutoff.toISOString().slice(0, 10));
+          }
+          return out2;
+        },
+        queryLimit,
+      );
       out.push(...rows);
     }
     return out;
@@ -714,6 +754,7 @@ async function runContactQuery(
   side: AudienceSide,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   build: (q: any) => any,
+  limit: number = MAX_NEW_ENROLLMENTS_PER_AUTOMATION * 2,
 ): Promise<Array<ContactRow & { audience_side: AudienceSide }>> {
   const { view, refColumn } = viewFor(side);
   const base = supabaseServer
@@ -722,7 +763,7 @@ async function runContactQuery(
       `${refColumn}, customer_name, email, billto_city, billto_state, primary_channel, lifetime_revenue, order_count, last_order_date, first_order_date`,
     );
   const filtered = build(base) as AnyQuery;
-  const { data } = await filtered.limit(MAX_NEW_ENROLLMENTS_PER_AUTOMATION * 2);
+  const { data } = await filtered.limit(limit);
   return ((data as Record<string, unknown>[]) ?? []).map((r) => ({
     customer_ref: r[refColumn] as string,
     customer_name: (r.customer_name as string | null) ?? null,

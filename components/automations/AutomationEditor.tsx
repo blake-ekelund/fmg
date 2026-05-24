@@ -320,9 +320,19 @@ export default function AutomationEditor({
     }
   }
 
-  /* ── Preview (live count) ───────────────────────────────────────────── */
+  /* ── Preview (live count + sample list) ─────────────────────────────── */
 
+  type PreviewCandidate = {
+    customer_type: "d2c" | "wholesale";
+    customer_ref: string;
+    name: string | null;
+    email: string | null;
+    last_order_date: string | null;
+    lifetime_revenue: number | null;
+  };
   const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewSample, setPreviewSample] = useState<PreviewCandidate[]>([]);
+  const [showSample, setShowSample] = useState(false);
   const [previewing, setPreviewing] = useState(false);
 
   async function runPreview() {
@@ -333,10 +343,9 @@ export default function AutomationEditor({
       });
       const json = await res.json();
       if (res.ok) {
-        // The cron iterates *enabled* automations only. For an honest count
-        // we toggle the enabled bit briefly when off, but that's invasive.
-        // Show "would enroll" if enabled, otherwise prompt to enable.
         setPreviewCount(json.enrolled ?? 0);
+        setPreviewSample((json.sample_candidates as PreviewCandidate[]) ?? []);
+        setShowSample(true);
       }
     } finally {
       setPreviewing(false);
@@ -554,26 +563,90 @@ export default function AutomationEditor({
 
       {/* Bottom action bar */}
       <div className="border-t border-gray-100 px-6 py-4 shrink-0 bg-gray-50/40">
+        {/* Preview sample list */}
+        {showSample && previewSample.length > 0 && (
+          <div className="max-w-xl mx-auto mb-3 rounded-lg border border-gray-200 bg-white">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+              <div className="text-[11px] font-medium text-gray-600">
+                Preview ·{" "}
+                <span className="text-gray-900">
+                  {previewCount} customer{previewCount === 1 ? "" : "s"}
+                </span>{" "}
+                eligible right now
+                {previewSample.length < (previewCount ?? 0) && (
+                  <span className="text-gray-400">
+                    {" "}
+                    (showing first {previewSample.length})
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setShowSample(false)}
+                className="text-gray-400 hover:text-gray-600 transition"
+                title="Hide list"
+              >
+                <X size={12} />
+              </button>
+            </div>
+            <ul className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+              {previewSample.map((c) => (
+                <li
+                  key={`${c.customer_type}:${c.customer_ref}`}
+                  className="px-3 py-1.5 flex items-center gap-2 text-xs"
+                >
+                  <span className="font-medium text-gray-800 truncate flex-1">
+                    {c.name ?? "(no name)"}
+                  </span>
+                  <span className="text-gray-500 truncate max-w-[180px]">
+                    {c.email}
+                  </span>
+                  {c.lifetime_revenue != null && (
+                    <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
+                      ${Math.round(c.lifetime_revenue).toLocaleString()}
+                    </span>
+                  )}
+                  {c.last_order_date && (
+                    <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
+                      last:{" "}
+                      {new Date(c.last_order_date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="max-w-xl mx-auto flex items-center justify-between gap-3">
-          <div className="text-xs text-gray-600">
-            {automation.enabled ? (
+          <div className="text-xs text-gray-600 inline-flex items-center gap-3">
+            {automation.enabled && (
               <span className="inline-flex items-center gap-1">
                 <span className="h-2 w-2 rounded-full bg-green-500 inline-block animate-pulse" />
                 Live — runs daily
               </span>
-            ) : (
+            )}
+            <button
+              onClick={runPreview}
+              disabled={previewing}
+              className="inline-flex items-center gap-1 text-gray-500 hover:text-gray-900 transition disabled:opacity-50"
+            >
+              <Eye size={11} />
+              {previewing
+                ? "Checking…"
+                : previewCount !== null
+                  ? `${previewCount} eligible`
+                  : "Preview eligible customers"}
+            </button>
+            {previewCount !== null && previewSample.length > 0 && !showSample && (
               <button
-                onClick={runPreview}
-                disabled={previewing}
-                className="inline-flex items-center gap-1 text-gray-500 hover:text-gray-900 transition disabled:opacity-50"
+                onClick={() => setShowSample(true)}
+                className="text-blue-600 hover:text-blue-800 transition"
               >
-                <Eye size={11} />
-                {previewing ? "Checking…" : "Preview eligible customers"}
-                {previewCount !== null && (
-                  <span className="ml-1 font-medium text-gray-800">
-                    {previewCount} customer{previewCount === 1 ? "" : "s"}
-                  </span>
-                )}
+                View list
               </button>
             )}
           </div>
