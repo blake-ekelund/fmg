@@ -171,9 +171,14 @@ export default function EmailsTab({
                 </span>
               )}
             </div>
-            {t.last_preview && (
-              <div className="text-xs text-gray-500 truncate mt-0.5">{t.last_preview}</div>
-            )}
+            {t.last_preview && (() => {
+              const cleaned = stripQuotedReply(t.last_preview);
+              return cleaned ? (
+                <div className="text-xs text-gray-500 truncate mt-0.5">{cleaned}</div>
+              ) : (
+                <div className="text-xs text-gray-300 italic mt-0.5">(quoted reply only)</div>
+              );
+            })()}
           </div>
           <div className="shrink-0 text-right">
             <div className="text-[11px] text-gray-400 tabular-nums">
@@ -316,7 +321,10 @@ function ChatBubble({
   const ts = message.received_at || message.sent_at;
   const rawBody =
     message.body_text || stripHtml(message.body_html) || message.body_preview || "";
-  const body = stripQuotedReply(rawBody);
+  const stripped = stripQuotedReply(rawBody);
+  // If the strip removed everything, surface a placeholder rather than empty
+  // (e.g., a reply that's purely an Outlook quote header).
+  const body = stripped || (rawBody ? "(quoted reply only)" : "(no body)");
   const senderLabel = isSent ? "You" : message.from_name || message.from_address || "Sender";
 
   return (
@@ -657,21 +665,25 @@ function stripHtml(html: string | null): string {
 }
 
 /**
- * Trim the quoted-original chain off a reply body. Most mail clients prepend
- * a marker like "On <date>, <name> wrote:" or "-----Original Message-----"
- * before the quoted text. We cut at the earliest such marker.
+ * Trim the quoted-original chain off a reply body. Mail clients use different
+ * patterns; we look for the earliest match across the common ones.
  */
 function stripQuotedReply(text: string): string {
   if (!text) return text;
   const markers: RegExp[] = [
-    // "On Sun, May 24, 2026 at 10:28 AM Blake Ekelund <…> wrote:"
-    /\bOn\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b[\s\S]{0,200}?wrote:/i,
-    // "On May 24, 2026 at 10:28 AM, Blake wrote:" — no weekday
-    /\bOn\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s\S]{0,200}?wrote:/i,
-    // Outlook
+    // Gmail: "On Sun, May 24, 2026 at 10:28 AM <name> <email> wrote:"
+    // No \b before "On" so we also catch "TestOn Sun…" cases where HTML→text
+    // ran the reply word into the attribution.
+    /On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b[\s\S]{0,200}?wrote:/i,
+    // Same without a weekday: "On May 24, 2026 at 10:28 AM, <name> wrote:"
+    /On\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}[\s\S]{0,200}?wrote:/i,
+    // Outlook divider: long run of underscores immediately before the From: block.
+    /_{3,}\s*From:\s+/i,
+    // Outlook plain "-----Original Message-----"
     /-+\s*Original Message\s*-+/i,
-    /\bFrom:\s+.{0,160}?Sent:\s+/is,
-    // Apple Mail leading attribution
+    // Outlook block: "From: <name> Sent: <date>" (no underscore divider).
+    /\bFrom:\s+.{0,200}?Sent:\s+/is,
+    // Apple Mail leading attribution with quoted line.
     /(?:^|\n)>\s*On\s+/,
   ];
 
@@ -680,8 +692,11 @@ function stripQuotedReply(text: string): string {
     const m = text.search(re);
     if (m >= 0 && (earliest === -1 || m < earliest)) earliest = m;
   }
-  if (earliest <= 0) return text.trim();
-  return text.slice(0, earliest).trim();
+  // earliest < 0 = no marker found, return original.
+  // earliest === 0 = the whole string IS the quote, return empty so the
+  //   caller can show a placeholder.
+  if (earliest < 0) return text.trim();
+  return text.slice(0, earliest).replace(/[\s_]+$/, "").trim();
 }
 
 function base64FromBuffer(buf: ArrayBuffer): string {
