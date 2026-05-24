@@ -124,9 +124,9 @@ export default function AutomationsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-220px)] min-h-[500px]">
-        {/* List */}
-        <div className="rounded-xl border border-gray-200 bg-white overflow-y-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
+        {/* List — sticky on the left so it stays in view while the editor scrolls */}
+        <div className="rounded-xl border border-gray-200 bg-white lg:sticky lg:top-4">
           {loading ? (
             <div className="py-12 text-center text-sm text-gray-400 inline-flex items-center gap-2 justify-center w-full">
               <Loader2 size={14} className="animate-spin" />
@@ -185,7 +185,7 @@ export default function AutomationsPage() {
         </div>
 
         {/* Editor */}
-        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden flex flex-col min-h-0">
+        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           {activeId ? (
             <AutomationEditor
               key={activeId}

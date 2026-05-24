@@ -379,9 +379,9 @@ export default function AutomationEditor({
   const cfg = automation.trigger_config ?? {};
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Top bar */}
-      <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-100 shrink-0">
+    <div className="flex flex-col">
+      {/* Top bar — sticky so the name + delete stay reachable while scrolling */}
+      <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-100 sticky top-0 z-10 bg-white">
         <InlineEditableTitle
           value={automation.name}
           onSave={updateName}
@@ -403,7 +403,7 @@ export default function AutomationEditor({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="px-6 py-6">
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 inline-flex items-start gap-2 mb-4">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
@@ -567,8 +567,8 @@ export default function AutomationEditor({
         </div>
       </div>
 
-      {/* Bottom action bar */}
-      <div className="border-t border-gray-100 px-6 py-4 shrink-0 bg-gray-50/40">
+      {/* Bottom action bar — sticky so Turn On is always reachable */}
+      <div className="border-t border-gray-100 px-6 py-4 bg-gray-50/95 backdrop-blur-sm sticky bottom-0 z-10">
         {/* Preview sample list */}
         {showSample && previewSample.length > 0 && (
           <div className="max-w-xl mx-auto mb-3 rounded-lg border border-gray-200 bg-white">
@@ -718,7 +718,7 @@ export default function AutomationEditor({
 
       {/* Activity (collapsed when empty) */}
       {(enrollments.length > 0 || recent.length > 0) && (
-        <div className="border-t border-gray-100 px-6 py-4 shrink-0 bg-white">
+        <div className="border-t border-gray-100 px-6 py-4 bg-white">
           <div className="max-w-xl mx-auto grid grid-cols-2 gap-4">
             <ActivityPanel
               icon={<Users size={11} />}
