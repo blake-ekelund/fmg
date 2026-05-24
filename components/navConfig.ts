@@ -103,6 +103,12 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "sales"],
       },
       {
+        label: "Email Templates",
+        href: "/email-templates",
+        icon: FileText,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
         label: "Shopify Analytics",
         href: "/shopify-analytics",
         icon: BarChart3,
