@@ -14,9 +14,18 @@
 
 create extension if not exists "pgcrypto";
 
--- ── Drop v1 tables ───────────────────────────────────────────────────────────
-drop table if exists d2c_reengagement_sends cascade;
-drop table if exists automation_settings    cascade;
+-- ── Drop v1 tables + any partial-state from earlier v2 attempts ─────────────
+-- Earlier in development there was an `automations` table that matched v1's
+-- automation_settings schema (no trigger_type column). The CREATE IF NOT
+-- EXISTS below would otherwise be a no-op and the trigger_type index would
+-- fail. Dropping CASCADE wipes the table cleanly — v1 only held a seed row
+-- with no customer data.
+drop table if exists automation_step_sends    cascade;
+drop table if exists automation_enrollments   cascade;
+drop table if exists automation_steps         cascade;
+drop table if exists automations              cascade;
+drop table if exists d2c_reengagement_sends   cascade;
+drop table if exists automation_settings      cascade;
 
 -- ── automations ──────────────────────────────────────────────────────────────
 create table if not exists automations (
