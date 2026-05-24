@@ -17,7 +17,13 @@ type Automation = {
   name: string;
   description: string | null;
   enabled: boolean;
-  trigger_type: "d2c_at_risk" | "wholesale_at_risk" | "manual";
+  trigger_type:
+    | "d2c_at_risk"
+    | "wholesale_at_risk"
+    | "after_first_order"
+    | "after_last_order"
+    | "scheduled_blast"
+    | "manual";
   trigger_config: Record<string, unknown>;
   sender_user_id: string | null;
   step_count: number;
@@ -225,13 +231,42 @@ function plainDescription(a: Automation): string {
     steps === 0
       ? "no emails yet"
       : `${steps} email${steps === 1 ? "" : "s"}`;
+  const cfg = a.trigger_config as Record<string, unknown> | undefined;
   switch (a.trigger_type) {
     case "d2c_at_risk":
-      return `D2C customers inactive ${prettyDays(a.trigger_config?.days_inactive as number | undefined)} · ${stepPart}`;
+      return `D2C customers inactive ${prettyDays(cfg?.days_inactive as number | undefined)} · ${stepPart}`;
     case "wholesale_at_risk":
-      return `Wholesale customers inactive ${prettyDays(a.trigger_config?.days_inactive as number | undefined)} · ${stepPart}`;
+      return `Wholesale customers inactive ${prettyDays(cfg?.days_inactive as number | undefined)} · ${stepPart}`;
+    case "after_first_order": {
+      const side = (cfg?.customer_type as string) ?? "d2c";
+      return `${side === "wholesale" ? "Wholesale" : "D2C"} · ${prettyDays(cfg?.days_after as number | undefined)} after first order · ${stepPart}`;
+    }
+    case "after_last_order": {
+      const side = (cfg?.customer_type as string) ?? "d2c";
+      return `${side === "wholesale" ? "Wholesale" : "D2C"} · ${prettyDays(cfg?.days_after as number | undefined)} after last order · ${stepPart}`;
+    }
+    case "scheduled_blast": {
+      const aud = (cfg?.audience as string) ?? "d2c";
+      const audienceLabel =
+        aud === "wholesale"
+          ? "all wholesale customers"
+          : aud === "both"
+            ? "all customers"
+            : "all D2C customers";
+      const date = cfg?.scheduled_at as string | undefined;
+      const dateLabel = date
+        ? new Date(date + "T00:00:00Z").toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "(no date set)";
+      return `Blast on ${dateLabel} to ${audienceLabel} · ${stepPart}`;
+    }
     case "manual":
       return `Manually added customers · ${stepPart}`;
+    default:
+      return stepPart;
   }
 }
 

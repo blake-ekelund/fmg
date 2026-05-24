@@ -19,7 +19,16 @@ import clsx from "clsx";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
-type TriggerType = "d2c_at_risk" | "wholesale_at_risk" | "manual";
+type TriggerType =
+  | "d2c_at_risk"
+  | "wholesale_at_risk"
+  | "after_first_order"
+  | "after_last_order"
+  | "scheduled_blast"
+  | "manual";
+
+type AudienceSide = "d2c" | "wholesale";
+type BlastAudience = "d2c" | "wholesale" | "both";
 
 type Automation = {
   id: string;
@@ -27,7 +36,14 @@ type Automation = {
   description: string | null;
   enabled: boolean;
   trigger_type: TriggerType;
-  trigger_config: { days_inactive?: number; lookback_days?: number };
+  trigger_config: {
+    days_inactive?: number;
+    lookback_days?: number;
+    days_after?: number;
+    customer_type?: AudienceSide;
+    scheduled_at?: string;
+    audience?: BlastAudience;
+  };
   sender_user_id: string | null;
   updated_at: string;
 };
@@ -69,6 +85,26 @@ const TRIGGER_DAYS_OPTIONS = [
   { label: "90 days", value: 90 },
   { label: "6 months", value: 180 },
   { label: "1 year", value: 365 },
+];
+
+/** Used for "X days after [first|last] order" triggers. */
+const AFTER_ORDER_DAYS_OPTIONS = [
+  { label: "1 day", value: 1 },
+  { label: "3 days", value: 3 },
+  { label: "1 week", value: 7 },
+  { label: "2 weeks", value: 14 },
+  { label: "1 month", value: 30 },
+  { label: "3 months", value: 90 },
+];
+
+/** Top-level trigger kinds the user picks from. */
+const TRIGGER_KINDS: { value: TriggerType; label: string }[] = [
+  { value: "d2c_at_risk", label: "Inactive D2C customer" },
+  { value: "wholesale_at_risk", label: "Inactive wholesale customer" },
+  { value: "after_first_order", label: "After a customer's first order" },
+  { value: "after_last_order", label: "After a customer's most recent order" },
+  { value: "scheduled_blast", label: "On a specific date" },
+  { value: "manual", label: "Manually added customer" },
 ];
 
 const DELAY_OPTIONS = [
@@ -173,25 +209,35 @@ export default function AutomationEditor({
   }
 
   async function updateTriggerType(t: TriggerType) {
-    await patch({
-      trigger_type: t,
-      trigger_config:
-        t === "manual"
-          ? {}
-          : {
-              days_inactive: automation?.trigger_config?.days_inactive ?? 180,
-              lookback_days: 0,
-            },
-    });
+    // Reset trigger_config to the shape this trigger expects so stale keys
+    // from a previous trigger don't leak through.
+    let cfg: Automation["trigger_config"] = {};
+    if (t === "d2c_at_risk" || t === "wholesale_at_risk") {
+      cfg = {
+        days_inactive: automation?.trigger_config?.days_inactive ?? 180,
+        lookback_days: 0,
+      };
+    } else if (t === "after_first_order" || t === "after_last_order") {
+      cfg = {
+        days_after: automation?.trigger_config?.days_after ?? 7,
+        customer_type: automation?.trigger_config?.customer_type ?? "d2c",
+        lookback_days: 30,
+      };
+    } else if (t === "scheduled_blast") {
+      const inAWeek = new Date();
+      inAWeek.setDate(inAWeek.getDate() + 7);
+      cfg = {
+        scheduled_at:
+          automation?.trigger_config?.scheduled_at ?? inAWeek.toISOString().slice(0, 10),
+        audience: automation?.trigger_config?.audience ?? "d2c",
+      };
+    }
+    await patch({ trigger_type: t, trigger_config: cfg });
   }
 
-  async function updateDaysInactive(days: number) {
+  async function updateTriggerConfig(updates: Partial<Automation["trigger_config"]>) {
     await patch({
-      trigger_config: {
-        ...(automation?.trigger_config ?? {}),
-        days_inactive: days,
-        lookback_days: automation?.trigger_config?.lookback_days ?? 0,
-      },
+      trigger_config: { ...(automation?.trigger_config ?? {}), ...updates },
     });
   }
 
@@ -318,8 +364,8 @@ export default function AutomationEditor({
     );
   }
 
-  const isManual = automation.trigger_type === "manual";
-  const daysInactive = automation.trigger_config?.days_inactive ?? 180;
+  const t = automation.trigger_type;
+  const cfg = automation.trigger_config ?? {};
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -358,36 +404,24 @@ export default function AutomationEditor({
           {/* ── Trigger card ── */}
           <FlowCard>
             <FlowLabel>When</FlowLabel>
-            <div className="text-sm text-gray-800 leading-relaxed">
-              A{" "}
-              <Pill>
-                <select
-                  value={automation.trigger_type}
-                  onChange={(e) => updateTriggerType(e.target.value as TriggerType)}
-                  className="bg-transparent focus:outline-none cursor-pointer pr-4"
-                >
-                  <option value="d2c_at_risk">D2C</option>
-                  <option value="wholesale_at_risk">wholesale</option>
-                  <option value="manual">(manually-added)</option>
-                </select>
-              </Pill>{" "}
-              customer
-              {isManual ? (
-                <> is added to this flow.</>
-              ) : (
-                <>
-                  {" "}
-                  hasn&apos;t ordered in{" "}
-                  <Pill>
-                    <DaysPicker
-                      value={daysInactive}
-                      onChange={updateDaysInactive}
-                      options={TRIGGER_DAYS_OPTIONS}
-                    />
-                  </Pill>
-                </>
-              )}
-              .
+            <div className="text-sm text-gray-800 leading-relaxed space-y-2">
+              <div>
+                Trigger:{" "}
+                <Pill>
+                  <select
+                    value={t}
+                    onChange={(e) => updateTriggerType(e.target.value as TriggerType)}
+                    className="bg-transparent focus:outline-none cursor-pointer pr-4"
+                  >
+                    {TRIGGER_KINDS.map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
+                      </option>
+                    ))}
+                  </select>
+                </Pill>
+              </div>
+              <div>{renderTriggerSentence(t, cfg, updateTriggerConfig)}</div>
             </div>
           </FlowCard>
 
@@ -710,6 +744,98 @@ function DelayPill({
       </select>
     </span>
   );
+}
+
+/**
+ * Render the trigger-specific portion of the sentence under the "Trigger:"
+ * picker. Each kind has its own shape of config so this dispatches.
+ */
+function renderTriggerSentence(
+  type: TriggerType,
+  cfg: Automation["trigger_config"],
+  patchCfg: (u: Partial<Automation["trigger_config"]>) => void | Promise<void>,
+): React.ReactNode {
+  if (type === "d2c_at_risk" || type === "wholesale_at_risk") {
+    const days = cfg.days_inactive ?? 180;
+    return (
+      <>
+        Send when a {type === "d2c_at_risk" ? "D2C" : "wholesale"} customer
+        hasn&apos;t ordered in{" "}
+        <Pill>
+          <DaysPicker
+            value={days}
+            onChange={(v) => patchCfg({ days_inactive: v })}
+            options={TRIGGER_DAYS_OPTIONS}
+          />
+        </Pill>
+        .
+      </>
+    );
+  }
+
+  if (type === "after_first_order" || type === "after_last_order") {
+    const daysAfter = cfg.days_after ?? 7;
+    const side = cfg.customer_type ?? "d2c";
+    return (
+      <>
+        Send{" "}
+        <Pill>
+          <DaysPicker
+            value={daysAfter}
+            onChange={(v) => patchCfg({ days_after: v })}
+            options={AFTER_ORDER_DAYS_OPTIONS}
+          />
+        </Pill>{" "}
+        after a{" "}
+        <Pill>
+          <select
+            value={side}
+            onChange={(e) => patchCfg({ customer_type: e.target.value as AudienceSide })}
+            className="bg-transparent focus:outline-none cursor-pointer pr-4"
+          >
+            <option value="d2c">D2C</option>
+            <option value="wholesale">wholesale</option>
+          </select>
+        </Pill>{" "}
+        customer&apos;s{" "}
+        {type === "after_first_order" ? "first order" : "most recent order"}.
+      </>
+    );
+  }
+
+  if (type === "scheduled_blast") {
+    const date = cfg.scheduled_at ?? "";
+    const audience = cfg.audience ?? "d2c";
+    return (
+      <>
+        Send on{" "}
+        <Pill>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => patchCfg({ scheduled_at: e.target.value })}
+            className="bg-transparent focus:outline-none cursor-pointer"
+          />
+        </Pill>{" "}
+        to{" "}
+        <Pill>
+          <select
+            value={audience}
+            onChange={(e) => patchCfg({ audience: e.target.value as BlastAudience })}
+            className="bg-transparent focus:outline-none cursor-pointer pr-4"
+          >
+            <option value="d2c">all D2C customers</option>
+            <option value="wholesale">all wholesale customers</option>
+            <option value="both">all customers</option>
+          </select>
+        </Pill>
+        .
+      </>
+    );
+  }
+
+  // manual
+  return <>Customers are added by hand (no automatic trigger).</>;
 }
 
 function ActivityPanel({

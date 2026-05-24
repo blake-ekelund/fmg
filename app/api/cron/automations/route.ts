@@ -21,12 +21,30 @@ const MAX_NEW_ENROLLMENTS_PER_AUTOMATION = 200;
 const MAX_STEP_SENDS_PER_RUN = 200;
 const SEND_CONCURRENCY = 5;
 
+type TriggerType =
+  | "d2c_at_risk"
+  | "wholesale_at_risk"
+  | "after_first_order"
+  | "after_last_order"
+  | "scheduled_blast"
+  | "manual";
+
 type Automation = {
   id: string;
   name: string;
   enabled: boolean;
-  trigger_type: "d2c_at_risk" | "wholesale_at_risk" | "manual";
-  trigger_config: { days_inactive?: number; lookback_days?: number };
+  trigger_type: TriggerType;
+  trigger_config: {
+    // shared
+    days_inactive?: number;
+    lookback_days?: number;
+    // after_first_order / after_last_order
+    days_after?: number;
+    customer_type?: "d2c" | "wholesale";
+    // scheduled_blast
+    scheduled_at?: string;     // YYYY-MM-DD
+    audience?: "d2c" | "wholesale" | "both";
+  };
   sender_user_id: string | null;
 };
 
@@ -144,10 +162,9 @@ export async function GET(request: Request) {
     if (toEnroll.length === 0) continue;
 
     if (!dry) {
-      const customerType = a.trigger_type === "wholesale_at_risk" ? "wholesale" : "d2c";
       const rows = toEnroll.map((c) => ({
         automation_id: a.id,
-        customer_type: customerType,
+        customer_type: c.audience_side,
         customer_ref: c.customer_ref,
         customer_name: c.customer_name,
         customer_email: c.email,
@@ -471,38 +488,113 @@ export async function GET(request: Request) {
 
 /* ── Trigger candidate query ─────────────────────────────────────────────── */
 
+type AudienceSide = "d2c" | "wholesale";
+
+function viewFor(side: AudienceSide): { view: string; refColumn: string } {
+  return side === "d2c"
+    ? { view: "d2c_customer_contact", refColumn: "person_key" }
+    : { view: "customer_contact_summary", refColumn: "customerid" };
+}
+
 async function findTriggerCandidates(
   automation: Automation,
-): Promise<ContactRow[]> {
-  if (automation.trigger_type === "manual") return [];
+): Promise<Array<ContactRow & { audience_side: AudienceSide }>> {
+  const t = automation.trigger_type;
 
-  const days = automation.trigger_config?.days_inactive ?? 180;
-  // lookback_days is the "don't go back further than this" cap on inactivity.
-  // 0 (or missing) = no cap — catch everyone past the at-risk threshold.
-  const lookback = automation.trigger_config?.lookback_days ?? 0;
-  const triggerDate = new Date();
-  triggerDate.setDate(triggerDate.getDate() - days);
+  if (t === "manual") return [];
 
-  const isD2C = automation.trigger_type === "d2c_at_risk";
-  const view = isD2C ? "d2c_customer_contact" : "customer_contact_summary";
-  const refColumn = isD2C ? "person_key" : "customerid";
-
-  let query = supabaseServer
-    .from(view)
-    .select(
-      `${refColumn}, customer_name, email, billto_city, billto_state, primary_channel, lifetime_revenue, order_count, last_order_date`,
-    )
-    .lt("last_order_date", triggerDate.toISOString().slice(0, 10))
-    .not("email", "is", null);
-
-  if (lookback > 0) {
-    const oldestDate = new Date(triggerDate);
-    oldestDate.setDate(oldestDate.getDate() - lookback);
-    query = query.gte("last_order_date", oldestDate.toISOString().slice(0, 10));
+  /* ── At-risk: customer hasn't ordered in days_inactive+ days ─────────── */
+  if (t === "d2c_at_risk" || t === "wholesale_at_risk") {
+    const days = automation.trigger_config?.days_inactive ?? 180;
+    const lookback = automation.trigger_config?.lookback_days ?? 0;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const side: AudienceSide = t === "d2c_at_risk" ? "d2c" : "wholesale";
+    return runContactQuery(side, (q) => {
+      let out = q
+        .lt("last_order_date", cutoff.toISOString().slice(0, 10))
+        .not("email", "is", null);
+      if (lookback > 0) {
+        const oldest = new Date(cutoff);
+        oldest.setDate(oldest.getDate() - lookback);
+        out = out.gte("last_order_date", oldest.toISOString().slice(0, 10));
+      }
+      return out;
+    });
   }
 
-  const { data } = await query.limit(MAX_NEW_ENROLLMENTS_PER_AUTOMATION * 2);
+  /* ── After-first / after-last: customer reached the order anniversary ── */
+  if (t === "after_first_order" || t === "after_last_order") {
+    const daysAfter = automation.trigger_config?.days_after ?? 7;
+    const lookback = automation.trigger_config?.lookback_days ?? 30;
+    const side: AudienceSide = automation.trigger_config?.customer_type ?? "d2c";
+    const target = new Date();
+    target.setDate(target.getDate() - daysAfter);
+    const oldest = new Date(target);
+    oldest.setDate(oldest.getDate() - lookback);
+    const column = t === "after_first_order" ? "first_order_date" : "last_order_date";
+    return runContactQuery(side, (q) =>
+      q
+        .gte(column, oldest.toISOString().slice(0, 10))
+        .lte(column, target.toISOString().slice(0, 10))
+        .not("email", "is", null),
+    );
+  }
 
+  /* ── Scheduled blast: enroll the audience on the scheduled date ──────── */
+  if (t === "scheduled_blast") {
+    const scheduledAt = automation.trigger_config?.scheduled_at;
+    if (!scheduledAt) return [];
+    const target = new Date(scheduledAt + "T00:00:00Z");
+    const now = new Date();
+    // Only enroll within a 7-day grace window starting on the scheduled date,
+    // and only if no one's been enrolled in this automation yet (one-shot).
+    const grace = new Date(target);
+    grace.setDate(grace.getDate() + 7);
+    if (now < target || now > grace) return [];
+
+    const { count } = await supabaseServer
+      .from("automation_enrollments")
+      .select("id", { count: "exact", head: true })
+      .eq("automation_id", automation.id);
+    if ((count ?? 0) > 0) return [];
+
+    const audience = automation.trigger_config?.audience ?? "d2c";
+    const sides: AudienceSide[] =
+      audience === "both" ? ["d2c", "wholesale"] : [audience];
+    const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
+    for (const side of sides) {
+      const rows = await runContactQuery(side, (q) => q.not("email", "is", null));
+      out.push(...rows);
+    }
+    return out;
+  }
+
+  return [];
+}
+
+// The supabase-js generic parameters change at every .select / .filter call,
+// which makes a typed callback signature painful. The build() callback can
+// return any chainable filter builder — what matters is that it implements
+// .limit() at the end. Using `any` here is local and contained.
+type AnyQuery = { limit: (n: number) => Promise<{ data: unknown }> } & Record<
+  string,
+  unknown
+>;
+
+async function runContactQuery(
+  side: AudienceSide,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  build: (q: any) => any,
+): Promise<Array<ContactRow & { audience_side: AudienceSide }>> {
+  const { view, refColumn } = viewFor(side);
+  const base = supabaseServer
+    .from(view)
+    .select(
+      `${refColumn}, customer_name, email, billto_city, billto_state, primary_channel, lifetime_revenue, order_count, last_order_date, first_order_date`,
+    );
+  const filtered = build(base) as AnyQuery;
+  const { data } = await filtered.limit(MAX_NEW_ENROLLMENTS_PER_AUTOMATION * 2);
   return ((data as Record<string, unknown>[]) ?? []).map((r) => ({
     customer_ref: r[refColumn] as string,
     customer_name: (r.customer_name as string | null) ?? null,
@@ -513,6 +605,7 @@ async function findTriggerCandidates(
     lifetime_revenue: numOrNull(r.lifetime_revenue),
     lifetime_orders: numOrNull(r.order_count),
     last_order_date: (r.last_order_date as string | null) ?? null,
+    audience_side: side,
   }));
 }
 

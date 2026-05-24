@@ -8,7 +8,7 @@ type PatchBody = {
   name?: string;
   description?: string | null;
   enabled?: boolean;
-  trigger_type?: "d2c_at_risk" | "wholesale_at_risk" | "manual";
+  trigger_type?: string;
   trigger_config?: Record<string, unknown>;
   sender_user_id?: string | null;
 };
