@@ -5,7 +5,7 @@
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/cron/d2c-reengagement",
+      "path": "/api/cron/automations",
       "schedule": "0 14 * * *"
     }
   ]
