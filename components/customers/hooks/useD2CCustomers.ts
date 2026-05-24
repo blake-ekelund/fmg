@@ -32,49 +32,62 @@ function getDateCutoffs() {
 }
 
 /**
+ * Structural type covering the chain methods applyD2CFilters needs. Used
+ * instead of a concrete PostgrestFilterBuilder so callers can pass either
+ * a freshly-selected query (PostgrestFilterBuilder) or any other compatible
+ * builder, without TypeScript chasing the generic parameters of supabase-js.
+ */
+interface FilterableD2CQuery<T> {
+  or: (filters: string) => T;
+  gt: (column: string, value: string | number) => T;
+  gte: (column: string, value: string | number) => T;
+  lt: (column: string, value: string | number) => T;
+}
+
+/**
  * Apply the d2c-specific filters (search, status, repeat, spend bucket) to
  * either the paginated list query or the stats / select-all query. Shared so
  * the two stay in sync.
  */
-export function applyD2CFilters<T extends ReturnType<typeof supabase.from>>(
+export function applyD2CFilters<T extends FilterableD2CQuery<T>>(
   q: T,
   args: { search: string; status: string; repeatOnly: boolean; spendBucket: D2CSpendBucket },
 ): T {
   let out = q;
   if (args.search) {
     const s = args.search.trim();
-    out = out.or(`name.ilike.%${s}%,email.ilike.%${s}%,bill_to_state.ilike.%${s}%`) as T;
+    out = out.or(`name.ilike.%${s}%,email.ilike.%${s}%,bill_to_state.ilike.%${s}%`);
   }
   if (args.status) {
     const { active, risk } = getDateCutoffs();
     if (args.status === "active") {
-      out = out.gte("last_order_date", active.toISOString()) as T;
+      out = out.gte("last_order_date", active.toISOString());
     } else if (args.status === "at_risk") {
-      out = (out
+      out = out
         .lt("last_order_date", active.toISOString())
-        .gte("last_order_date", risk.toISOString())) as T;
+        .gte("last_order_date", risk.toISOString());
     } else if (args.status === "churned") {
-      out = out.lt("last_order_date", risk.toISOString()) as T;
+      out = out.lt("last_order_date", risk.toISOString());
     }
   }
   if (args.repeatOnly) {
-    out = out.gt("lifetime_orders", 1) as T;
+    out = out.gt("lifetime_orders", 1);
   }
   switch (args.spendBucket) {
     case "lt50":
-      out = out.lt("lifetime_revenue", 50) as T;
+      out = out.lt("lifetime_revenue", 50);
       break;
     case "50to100":
-      out = (out.gte("lifetime_revenue", 50).lt("lifetime_revenue", 100)) as T;
+      out = out.gte("lifetime_revenue", 50).lt("lifetime_revenue", 100);
       break;
     case "100to250":
-      out = (out.gte("lifetime_revenue", 100).lt("lifetime_revenue", 250)) as T;
+      out = out.gte("lifetime_revenue", 100).lt("lifetime_revenue", 250);
       break;
     case "250to1000":
-      out = (out.gte("lifetime_revenue", 250).lt("lifetime_revenue", 1000)) as T;
+      out = out.gte("lifetime_revenue", 250).lt("lifetime_revenue", 1000);
       break;
     case "1000plus":
-      out = out.gte("lifetime_revenue", 1000) as T;
+      out = out.gte("lifetime_revenue", 1000);
       break;
   }
   return out;

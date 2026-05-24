@@ -572,7 +572,7 @@ export function stripQuotedReply(text: string): string {
     /On\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}[\s\S]{0,200}?wrote:/i,
     /_{3,}\s*From:\s+/i,
     /-+\s*Original Message\s*-+/i,
-    /\bFrom:\s+.{0,200}?Sent:\s+/is,
+    /\bFrom:\s+[\s\S]{0,200}?Sent:\s+/i,
     /(?:^|\n)>\s*On\s+/,
   ];
 
