@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/renew-email-subscriptions",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/d2c-reengagement",
+      "schedule": "0 14 * * *"
     }
   ]
 }

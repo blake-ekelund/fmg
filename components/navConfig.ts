@@ -17,6 +17,7 @@ import {
   Archive,
   BarChart3,
   Inbox,
+  Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -107,6 +108,12 @@ export const navSections: readonly NavSection[] = [
         href: "/email-templates",
         icon: FileText,
         roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Automations",
+        href: "/automations",
+        icon: Zap,
+        roles: ["owner", "admin"],
       },
       {
         label: "Shopify Analytics",
