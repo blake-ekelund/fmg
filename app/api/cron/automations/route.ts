@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
+import { getAuthUser } from "@/lib/email/server-auth";
 import {
   applyMergeFields,
   currentQuarterLabel,
@@ -76,10 +77,15 @@ type ContactRow = {
  * Safe to invoke ad-hoc via `?dry=1` (no enrollments inserted, no sends).
  */
 export async function GET(request: Request) {
+  // Accept either:
+  //   - Vercel cron: Authorization: Bearer <CRON_SECRET>
+  //   - A signed-in portal user (so the UI's "Preview eligible" works)
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = request.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${cronSecret}`) {
+  const auth = request.headers.get("authorization") ?? "";
+  const isCronCall = !!cronSecret && auth === `Bearer ${cronSecret}`;
+  if (!isCronCall) {
+    const user = await getAuthUser(request);
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }

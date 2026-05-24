@@ -272,7 +272,9 @@ export default function AutomationEditor({
   async function runPreview() {
     setPreviewing(true);
     try {
-      const res = await fetch("/api/cron/automations?dry=1");
+      const res = await fetch("/api/cron/automations?dry=1", {
+        headers: await authHeader(),
+      });
       const json = await res.json();
       if (!res.ok) {
         setError(json?.error ?? `Preview failed (${res.status})`);
