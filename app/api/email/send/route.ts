@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAuthUser } from "@/lib/email/server-auth";
@@ -7,6 +8,8 @@ import {
   firstNameOf,
   sendEmail,
 } from "@/lib/email/send";
+import { publicOriginFromRequest } from "@/lib/email/origin";
+import { buildTrackedHtmlBody } from "@/lib/email/tracking";
 
 export const runtime = "nodejs";
 // Graph sendMail is per-recipient. A 25-recipient batch with the create-draft
@@ -161,7 +164,7 @@ export async function POST(request: Request) {
 
   let sentCount = 0;
   let failedCount = 0;
-  const isHtml = (body.body_format ?? "text") === "html";
+  const origin = publicOriginFromRequest(request);
 
   // Send one at a time. Could parallelize with a small pool later, but for
   // ≤250 recipients the simple loop keeps order predictable and per-error
@@ -205,10 +208,19 @@ export async function POST(request: Request) {
     recipientRow.personalized_subject = subject;
     recipientRow.personalized_body = bodyContent;
 
+    // Pre-generate the message id so the tracking pixel URL we embed in the
+    // outbound HTML matches the row we'll insert below.
+    const messageId = randomUUID();
+    const tracked = buildTrackedHtmlBody({
+      plainText: bodyContent,
+      origin,
+      messageId,
+    });
+
     try {
       const sent = await sendEmail(accessToken, {
         subject,
-        ...(isHtml ? { bodyHtml: bodyContent } : { bodyText: bodyContent }),
+        bodyHtml: tracked.html,
         to: [{ address: contact.email, name: contact.name ?? undefined }],
       });
 
@@ -225,7 +237,7 @@ export async function POST(request: Request) {
             subject,
             last_message_at: sent.sentAt,
             last_direction: "sent",
-            last_preview: sent.bodyPreview,
+            last_preview: sent.bodyPreview ?? bodyContent.slice(0, 200),
           },
           { onConflict: "account_id,conversation_id" },
         )
@@ -235,10 +247,11 @@ export async function POST(request: Request) {
         throw new Error(`Thread upsert failed: ${threadErr?.message ?? "unknown"}`);
       }
 
-      // Insert the message row.
+      // Insert the message row with the pre-generated id so trackings line up.
       const { data: msg, error: msgErr } = await supabaseServer
         .from("email_messages")
         .insert({
+          id: messageId,
           thread_id: thread.id,
           account_id: accountId,
           direction: "sent",
@@ -248,8 +261,10 @@ export async function POST(request: Request) {
           from_address: sent.fromAddress ?? senderEmail,
           to_addresses: [{ address: contact.email, name: contact.name }],
           subject,
-          body_html: isHtml ? bodyContent : null,
-          body_text: isHtml ? null : bodyContent,
+          // Store the original plain text so the UI can render bubbles cleanly,
+          // plus the actual HTML we shipped so we can debug tracking issues.
+          body_text: bodyContent,
+          body_html: tracked.html,
           body_preview: sent.bodyPreview ?? bodyContent.slice(0, 200),
           sent_at: sent.sentAt,
         })
@@ -257,6 +272,18 @@ export async function POST(request: Request) {
         .single();
       if (msgErr || !msg) {
         throw new Error(`Message insert failed: ${msgErr?.message ?? "unknown"}`);
+      }
+
+      // Persist link tracking rows so click redirects work.
+      if (tracked.links.length > 0) {
+        await supabaseServer.from("email_message_links").insert(
+          tracked.links.map((l) => ({
+            id: l.id,
+            message_id: messageId,
+            link_index: l.link_index,
+            original_url: l.original_url,
+          })),
+        );
       }
 
       recipientRow.status = "sent";

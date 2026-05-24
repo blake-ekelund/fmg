@@ -1,8 +1,11 @@
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import { sendReply, type ReplyAttachment } from "@/lib/email/reply";
+import { publicOriginFromRequest } from "@/lib/email/origin";
+import { buildTrackedHtmlBody } from "@/lib/email/tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -124,10 +127,24 @@ export async function POST(request: Request) {
     );
   }
 
+  // Pre-generate the message id so the tracking pixel URL we embed in the
+  // outbound HTML matches the row we'll insert below.
+  const messageId = randomUUID();
+  const tracked = buildTrackedHtmlBody({
+    plainText: replyBody,
+    origin: publicOriginFromRequest(request),
+    messageId,
+  });
+
   // Send via Graph.
   let result;
   try {
-    result = await sendReply(accessToken, target.graph_message_id, replyBody, cleaned);
+    result = await sendReply(
+      accessToken,
+      target.graph_message_id,
+      { html: tracked.html },
+      cleaned,
+    );
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
@@ -135,11 +152,11 @@ export async function POST(request: Request) {
     );
   }
 
-  // Record locally. The thread already exists; the trigger will bump
-  // message_count + last_message_at automatically.
+  // Record locally with the pre-generated id so trackings line up.
   const { data: msg, error: insertErr } = await supabaseServer
     .from("email_messages")
     .insert({
+      id: messageId,
       thread_id: thread.id,
       account_id: accountId,
       direction: "sent",
@@ -151,12 +168,25 @@ export async function POST(request: Request) {
       to_addresses: [],
       subject: result.subject ?? (thread.subject ? `Re: ${thread.subject}` : null),
       body_text: replyBody,
+      body_html: tracked.html,
       body_preview: result.bodyPreview ?? replyBody.slice(0, 200),
       has_attachments: cleaned.length > 0,
       sent_at: result.sentAt,
     })
     .select("id")
     .single();
+
+  // Persist link tracking rows for click redirects.
+  if (tracked.links.length > 0) {
+    await supabaseServer.from("email_message_links").insert(
+      tracked.links.map((l) => ({
+        id: l.id,
+        message_id: messageId,
+        link_index: l.link_index,
+        original_url: l.original_url,
+      })),
+    );
+  }
 
   if (insertErr) {
     // The reply went out on Graph, but we failed to record it locally. Don't

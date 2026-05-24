@@ -9,6 +9,8 @@ import {
   Paperclip,
   X,
   CheckCircle2,
+  Eye,
+  MousePointerClick,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
@@ -38,6 +40,9 @@ type MessageRow = {
   has_attachments: boolean;
   sent_at: string | null;
   received_at: string | null;
+  open_count: number | null;
+  last_opened_at: string | null;
+  link_click_count: number | null;
 };
 
 type AttachmentDraft = {
@@ -201,7 +206,7 @@ function ThreadChatView({
     const { data } = await supabase
       .from("email_messages")
       .select(
-        "id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, body_preview, has_attachments, sent_at, received_at",
+        "id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, body_preview, has_attachments, sent_at, received_at, open_count, last_opened_at, link_click_count",
       )
       .eq("thread_id", thread.id)
       .order("sent_at", { ascending: true, nullsFirst: true })
@@ -339,11 +344,62 @@ function ChatBubble({
             </div>
           )}
         </div>
-        <div className="text-[10px] text-gray-400 mt-0.5 px-1 tabular-nums">
-          {ts ? formatTime(ts) : ""}
+        <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5 px-1 tabular-nums">
+          <span>{ts ? formatTime(ts) : ""}</span>
+          {isSent && (
+            <SentTrackingMeta
+              opens={message.open_count ?? 0}
+              lastOpenedAt={message.last_opened_at}
+              clicks={message.link_click_count ?? 0}
+            />
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function SentTrackingMeta({
+  opens,
+  lastOpenedAt,
+  clicks,
+}: {
+  opens: number;
+  lastOpenedAt: string | null;
+  clicks: number;
+}) {
+  if (opens === 0 && clicks === 0) {
+    return <span className="text-gray-300">· not opened</span>;
+  }
+  const lastOpenLabel = lastOpenedAt
+    ? `last ${new Date(lastOpenedAt).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })}`
+    : "";
+  return (
+    <span className="inline-flex items-center gap-2">
+      {opens > 0 && (
+        <span
+          className="inline-flex items-center gap-0.5 text-gray-500"
+          title={`Opened ${opens}× ${lastOpenLabel}. Note: iPhone Mail can pre-fetch the pixel even before the recipient sees the email, so the first open may not reflect a real read.`}
+        >
+          <Eye size={10} />
+          {opens}
+        </span>
+      )}
+      {clicks > 0 && (
+        <span
+          className="inline-flex items-center gap-0.5 text-blue-600"
+          title={`${clicks} link click${clicks === 1 ? "" : "s"} — reliable intent signal.`}
+        >
+          <MousePointerClick size={10} />
+          {clicks}
+        </span>
+      )}
+    </span>
   );
 }
 

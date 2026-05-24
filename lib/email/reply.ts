@@ -44,9 +44,13 @@ async function graphFetch(
 export async function sendReply(
   accessToken: string,
   targetMessageId: string,
-  bodyText: string,
+  body: { html?: string; text?: string },
   attachments: ReplyAttachment[],
 ): Promise<ReplyResult> {
+  if (!body.html && !body.text) {
+    throw new Error("sendReply: must provide html or text body");
+  }
+
   // 1) Create the reply draft. Graph fills in To/Subject/conversationId from
   // the source message. The body comes back pre-populated with the quoted
   // original, which we'll overwrite below.
@@ -67,15 +71,17 @@ export async function sendReply(
     bodyPreview?: string;
   };
 
-  // 2) Overwrite the body with the user's plain text.
+  // 2) Overwrite the body. Prefer HTML when provided so tracking pixel +
+  // rewritten links render; fall back to plain text.
+  const patchBody = body.html
+    ? { body: { contentType: "HTML", content: body.html } }
+    : { body: { contentType: "Text", content: body.text ?? "" } };
   const patchRes = await graphFetch(
     accessToken,
     `/me/messages/${encodeURIComponent(draft.id)}`,
     {
       method: "PATCH",
-      body: JSON.stringify({
-        body: { contentType: "Text", content: bodyText },
-      }),
+      body: JSON.stringify(patchBody),
     },
   );
   if (!patchRes.ok) {
