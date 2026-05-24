@@ -21,13 +21,9 @@ const MAX_NEW_ENROLLMENTS_PER_AUTOMATION = 200;
 const MAX_STEP_SENDS_PER_RUN = 200;
 const SEND_CONCURRENCY = 5;
 
-type TriggerType =
-  | "d2c_at_risk"
-  | "wholesale_at_risk"
-  | "after_first_order"
-  | "after_last_order"
-  | "scheduled_blast"
-  | "manual";
+type TriggerType = "status_change" | "order_event" | "date" | "manual";
+type AudienceConfig = "d2c" | "wholesale" | "both";
+type Recurring = "none" | "weekly" | "monthly" | "quarterly" | "annually";
 
 type Automation = {
   id: string;
@@ -35,21 +31,26 @@ type Automation = {
   enabled: boolean;
   trigger_type: TriggerType;
   trigger_config: {
-    // shared
-    days_inactive?: number;
+    audience?: AudienceConfig;
+    // status_change
+    status_target?: "at_risk" | "churned";
     lookback_days?: number;
-    // after_first_order / after_last_order
+    // order_event
+    order_event_type?: "first" | "last";
     days_after?: number;
-    customer_type?: "d2c" | "wholesale";
-    // scheduled_blast
-    scheduled_at?: string;     // YYYY-MM-DD
-    audience?: "d2c" | "wholesale" | "both";
-    // optional sub-filters for scheduled_blast + at_risk
-    status?: "active" | "at_risk" | "churned";
+    // date
+    scheduled_at?: string; // YYYY-MM-DD
+    recurring?: Recurring;
+    // filters (shared)
     min_spend?: number;
+    channel?: string;
+    state?: string;
+    status_filter?: "active" | "at_risk" | "churned";
   };
   sender_user_id: string | null;
 };
+
+const STATUS_DAYS = { at_risk: 180, churned: 365 } as const;
 
 type Step = {
   id: string;
@@ -503,84 +504,96 @@ async function findTriggerCandidates(
   automation: Automation,
 ): Promise<Array<ContactRow & { audience_side: AudienceSide }>> {
   const t = automation.trigger_type;
-
+  const cfg = automation.trigger_config ?? {};
   if (t === "manual") return [];
 
-  /* ── At-risk: customer hasn't ordered in days_inactive+ days ─────────── */
-  if (t === "d2c_at_risk" || t === "wholesale_at_risk") {
-    const days = automation.trigger_config?.days_inactive ?? 180;
-    const lookback = automation.trigger_config?.lookback_days ?? 0;
-    const minSpend = automation.trigger_config?.min_spend ?? 0;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const side: AudienceSide = t === "d2c_at_risk" ? "d2c" : "wholesale";
-    return runContactQuery(side, (q) => {
-      let out = q
-        .lt("last_order_date", cutoff.toISOString().slice(0, 10))
-        .not("email", "is", null);
-      if (lookback > 0) {
-        const oldest = new Date(cutoff);
-        oldest.setDate(oldest.getDate() - lookback);
-        out = out.gte("last_order_date", oldest.toISOString().slice(0, 10));
-      }
-      if (minSpend > 0) {
-        out = out.gte("lifetime_revenue", minSpend);
-      }
-      return out;
-    });
+  const audience: AudienceConfig = cfg.audience ?? "d2c";
+  const sides: AudienceSide[] = audience === "both" ? ["d2c", "wholesale"] : [audience];
+
+  /* Helper: apply the shared filters (min_spend / channel / state) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyFilters = (q: any) => {
+    let out = q.not("email", "is", null);
+    if ((cfg.min_spend ?? 0) > 0) out = out.gte("lifetime_revenue", cfg.min_spend);
+    if (cfg.channel) out = out.eq("primary_channel", cfg.channel);
+    if (cfg.state) out = out.eq("billto_state", cfg.state);
+    return out;
+  };
+
+  /* ── status_change: catch customers who just crossed at_risk / churned ── */
+  if (t === "status_change") {
+    const target = cfg.status_target ?? "at_risk";
+    const days = STATUS_DAYS[target];
+    const lookback = cfg.lookback_days ?? 30;
+    const crossingDate = new Date();
+    crossingDate.setDate(crossingDate.getDate() - days);
+    const oldest = new Date(crossingDate);
+    oldest.setDate(oldest.getDate() - lookback);
+    const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
+    for (const side of sides) {
+      const rows = await runContactQuery(side, (q) =>
+        applyFilters(q)
+          .gte("last_order_date", oldest.toISOString().slice(0, 10))
+          .lte("last_order_date", crossingDate.toISOString().slice(0, 10)),
+      );
+      out.push(...rows);
+    }
+    return out;
   }
 
-  /* ── After-first / after-last: customer reached the order anniversary ── */
-  if (t === "after_first_order" || t === "after_last_order") {
-    const daysAfter = automation.trigger_config?.days_after ?? 7;
-    const lookback = automation.trigger_config?.lookback_days ?? 30;
-    const side: AudienceSide = automation.trigger_config?.customer_type ?? "d2c";
+  /* ── order_event: N days after first or last order ──────────────────── */
+  if (t === "order_event") {
+    const subtype = cfg.order_event_type ?? "first";
+    const daysAfter = cfg.days_after ?? 7;
+    const lookback = cfg.lookback_days ?? 30;
     const target = new Date();
     target.setDate(target.getDate() - daysAfter);
     const oldest = new Date(target);
     oldest.setDate(oldest.getDate() - lookback);
-    const column = t === "after_first_order" ? "first_order_date" : "last_order_date";
-    return runContactQuery(side, (q) =>
-      q
-        .gte(column, oldest.toISOString().slice(0, 10))
-        .lte(column, target.toISOString().slice(0, 10))
-        .not("email", "is", null),
-    );
+    const column = subtype === "first" ? "first_order_date" : "last_order_date";
+    const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
+    for (const side of sides) {
+      const rows = await runContactQuery(side, (q) =>
+        applyFilters(q)
+          .gte(column, oldest.toISOString().slice(0, 10))
+          .lte(column, target.toISOString().slice(0, 10)),
+      );
+      out.push(...rows);
+    }
+    return out;
   }
 
-  /* ── Scheduled blast: enroll the audience on the scheduled date ──────── */
-  if (t === "scheduled_blast") {
-    const scheduledAt = automation.trigger_config?.scheduled_at;
-    if (!scheduledAt) return [];
-    const target = new Date(scheduledAt + "T00:00:00Z");
-    const now = new Date();
-    // Only enroll within a 7-day grace window starting on the scheduled date,
-    // and only if no one's been enrolled in this automation yet (one-shot).
-    const grace = new Date(target);
-    grace.setDate(grace.getDate() + 7);
-    if (now < target || now > grace) return [];
+  /* ── date: one-shot or recurring blast ──────────────────────────────── */
+  if (t === "date") {
+    if (!cfg.scheduled_at) return [];
+    const scheduled = new Date(cfg.scheduled_at + "T00:00:00Z");
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const recurring: Recurring = cfg.recurring ?? "none";
 
+    const { shouldFire, cycleStart } = computeDateFire(scheduled, today, recurring);
+    if (!shouldFire) return [];
+
+    // Already enrolled this cycle? Bail.
     const { count } = await supabaseServer
       .from("automation_enrollments")
       .select("id", { count: "exact", head: true })
-      .eq("automation_id", automation.id);
+      .eq("automation_id", automation.id)
+      .gte("enrolled_at", cycleStart.toISOString());
     if ((count ?? 0) > 0) return [];
 
-    const audience = automation.trigger_config?.audience ?? "d2c";
-    const sides: AudienceSide[] =
-      audience === "both" ? ["d2c", "wholesale"] : [audience];
-    const status = automation.trigger_config?.status;
-    const minSpend = automation.trigger_config?.min_spend ?? 0;
-    // Date math for status: Active = ordered in last 180d, At Risk = 180-365d,
-    // Churned = 365d+. Match the same cutoffs the customers list uses.
+    // Apply status filter for date triggers: Active = ordered <180d, At Risk
+    // 180–365d, Churned = 365d+. Same cutoffs the customer list uses.
+    const status = cfg.status_filter;
     const activeCutoff = new Date();
     activeCutoff.setDate(activeCutoff.getDate() - 180);
     const riskCutoff = new Date();
     riskCutoff.setDate(riskCutoff.getDate() - 365);
+
     const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
     for (const side of sides) {
       const rows = await runContactQuery(side, (q) => {
-        let out2 = q.not("email", "is", null);
+        let out2 = applyFilters(q);
         if (status === "active") {
           out2 = out2.gte("last_order_date", activeCutoff.toISOString().slice(0, 10));
         } else if (status === "at_risk") {
@@ -590,9 +603,6 @@ async function findTriggerCandidates(
         } else if (status === "churned") {
           out2 = out2.lt("last_order_date", riskCutoff.toISOString().slice(0, 10));
         }
-        if (minSpend > 0) {
-          out2 = out2.gte("lifetime_revenue", minSpend);
-        }
         return out2;
       });
       out.push(...rows);
@@ -601,6 +611,74 @@ async function findTriggerCandidates(
   }
 
   return [];
+}
+
+/**
+ * Given the user-picked scheduled_at and the recurrence rule, decide whether
+ * the trigger should fire today and what the current cycle's start date is.
+ * cycleStart is used to dedup against past enrollments — anything before it
+ * belonged to a prior cycle.
+ */
+function computeDateFire(
+  scheduled: Date,
+  today: Date,
+  recurring: Recurring,
+): { shouldFire: boolean; cycleStart: Date } {
+  if (recurring === "none") {
+    // One-shot: fire within a 7-day grace window starting on the scheduled date.
+    const grace = new Date(scheduled);
+    grace.setUTCDate(grace.getUTCDate() + 7);
+    return {
+      shouldFire: today >= scheduled && today <= grace,
+      cycleStart: scheduled,
+    };
+  }
+
+  if (recurring === "weekly") {
+    // Fire on the same weekday as scheduled_at every week.
+    const targetWeekday = scheduled.getUTCDay();
+    const shouldFire = today.getUTCDay() === targetWeekday && today >= scheduled;
+    const cycleStart = new Date(today);
+    cycleStart.setUTCHours(0, 0, 0, 0);
+    cycleStart.setUTCDate(today.getUTCDate() - 6); // last 7 days
+    return { shouldFire, cycleStart };
+  }
+
+  if (recurring === "monthly") {
+    // Fire on the same day-of-month as scheduled_at every month.
+    const targetDay = scheduled.getUTCDate();
+    const shouldFire = today.getUTCDate() === targetDay && today >= scheduled;
+    const cycleStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    return { shouldFire, cycleStart };
+  }
+
+  if (recurring === "quarterly") {
+    // Fire on the same day-of-month as scheduled_at every 3 months from the
+    // scheduled month onward (Jan->Apr->Jul->Oct if scheduled in Jan).
+    const targetDay = scheduled.getUTCDate();
+    if (today.getUTCDate() !== targetDay || today < scheduled) {
+      return { shouldFire: false, cycleStart: scheduled };
+    }
+    const monthsSinceStart =
+      (today.getUTCFullYear() - scheduled.getUTCFullYear()) * 12 +
+      (today.getUTCMonth() - scheduled.getUTCMonth());
+    const shouldFire = monthsSinceStart >= 0 && monthsSinceStart % 3 === 0;
+    const cycleStart = new Date(today);
+    cycleStart.setUTCMonth(today.getUTCMonth() - 2, 1);
+    cycleStart.setUTCHours(0, 0, 0, 0);
+    return { shouldFire, cycleStart };
+  }
+
+  if (recurring === "annually") {
+    const shouldFire =
+      today.getUTCMonth() === scheduled.getUTCMonth() &&
+      today.getUTCDate() === scheduled.getUTCDate() &&
+      today >= scheduled;
+    const cycleStart = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+    return { shouldFire, cycleStart };
+  }
+
+  return { shouldFire: false, cycleStart: today };
 }
 
 // The supabase-js generic parameters change at every .select / .filter call,

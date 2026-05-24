@@ -19,16 +19,9 @@ import clsx from "clsx";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
-type TriggerType =
-  | "d2c_at_risk"
-  | "wholesale_at_risk"
-  | "after_first_order"
-  | "after_last_order"
-  | "scheduled_blast"
-  | "manual";
-
-type AudienceSide = "d2c" | "wholesale";
-type BlastAudience = "d2c" | "wholesale" | "both";
+type TriggerType = "status_change" | "order_event" | "date" | "manual";
+type AudienceConfig = "d2c" | "wholesale" | "both";
+type Recurring = "none" | "weekly" | "monthly" | "quarterly" | "annually";
 
 type Automation = {
   id: string;
@@ -37,14 +30,21 @@ type Automation = {
   enabled: boolean;
   trigger_type: TriggerType;
   trigger_config: {
-    days_inactive?: number;
+    audience?: AudienceConfig;
+    // status_change
+    status_target?: "at_risk" | "churned";
     lookback_days?: number;
+    // order_event
+    order_event_type?: "first" | "last";
     days_after?: number;
-    customer_type?: AudienceSide;
+    // date
     scheduled_at?: string;
-    audience?: BlastAudience;
-    status?: "active" | "at_risk" | "churned";
+    recurring?: Recurring;
+    // filters
     min_spend?: number;
+    channel?: string;
+    state?: string;
+    status_filter?: "active" | "at_risk" | "churned";
   };
   sender_user_id: string | null;
   updated_at: string;
@@ -82,13 +82,6 @@ type StepSend = {
   } | null;
 };
 
-const TRIGGER_DAYS_OPTIONS = [
-  { label: "30 days", value: 30 },
-  { label: "90 days", value: 90 },
-  { label: "6 months", value: 180 },
-  { label: "1 year", value: 365 },
-];
-
 /** Used for "X days after [first|last] order" triggers. */
 const AFTER_ORDER_DAYS_OPTIONS = [
   { label: "1 day", value: 1 },
@@ -97,16 +90,6 @@ const AFTER_ORDER_DAYS_OPTIONS = [
   { label: "2 weeks", value: 14 },
   { label: "1 month", value: 30 },
   { label: "3 months", value: 90 },
-];
-
-/** Top-level trigger kinds the user picks from. */
-const TRIGGER_KINDS: { value: TriggerType; label: string }[] = [
-  { value: "d2c_at_risk", label: "Inactive D2C customer" },
-  { value: "wholesale_at_risk", label: "Inactive wholesale customer" },
-  { value: "after_first_order", label: "After a customer's first order" },
-  { value: "after_last_order", label: "After a customer's most recent order" },
-  { value: "scheduled_blast", label: "On a specific date" },
-  { value: "manual", label: "Manually added customer" },
 ];
 
 const DELAY_OPTIONS = [
@@ -211,29 +194,40 @@ export default function AutomationEditor({
   }
 
   async function updateTriggerType(t: TriggerType) {
-    // Reset trigger_config to the shape this trigger expects so stale keys
-    // from a previous trigger don't leak through.
-    let cfg: Automation["trigger_config"] = {};
-    if (t === "d2c_at_risk" || t === "wholesale_at_risk") {
-      cfg = {
-        days_inactive: automation?.trigger_config?.days_inactive ?? 180,
-        lookback_days: 0,
+    // Reset trigger_config to the shape this trigger expects, but preserve
+    // audience + filter values across trigger-type changes.
+    const audience = automation?.trigger_config?.audience ?? "d2c";
+    const preservedFilters = {
+      min_spend: automation?.trigger_config?.min_spend,
+      channel: automation?.trigger_config?.channel,
+      state: automation?.trigger_config?.state,
+    };
+    let typeSpecific: Automation["trigger_config"] = {};
+    if (t === "status_change") {
+      typeSpecific = {
+        status_target: automation?.trigger_config?.status_target ?? "at_risk",
+        lookback_days: automation?.trigger_config?.lookback_days ?? 30,
       };
-    } else if (t === "after_first_order" || t === "after_last_order") {
-      cfg = {
+    } else if (t === "order_event") {
+      typeSpecific = {
+        order_event_type: automation?.trigger_config?.order_event_type ?? "first",
         days_after: automation?.trigger_config?.days_after ?? 7,
-        customer_type: automation?.trigger_config?.customer_type ?? "d2c",
-        lookback_days: 30,
+        lookback_days: automation?.trigger_config?.lookback_days ?? 30,
       };
-    } else if (t === "scheduled_blast") {
+    } else if (t === "date") {
       const inAWeek = new Date();
       inAWeek.setDate(inAWeek.getDate() + 7);
-      cfg = {
+      typeSpecific = {
         scheduled_at:
           automation?.trigger_config?.scheduled_at ?? inAWeek.toISOString().slice(0, 10),
-        audience: automation?.trigger_config?.audience ?? "d2c",
+        recurring: automation?.trigger_config?.recurring ?? "none",
       };
     }
+    const cfg: Automation["trigger_config"] = {
+      audience,
+      ...preservedFilters,
+      ...typeSpecific,
+    };
     await patch({ trigger_type: t, trigger_config: cfg });
   }
 
@@ -403,27 +397,74 @@ export default function AutomationEditor({
         )}
 
         <div className="max-w-xl mx-auto space-y-1">
-          {/* ── Trigger card ── */}
+          {/* ── 1. Audience ── */}
           <FlowCard>
-            <FlowLabel>When</FlowLabel>
-            <div className="text-sm text-gray-800 leading-relaxed space-y-2">
-              <div>
-                Trigger:{" "}
-                <Pill>
-                  <select
-                    value={t}
-                    onChange={(e) => updateTriggerType(e.target.value as TriggerType)}
-                    className="bg-transparent focus:outline-none cursor-pointer pr-4"
-                  >
-                    {TRIGGER_KINDS.map((k) => (
-                      <option key={k.value} value={k.value}>
-                        {k.label}
-                      </option>
-                    ))}
-                  </select>
-                </Pill>
+            <FlowLabel>1 · Who is this for</FlowLabel>
+            <div className="flex items-center gap-1 mt-1">
+              <FilterPill
+                active={(cfg.audience ?? "d2c") === "d2c"}
+                onClick={() => updateTriggerConfig({ audience: "d2c" })}
+              >
+                D2C
+              </FilterPill>
+              <FilterPill
+                active={cfg.audience === "wholesale"}
+                onClick={() => updateTriggerConfig({ audience: "wholesale" })}
+              >
+                Wholesale
+              </FilterPill>
+              <FilterPill
+                active={cfg.audience === "both"}
+                onClick={() => updateTriggerConfig({ audience: "both" })}
+              >
+                Both
+              </FilterPill>
+            </div>
+          </FlowCard>
+
+          <Arrow />
+
+          {/* ── 2. Trigger ── */}
+          <FlowCard>
+            <FlowLabel>2 · When to enroll</FlowLabel>
+            <div className="text-sm text-gray-800 leading-relaxed space-y-3 mt-1">
+              <div className="flex items-center gap-1 flex-wrap">
+                <FilterPill
+                  active={t === "status_change"}
+                  onClick={() => updateTriggerType("status_change")}
+                >
+                  Status change
+                </FilterPill>
+                <FilterPill
+                  active={t === "order_event"}
+                  onClick={() => updateTriggerType("order_event")}
+                >
+                  Order event
+                </FilterPill>
+                <FilterPill
+                  active={t === "date"}
+                  onClick={() => updateTriggerType("date")}
+                >
+                  Date
+                </FilterPill>
+                <FilterPill
+                  active={t === "manual"}
+                  onClick={() => updateTriggerType("manual")}
+                >
+                  Manual
+                </FilterPill>
               </div>
               <div>{renderTriggerSentence(t, cfg, updateTriggerConfig)}</div>
+            </div>
+          </FlowCard>
+
+          <Arrow />
+
+          {/* ── 3. Filters ── */}
+          <FlowCard>
+            <FlowLabel>3 · Narrow it down (optional)</FlowLabel>
+            <div className="mt-1">
+              <FiltersRow cfg={cfg} patchCfg={updateTriggerConfig} />
             </div>
           </FlowCard>
 
@@ -751,45 +792,41 @@ function DelayPill({
 }
 
 /**
- * Render the trigger-specific portion of the sentence under the "Trigger:"
- * picker. Each kind has its own shape of config so this dispatches.
+ * Render the trigger-specific portion of the section 2 card.
+ * Audience picker lives in section 1; this just configures the trigger event.
  */
 function renderTriggerSentence(
   type: TriggerType,
   cfg: Automation["trigger_config"],
   patchCfg: (u: Partial<Automation["trigger_config"]>) => void | Promise<void>,
 ): React.ReactNode {
-  if (type === "d2c_at_risk" || type === "wholesale_at_risk") {
-    const days = cfg.days_inactive ?? 180;
+  if (type === "status_change") {
+    const target = cfg.status_target ?? "at_risk";
     return (
-      <div className="space-y-2">
-        <div>
-          Send when a {type === "d2c_at_risk" ? "D2C" : "wholesale"} customer
-          hasn&apos;t ordered in{" "}
-          <Pill>
-            <DaysPicker
-              value={days}
-              onChange={(v) => patchCfg({ days_inactive: v })}
-              options={TRIGGER_DAYS_OPTIONS}
-            />
-          </Pill>
-          .
-        </div>
-        <FilterChips
-          minSpend={cfg.min_spend}
-          onChangeMinSpend={(v) => patchCfg({ min_spend: v })}
-          // Status doesn't make sense for at-risk (it's already "inactive").
-        />
-      </div>
+      <>
+        When a customer becomes{" "}
+        <Pill>
+          <select
+            value={target}
+            onChange={(e) =>
+              patchCfg({ status_target: e.target.value as "at_risk" | "churned" })
+            }
+            className="bg-transparent focus:outline-none cursor-pointer pr-4"
+          >
+            <option value="at_risk">At Risk (180 days inactive)</option>
+            <option value="churned">Churned (365 days inactive)</option>
+          </select>
+        </Pill>
+        .
+      </>
     );
   }
 
-  if (type === "after_first_order" || type === "after_last_order") {
+  if (type === "order_event") {
+    const subtype = cfg.order_event_type ?? "first";
     const daysAfter = cfg.days_after ?? 7;
-    const side = cfg.customer_type ?? "d2c";
     return (
       <>
-        Send{" "}
         <Pill>
           <DaysPicker
             value={daysAfter}
@@ -797,137 +834,114 @@ function renderTriggerSentence(
             options={AFTER_ORDER_DAYS_OPTIONS}
           />
         </Pill>{" "}
-        after a{" "}
+        after a customer&apos;s{" "}
         <Pill>
           <select
-            value={side}
-            onChange={(e) => patchCfg({ customer_type: e.target.value as AudienceSide })}
+            value={subtype}
+            onChange={(e) =>
+              patchCfg({ order_event_type: e.target.value as "first" | "last" })
+            }
             className="bg-transparent focus:outline-none cursor-pointer pr-4"
           >
-            <option value="d2c">D2C</option>
-            <option value="wholesale">wholesale</option>
+            <option value="first">first order</option>
+            <option value="last">most recent order</option>
           </select>
-        </Pill>{" "}
-        customer&apos;s{" "}
-        {type === "after_first_order" ? "first order" : "most recent order"}.
+        </Pill>
+        .
       </>
     );
   }
 
-  if (type === "scheduled_blast") {
+  if (type === "date") {
     const date = cfg.scheduled_at ?? "";
-    const audience = cfg.audience ?? "d2c";
+    const recurring: Recurring = cfg.recurring ?? "none";
     return (
-      <div className="space-y-2">
-        <div>
-          Send on{" "}
-          <Pill>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => patchCfg({ scheduled_at: e.target.value })}
-              className="bg-transparent focus:outline-none cursor-pointer"
-            />
-          </Pill>{" "}
-          to{" "}
-          <Pill>
-            <select
-              value={audience}
-              onChange={(e) => patchCfg({ audience: e.target.value as BlastAudience })}
-              className="bg-transparent focus:outline-none cursor-pointer pr-4"
-            >
-              <option value="d2c">all D2C customers</option>
-              <option value="wholesale">all wholesale customers</option>
-              <option value="both">all customers</option>
-            </select>
-          </Pill>
-          .
-        </div>
-        <FilterChips
-          status={cfg.status}
-          onChangeStatus={(v) => patchCfg({ status: v })}
-          minSpend={cfg.min_spend}
-          onChangeMinSpend={(v) => patchCfg({ min_spend: v })}
-        />
-      </div>
+      <>
+        <Pill>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => patchCfg({ scheduled_at: e.target.value })}
+            className="bg-transparent focus:outline-none cursor-pointer"
+          />
+        </Pill>{" "}
+        — repeat:{" "}
+        <Pill>
+          <select
+            value={recurring}
+            onChange={(e) => patchCfg({ recurring: e.target.value as Recurring })}
+            className="bg-transparent focus:outline-none cursor-pointer pr-4"
+          >
+            <option value="none">Never (one-time)</option>
+            <option value="weekly">Every week</option>
+            <option value="monthly">Every month</option>
+            <option value="quarterly">Every 3 months</option>
+            <option value="annually">Every year</option>
+          </select>
+        </Pill>
+        .
+      </>
     );
   }
 
   // manual
-  return <>Customers are added by hand (no automatic trigger).</>;
+  return <>Customers are added by hand — no automatic enrollment.</>;
 }
 
 /**
- * Optional sub-filters shown below the main trigger sentence. Styled to match
- * the /customers + /customers/d2c filter row: a status pill group with the
- * same green/amber/gray color coding, and a spend dropdown with the same
- * white-bg rounded-lg select.
+ * Section 3 filters row. Total Spend, Channel (wholesale only), State, and
+ * Status (only meaningful for Date triggers — for status_change it's already
+ * the trigger). We render them all but disable Status outside Date triggers.
  */
-function FilterChips({
-  status,
-  onChangeStatus,
-  minSpend,
-  onChangeMinSpend,
+function FiltersRow({
+  cfg,
+  patchCfg,
 }: {
-  status?: "active" | "at_risk" | "churned";
-  onChangeStatus?: (v: "active" | "at_risk" | "churned" | undefined) => void;
-  minSpend?: number;
-  onChangeMinSpend?: (v: number | undefined) => void;
+  cfg: Automation["trigger_config"];
+  patchCfg: (u: Partial<Automation["trigger_config"]>) => void | Promise<void>;
 }) {
   return (
-    <div className="flex items-center gap-3 flex-wrap pt-1">
-      {/* Status pill group — mirrors the customers list */}
-      {onChangeStatus && (
-        <div className="flex items-center gap-1">
-          <FilterPill active={!status} onClick={() => onChangeStatus(undefined)}>
-            All
-          </FilterPill>
-          <FilterPill
-            active={status === "active"}
-            onClick={() => onChangeStatus(status === "active" ? undefined : "active")}
-            color="green"
-          >
-            Active
-          </FilterPill>
-          <FilterPill
-            active={status === "at_risk"}
-            onClick={() => onChangeStatus(status === "at_risk" ? undefined : "at_risk")}
-            color="amber"
-          >
-            At Risk
-          </FilterPill>
-          <FilterPill
-            active={status === "churned"}
-            onClick={() => onChangeStatus(status === "churned" ? undefined : "churned")}
-            color="gray"
-          >
-            Churned
-          </FilterPill>
-        </div>
-      )}
+    <div className="flex items-center gap-2 flex-wrap">
+      {/* Total Spend */}
+      <select
+        value={String(cfg.min_spend ?? 0)}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          patchCfg({ min_spend: v > 0 ? v : undefined });
+        }}
+        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
+        title="Minimum lifetime spend"
+      >
+        <option value="0">Any total spend</option>
+        <option value="50">$50+</option>
+        <option value="100">$100+</option>
+        <option value="250">$250+</option>
+        <option value="500">$500+</option>
+        <option value="1000">$1,000+</option>
+        <option value="5000">$5,000+</option>
+        <option value="10000">$10,000+</option>
+        <option value="25000">$25,000+</option>
+        <option value="100000">$100,000+</option>
+      </select>
 
-      {/* Min spend dropdown — uses the customers spend-bucket presets */}
-      {onChangeMinSpend && (
-        <select
-          value={String(minSpend ?? 0)}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            onChangeMinSpend(v > 0 ? v : undefined);
-          }}
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
-          title="Minimum lifetime spend"
-        >
-          <option value="0">Any spend</option>
-          <option value="50">$50+</option>
-          <option value="100">$100+</option>
-          <option value="250">$250+</option>
-          <option value="500">$500+</option>
-          <option value="1000">$1,000+</option>
-          <option value="5000">$5,000+</option>
-          <option value="10000">$10,000+</option>
-          <option value="25000">$25,000+</option>
-          <option value="100000">$100,000+</option>
-        </select>
+      {/* State */}
+      <input
+        value={cfg.state ?? ""}
+        onChange={(e) => patchCfg({ state: e.target.value || undefined })}
+        placeholder="Any state"
+        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition w-32"
+        title="Filter by billing state (exact match)"
+      />
+
+      {/* Channel — only meaningful for wholesale */}
+      {(cfg.audience === "wholesale" || cfg.audience === "both") && (
+        <input
+          value={cfg.channel ?? ""}
+          onChange={(e) => patchCfg({ channel: e.target.value || undefined })}
+          placeholder="Any channel"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 transition w-32"
+          title="Filter by wholesale channel (e.g. GIFT, GROCERY)"
+        />
       )}
     </div>
   );

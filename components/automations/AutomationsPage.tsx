@@ -17,13 +17,7 @@ type Automation = {
   name: string;
   description: string | null;
   enabled: boolean;
-  trigger_type:
-    | "d2c_at_risk"
-    | "wholesale_at_risk"
-    | "after_first_order"
-    | "after_last_order"
-    | "scheduled_blast"
-    | "manual";
+  trigger_type: "status_change" | "order_event" | "date" | "manual";
   trigger_config: Record<string, unknown>;
   sender_user_id: string | null;
   step_count: number;
@@ -228,32 +222,25 @@ export default function AutomationsPage() {
 function plainDescription(a: Automation): string {
   const steps = a.step_count;
   const stepPart =
-    steps === 0
-      ? "no emails yet"
-      : `${steps} email${steps === 1 ? "" : "s"}`;
+    steps === 0 ? "no emails yet" : `${steps} email${steps === 1 ? "" : "s"}`;
   const cfg = a.trigger_config as Record<string, unknown> | undefined;
+  const audienceLabel = audienceText((cfg?.audience as string) ?? "d2c");
+
   switch (a.trigger_type) {
-    case "d2c_at_risk":
-      return `D2C customers inactive ${prettyDays(cfg?.days_inactive as number | undefined)} · ${stepPart}`;
-    case "wholesale_at_risk":
-      return `Wholesale customers inactive ${prettyDays(cfg?.days_inactive as number | undefined)} · ${stepPart}`;
-    case "after_first_order": {
-      const side = (cfg?.customer_type as string) ?? "d2c";
-      return `${side === "wholesale" ? "Wholesale" : "D2C"} · ${prettyDays(cfg?.days_after as number | undefined)} after first order · ${stepPart}`;
+    case "status_change": {
+      const target = (cfg?.status_target as string) ?? "at_risk";
+      const label = target === "churned" ? "Churned" : "At Risk";
+      return `${audienceLabel} → becomes ${label} · ${stepPart}`;
     }
-    case "after_last_order": {
-      const side = (cfg?.customer_type as string) ?? "d2c";
-      return `${side === "wholesale" ? "Wholesale" : "D2C"} · ${prettyDays(cfg?.days_after as number | undefined)} after last order · ${stepPart}`;
+    case "order_event": {
+      const subtype = (cfg?.order_event_type as string) ?? "first";
+      const daysAfter = cfg?.days_after as number | undefined;
+      const which = subtype === "last" ? "last order" : "first order";
+      return `${audienceLabel} → ${prettyDays(daysAfter)} after ${which} · ${stepPart}`;
     }
-    case "scheduled_blast": {
-      const aud = (cfg?.audience as string) ?? "d2c";
-      const audienceLabel =
-        aud === "wholesale"
-          ? "all wholesale customers"
-          : aud === "both"
-            ? "all customers"
-            : "all D2C customers";
+    case "date": {
       const date = cfg?.scheduled_at as string | undefined;
+      const recurring = (cfg?.recurring as string) ?? "none";
       const dateLabel = date
         ? new Date(date + "T00:00:00Z").toLocaleDateString("en-US", {
             month: "short",
@@ -261,13 +248,29 @@ function plainDescription(a: Automation): string {
             year: "numeric",
           })
         : "(no date set)";
-      return `Blast on ${dateLabel} to ${audienceLabel} · ${stepPart}`;
+      const recurLabel =
+        recurring === "weekly"
+          ? "weekly"
+          : recurring === "monthly"
+            ? "monthly"
+            : recurring === "quarterly"
+              ? "quarterly"
+              : recurring === "annually"
+                ? "yearly"
+                : "one-time";
+      return `${audienceLabel} → ${recurLabel}, starting ${dateLabel} · ${stepPart}`;
     }
     case "manual":
-      return `Manually added customers · ${stepPart}`;
+      return `${audienceLabel} → manually added · ${stepPart}`;
     default:
       return stepPart;
   }
+}
+
+function audienceText(aud: string): string {
+  if (aud === "wholesale") return "Wholesale";
+  if (aud === "both") return "All customers";
+  return "D2C";
 }
 
 function prettyDays(d: number | undefined): string {
