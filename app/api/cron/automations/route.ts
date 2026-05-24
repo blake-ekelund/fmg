@@ -115,11 +115,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const dry = url.searchParams.get("dry") === "1";
 
-  /* ── 1) Load enabled automations + their steps ── */
-  const { data: autos } = await supabaseServer
+  /* ── 1) Load automations + their steps ──
+     In dry mode include disabled automations too so the UI's "Preview
+     eligible" button shows real numbers before the user enables. */
+  let autosQuery = supabaseServer
     .from("automations")
-    .select("id, name, enabled, trigger_type, trigger_config, sender_user_id")
-    .eq("enabled", true);
+    .select("id, name, enabled, trigger_type, trigger_config, sender_user_id");
+  if (!dry) autosQuery = autosQuery.eq("enabled", true);
+  const { data: autos } = await autosQuery;
   const automations = (autos as Automation[] | null) ?? [];
 
   const stepsByAutomation = new Map<string, Step[]>();
@@ -143,10 +146,13 @@ export async function GET(request: Request) {
   let totalEnrolled = 0;
   for (const a of automations) {
     const steps = stepsByAutomation.get(a.id) ?? [];
-    if (steps.length === 0) continue; // skip automations with no steps configured
+    // In live mode, skip automations with no steps configured — there'd be
+    // nothing to send. In dry mode we still compute candidates so the UI can
+    // preview enrollment counts before steps are added.
+    if (!dry && steps.length === 0) continue;
     if (a.trigger_type === "manual") continue; // manual = only enrolled by hand
 
-    const candidates = await findTriggerCandidates(a);
+    const candidates = await findTriggerCandidates(a, { dry });
     if (candidates.length === 0) continue;
 
     // Filter out anyone already enrolled in this automation.
@@ -502,8 +508,10 @@ function viewFor(side: AudienceSide): { view: string; refColumn: string } {
 
 async function findTriggerCandidates(
   automation: Automation,
+  options: { dry?: boolean } = {},
 ): Promise<Array<ContactRow & { audience_side: AudienceSide }>> {
   const t = automation.trigger_type;
+  const dry = options.dry === true;
   const cfg = automation.trigger_config ?? {};
   if (t === "manual") return [];
 
@@ -520,22 +528,31 @@ async function findTriggerCandidates(
     return out;
   };
 
-  /* ── status_change: catch customers who just crossed at_risk / churned ── */
+  /* ── status_change: customer is in at_risk / churned status ──────────── */
+  // Default behavior: catch every customer past the threshold. Dedup via
+  // automation_enrollments ensures no one's emailed twice. lookback_days > 0
+  // narrows to only customers who crossed within the last N days (useful for
+  // ongoing automations once the backlog is drained).
   if (t === "status_change") {
     const target = cfg.status_target ?? "at_risk";
     const days = STATUS_DAYS[target];
-    const lookback = cfg.lookback_days ?? 30;
+    const lookback = cfg.lookback_days ?? 0;
     const crossingDate = new Date();
     crossingDate.setDate(crossingDate.getDate() - days);
-    const oldest = new Date(crossingDate);
-    oldest.setDate(oldest.getDate() - lookback);
     const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
     for (const side of sides) {
-      const rows = await runContactQuery(side, (q) =>
-        applyFilters(q)
-          .gte("last_order_date", oldest.toISOString().slice(0, 10))
-          .lte("last_order_date", crossingDate.toISOString().slice(0, 10)),
-      );
+      const rows = await runContactQuery(side, (q) => {
+        let out2 = applyFilters(q).lte(
+          "last_order_date",
+          crossingDate.toISOString().slice(0, 10),
+        );
+        if (lookback > 0) {
+          const oldest = new Date(crossingDate);
+          oldest.setDate(oldest.getDate() - lookback);
+          out2 = out2.gte("last_order_date", oldest.toISOString().slice(0, 10));
+        }
+        return out2;
+      });
       out.push(...rows);
     }
     return out;
@@ -571,16 +588,19 @@ async function findTriggerCandidates(
     today.setUTCHours(0, 0, 0, 0);
     const recurring: Recurring = cfg.recurring ?? "none";
 
-    const { shouldFire, cycleStart } = computeDateFire(scheduled, today, recurring);
-    if (!shouldFire) return [];
-
-    // Already enrolled this cycle? Bail.
-    const { count } = await supabaseServer
-      .from("automation_enrollments")
-      .select("id", { count: "exact", head: true })
-      .eq("automation_id", automation.id)
-      .gte("enrolled_at", cycleStart.toISOString());
-    if ((count ?? 0) > 0) return [];
+    // In live mode, gate on whether the trigger should fire today + we
+    // haven't fired this cycle. In dry mode (preview), skip both checks so
+    // the user sees how many would be enrolled if the date hit right now.
+    if (!dry) {
+      const { shouldFire, cycleStart } = computeDateFire(scheduled, today, recurring);
+      if (!shouldFire) return [];
+      const { count } = await supabaseServer
+        .from("automation_enrollments")
+        .select("id", { count: "exact", head: true })
+        .eq("automation_id", automation.id)
+        .gte("enrolled_at", cycleStart.toISOString());
+      if ((count ?? 0) > 0) return [];
+    }
 
     // Apply status filter for date triggers: Active = ordered <180d, At Risk
     // 180–365d, Churned = 365d+. Same cutoffs the customer list uses.

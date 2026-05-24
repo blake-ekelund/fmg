@@ -206,7 +206,7 @@ export default function AutomationEditor({
     if (t === "status_change") {
       typeSpecific = {
         status_target: automation?.trigger_config?.status_target ?? "at_risk",
-        lookback_days: automation?.trigger_config?.lookback_days ?? 30,
+        lookback_days: automation?.trigger_config?.lookback_days ?? 0,
       };
     } else if (t === "order_event") {
       typeSpecific = {
