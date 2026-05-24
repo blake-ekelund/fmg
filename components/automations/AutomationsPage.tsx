@@ -168,12 +168,13 @@ export default function AutomationsPage() {
                           {a.enabled ? "Live" : "Paused"}
                         </span>
                       </div>
-                      <div className="text-[11px] text-gray-500 mt-0.5 truncate">
-                        {triggerLabel(a.trigger_type)} · {a.step_count} step
-                        {a.step_count === 1 ? "" : "s"}
+                      <div className="text-[11px] text-gray-500 mt-0.5 truncate leading-relaxed">
+                        {plainDescription(a)}
                       </div>
                       <div className="text-[10px] text-gray-400 mt-1">
-                        {a.enrollment_count} enrolled
+                        {a.enrollment_count > 0
+                          ? `${a.enrollment_count} customer${a.enrollment_count === 1 ? "" : "s"} in flow`
+                          : "Nothing in flow yet"}
                       </div>
                     </button>
                   </li>
@@ -218,13 +219,27 @@ export default function AutomationsPage() {
   );
 }
 
-function triggerLabel(t: Automation["trigger_type"]): string {
-  switch (t) {
+function plainDescription(a: Automation): string {
+  const steps = a.step_count;
+  const stepPart =
+    steps === 0
+      ? "no emails yet"
+      : `${steps} email${steps === 1 ? "" : "s"}`;
+  switch (a.trigger_type) {
     case "d2c_at_risk":
-      return "D2C at-risk";
+      return `D2C customers inactive ${prettyDays(a.trigger_config?.days_inactive as number | undefined)} · ${stepPart}`;
     case "wholesale_at_risk":
-      return "Wholesale at-risk";
+      return `Wholesale customers inactive ${prettyDays(a.trigger_config?.days_inactive as number | undefined)} · ${stepPart}`;
     case "manual":
-      return "Manual enrollment";
+      return `Manually added customers · ${stepPart}`;
   }
+}
+
+function prettyDays(d: number | undefined): string {
+  if (!d) return "180 days";
+  if (d === 365) return "1 year";
+  if (d === 180) return "6 months";
+  if (d === 90) return "3 months";
+  if (d === 30) return "30 days";
+  return `${d} days`;
 }
