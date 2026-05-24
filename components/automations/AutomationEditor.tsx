@@ -651,8 +651,10 @@ function FlowLabel({ children }: { children: React.ReactNode }) {
 }
 
 function Pill({ children }: { children: React.ReactNode }) {
+  // Visual matches the /customers + /customers/d2c filter dropdowns:
+  // white background, gray border, rounded-lg, same padding + text size.
   return (
-    <span className="inline-flex items-center rounded-md bg-gray-100 hover:bg-gray-200 transition px-2 py-0.5 text-sm font-medium text-gray-800 cursor-pointer">
+    <span className="inline-flex items-center rounded-lg border border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 transition px-3 py-1.5 text-xs font-medium text-gray-700 cursor-pointer">
       {children}
     </span>
   );
@@ -856,9 +858,10 @@ function renderTriggerSentence(
 }
 
 /**
- * Optional sub-filters shown below the main trigger sentence. Each chip is
- * dormant ("+ Status filter" / "+ Min spend") until clicked; once active it
- * becomes an editable pill. Click the × to clear.
+ * Optional sub-filters shown below the main trigger sentence. Styled to match
+ * the /customers + /customers/d2c filter row: a status pill group with the
+ * same green/amber/gray color coding, and a spend dropdown with the same
+ * white-bg rounded-lg select.
  */
 function FilterChips({
   status,
@@ -867,81 +870,96 @@ function FilterChips({
   onChangeMinSpend,
 }: {
   status?: "active" | "at_risk" | "churned";
-  onChangeStatus?: (v: Automation["trigger_config"]["status"] | undefined) => void;
+  onChangeStatus?: (v: "active" | "at_risk" | "churned" | undefined) => void;
   minSpend?: number;
   onChangeMinSpend?: (v: number | undefined) => void;
 }) {
   return (
-    <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-      {/* Status */}
+    <div className="flex items-center gap-3 flex-wrap pt-1">
+      {/* Status pill group — mirrors the customers list */}
       {onChangeStatus && (
-        <>
-          {status ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5">
-              Status:{" "}
-              <select
-                value={status}
-                onChange={(e) =>
-                  onChangeStatus(e.target.value as "active" | "at_risk" | "churned")
-                }
-                className="bg-transparent focus:outline-none cursor-pointer pr-1 text-blue-700"
-              >
-                <option value="active">Active</option>
-                <option value="at_risk">At Risk</option>
-                <option value="churned">Churned</option>
-              </select>
-              <button
-                onClick={() => onChangeStatus(undefined)}
-                className="text-blue-400 hover:text-blue-600"
-                title="Clear status filter"
-              >
-                <X size={9} />
-              </button>
-            </span>
-          ) : (
-            <button
-              onClick={() => onChangeStatus("active")}
-              className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 text-gray-500 hover:text-gray-800 hover:border-gray-400 px-2 py-0.5 transition"
-            >
-              + Status filter
-            </button>
-          )}
-        </>
+        <div className="flex items-center gap-1">
+          <FilterPill active={!status} onClick={() => onChangeStatus(undefined)}>
+            All
+          </FilterPill>
+          <FilterPill
+            active={status === "active"}
+            onClick={() => onChangeStatus(status === "active" ? undefined : "active")}
+            color="green"
+          >
+            Active
+          </FilterPill>
+          <FilterPill
+            active={status === "at_risk"}
+            onClick={() => onChangeStatus(status === "at_risk" ? undefined : "at_risk")}
+            color="amber"
+          >
+            At Risk
+          </FilterPill>
+          <FilterPill
+            active={status === "churned"}
+            onClick={() => onChangeStatus(status === "churned" ? undefined : "churned")}
+            color="gray"
+          >
+            Churned
+          </FilterPill>
+        </div>
       )}
 
-      {/* Min spend */}
+      {/* Min spend dropdown — uses the customers spend-bucket presets */}
       {onChangeMinSpend && (
-        <>
-          {minSpend && minSpend > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5">
-              Spent at least $
-              <input
-                type="number"
-                min={0}
-                step={100}
-                value={minSpend}
-                onChange={(e) => onChangeMinSpend(Number(e.target.value) || 0)}
-                className="w-20 bg-transparent focus:outline-none text-blue-700"
-              />
-              <button
-                onClick={() => onChangeMinSpend(undefined)}
-                className="text-blue-400 hover:text-blue-600"
-                title="Clear spend filter"
-              >
-                <X size={9} />
-              </button>
-            </span>
-          ) : (
-            <button
-              onClick={() => onChangeMinSpend(1000)}
-              className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 text-gray-500 hover:text-gray-800 hover:border-gray-400 px-2 py-0.5 transition"
-            >
-              + Min spend
-            </button>
-          )}
-        </>
+        <select
+          value={String(minSpend ?? 0)}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onChangeMinSpend(v > 0 ? v : undefined);
+          }}
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
+          title="Minimum lifetime spend"
+        >
+          <option value="0">Any spend</option>
+          <option value="50">$50+</option>
+          <option value="100">$100+</option>
+          <option value="250">$250+</option>
+          <option value="500">$500+</option>
+          <option value="1000">$1,000+</option>
+          <option value="5000">$5,000+</option>
+          <option value="10000">$10,000+</option>
+          <option value="25000">$25,000+</option>
+          <option value="100000">$100,000+</option>
+        </select>
       )}
     </div>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  color,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  color?: "green" | "amber" | "gray";
+  children: React.ReactNode;
+}) {
+  let activeClasses = "bg-gray-900 text-white border-gray-900";
+  if (color === "green") activeClasses = "bg-green-50 text-green-700 border-green-200";
+  if (color === "amber") activeClasses = "bg-amber-50 text-amber-700 border-amber-200";
+  if (color === "gray") activeClasses = "bg-gray-100 text-gray-600 border-gray-300";
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        "rounded-lg px-3 py-2 text-xs font-medium border transition",
+        active
+          ? activeClasses
+          : "bg-white text-gray-500 border-gray-200 hover:border-gray-300",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
