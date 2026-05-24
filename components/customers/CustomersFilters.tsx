@@ -3,18 +3,9 @@
 import { Search } from "lucide-react";
 import clsx from "clsx";
 import type { CustomerViewMode } from "./constants";
-import type { D2CSpendBucket } from "./hooks/useD2CCustomers";
 
 type Option = { label: string; value: string };
-
-const SPEND_BUCKETS: { label: string; value: D2CSpendBucket }[] = [
-  { label: "Any spend", value: "" },
-  { label: "Less than $50", value: "lt50" },
-  { label: "$50 – $100", value: "50to100" },
-  { label: "$100 – $250", value: "100to250" },
-  { label: "$250 – $1,000", value: "250to1000" },
-  { label: "$1,000+", value: "1000plus" },
-];
+type SpendOption = { label: string; value: string };
 
 export default function CustomersFilters({
   viewMode = "wholesale",
@@ -33,6 +24,7 @@ export default function CustomersFilters({
   setRepeatOnly,
   spendBucket = "",
   setSpendBucket,
+  spendBucketOptions,
 }: {
   viewMode?: CustomerViewMode;
   search: string;
@@ -46,12 +38,13 @@ export default function CustomersFilters({
   agency?: string;
   setAgency?: (v: string) => void;
   agencyOptions?: Option[];
-  /** D2C-only: filter to lifetime_orders > 1. */
+  /** Filter to lifetime_orders > 1. */
   repeatOnly?: boolean;
   setRepeatOnly?: (v: boolean) => void;
-  /** D2C-only: bucket on lifetime_revenue. */
-  spendBucket?: D2CSpendBucket;
-  setSpendBucket?: (v: D2CSpendBucket) => void;
+  /** Lifetime-revenue bucket. Values differ between views; caller passes options. */
+  spendBucket?: string;
+  setSpendBucket?: (v: string) => void;
+  spendBucketOptions?: SpendOption[];
 }) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -121,15 +114,15 @@ export default function CustomersFilters({
           </select>
         )}
 
-        {/* D2C-only: spend bucket */}
-        {viewMode === "d2c" && setSpendBucket && (
+        {/* Spend bucket (caller decides the ranges per view) */}
+        {setSpendBucket && spendBucketOptions && spendBucketOptions.length > 0 && (
           <select
             value={spendBucket}
-            onChange={(e) => setSpendBucket(e.target.value as D2CSpendBucket)}
+            onChange={(e) => setSpendBucket(e.target.value)}
             className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
             title="Filter by lifetime spend"
           >
-            {SPEND_BUCKETS.map((b) => (
+            {spendBucketOptions.map((b) => (
               <option key={b.value || "any"} value={b.value}>
                 {b.label}
               </option>
@@ -137,8 +130,8 @@ export default function CustomersFilters({
           </select>
         )}
 
-        {/* D2C-only: repeat-customer toggle */}
-        {viewMode === "d2c" && setRepeatOnly && (
+        {/* Repeat-customer toggle */}
+        {setRepeatOnly && (
           <PillButton
             active={repeatOnly}
             onClick={() => setRepeatOnly(!repeatOnly)}

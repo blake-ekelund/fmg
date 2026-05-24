@@ -5,15 +5,24 @@ import type { Customer } from "../types";
 
 /**
  * Represents a Supabase PostgREST query builder that supports
- * the filter methods used in applyFilters (.or, .eq, .gte, .lt, .is).
+ * the filter methods used in applyFilters.
  */
 interface FilterableQuery<T> {
   or: (filters: string) => T;
   eq: (column: string, value: string) => T;
-  gte: (column: string, value: string) => T;
-  lt: (column: string, value: string) => T;
+  gt: (column: string, value: string | number) => T;
+  gte: (column: string, value: string | number) => T;
+  lt: (column: string, value: string | number) => T;
   is: (column: string, value: null) => T;
 }
+
+export type WholesaleSpendBucket =
+  | ""
+  | "lt1k"
+  | "1kto5k"
+  | "5kto25k"
+  | "25kto100k"
+  | "100kplus";
 
 type Params = {
   page: number;
@@ -22,6 +31,8 @@ type Params = {
   status: string;
   channel: string;
   agency: string;
+  repeatOnly: boolean;
+  spendBucket: WholesaleSpendBucket;
   sortColumn: string;
   sortDir: "asc" | "desc";
   enabled?: boolean;
@@ -48,7 +59,9 @@ export function applyFilters<T extends FilterableQuery<T>>(
   search: string,
   status: string,
   channel: string,
-  agency?: string
+  agency?: string,
+  repeatOnly?: boolean,
+  spendBucket?: WholesaleSpendBucket,
 ): T {
   if (search) {
     const q = search.trim();
@@ -97,6 +110,28 @@ export function applyFilters<T extends FilterableQuery<T>>(
     }
   }
 
+  if (repeatOnly) {
+    query = query.gt("lifetime_orders", 1);
+  }
+
+  switch (spendBucket) {
+    case "lt1k":
+      query = query.lt("lifetime_revenue", 1000);
+      break;
+    case "1kto5k":
+      query = query.gte("lifetime_revenue", 1000).lt("lifetime_revenue", 5000);
+      break;
+    case "5kto25k":
+      query = query.gte("lifetime_revenue", 5000).lt("lifetime_revenue", 25000);
+      break;
+    case "25kto100k":
+      query = query.gte("lifetime_revenue", 25000).lt("lifetime_revenue", 100000);
+      break;
+    case "100kplus":
+      query = query.gte("lifetime_revenue", 100000);
+      break;
+  }
+
   return query;
 }
 
@@ -111,6 +146,8 @@ export function useCustomers({
   status,
   channel,
   agency,
+  repeatOnly,
+  spendBucket,
   sortColumn,
   sortDir,
   enabled = true,
@@ -157,7 +194,9 @@ export function useCustomers({
         search,
         status,
         channel,
-        agency
+        agency,
+        repeatOnly,
+        spendBucket,
       );
 
       if (brand !== "all") {
@@ -186,12 +225,17 @@ export function useCustomers({
         .select("last_order_date")
         .range(0, 4999);
 
+      // Stats reflect the rest of the filter selection but ignore the status
+      // dimension so the All / Active / At Risk / Churned counts remain
+      // meaningful regardless of which one is selected.
       statsQuery = applyFilters(
         statsQuery,
         search,
-        status,
+        "",
         channel,
-        agency
+        agency,
+        repeatOnly,
+        spendBucket,
       );
 
       if (brand !== "all") {
@@ -261,6 +305,8 @@ export function useCustomers({
     status,
     channel,
     agency,
+    repeatOnly,
+    spendBucket,
     sortColumn,
     sortDir,
     brand,

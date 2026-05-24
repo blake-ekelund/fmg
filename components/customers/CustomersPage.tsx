@@ -3,7 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Mail, Workflow, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { useCustomers, applyFilters } from "./hooks/useCustomers";
+import {
+  useCustomers,
+  applyFilters,
+  type WholesaleSpendBucket,
+} from "./hooks/useCustomers";
 import {
   useD2CCustomers,
   applyD2CFilters,
@@ -30,6 +34,24 @@ type SortColumn =
 
 const PAGE_SIZE = 25;
 
+const D2C_SPEND_OPTIONS = [
+  { label: "Any spend", value: "" },
+  { label: "Less than $50", value: "lt50" },
+  { label: "$50 – $100", value: "50to100" },
+  { label: "$100 – $250", value: "100to250" },
+  { label: "$250 – $1,000", value: "250to1000" },
+  { label: "$1,000+", value: "1000plus" },
+];
+
+const WHOLESALE_SPEND_OPTIONS = [
+  { label: "Any spend", value: "" },
+  { label: "Less than $1k", value: "lt1k" },
+  { label: "$1k – $5k", value: "1kto5k" },
+  { label: "$5k – $25k", value: "5kto25k" },
+  { label: "$25k – $100k", value: "25kto100k" },
+  { label: "$100k+", value: "100kplus" },
+];
+
 export default function CustomersPage({
   viewMode = "wholesale",
 }: {
@@ -42,9 +64,11 @@ export default function CustomersPage({
   const [channel, setChannel] = useState("");
   const [agency, setAgency] = useState("");
 
-  /* D2C-only filters */
+  /* Repeat-customer + lifetime-spend filters. The spend bucket string values
+     differ between D2C (lt50, 50to100, …) and wholesale (lt1k, 1kto5k, …);
+     each route mounts its own CustomersPage so the values don't leak across. */
   const [repeatOnly, setRepeatOnly] = useState(false);
-  const [spendBucket, setSpendBucket] = useState<D2CSpendBucket>("");
+  const [spendBucket, setSpendBucket] = useState<string>("");
 
   const [sortColumn, setSortColumn] =
     useState<SortColumn>("last_order_date");
@@ -124,6 +148,8 @@ export default function CustomersPage({
     status,
     channel,
     agency,
+    repeatOnly,
+    spendBucket: spendBucket as WholesaleSpendBucket,
     sortColumn,
     sortDir,
     enabled: viewMode === "wholesale",
@@ -141,7 +167,7 @@ export default function CustomersPage({
     search,
     status,
     repeatOnly,
-    spendBucket,
+    spendBucket: spendBucket as D2CSpendBucket,
     sortColumn,
     sortDir,
     enabled: viewMode === "d2c",
@@ -174,7 +200,7 @@ export default function CustomersPage({
       if (isD2C) {
         const q = applyD2CFilters(
           supabase.from("d2c_customer_summary").select("person_key"),
-          { search, status, repeatOnly, spendBucket },
+          { search, status, repeatOnly, spendBucket: spendBucket as D2CSpendBucket },
         ).range(0, 4999);
         const { data } = await q;
         const ids = (data ?? []).map((r: { person_key: string }) => r.person_key);
@@ -184,7 +210,15 @@ export default function CustomersPage({
           .from("customer_summary")
           .select("customerid")
           .range(0, 4999);
-        q = applyFilters(q, search, status, channel, agency);
+        q = applyFilters(
+          q,
+          search,
+          status,
+          channel,
+          agency,
+          repeatOnly,
+          spendBucket as WholesaleSpendBucket,
+        );
         const { data } = await q;
         const ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
         setSelectedIds(new Set(ids));
@@ -429,6 +463,7 @@ export default function CustomersPage({
         setRepeatOnly={setRepeatOnly}
         spendBucket={spendBucket}
         setSpendBucket={setSpendBucket}
+        spendBucketOptions={isD2C ? D2C_SPEND_OPTIONS : WHOLESALE_SPEND_OPTIONS}
       />
 
       {/* Table */}
