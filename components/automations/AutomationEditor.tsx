@@ -409,13 +409,16 @@ export default function AutomationEditor({
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
                   />
                 </Field>
-                <Field label="Lookback (days)" hint="catch-up window for cron misses">
+                <Field
+                  label="Lookback cap (days)"
+                  hint="0 = no cap (catch every at-risk customer)"
+                >
                   <input
                     type="number"
-                    min={1}
-                    max={90}
+                    min={0}
+                    max={3650}
                     value={lookbackDays}
-                    onChange={(e) => setLookbackDays(Number(e.target.value) || 30)}
+                    onChange={(e) => setLookbackDays(Number(e.target.value) || 0)}
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
                   />
                 </Field>

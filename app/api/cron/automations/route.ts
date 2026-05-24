@@ -477,25 +477,31 @@ async function findTriggerCandidates(
   if (automation.trigger_type === "manual") return [];
 
   const days = automation.trigger_config?.days_inactive ?? 180;
-  const lookback = automation.trigger_config?.lookback_days ?? 30;
+  // lookback_days is the "don't go back further than this" cap on inactivity.
+  // 0 (or missing) = no cap — catch everyone past the at-risk threshold.
+  const lookback = automation.trigger_config?.lookback_days ?? 0;
   const triggerDate = new Date();
   triggerDate.setDate(triggerDate.getDate() - days);
-  const oldestDate = new Date(triggerDate);
-  oldestDate.setDate(oldestDate.getDate() - lookback);
 
   const isD2C = automation.trigger_type === "d2c_at_risk";
   const view = isD2C ? "d2c_customer_contact" : "customer_contact_summary";
   const refColumn = isD2C ? "person_key" : "customerid";
 
-  const { data } = await supabaseServer
+  let query = supabaseServer
     .from(view)
     .select(
       `${refColumn}, customer_name, email, billto_city, billto_state, primary_channel, lifetime_revenue, order_count, last_order_date`,
     )
-    .gte("last_order_date", oldestDate.toISOString().slice(0, 10))
     .lt("last_order_date", triggerDate.toISOString().slice(0, 10))
-    .not("email", "is", null)
-    .limit(MAX_NEW_ENROLLMENTS_PER_AUTOMATION * 2);
+    .not("email", "is", null);
+
+  if (lookback > 0) {
+    const oldestDate = new Date(triggerDate);
+    oldestDate.setDate(oldestDate.getDate() - lookback);
+    query = query.gte("last_order_date", oldestDate.toISOString().slice(0, 10));
+  }
+
+  const { data } = await query.limit(MAX_NEW_ENROLLMENTS_PER_AUTOMATION * 2);
 
   return ((data as Record<string, unknown>[]) ?? []).map((r) => ({
     customer_ref: r[refColumn] as string,
