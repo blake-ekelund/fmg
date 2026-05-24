@@ -13,6 +13,7 @@ import {
 } from "@/lib/email/send";
 import { publicOriginFromRequest } from "@/lib/email/origin";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
+import { primaryEmail } from "@/lib/email/addresses";
 
 export const runtime = "nodejs";
 // Vercel Pro caps serverless functions at ~300s. With concurrency 5 below,
@@ -69,7 +70,7 @@ async function loadContacts(
       result.set(`wholesale:${ref}`, {
         customer_type: "wholesale",
         customer_ref: ref,
-        email: (r.email as string | null) ?? null,
+        email: primaryEmail(r.email as string | null),
         name: (r.customer_name as string | null) ?? null,
         city: (r.billto_city as string | null) ?? null,
         state: (r.billto_state as string | null) ?? null,
@@ -93,7 +94,7 @@ async function loadContacts(
       result.set(`d2c:${ref}`, {
         customer_type: "d2c",
         customer_ref: ref,
-        email: (r.email as string | null) ?? null,
+        email: primaryEmail(r.email as string | null),
         name: (r.customer_name as string | null) ?? null,
         city: (r.billto_city as string | null) ?? null,
         state: (r.billto_state as string | null) ?? null,

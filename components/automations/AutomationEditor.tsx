@@ -327,6 +327,7 @@ export default function AutomationEditor({
     customer_ref: string;
     name: string | null;
     email: string | null;
+    extra_emails?: number;
     last_order_date: string | null;
     lifetime_revenue: number | null;
     warning: string | null;
@@ -630,6 +631,11 @@ export default function AutomationEditor({
                       )}
                     >
                       {c.email}
+                      {c.extra_emails && c.extra_emails > 0 ? (
+                        <span className="ml-1 text-[10px] text-gray-400">
+                          +{c.extra_emails}
+                        </span>
+                      ) : null}
                     </span>
                     {warn && (
                       <span

@@ -12,6 +12,7 @@ import {
   type MergeVars,
 } from "@/lib/email/send";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
+import { parseEmailAddresses } from "@/lib/email/addresses";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -79,7 +80,8 @@ type Enrollment = {
 type ContactRow = {
   customer_ref: string;
   customer_name: string | null;
-  email: string | null;
+  email: string | null;        // primary (first parsed address)
+  extra_emails: number;        // count of additional addresses on the same row
   city: string | null;
   state: string | null;
   channel: string | null;
@@ -151,6 +153,7 @@ export async function GET(request: Request) {
     customer_ref: string;
     name: string | null;
     email: string | null;
+    extra_emails: number;
     last_order_date: string | null;
     lifetime_revenue: number | null;
     warning: string | null;
@@ -214,6 +217,7 @@ export async function GET(request: Request) {
           customer_ref: c.customer_ref,
           name: c.customer_name,
           email: c.email,
+          extra_emails: c.extra_emails,
           last_order_date: c.last_order_date,
           lifetime_revenue: c.lifetime_revenue,
           warning: f.warning ?? null,
@@ -830,18 +834,24 @@ async function runContactQuery(
     );
   const filtered = build(base) as AnyQuery;
   const { data } = await filtered.limit(limit);
-  return ((data as Record<string, unknown>[]) ?? []).map((r) => ({
-    customer_ref: r[refColumn] as string,
-    customer_name: (r.customer_name as string | null) ?? null,
-    email: (r.email as string | null) ?? null,
-    city: (r.billto_city as string | null) ?? null,
-    state: (r.billto_state as string | null) ?? null,
-    channel: (r.primary_channel as string | null) ?? null,
-    lifetime_revenue: numOrNull(r.lifetime_revenue),
-    lifetime_orders: numOrNull(r.order_count),
-    last_order_date: (r.last_order_date as string | null) ?? null,
-    audience_side: side,
-  }));
+  return ((data as Record<string, unknown>[]) ?? []).map((r) => {
+    // Customer email field may concatenate multiple addresses as
+    // "primary>;<second>;<third". Split into a list, take the first as primary.
+    const parsed = parseEmailAddresses(r.email as string | null);
+    return {
+      customer_ref: r[refColumn] as string,
+      customer_name: (r.customer_name as string | null) ?? null,
+      email: parsed[0] ?? null,
+      extra_emails: Math.max(0, parsed.length - 1),
+      city: (r.billto_city as string | null) ?? null,
+      state: (r.billto_state as string | null) ?? null,
+      channel: (r.primary_channel as string | null) ?? null,
+      lifetime_revenue: numOrNull(r.lifetime_revenue),
+      lifetime_orders: numOrNull(r.order_count),
+      last_order_date: (r.last_order_date as string | null) ?? null,
+      audience_side: side,
+    };
+  });
 }
 
 async function loadContact(
@@ -860,10 +870,12 @@ async function loadContact(
     .maybeSingle();
   if (!data) return null;
   const r = data as Record<string, unknown>;
+  const parsed = parseEmailAddresses(r.email as string | null);
   return {
     customer_ref: r[refColumn] as string,
     customer_name: (r.customer_name as string | null) ?? null,
-    email: (r.email as string | null) ?? null,
+    email: parsed[0] ?? null,
+    extra_emails: Math.max(0, parsed.length - 1),
     city: (r.billto_city as string | null) ?? null,
     state: (r.billto_state as string | null) ?? null,
     channel: (r.primary_channel as string | null) ?? null,
