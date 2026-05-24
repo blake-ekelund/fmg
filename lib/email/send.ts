@@ -110,18 +110,102 @@ export async function sendEmail(
 }
 
 /**
- * Substitute {{firstName}}, {{customerName}}, {{state}} placeholders.
- * Anything we don't recognize is left in place — safer than blanking it.
+ * Merge-field variables passed to applyMergeFields. All optional — missing
+ * values render as an empty string. The list of supported tokens is intentionally
+ * mirrored in the UI hints (ComposeEmailModal, EmailTemplatesPage) — if you
+ * add a token here, surface it there too.
  */
-export function applyMergeFields(
-  template: string,
-  vars: { firstName?: string | null; customerName?: string | null; state?: string | null },
-): string {
-  return template.replace(/\{\{\s*(firstName|customerName|state)\s*\}\}/g, (_m, key) => {
-    if (key === "firstName") return vars.firstName ?? "";
-    if (key === "customerName") return vars.customerName ?? "";
-    if (key === "state") return vars.state ?? "";
-    return _m;
+export type MergeVars = {
+  // Customer
+  firstName?: string | null;
+  customerName?: string | null;
+  city?: string | null;
+  state?: string | null;
+  channel?: string | null;
+  lifetimeRevenue?: number | null;
+  lifetimeOrders?: number | null;
+  lastOrderDate?: string | null;       // ISO date string
+  daysSinceLastOrder?: number | null;
+
+  // Sender (the rep doing the send)
+  senderName?: string | null;
+  senderFirstName?: string | null;
+  senderEmail?: string | null;
+
+  // Date / time (server-derived at send time)
+  currentYear?: string | null;
+  currentQuarter?: string | null;
+};
+
+const SUPPORTED_KEYS = [
+  "firstName",
+  "customerName",
+  "city",
+  "state",
+  "channel",
+  "lifetimeRevenue",
+  "lifetimeOrders",
+  "lastOrderDate",
+  "daysSinceLastOrder",
+  "senderName",
+  "senderFirstName",
+  "senderEmail",
+  "currentYear",
+  "currentQuarter",
+] as const;
+
+const MERGE_RE = new RegExp(`\\{\\{\\s*(${SUPPORTED_KEYS.join("|")})\\s*\\}\\}`, "g");
+
+function formatCurrency(n: number | null | undefined): string {
+  if (n == null || !isFinite(n)) return "";
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/**
+ * Substitute merge-field placeholders. Unknown tokens are left in place
+ * (safer than rendering an empty string for what might be a typo).
+ */
+export function applyMergeFields(template: string, vars: MergeVars): string {
+  return template.replace(MERGE_RE, (_m, key) => {
+    switch (key as (typeof SUPPORTED_KEYS)[number]) {
+      case "firstName":
+        return vars.firstName ?? "";
+      case "customerName":
+        return vars.customerName ?? "";
+      case "city":
+        return vars.city ?? "";
+      case "state":
+        return vars.state ?? "";
+      case "channel":
+        return vars.channel ?? "";
+      case "lifetimeRevenue":
+        return formatCurrency(vars.lifetimeRevenue ?? null);
+      case "lifetimeOrders":
+        return vars.lifetimeOrders != null ? String(vars.lifetimeOrders) : "";
+      case "lastOrderDate":
+        return formatDate(vars.lastOrderDate ?? null);
+      case "daysSinceLastOrder":
+        return vars.daysSinceLastOrder != null ? String(vars.daysSinceLastOrder) : "";
+      case "senderName":
+        return vars.senderName ?? "";
+      case "senderFirstName":
+        return vars.senderFirstName ?? "";
+      case "senderEmail":
+        return vars.senderEmail ?? "";
+      case "currentYear":
+        return vars.currentYear ?? "";
+      case "currentQuarter":
+        return vars.currentQuarter ?? "";
+      default:
+        return _m;
+    }
   });
 }
 
@@ -131,4 +215,19 @@ export function firstNameOf(fullName: string | null | undefined): string {
   const trimmed = fullName.trim();
   if (!trimmed) return "";
   return trimmed.split(/\s+/)[0];
+}
+
+/** "Q1 2026" / "Q2 2026" / etc. for the current calendar quarter. */
+export function currentQuarterLabel(d: Date = new Date()): string {
+  const q = Math.floor(d.getMonth() / 3) + 1;
+  return `Q${q} ${d.getFullYear()}`;
+}
+
+/** Whole days between two ISO dates, or null if the source date is missing. */
+export function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const diff = Date.now() - d.getTime();
+  return Math.max(0, Math.floor(diff / (24 * 60 * 60 * 1000)));
 }

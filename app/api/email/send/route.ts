@@ -5,8 +5,11 @@ import { getAuthUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import {
   applyMergeFields,
+  currentQuarterLabel,
+  daysSince,
   firstNameOf,
   sendEmail,
+  type MergeVars,
 } from "@/lib/email/send";
 import { publicOriginFromRequest } from "@/lib/email/origin";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
@@ -36,12 +39,17 @@ type ContactRow = {
   customer_ref: string;
   email: string | null;
   name: string | null;
+  city: string | null;
   state: string | null;
+  channel: string | null;
+  lifetime_revenue: number | null;
+  lifetime_orders: number | null;
+  last_order_date: string | null;
 };
 
 /**
- * Fetch contact details (email + name + state for merge fields) for both
- * wholesale and d2c recipients. Hits the appropriate view for each type.
+ * Fetch the columns we need for merge-field substitution + recipient lookup,
+ * for both wholesale and d2c. Each customer type lives in its own contact view.
  */
 async function loadContacts(
   wholesale: string[],
@@ -52,7 +60,9 @@ async function loadContacts(
   if (wholesale.length > 0) {
     const { data } = await supabaseServer
       .from("customer_contact_summary")
-      .select("customerid, email, customer_name, billto_state")
+      .select(
+        "customerid, email, customer_name, billto_city, billto_state, primary_channel, lifetime_revenue, order_count, last_order_date",
+      )
       .in("customerid", wholesale);
     for (const r of (data ?? []) as Array<Record<string, unknown>>) {
       const ref = r.customerid as string;
@@ -61,7 +71,12 @@ async function loadContacts(
         customer_ref: ref,
         email: (r.email as string | null) ?? null,
         name: (r.customer_name as string | null) ?? null,
+        city: (r.billto_city as string | null) ?? null,
         state: (r.billto_state as string | null) ?? null,
+        channel: (r.primary_channel as string | null) ?? null,
+        lifetime_revenue: numOrNull(r.lifetime_revenue),
+        lifetime_orders: numOrNull(r.order_count),
+        last_order_date: (r.last_order_date as string | null) ?? null,
       });
     }
   }
@@ -69,7 +84,9 @@ async function loadContacts(
   if (d2c.length > 0) {
     const { data } = await supabaseServer
       .from("d2c_customer_contact")
-      .select("person_key, email, customer_name, billto_state")
+      .select(
+        "person_key, email, customer_name, billto_city, billto_state, primary_channel, lifetime_revenue, order_count, last_order_date",
+      )
       .in("person_key", d2c);
     for (const r of (data ?? []) as Array<Record<string, unknown>>) {
       const ref = r.person_key as string;
@@ -78,12 +95,23 @@ async function loadContacts(
         customer_ref: ref,
         email: (r.email as string | null) ?? null,
         name: (r.customer_name as string | null) ?? null,
+        city: (r.billto_city as string | null) ?? null,
         state: (r.billto_state as string | null) ?? null,
+        channel: (r.primary_channel as string | null) ?? null,
+        lifetime_revenue: numOrNull(r.lifetime_revenue),
+        lifetime_orders: numOrNull(r.order_count),
+        last_order_date: (r.last_order_date as string | null) ?? null,
       });
     }
   }
 
   return result;
+}
+
+function numOrNull(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return isFinite(n) ? n : null;
 }
 
 /**
@@ -127,17 +155,28 @@ export async function POST(request: Request) {
   let accessToken: string;
   let accountId: string;
   let senderEmail: string;
+  let senderDisplayName: string | null;
   try {
     const t = await getAccessTokenForUser(user.id);
     accessToken = t.accessToken;
     accountId = t.account.id;
     senderEmail = t.account.email;
+    senderDisplayName = t.account.display_name;
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
       { status: 400 },
     );
   }
+
+  // Sender + date vars are constant across the recipient loop — compute once.
+  const senderVars = {
+    senderName: senderDisplayName,
+    senderFirstName: firstNameOf(senderDisplayName),
+    senderEmail,
+    currentYear: String(new Date().getFullYear()),
+    currentQuarter: currentQuarterLabel(),
+  };
 
   // Pull contacts.
   const wholesaleRefs = body.recipients
@@ -203,10 +242,17 @@ export async function POST(request: Request) {
       return;
     }
 
-    const vars = {
+    const vars: MergeVars = {
       firstName: firstNameOf(contact.name),
       customerName: contact.name,
+      city: contact.city,
       state: contact.state,
+      channel: contact.channel,
+      lifetimeRevenue: contact.lifetime_revenue,
+      lifetimeOrders: contact.lifetime_orders,
+      lastOrderDate: contact.last_order_date,
+      daysSinceLastOrder: daysSince(contact.last_order_date),
+      ...senderVars,
     };
     const subject = applyMergeFields(body.subject_template, vars);
     const bodyContent = applyMergeFields(body.body_template, vars);

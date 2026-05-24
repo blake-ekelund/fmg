@@ -378,12 +378,27 @@ export default function ComposeEmailModal({
                   }
                   className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 resize-y font-mono"
                 />
-                <div className="flex items-center justify-between mt-1">
-                  <div className="text-[10px] text-gray-400">
-                    Merge fields:{" "}
+                <div className="flex items-start justify-between mt-1 gap-3">
+                  <div className="text-[10px] text-gray-400 leading-relaxed">
+                    <span className="font-medium">Customer:</span>{" "}
                     <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{firstName}}"}</code>{" "}
                     <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{customerName}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{city}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{channel}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeRevenue}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeOrders}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lastOrderDate}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{daysSinceLastOrder}}"}</code>
+                    <br />
+                    <span className="font-medium">Sender:</span>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderName}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderFirstName}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderEmail}}"}</code>
+                    {" · "}
+                    <span className="font-medium">Date:</span>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentYear}}"}</code>{" "}
+                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentQuarter}}"}</code>
                   </div>
                   {!saveOpen ? (
                     <button

@@ -32,18 +32,39 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/* Sample values used in the preview so merge fields aren't blank. */
-const SAMPLE_VARS = {
+/* Sample values used in the preview so merge fields aren't blank. The server
+   substitutes real values at send time — this is just a "what would it look
+   like" approximation. */
+const NOW = new Date();
+const SAMPLE_VARS: Record<string, string> = {
+  // Customer
   firstName: "Alex",
   customerName: "Acme Goods Co.",
+  city: "Sacramento",
   state: "California",
+  channel: "GIFT",
+  lifetimeRevenue: "$12,450",
+  lifetimeOrders: "5",
+  lastOrderDate: NOW.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }),
+  daysSinceLastOrder: "124",
+  // Sender
+  senderName: "Your Name",
+  senderFirstName: "Your",
+  senderEmail: "you@fragrance-marketing-group.com",
+  // Date
+  currentYear: String(NOW.getFullYear()),
+  currentQuarter: `Q${Math.floor(NOW.getMonth() / 3) + 1} ${NOW.getFullYear()}`,
 };
 
+const MERGE_KEYS = Object.keys(SAMPLE_VARS);
+const MERGE_RE = new RegExp(`\\{\\{\\s*(${MERGE_KEYS.join("|")})\\s*\\}\\}`, "g");
+
 function applyMerge(template: string): string {
-  return template.replace(
-    /\{\{\s*(firstName|customerName|state)\s*\}\}/g,
-    (_m, k: keyof typeof SAMPLE_VARS) => SAMPLE_VARS[k],
-  );
+  return template.replace(MERGE_RE, (_m, k: string) => SAMPLE_VARS[k] ?? _m);
 }
 
 export default function EmailTemplatesPage() {
@@ -345,11 +366,26 @@ function TemplateEditor({
             }
             className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 resize-y font-mono"
           />
-          <div className="text-[10px] text-gray-400 mt-1">
-            Merge fields:{" "}
+          <div className="text-[10px] text-gray-400 mt-1 leading-relaxed">
+            <span className="font-medium">Customer:</span>{" "}
             <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{firstName}}"}</code>{" "}
             <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{customerName}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{city}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{channel}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeRevenue}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeOrders}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lastOrderDate}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{daysSinceLastOrder}}"}</code>
+            <br />
+            <span className="font-medium">Sender:</span>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderName}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderFirstName}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderEmail}}"}</code>
+            {" · "}
+            <span className="font-medium">Date:</span>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentYear}}"}</code>{" "}
+            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentQuarter}}"}</code>
           </div>
         </div>
 
