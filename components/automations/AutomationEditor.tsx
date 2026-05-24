@@ -43,6 +43,8 @@ type Automation = {
     customer_type?: AudienceSide;
     scheduled_at?: string;
     audience?: BlastAudience;
+    status?: "active" | "at_risk" | "churned";
+    min_spend?: number;
   };
   sender_user_id: string | null;
   updated_at: string;
@@ -758,18 +760,25 @@ function renderTriggerSentence(
   if (type === "d2c_at_risk" || type === "wholesale_at_risk") {
     const days = cfg.days_inactive ?? 180;
     return (
-      <>
-        Send when a {type === "d2c_at_risk" ? "D2C" : "wholesale"} customer
-        hasn&apos;t ordered in{" "}
-        <Pill>
-          <DaysPicker
-            value={days}
-            onChange={(v) => patchCfg({ days_inactive: v })}
-            options={TRIGGER_DAYS_OPTIONS}
-          />
-        </Pill>
-        .
-      </>
+      <div className="space-y-2">
+        <div>
+          Send when a {type === "d2c_at_risk" ? "D2C" : "wholesale"} customer
+          hasn&apos;t ordered in{" "}
+          <Pill>
+            <DaysPicker
+              value={days}
+              onChange={(v) => patchCfg({ days_inactive: v })}
+              options={TRIGGER_DAYS_OPTIONS}
+            />
+          </Pill>
+          .
+        </div>
+        <FilterChips
+          minSpend={cfg.min_spend}
+          onChangeMinSpend={(v) => patchCfg({ min_spend: v })}
+          // Status doesn't make sense for at-risk (it's already "inactive").
+        />
+      </div>
     );
   }
 
@@ -807,35 +816,133 @@ function renderTriggerSentence(
     const date = cfg.scheduled_at ?? "";
     const audience = cfg.audience ?? "d2c";
     return (
-      <>
-        Send on{" "}
-        <Pill>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => patchCfg({ scheduled_at: e.target.value })}
-            className="bg-transparent focus:outline-none cursor-pointer"
-          />
-        </Pill>{" "}
-        to{" "}
-        <Pill>
-          <select
-            value={audience}
-            onChange={(e) => patchCfg({ audience: e.target.value as BlastAudience })}
-            className="bg-transparent focus:outline-none cursor-pointer pr-4"
-          >
-            <option value="d2c">all D2C customers</option>
-            <option value="wholesale">all wholesale customers</option>
-            <option value="both">all customers</option>
-          </select>
-        </Pill>
-        .
-      </>
+      <div className="space-y-2">
+        <div>
+          Send on{" "}
+          <Pill>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => patchCfg({ scheduled_at: e.target.value })}
+              className="bg-transparent focus:outline-none cursor-pointer"
+            />
+          </Pill>{" "}
+          to{" "}
+          <Pill>
+            <select
+              value={audience}
+              onChange={(e) => patchCfg({ audience: e.target.value as BlastAudience })}
+              className="bg-transparent focus:outline-none cursor-pointer pr-4"
+            >
+              <option value="d2c">all D2C customers</option>
+              <option value="wholesale">all wholesale customers</option>
+              <option value="both">all customers</option>
+            </select>
+          </Pill>
+          .
+        </div>
+        <FilterChips
+          status={cfg.status}
+          onChangeStatus={(v) => patchCfg({ status: v })}
+          minSpend={cfg.min_spend}
+          onChangeMinSpend={(v) => patchCfg({ min_spend: v })}
+        />
+      </div>
     );
   }
 
   // manual
   return <>Customers are added by hand (no automatic trigger).</>;
+}
+
+/**
+ * Optional sub-filters shown below the main trigger sentence. Each chip is
+ * dormant ("+ Status filter" / "+ Min spend") until clicked; once active it
+ * becomes an editable pill. Click the × to clear.
+ */
+function FilterChips({
+  status,
+  onChangeStatus,
+  minSpend,
+  onChangeMinSpend,
+}: {
+  status?: "active" | "at_risk" | "churned";
+  onChangeStatus?: (v: Automation["trigger_config"]["status"] | undefined) => void;
+  minSpend?: number;
+  onChangeMinSpend?: (v: number | undefined) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+      {/* Status */}
+      {onChangeStatus && (
+        <>
+          {status ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5">
+              Status:{" "}
+              <select
+                value={status}
+                onChange={(e) =>
+                  onChangeStatus(e.target.value as "active" | "at_risk" | "churned")
+                }
+                className="bg-transparent focus:outline-none cursor-pointer pr-1 text-blue-700"
+              >
+                <option value="active">Active</option>
+                <option value="at_risk">At Risk</option>
+                <option value="churned">Churned</option>
+              </select>
+              <button
+                onClick={() => onChangeStatus(undefined)}
+                className="text-blue-400 hover:text-blue-600"
+                title="Clear status filter"
+              >
+                <X size={9} />
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => onChangeStatus("active")}
+              className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 text-gray-500 hover:text-gray-800 hover:border-gray-400 px-2 py-0.5 transition"
+            >
+              + Status filter
+            </button>
+          )}
+        </>
+      )}
+
+      {/* Min spend */}
+      {onChangeMinSpend && (
+        <>
+          {minSpend && minSpend > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5">
+              Spent at least $
+              <input
+                type="number"
+                min={0}
+                step={100}
+                value={minSpend}
+                onChange={(e) => onChangeMinSpend(Number(e.target.value) || 0)}
+                className="w-20 bg-transparent focus:outline-none text-blue-700"
+              />
+              <button
+                onClick={() => onChangeMinSpend(undefined)}
+                className="text-blue-400 hover:text-blue-600"
+                title="Clear spend filter"
+              >
+                <X size={9} />
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => onChangeMinSpend(1000)}
+              className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 text-gray-500 hover:text-gray-800 hover:border-gray-400 px-2 py-0.5 transition"
+            >
+              + Min spend
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 function ActivityPanel({

@@ -44,6 +44,9 @@ type Automation = {
     // scheduled_blast
     scheduled_at?: string;     // YYYY-MM-DD
     audience?: "d2c" | "wholesale" | "both";
+    // optional sub-filters for scheduled_blast + at_risk
+    status?: "active" | "at_risk" | "churned";
+    min_spend?: number;
   };
   sender_user_id: string | null;
 };
@@ -507,6 +510,7 @@ async function findTriggerCandidates(
   if (t === "d2c_at_risk" || t === "wholesale_at_risk") {
     const days = automation.trigger_config?.days_inactive ?? 180;
     const lookback = automation.trigger_config?.lookback_days ?? 0;
+    const minSpend = automation.trigger_config?.min_spend ?? 0;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     const side: AudienceSide = t === "d2c_at_risk" ? "d2c" : "wholesale";
@@ -518,6 +522,9 @@ async function findTriggerCandidates(
         const oldest = new Date(cutoff);
         oldest.setDate(oldest.getDate() - lookback);
         out = out.gte("last_order_date", oldest.toISOString().slice(0, 10));
+      }
+      if (minSpend > 0) {
+        out = out.gte("lifetime_revenue", minSpend);
       }
       return out;
     });
@@ -562,9 +569,32 @@ async function findTriggerCandidates(
     const audience = automation.trigger_config?.audience ?? "d2c";
     const sides: AudienceSide[] =
       audience === "both" ? ["d2c", "wholesale"] : [audience];
+    const status = automation.trigger_config?.status;
+    const minSpend = automation.trigger_config?.min_spend ?? 0;
+    // Date math for status: Active = ordered in last 180d, At Risk = 180-365d,
+    // Churned = 365d+. Match the same cutoffs the customers list uses.
+    const activeCutoff = new Date();
+    activeCutoff.setDate(activeCutoff.getDate() - 180);
+    const riskCutoff = new Date();
+    riskCutoff.setDate(riskCutoff.getDate() - 365);
     const out: Array<ContactRow & { audience_side: AudienceSide }> = [];
     for (const side of sides) {
-      const rows = await runContactQuery(side, (q) => q.not("email", "is", null));
+      const rows = await runContactQuery(side, (q) => {
+        let out2 = q.not("email", "is", null);
+        if (status === "active") {
+          out2 = out2.gte("last_order_date", activeCutoff.toISOString().slice(0, 10));
+        } else if (status === "at_risk") {
+          out2 = out2
+            .lt("last_order_date", activeCutoff.toISOString().slice(0, 10))
+            .gte("last_order_date", riskCutoff.toISOString().slice(0, 10));
+        } else if (status === "churned") {
+          out2 = out2.lt("last_order_date", riskCutoff.toISOString().slice(0, 10));
+        }
+        if (minSpend > 0) {
+          out2 = out2.gte("lifetime_revenue", minSpend);
+        }
+        return out2;
+      });
       out.push(...rows);
     }
     return out;
