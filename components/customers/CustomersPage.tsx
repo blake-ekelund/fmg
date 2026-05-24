@@ -4,7 +4,11 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Mail, Workflow, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useCustomers, applyFilters } from "./hooks/useCustomers";
-import { useD2CCustomers } from "./hooks/useD2CCustomers";
+import {
+  useD2CCustomers,
+  applyD2CFilters,
+  type D2CSpendBucket,
+} from "./hooks/useD2CCustomers";
 import CustomersHeader from "./CustomersHeader";
 import CustomersFilters from "./CustomersFilters";
 import CustomersTable from "./CustomersTable";
@@ -38,6 +42,10 @@ export default function CustomersPage({
   const [channel, setChannel] = useState("");
   const [agency, setAgency] = useState("");
 
+  /* D2C-only filters */
+  const [repeatOnly, setRepeatOnly] = useState(false);
+  const [spendBucket, setSpendBucket] = useState<D2CSpendBucket>("");
+
   const [sortColumn, setSortColumn] =
     useState<SortColumn>("last_order_date");
   const [sortDir, setSortDir] =
@@ -64,7 +72,7 @@ export default function CustomersPage({
   // Clear selection on page / filter / view change
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, status, channel, agency, viewMode]);
+  }, [page, search, status, channel, agency, repeatOnly, spendBucket, viewMode]);
 
   /* Export column picker state */
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
@@ -132,6 +140,8 @@ export default function CustomersPage({
     pageSize: PAGE_SIZE,
     search,
     status,
+    repeatOnly,
+    spendBucket,
     sortColumn,
     sortDir,
     enabled: viewMode === "d2c",
@@ -155,6 +165,35 @@ export default function CustomersPage({
     });
   }, [isD2C, d2cCustomers, wholesaleCustomers]);
 
+  /* Select every customer that matches the current filter — not just the
+     visible page. Caps at 5,000 so a runaway filter can't lock up the UI. */
+  const [selectAllLoading, setSelectAllLoading] = useState(false);
+  const handleSelectAllMatching = useCallback(async () => {
+    setSelectAllLoading(true);
+    try {
+      if (isD2C) {
+        const q = applyD2CFilters(
+          supabase.from("d2c_customer_summary").select("person_key"),
+          { search, status, repeatOnly, spendBucket },
+        ).range(0, 4999);
+        const { data } = await q;
+        const ids = (data ?? []).map((r: { person_key: string }) => r.person_key);
+        setSelectedIds(new Set(ids));
+      } else {
+        let q = supabase
+          .from("customer_summary")
+          .select("customerid")
+          .range(0, 4999);
+        q = applyFilters(q, search, status, channel, agency);
+        const { data } = await q;
+        const ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
+        setSelectedIds(new Set(ids));
+      }
+    } finally {
+      setSelectAllLoading(false);
+    }
+  }, [isD2C, search, status, channel, agency, repeatOnly, spendBucket]);
+
   /* ─── Customer name map for workflow modal ─── */
   const customerNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -175,7 +214,7 @@ export default function CustomersPage({
   /* Reset page when filters/sort/view change */
   useEffect(() => {
     setPage(0);
-  }, [search, status, channel, agency, sortColumn, sortDir]);
+  }, [search, status, channel, agency, repeatOnly, spendBucket, sortColumn, sortDir]);
 
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : 1;
   const canGoNext = page + 1 < totalPages;
@@ -386,6 +425,10 @@ export default function CustomersPage({
         agency={agency}
         setAgency={setAgency}
         agencyOptions={agencyOptions}
+        repeatOnly={repeatOnly}
+        setRepeatOnly={setRepeatOnly}
+        spendBucket={spendBucket}
+        setSpendBucket={setSpendBucket}
       />
 
       {/* Table */}
@@ -431,6 +474,17 @@ export default function CustomersPage({
           <span className="text-xs font-semibold text-gray-700 tabular-nums">
             {selectedIds.size} selected
           </span>
+
+          {selectedIds.size < totalCount && (
+            <button
+              onClick={handleSelectAllMatching}
+              disabled={selectAllLoading}
+              className="text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
+              title={`Replace selection with all ${totalCount.toLocaleString()} customers matching the current filter.`}
+            >
+              {selectAllLoading ? "Loading…" : `Select all ${totalCount.toLocaleString()} matching`}
+            </button>
+          )}
 
           <div className="w-px h-5 bg-gray-200" />
 

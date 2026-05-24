@@ -2,11 +2,21 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { D2CCustomer } from "../types";
 
+export type D2CSpendBucket =
+  | ""
+  | "lt50"
+  | "50to100"
+  | "100to250"
+  | "250to1000"
+  | "1000plus";
+
 type Params = {
   page: number;
   pageSize: number;
   search: string;
   status: string;
+  repeatOnly: boolean;
+  spendBucket: D2CSpendBucket;
   sortColumn: string;
   sortDir: "asc" | "desc";
   enabled: boolean;
@@ -21,11 +31,62 @@ function getDateCutoffs() {
   return { active, risk };
 }
 
+/**
+ * Apply the d2c-specific filters (search, status, repeat, spend bucket) to
+ * either the paginated list query or the stats / select-all query. Shared so
+ * the two stay in sync.
+ */
+export function applyD2CFilters<T extends ReturnType<typeof supabase.from>>(
+  q: T,
+  args: { search: string; status: string; repeatOnly: boolean; spendBucket: D2CSpendBucket },
+): T {
+  let out = q;
+  if (args.search) {
+    const s = args.search.trim();
+    out = out.or(`name.ilike.%${s}%,email.ilike.%${s}%,bill_to_state.ilike.%${s}%`) as T;
+  }
+  if (args.status) {
+    const { active, risk } = getDateCutoffs();
+    if (args.status === "active") {
+      out = out.gte("last_order_date", active.toISOString()) as T;
+    } else if (args.status === "at_risk") {
+      out = (out
+        .lt("last_order_date", active.toISOString())
+        .gte("last_order_date", risk.toISOString())) as T;
+    } else if (args.status === "churned") {
+      out = out.lt("last_order_date", risk.toISOString()) as T;
+    }
+  }
+  if (args.repeatOnly) {
+    out = out.gt("lifetime_orders", 1) as T;
+  }
+  switch (args.spendBucket) {
+    case "lt50":
+      out = out.lt("lifetime_revenue", 50) as T;
+      break;
+    case "50to100":
+      out = (out.gte("lifetime_revenue", 50).lt("lifetime_revenue", 100)) as T;
+      break;
+    case "100to250":
+      out = (out.gte("lifetime_revenue", 100).lt("lifetime_revenue", 250)) as T;
+      break;
+    case "250to1000":
+      out = (out.gte("lifetime_revenue", 250).lt("lifetime_revenue", 1000)) as T;
+      break;
+    case "1000plus":
+      out = out.gte("lifetime_revenue", 1000) as T;
+      break;
+  }
+  return out;
+}
+
 export function useD2CCustomers({
   page,
   pageSize,
   search,
   status,
+  repeatOnly,
+  spendBucket,
   sortColumn,
   sortDir,
   enabled,
@@ -46,53 +107,23 @@ export function useD2CCustomers({
       const from = page * pageSize;
       const to = from + pageSize - 1;
 
-      let tableQuery = supabase
-        .from("d2c_customer_summary")
-        .select("*", { count: "exact" });
-
-      // Search
-      if (search) {
-        const q = search.trim();
-        tableQuery = tableQuery.or(
-          `name.ilike.%${q}%,email.ilike.%${q}%,bill_to_state.ilike.%${q}%`
-        );
-      }
-
-      // Status
-      if (status) {
-        const { active, risk } = getDateCutoffs();
-        if (status === "active") {
-          tableQuery = tableQuery.gte("last_order_date", active.toISOString());
-        }
-        if (status === "at_risk") {
-          tableQuery = tableQuery
-            .lt("last_order_date", active.toISOString())
-            .gte("last_order_date", risk.toISOString());
-        }
-        if (status === "churned") {
-          tableQuery = tableQuery.lt("last_order_date", risk.toISOString());
-        }
-      }
-
-      tableQuery = tableQuery
+      const tableQuery = applyD2CFilters(
+        supabase.from("d2c_customer_summary").select("*", { count: "exact" }),
+        { search, status, repeatOnly, spendBucket },
+      )
         .order(sortColumn, { ascending: sortDir === "asc", nullsFirst: false })
         .order("person_key", { ascending: false })
         .range(from, to);
 
       const { data, count, error } = await tableQuery;
 
-      // Stats query
-      let statsQuery = supabase
-        .from("d2c_customer_summary")
-        .select("last_order_date")
-        .range(0, 9999);
-
-      if (search) {
-        const q = search.trim();
-        statsQuery = statsQuery.or(
-          `name.ilike.%${q}%,email.ilike.%${q}%,bill_to_state.ilike.%${q}%`
-        );
-      }
+      // Stats query: same filters EXCEPT status, so the status counts reflect
+      // the rest of the user's filter selection but show distribution across
+      // active/at-risk/churned.
+      const statsQuery = applyD2CFilters(
+        supabase.from("d2c_customer_summary").select("last_order_date"),
+        { search, status: "", repeatOnly, spendBucket },
+      ).range(0, 9999);
 
       const { data: statsData } = await statsQuery;
 
@@ -126,7 +157,7 @@ export function useD2CCustomers({
 
     load();
     return () => { cancelled = true; };
-  }, [page, pageSize, search, status, sortColumn, sortDir, enabled]);
+  }, [page, pageSize, search, status, repeatOnly, spendBucket, sortColumn, sortDir, enabled]);
 
   return { customers, loading, totalCount, stats };
 }

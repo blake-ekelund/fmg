@@ -12,9 +12,14 @@ import { publicOriginFromRequest } from "@/lib/email/origin";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
 
 export const runtime = "nodejs";
-// Graph sendMail is per-recipient. A 25-recipient batch with the create-draft
-// + send pattern is ~50 round-trips, so leave plenty of headroom.
-export const maxDuration = 120;
+// Vercel Pro caps serverless functions at ~300s. With concurrency 5 below,
+// 500 recipients fit comfortably inside that.
+export const maxDuration = 300;
+
+// Send up to N recipients in parallel. Graph allows ~30 sends/s per user;
+// 5 concurrent stays well under throttling thresholds and keeps a 500-message
+// blast under ~3 minutes including per-message DB writes.
+const SEND_CONCURRENCY = 5;
 
 type SendRequestBody = {
   recipients: Array<{
@@ -109,9 +114,11 @@ export async function POST(request: Request) {
   if (!Array.isArray(body.recipients) || body.recipients.length === 0) {
     return NextResponse.json({ error: "Pick at least one recipient" }, { status: 400 });
   }
-  if (body.recipients.length > 250) {
+  if (body.recipients.length > 500) {
     return NextResponse.json(
-      { error: "Too many recipients in a single send (max 250)" },
+      {
+        error: `Too many recipients in a single send (got ${body.recipients.length}, max 500). Refine the filter or split the send.`,
+      },
       { status: 400 },
     );
   }
@@ -166,10 +173,8 @@ export async function POST(request: Request) {
   let failedCount = 0;
   const origin = publicOriginFromRequest(request);
 
-  // Send one at a time. Could parallelize with a small pool later, but for
-  // ≤250 recipients the simple loop keeps order predictable and per-error
-  // handling cleaner.
-  for (const r of body.recipients) {
+  // Per-recipient processor — extracted so we can run a small pool in parallel.
+  const sendOne = async (r: SendRequestBody["recipients"][number]): Promise<void> => {
     const key = `${r.customer_type}:${r.customer_ref}`;
     const contact = contacts.get(key);
 
@@ -195,7 +200,7 @@ export async function POST(request: Request) {
       recipientRow.personalized_body = body.body_template;
       failedCount++;
       await supabaseServer.from("email_send_job_recipients").insert(recipientRow);
-      continue;
+      return;
     }
 
     const vars = {
@@ -297,7 +302,10 @@ export async function POST(request: Request) {
     }
 
     await supabaseServer.from("email_send_job_recipients").insert(recipientRow);
-  }
+  };
+
+  // Run sendOne against the recipient list with a small concurrency pool.
+  await runWithConcurrency(body.recipients, SEND_CONCURRENCY, sendOne);
 
   await supabaseServer
     .from("email_send_jobs")
@@ -315,4 +323,31 @@ export async function POST(request: Request) {
     failed: failedCount,
     total: body.recipients.length,
   });
+}
+
+/**
+ * Run an async worker against an array with bounded concurrency. Each worker
+ * pulls the next index from a shared cursor, so slow tasks don't block the
+ * pool. Worker failures are swallowed (the worker itself is expected to
+ * record per-item errors).
+ */
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const next = async (): Promise<void> => {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      try {
+        await worker(items[i]);
+      } catch {
+        /* worker is responsible for its own error handling */
+      }
+    }
+  };
+  const pool = Array.from({ length: Math.min(concurrency, items.length) }, () => next());
+  await Promise.all(pool);
 }
