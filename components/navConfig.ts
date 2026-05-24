@@ -16,6 +16,7 @@ import {
   Tag,
   Archive,
   BarChart3,
+  Inbox,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -87,6 +88,18 @@ export const navSections: readonly NavSection[] = [
         label: "D2C",
         href: "/customers/d2c",
         icon: ShoppingBag,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Wholesale Inbox",
+        href: "/inbox/wholesale",
+        icon: Inbox,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "D2C Inbox",
+        href: "/inbox/d2c",
+        icon: Inbox,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
