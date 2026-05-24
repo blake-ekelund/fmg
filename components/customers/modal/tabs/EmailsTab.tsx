@@ -41,6 +41,7 @@ type MessageRow = {
   sent_at: string | null;
   received_at: string | null;
   open_count: number | null;
+  distinct_open_count: number | null;
   last_opened_at: string | null;
   link_click_count: number | null;
 };
@@ -206,7 +207,7 @@ function ThreadChatView({
     const { data } = await supabase
       .from("email_messages")
       .select(
-        "id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, body_preview, has_attachments, sent_at, received_at, open_count, last_opened_at, link_click_count",
+        "id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, body_preview, has_attachments, sent_at, received_at, open_count, distinct_open_count, last_opened_at, link_click_count",
       )
       .eq("thread_id", thread.id)
       .order("sent_at", { ascending: true, nullsFirst: true })
@@ -313,8 +314,9 @@ function ChatBubble({
 }) {
   const isSent = message.direction === "sent";
   const ts = message.received_at || message.sent_at;
-  const body =
+  const rawBody =
     message.body_text || stripHtml(message.body_html) || message.body_preview || "";
+  const body = stripQuotedReply(rawBody);
   const senderLabel = isSent ? "You" : message.from_name || message.from_address || "Sender";
 
   return (
@@ -348,7 +350,8 @@ function ChatBubble({
           <span>{ts ? formatTime(ts) : ""}</span>
           {isSent && (
             <SentTrackingMeta
-              opens={message.open_count ?? 0}
+              opens={message.distinct_open_count ?? 0}
+              rawOpens={message.open_count ?? 0}
               lastOpenedAt={message.last_opened_at}
               clicks={message.link_click_count ?? 0}
             />
@@ -361,10 +364,14 @@ function ChatBubble({
 
 function SentTrackingMeta({
   opens,
+  rawOpens,
   lastOpenedAt,
   clicks,
 }: {
+  /** Distinct opens (deduped by user-agent + IP). */
   opens: number;
+  /** Raw pixel fetches — for the tooltip only. */
+  rawOpens: number;
   lastOpenedAt: string | null;
   clicks: number;
 }) {
@@ -379,12 +386,16 @@ function SentTrackingMeta({
         minute: "2-digit",
       })}`
     : "";
+  const extraNote =
+    rawOpens > opens
+      ? ` (${rawOpens} raw pixel fetches incl. proxy / reply-quote re-fetches)`
+      : "";
   return (
     <span className="inline-flex items-center gap-2">
       {opens > 0 && (
         <span
           className="inline-flex items-center gap-0.5 text-gray-500"
-          title={`Opened ${opens}× ${lastOpenLabel}. Note: iPhone Mail can pre-fetch the pixel even before the recipient sees the email, so the first open may not reflect a real read.`}
+          title={`Opened by ${opens} distinct recipient${opens === 1 ? "" : "s"}${extraNote}. ${lastOpenLabel}. Apple Mail Privacy can pre-fetch on delivery, so the first signal may not be a real read.`}
         >
           <Eye size={10} />
           {opens}
@@ -626,7 +637,15 @@ function formatBytes(n: number): string {
 
 function stripHtml(html: string | null): string {
   if (!html) return "";
-  return html
+  // Drop quoted-reply containers before stripping tags so we don't render the
+  // recipient's quote chain in the chat bubble.
+  let cleaned = html
+    .replace(/<blockquote[\s\S]*?<\/blockquote>/gi, "")
+    .replace(
+      /<div[^>]*class=["'][^"']*gmail_quote[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+      "",
+    );
+  return cleaned
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<[^>]+>/g, "")
@@ -635,6 +654,34 @@ function stripHtml(html: string | null): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .trim();
+}
+
+/**
+ * Trim the quoted-original chain off a reply body. Most mail clients prepend
+ * a marker like "On <date>, <name> wrote:" or "-----Original Message-----"
+ * before the quoted text. We cut at the earliest such marker.
+ */
+function stripQuotedReply(text: string): string {
+  if (!text) return text;
+  const markers: RegExp[] = [
+    // "On Sun, May 24, 2026 at 10:28 AM Blake Ekelund <…> wrote:"
+    /\bOn\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\b[\s\S]{0,200}?wrote:/i,
+    // "On May 24, 2026 at 10:28 AM, Blake wrote:" — no weekday
+    /\bOn\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s\S]{0,200}?wrote:/i,
+    // Outlook
+    /-+\s*Original Message\s*-+/i,
+    /\bFrom:\s+.{0,160}?Sent:\s+/is,
+    // Apple Mail leading attribution
+    /(?:^|\n)>\s*On\s+/,
+  ];
+
+  let earliest = -1;
+  for (const re of markers) {
+    const m = text.search(re);
+    if (m >= 0 && (earliest === -1 || m < earliest)) earliest = m;
+  }
+  if (earliest <= 0) return text.trim();
+  return text.slice(0, earliest).trim();
 }
 
 function base64FromBuffer(buf: ArrayBuffer): string {
