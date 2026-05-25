@@ -18,6 +18,9 @@ import {
   BarChart3,
   Inbox,
   Zap,
+  Headphones,
+  Filter,
+  MessageSquare,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -92,24 +95,6 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "sales"],
       },
       {
-        label: "Inbox",
-        href: "/inbox",
-        icon: Inbox,
-        roles: [...FULL_ACCESS, "sales"],
-      },
-      {
-        label: "Email Templates",
-        href: "/email-templates",
-        icon: FileText,
-        roles: [...FULL_ACCESS, "sales"],
-      },
-      {
-        label: "Automations",
-        href: "/automations",
-        icon: Zap,
-        roles: ["owner", "admin"],
-      },
-      {
         label: "Shopify Analytics",
         href: "/shopify-analytics",
         icon: BarChart3,
@@ -124,9 +109,27 @@ export const navSections: readonly NavSection[] = [
     ],
   },
   {
+    label: "Customer Service",
+    icon: Headphones,
+    items: [
+      {
+        label: "Inbox",
+        href: "/inbox",
+        icon: Inbox,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+    ],
+  },
+  {
     label: "Marketing",
     icon: Megaphone,
     items: [
+      {
+        label: "Funnel",
+        href: "/marketing/funnel",
+        icon: Filter,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
       {
         label: "Social Media",
         href: "/social-media",
@@ -161,6 +164,24 @@ export const navSections: readonly NavSection[] = [
         label: "Archives",
         href: "/archives",
         icon: Archive,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Email Templates",
+        href: "/email-templates",
+        icon: FileText,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        label: "Automations",
+        href: "/automations",
+        icon: Zap,
+        roles: ["owner", "admin", "marketing"],
+      },
+      {
+        label: "Customer Feedback",
+        href: "/marketing/customer-feedback",
+        icon: MessageSquare,
         roles: [...FULL_ACCESS, "marketing"],
       },
     ],
