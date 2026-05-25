@@ -24,9 +24,12 @@ export default function AuthGate({
       } = await supabase.auth.getSession();
 
       const isAuthRoute = pathname.startsWith("/auth");
+      // Customer-facing forms — anyone with the link can open these, no
+      // portal sign-in required. Add new paths here as needed.
+      const isPublicRoute = pathname.startsWith("/quarterly-check-in");
 
-      // Not signed in → must be on auth pages
-      if (!session && !isAuthRoute) {
+      // Not signed in → must be on auth pages or a public route
+      if (!session && !isAuthRoute && !isPublicRoute) {
         router.replace("/auth/sign-in");
         return;
       }

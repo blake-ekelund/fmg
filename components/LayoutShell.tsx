@@ -20,6 +20,8 @@ export default function LayoutShell({
   const pathname = usePathname();
   const router = useRouter();
   const isAuthRoute = pathname.startsWith("/auth");
+  // Customer-facing public routes — no sidebar / dashboard chrome.
+  const isPublicRoute = pathname.startsWith("/quarterly-check-in");
   const { profile, loading } = useUser();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -27,7 +29,7 @@ export default function LayoutShell({
 
   /* ---- Route guard: redirect restricted roles to their allowed pages ---- */
   useEffect(() => {
-    if (isAuthRoute || loading || !profile) return;
+    if (isAuthRoute || isPublicRoute || loading || !profile) return;
 
     const allowed = getAllowedPaths(profile.access);
     // Check if current path starts with any allowed path
@@ -40,7 +42,7 @@ export default function LayoutShell({
     }
   }, [pathname, profile, loading, isAuthRoute, router]);
 
-  if (isAuthRoute) {
+  if (isAuthRoute || isPublicRoute) {
     return <>{children}</>;
   }
 
