@@ -22,8 +22,8 @@ export const runtime = "nodejs";
  * state, exchange the code for tokens, fetch the user's mailbox identity from
  * Graph, encrypt the refresh token, and upsert into user_email_accounts.
  *
- * On success: redirect to /customers?outlook=connected
- * On failure: redirect to /company?tab=integrations&outlook=error&reason=...
+ * On success: redirect to /settings?outlook=connected
+ * On failure: redirect to /settings?section=email-connection&outlook=error&reason=...
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   const back = (reason: string) =>
     NextResponse.redirect(
       new URL(
-        `/company?tab=integrations&outlook=error&reason=${encodeURIComponent(reason)}`,
+        `/settings?section=email-connection&outlook=error&reason=${encodeURIComponent(reason)}`,
         url.origin,
       ),
     );
@@ -134,6 +134,6 @@ export async function GET(request: Request) {
     .eq("user_id", payload.uid);
 
   return NextResponse.redirect(
-    new URL(`/company?tab=integrations&outlook=connected`, url.origin),
+    new URL(`/settings?section=email-connection&outlook=connected`, url.origin),
   );
 }

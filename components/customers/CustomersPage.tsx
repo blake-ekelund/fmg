@@ -13,7 +13,6 @@ import {
   applyD2CFilters,
   type D2CSpendBucket,
 } from "./hooks/useD2CCustomers";
-import CustomersHeader from "./CustomersHeader";
 import CustomersFilters from "./CustomersFilters";
 import CustomersTable from "./CustomersTable";
 import CustomersCardGrid from "./CustomersCardGrid";
@@ -430,29 +429,15 @@ export default function CustomersPage({
   const activeSetExportColumns = isD2C ? setD2cExportColumns : setExportColumns;
 
   return (
-    <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
+    <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
 
-      {/* Header */}
-      <CustomersHeader
-        stats={stats}
-        onDownload={handleDownload}
-        downloading={downloading}
-        exportColumns={activeExportColumns}
-        setExportColumns={activeSetExportColumns}
-      />
-
-      {/* Filters */}
+      {/* Single-row toolbar: search · status pills with counts · more filters · export */}
       <CustomersFilters
         viewMode={viewMode}
         search={search}
         setSearch={setSearch}
         status={status}
         setStatus={setStatus}
-        statusOptions={[
-          { label: "Active", value: "active" },
-          { label: "At Risk", value: "at_risk" },
-          { label: "Churned", value: "churned" },
-        ]}
         channel={channel}
         setChannel={setChannel}
         channelOptions={channelOptions}
@@ -464,6 +449,11 @@ export default function CustomersPage({
         spendBucket={spendBucket}
         setSpendBucket={setSpendBucket}
         spendBucketOptions={isD2C ? D2C_SPEND_OPTIONS : WHOLESALE_SPEND_OPTIONS}
+        stats={stats}
+        onDownload={handleDownload}
+        downloading={downloading}
+        exportColumns={activeExportColumns}
+        setExportColumns={activeSetExportColumns}
       />
 
       {/* Table */}

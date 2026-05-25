@@ -258,7 +258,7 @@ export default function ComposeEmailModal({
               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
               <span>
                 Your Outlook isn&apos;t connected.{" "}
-                <a href="/company?tab=integrations" className="underline font-medium">
+                <a href="/settings?section=email-connection" className="underline font-medium">
                   Connect it
                 </a>{" "}
                 to send emails from the portal.

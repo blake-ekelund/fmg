@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, FileText } from "lucide-react";
+import { Search, FileText, Settings, LogOut, ChevronDown, Database } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { navItems } from "./navConfig";
 import { useBrand } from "./BrandContext";
 import type { BrandFilter } from "@/types/brand";
 import CommandPalette from "./CommandPalette";
+import { useUser } from "./UserContext";
+import { supabaseBrowser } from "@/lib/supabase/browser";
 
 const BRAND_OPTIONS: { value: BrandFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -103,10 +105,105 @@ export default function TopBar() {
               </button>
             ))}
           </div>
+
+          {/* Divider */}
+          <div className="h-5 w-px bg-gray-200" />
+
+          {/* User menu */}
+          <UserMenu />
         </div>
       </header>
 
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
     </>
+  );
+}
+
+function UserMenu() {
+  const { profile } = useUser();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const isAdmin = profile?.access === "owner" || profile?.access === "admin";
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  async function logout() {
+    setOpen(false);
+    await supabaseBrowser().auth.signOut();
+    router.replace("/auth/sign-in");
+  }
+
+  const initials = ((profile?.first_name || profile?.email || "?").trim()[0] ?? "?").toUpperCase();
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-gray-50 transition"
+        aria-label="Open user menu"
+      >
+        <div className="h-7 w-7 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">
+          {initials}
+        </div>
+        <ChevronDown size={12} className="text-gray-400" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-lg z-40 overflow-hidden">
+          {profile && (
+            <div className="px-3 py-2.5 border-b border-gray-100">
+              <div className="text-sm font-medium text-gray-900 truncate">
+                {profile.first_name || profile.email}
+              </div>
+              <div className="text-[11px] text-gray-500 truncate">
+                {profile.email}
+              </div>
+            </div>
+          )}
+          <Link
+            href="/settings"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition"
+          >
+            <Settings size={14} className="text-gray-400" />
+            Settings
+          </Link>
+          {isAdmin && (
+            <Link
+              href="/data"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition"
+            >
+              <Database size={14} className="text-gray-400" />
+              Data uploads
+            </Link>
+          )}
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition border-t border-gray-100"
+          >
+            <LogOut size={14} className="text-gray-400" />
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -5,8 +5,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { CheckCircle2 } from "lucide-react";
 import clsx from "clsx";
 import type { TaskStatus, TaskPriority } from "@/components/tasks/AddTaskModal";
+import { useTeamOwners } from "@/lib/team-owners";
 
-const OWNERS = ["Blake", "Brooke", "Julie", "Liz"];
 const PRIORITIES: TaskPriority[] = ["Low", "Medium", "High"];
 
 type Props = {
@@ -21,6 +21,7 @@ export default function InlineCreateTaskView({ onCreated }: Props) {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const { owners } = useTeamOwners();
 
   const handleSubmit = async () => {
     if (!name.trim()) return;
@@ -66,7 +67,7 @@ export default function InlineCreateTaskView({ onCreated }: Props) {
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1 block">Owner</label>
           <div className="flex flex-wrap gap-1">
-            {OWNERS.map((o) => (
+            {owners.map((o) => (
               <button
                 key={o}
                 onClick={() => setOwner(owner === o ? "" : o)}

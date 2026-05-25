@@ -2,14 +2,24 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Menu, X, Settings, LogOut, Database } from "lucide-react";
 import { getNavForRole } from "./navConfig";
 import { useUser } from "./UserContext";
+import { supabaseBrowser } from "@/lib/supabase/browser";
 
 export default function MobileNav() {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
   const { profile } = useUser();
   const navSections = getNavForRole(profile?.access ?? null);
+  const isAdmin = profile?.access === "owner" || profile?.access === "admin";
+
+  async function logout() {
+    setOpen(false);
+    await supabaseBrowser().auth.signOut();
+    router.replace("/auth/sign-in");
+  }
 
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
@@ -63,6 +73,35 @@ export default function MobileNav() {
                 </div>
               </div>
             ))}
+
+            {/* Account footer */}
+            <div className="pt-4 border-t border-gray-200 space-y-0.5">
+              <Link
+                href="/settings"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 rounded-md px-3 py-3 text-[15px] font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+              >
+                <Settings size={18} />
+                <span>Settings</span>
+              </Link>
+              {isAdmin && (
+                <Link
+                  href="/data"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-3 rounded-md px-3 py-3 text-[15px] font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                >
+                  <Database size={18} />
+                  <span>Data uploads</span>
+                </Link>
+              )}
+              <button
+                onClick={logout}
+                className="w-full flex items-center gap-3 rounded-md px-3 py-3 text-[15px] font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+              >
+                <LogOut size={18} />
+                <span>Log out</span>
+              </button>
+            </div>
           </nav>
         </div>
       )}

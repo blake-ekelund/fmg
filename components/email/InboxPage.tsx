@@ -110,10 +110,10 @@ export default function InboxPage() {
           <span>
             Connect your Outlook mailbox in{" "}
             <Link
-              href="/company?tab=integrations"
+              href="/settings?section=email-connection"
               className="underline font-medium hover:text-amber-900"
             >
-              Company → Integrations
+              Settings → Email connection
             </Link>
             {" "}to see your customer email here.
           </span>

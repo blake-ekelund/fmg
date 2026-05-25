@@ -12,6 +12,7 @@ export function useForecastData() {
   const { brand } = useBrand();
   const [rows, setRows] = useState<ForecastRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [snapshotDate, setSnapshotDate] = useState<Date | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -35,13 +36,12 @@ export function useForecastData() {
       /* -------------------------------
          2. Latest inventory snapshot
       -------------------------------- */
-      // 1️⃣ Get latest upload
       const { data: latestUpload } = await supabase
         .from("inventory_uploads")
-        .select("id")
+        .select("id, created_at")
         .order("created_at", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       type InventorySnapshotItem = {
         id: string;
@@ -53,7 +53,7 @@ export function useForecastData() {
       let inventoryMap = new Map<string, InventorySnapshotItem>();
 
       if (latestUpload) {
-        // 2️⃣ Pull only that upload's rows
+        setSnapshotDate(new Date(latestUpload.created_at));
         const { data: inventory } = await supabase
           .from("inventory_snapshot_items")
           .select("id, part, on_hand, on_order")
@@ -62,6 +62,8 @@ export function useForecastData() {
         inventoryMap = new Map(
           (inventory ?? []).map((r) => [r.part, r])
         );
+      } else {
+        setSnapshotDate(null);
       }
 
       /* -------------------------------
@@ -86,20 +88,19 @@ export function useForecastData() {
           const inv = inventoryMap.get(p.part);
           const units90 = units90Map.get(p.part) ?? 0;
 
+          const hasManualAvg =
+            !!p.avg_monthly_demand && p.avg_monthly_demand > 0;
           const avgFromSales = units90 / 3;
 
           return {
             ...p,
-
             snapshot_id: inv?.id ?? "",
             on_hand: inv?.on_hand ?? 0,
             on_order: inv?.on_order ?? 0,
-
-            // 🔑 DEFAULT: derived from sales
-            avg_monthly_demand:
-              p.avg_monthly_demand && p.avg_monthly_demand > 0
-                ? p.avg_monthly_demand
-                : avgFromSales,
+            avg_monthly_demand: hasManualAvg
+              ? p.avg_monthly_demand
+              : avgFromSales,
+            is_auto_avg: !hasManualAvg,
           };
         }) ?? [];
 
@@ -110,5 +111,5 @@ export function useForecastData() {
     load();
   }, [brand]);
 
-  return { rows, setRows, loading };
+  return { rows, setRows, loading, snapshotDate };
 }

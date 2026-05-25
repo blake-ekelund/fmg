@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
+import { useTeamOwners } from "@/lib/team-owners";
 
 export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "High" | "Medium" | "Low";
@@ -21,7 +22,6 @@ export type Task = {
   created_at: string;
 };
 
-const OWNERS = ["Blake", "Brooke", "Julie", "Liz"];
 const PRIORITIES: TaskPriority[] = ["Low", "Medium", "High"];
 const STATUSES: { value: TaskStatus; label: string }[] = [
   { value: "todo", label: "To Do" },
@@ -46,6 +46,7 @@ export function AddTaskModal({ open, task, defaultStatus, onClose, onSaved }: Pr
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const { owners } = useTeamOwners();
 
   useEffect(() => {
     if (task) {
@@ -164,7 +165,7 @@ export function AddTaskModal({ open, task, defaultStatus, onClose, onSaved }: Pr
                 Owner
               </label>
               <div className="flex flex-wrap gap-1.5">
-                {OWNERS.map((o) => (
+                {owners.map((o) => (
                   <button
                     key={o}
                     type="button"

@@ -6,10 +6,8 @@ import {
   ShoppingBag,
   Megaphone,
   KanbanSquare,
-  Building,
   PackageSearch,
   Hash,
-  Database,
   FileText,
   CalendarDays,
   ImageIcon,
@@ -58,6 +56,12 @@ export const navSections: readonly NavSection[] = [
         icon: LayoutDashboard,
         roles: FULL_ACCESS,
       },
+      {
+        label: "Task List",
+        href: "/task-list",
+        icon: KanbanSquare,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
     ],
   },
   {
@@ -65,7 +69,7 @@ export const navSections: readonly NavSection[] = [
     icon: PackageSearch,
     items: [
       {
-        label: "Product List",
+        label: "Products",
         href: "/products",
         icon: PackageSearch,
         roles: FULL_ACCESS,
@@ -186,30 +190,6 @@ export const navSections: readonly NavSection[] = [
       },
     ],
   },
-  {
-    label: "Workspace",
-    icon: KanbanSquare,
-    items: [
-      {
-        label: "Task List",
-        href: "/task-list",
-        icon: KanbanSquare,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
-      },
-      {
-        label: "Data",
-        href: "/data",
-        icon: Database,
-        roles: FULL_ACCESS,
-      },
-      {
-        label: "Company",
-        href: "/company",
-        icon: Building,
-        roles: ["owner", "admin"],
-      },
-    ],
-  },
 ];
 
 /** Filter nav sections for a given role */
@@ -231,13 +211,27 @@ export function getDefaultRoute(role: UserRole | null): string {
   return "/dashboard";
 }
 
+/**
+ * Paths reachable outside the sidebar (e.g. user dropdown). Listed here so
+ * the route guard doesn't bounce users away from them. Each entry may carry
+ * its own role gate, mirroring the way NavItem.roles works.
+ */
+const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
+  { href: "/settings" }, // every signed-in user
+  { href: "/data", roles: ["owner", "admin"] }, // admin-only upload history
+];
+
 /** Get all allowed href paths for a role (used for route guarding) */
 export function getAllowedPaths(role: UserRole | null): string[] {
   if (!role) return [];
-  return navSections
+  const navAllowed = navSections
     .flatMap((s) => s.items)
     .filter((item) => !item.roles || item.roles.includes(role))
     .map((item) => item.href);
+  const extraAllowed = EXTRA_ALLOWED
+    .filter((e) => !e.roles || e.roles.includes(role))
+    .map((e) => e.href);
+  return [...navAllowed, ...extraAllowed];
 }
 
 /* Flat list for MobileNav */

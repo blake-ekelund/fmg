@@ -275,16 +275,8 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* User + Logout */}
+      {/* Logout */}
       <div className="px-2 pb-3 shrink-0 pt-2 border-t border-gray-200/60">
-        {!collapsed && profile && (
-          <div className="px-2 py-2">
-            <div className="text-[12px] font-medium text-gray-700 truncate">
-              {profile.first_name || profile.email}
-            </div>
-            <div className="text-[11px] text-gray-400 capitalize">{profile.access}</div>
-          </div>
-        )}
         <button
           onClick={handleLogout}
           className={clsx(

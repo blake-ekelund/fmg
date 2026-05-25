@@ -73,8 +73,8 @@ export default function EmailsTab({
         </div>
         <p className="text-xs text-gray-400 mt-1">
           Go to{" "}
-          <Link href="/company?tab=integrations" className="underline">
-            Company → Integrations
+          <Link href="/settings?section=email-connection" className="underline">
+            Settings → Email connection
           </Link>{" "}
           to connect your mailbox.
         </p>
