@@ -92,14 +92,8 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "sales"],
       },
       {
-        label: "Wholesale Inbox",
-        href: "/inbox/wholesale",
-        icon: Inbox,
-        roles: [...FULL_ACCESS, "sales"],
-      },
-      {
-        label: "D2C Inbox",
-        href: "/inbox/d2c",
+        label: "Inbox",
+        href: "/inbox",
         icon: Inbox,
         roles: [...FULL_ACCESS, "sales"],
       },

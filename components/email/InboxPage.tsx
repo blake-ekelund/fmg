@@ -20,18 +20,14 @@ import ThreadChatView, {
 import { useMyEmailAccountId } from "./useMyEmailAccountId";
 
 type Filter = "all" | "unread" | "sent" | "received";
+type AudienceFilter = "all" | "d2c" | "wholesale";
 
-type Props = {
-  customerType: "wholesale" | "d2c";
-  /** Plain title shown at the top of the page. */
-  title: string;
-};
-
-export default function InboxPage({ customerType, title }: Props) {
+export default function InboxPage() {
   const account = useMyEmailAccountId();
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
+  const [audience, setAudience] = useState<AudienceFilter>("all");
   const [search, setSearch] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -45,17 +41,17 @@ export default function InboxPage({ customerType, title }: Props) {
       // Scope to the current user's mailbox even though they're owner/admin
       // (RLS includes an admin override that would otherwise leak everyone's).
       .eq("account_id", account.accountId)
-      .eq("customer_type", customerType)
       .order("last_message_at", { ascending: false, nullsFirst: false })
       .range(0, 499);
 
+    if (audience !== "all") q = q.eq("customer_type", audience);
     if (filter === "unread") q = q.gt("unread_count", 0);
     if (filter === "sent") q = q.eq("last_direction", "sent");
     if (filter === "received") q = q.eq("last_direction", "received");
 
     const { data } = await q;
     setThreads((data as ThreadRow[]) ?? []);
-  }, [account, customerType, filter]);
+  }, [account, audience, filter]);
 
   useEffect(() => {
     if (account.state === "loading") return;
@@ -91,7 +87,7 @@ export default function InboxPage({ customerType, title }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
           <p className="text-xs text-gray-500 mt-0.5">
             {account.state === "ready" && (
               <>
@@ -123,6 +119,22 @@ export default function InboxPage({ customerType, title }: Props) {
           </span>
         </div>
       )}
+
+      {/* Audience picker — D2C / wholesale / both */}
+      <div className="flex items-center gap-1 mb-2 flex-wrap">
+        <AudiencePill active={audience === "all"} onClick={() => setAudience("all")}>
+          All customers
+        </AudiencePill>
+        <AudiencePill active={audience === "d2c"} onClick={() => setAudience("d2c")}>
+          D2C
+        </AudiencePill>
+        <AudiencePill
+          active={audience === "wholesale"}
+          onClick={() => setAudience("wholesale")}
+        >
+          Wholesale
+        </AudiencePill>
+      </div>
 
       {/* Filters + search */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -273,6 +285,30 @@ export default function InboxPage({ customerType, title }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+function AudiencePill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        "rounded-lg px-3 py-2 text-xs font-medium border transition",
+        active
+          ? "bg-gray-900 text-white border-gray-900"
+          : "bg-white text-gray-500 border-gray-200 hover:border-gray-300",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
