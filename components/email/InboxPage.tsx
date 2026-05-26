@@ -1,14 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Mail,
-  Inbox as InboxIcon,
-  Send,
-  Search,
-  Loader2,
-  AlertTriangle,
-} from "lucide-react";
+import { Mail, Search, Loader2, AlertTriangle } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -83,29 +76,9 @@ export default function InboxPage() {
   const unreadTotal = threads.reduce((s, t) => s + (t.unread_count || 0), 0);
 
   return (
-    <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {account.state === "ready" && (
-              <>
-                {threads.length} thread{threads.length === 1 ? "" : "s"}
-                {unreadTotal > 0 && (
-                  <>
-                    {" · "}
-                    <span className="text-blue-600 font-medium">{unreadTotal} unread</span>
-                  </>
-                )}
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-
+    <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
       {account.state === "no-account" && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 mb-4 inline-flex items-start gap-2 text-xs text-amber-800">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 inline-flex items-start gap-2 text-xs text-amber-800">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
             Connect your Outlook mailbox in{" "}
@@ -114,75 +87,90 @@ export default function InboxPage() {
               className="underline font-medium hover:text-amber-900"
             >
               Settings → Email connection
-            </Link>
-            {" "}to see your customer email here.
+            </Link>{" "}
+            to see your customer email here.
           </span>
         </div>
       )}
 
-      {/* Audience picker — D2C / wholesale / both */}
-      <div className="flex items-center gap-1 mb-2 flex-wrap">
-        <AudiencePill active={audience === "all"} onClick={() => setAudience("all")}>
-          All customers
-        </AudiencePill>
-        <AudiencePill active={audience === "d2c"} onClick={() => setAudience("d2c")}>
-          D2C
-        </AudiencePill>
-        <AudiencePill
-          active={audience === "wholesale"}
-          onClick={() => setAudience("wholesale")}
-        >
-          Wholesale
-        </AudiencePill>
-      </div>
-
-      {/* Filters + search */}
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <FilterPill
-          active={filter === "all"}
-          onClick={() => setFilter("all")}
-          icon={<Mail size={12} />}
-        >
-          All
-        </FilterPill>
-        <FilterPill
-          active={filter === "unread"}
-          onClick={() => setFilter("unread")}
-          icon={<InboxIcon size={12} />}
-        >
-          Unread
-        </FilterPill>
-        <FilterPill
-          active={filter === "received"}
-          onClick={() => setFilter("received")}
-          icon={<InboxIcon size={12} />}
-        >
-          Received
-        </FilterPill>
-        <FilterPill
-          active={filter === "sent"}
-          onClick={() => setFilter("sent")}
-          icon={<Send size={12} />}
-        >
-          Sent
-        </FilterPill>
-
-        <div className="ml-auto relative max-w-xs w-full">
+      {/* Single toolbar row: search + audience + status filters + stats */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[180px] max-w-[280px]">
           <Search
-            size={12}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+            size={13}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
           />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search subject, customer, preview…"
-            className="w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-xs placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            className="w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
           />
         </div>
+
+        {/* Audience segmented */}
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
+          <Pill
+            label="All customers"
+            active={audience === "all"}
+            onClick={() => setAudience("all")}
+          />
+          <Pill
+            label="D2C"
+            active={audience === "d2c"}
+            onClick={() => setAudience("d2c")}
+          />
+          <Pill
+            label="Wholesale"
+            active={audience === "wholesale"}
+            onClick={() => setAudience("wholesale")}
+          />
+        </div>
+
+        {/* Status segmented */}
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
+          <Pill
+            label="All"
+            active={filter === "all"}
+            onClick={() => setFilter("all")}
+          />
+          <Pill
+            label="Unread"
+            active={filter === "unread"}
+            onClick={() => setFilter("unread")}
+          />
+          <Pill
+            label="Received"
+            active={filter === "received"}
+            onClick={() => setFilter("received")}
+          />
+          <Pill
+            label="Sent"
+            active={filter === "sent"}
+            onClick={() => setFilter("sent")}
+          />
+        </div>
+
+        {/* Stats */}
+        {account.state === "ready" && (
+          <div className="ml-auto text-xs text-gray-500 tabular-nums">
+            {threads.length.toLocaleString()} thread
+            {threads.length === 1 ? "" : "s"}
+            {unreadTotal > 0 && (
+              <>
+                {" · "}
+                <span className="text-blue-600 font-medium">
+                  {unreadTotal} unread
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Two-pane layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4 h-[calc(100vh-220px)] min-h-[500px]">
+      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4 h-[calc(100vh-150px)] min-h-[500px]">
         {/* Thread list */}
         <div className="rounded-xl border border-gray-200 bg-white overflow-y-auto">
           {loading ? (
@@ -288,53 +276,24 @@ export default function InboxPage() {
   );
 }
 
-function AudiencePill({
+function Pill({
+  label,
   active,
   onClick,
-  children,
 }: {
+  label: string;
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
       className={clsx(
-        "rounded-lg px-3 py-2 text-xs font-medium border transition",
-        active
-          ? "bg-gray-900 text-white border-gray-900"
-          : "bg-white text-gray-500 border-gray-200 hover:border-gray-300",
+        "px-3 py-1.5 rounded-md text-xs font-medium transition",
+        active ? "bg-gray-900 text-white" : "text-gray-600 hover:text-gray-900",
       )}
     >
-      {children}
-    </button>
-  );
-}
-
-function FilterPill({
-  active,
-  onClick,
-  icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={clsx(
-        "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition",
-        active
-          ? "bg-gray-900 text-white border-gray-900"
-          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300",
-      )}
-    >
-      {icon}
-      {children}
+      {label}
     </button>
   );
 }

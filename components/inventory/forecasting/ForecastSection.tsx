@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, CalendarClock, ExternalLink } from "lucide-react";
+import { Search, CalendarClock, ExternalLink, Download } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { addMonths } from "./utils/date";
+import { project } from "./utils/forecast";
 import { useForecastData } from "./hooks/useForecastData";
 import { useDebouncedSave } from "./hooks/useDebouncedSave";
 import ForecastTable from "./ForecastTable";
@@ -67,6 +68,16 @@ function shortMonthYear(d: Date): string {
 
 function daysSince(d: Date): number {
   return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Quote-escape a single CSV cell value. */
+function csvCell(v: unknown): string {
+  if (v == null) return "";
+  const s = String(v);
+  if (/[",\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
 }
 
 export default function ForecastSection() {
@@ -135,6 +146,75 @@ export default function ForecastSection() {
         .update({ on_order: value })
         .eq("id", row.snapshot_id);
     });
+  }
+
+  /* ─── CSV export ─────────────────────────────────────────────────────
+     Always exports 12 monthly columns regardless of the view toggle — the
+     user came here for a monthly format. Respects the current search +
+     status filters so the export matches what's on screen. */
+
+  function handleDownload() {
+    const now = new Date();
+    const months = Array.from({ length: 12 }).map((_, i) => addMonths(now, i));
+    const monthLabels = months.map((m) =>
+      m.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+    );
+
+    const headers = [
+      "Status",
+      "Part",
+      "Display Name",
+      "Brand",
+      "Fragrance",
+      "Size",
+      "Product Type",
+      "On Hand",
+      "On Order",
+      "Avg Monthly Demand",
+      "Lead Time (Months)",
+      ...monthLabels,
+    ];
+
+    const lines: string[] = [headers.join(",")];
+    for (const row of visibleRows) {
+      const status = getInventoryStatus(
+        row.on_hand,
+        row.on_order,
+        row.avg_monthly_demand,
+      );
+      const projections: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        projections.push(Math.round(project(row, i, now)));
+      }
+      const cells: unknown[] = [
+        status,
+        row.part,
+        row.display_name ?? "",
+        row.brand,
+        row.fragrance ?? "",
+        row.size ?? "",
+        row.product_type ?? "",
+        row.on_hand,
+        row.on_order,
+        row.avg_monthly_demand,
+        row.lead_time_months ?? 0,
+        ...projections,
+      ];
+      lines.push(cells.map(csvCell).join(","));
+    }
+
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const today = new Date().toISOString().split("T")[0];
+    link.setAttribute("download", `inventory_forecast_${today}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   function handleSort(key: SortKey) {
@@ -343,10 +423,21 @@ export default function ForecastSection() {
           </button>
         </div>
 
-        {/* Snapshot freshness (pushed right) */}
+        {/* Download CSV (12 monthly columns regardless of view toggle) */}
+        <button
+          onClick={handleDownload}
+          disabled={visibleRows.length === 0}
+          title="Download visible rows as CSV with 12-month forecast"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Download size={13} />
+          Export
+        </button>
+
+        {/* Snapshot freshness */}
         <div
           className={clsx(
-            "ml-auto inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs",
+            "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs",
             snapshotMeta.stale
               ? "border-amber-200 bg-amber-50 text-amber-700"
               : "border-gray-200 bg-white text-gray-500",

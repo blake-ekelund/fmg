@@ -113,7 +113,7 @@ export const navSections: readonly NavSection[] = [
     ],
   },
   {
-    label: "Customer Service",
+    label: "Outreach",
     icon: Headphones,
     items: [
       {
@@ -121,6 +121,24 @@ export const navSections: readonly NavSection[] = [
         href: "/inbox",
         icon: Inbox,
         roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        label: "Email Templates",
+        href: "/email-templates",
+        icon: FileText,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        label: "Automations",
+        href: "/automations",
+        icon: Zap,
+        roles: ["owner", "admin", "marketing"],
+      },
+      {
+        label: "Customer Feedback",
+        href: "/marketing/customer-feedback",
+        icon: MessageSquare,
+        roles: [...FULL_ACCESS, "marketing"],
       },
     ],
   },
@@ -168,24 +186,6 @@ export const navSections: readonly NavSection[] = [
         label: "Archives",
         href: "/archives",
         icon: Archive,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Email Templates",
-        href: "/email-templates",
-        icon: FileText,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
-      },
-      {
-        label: "Automations",
-        href: "/automations",
-        icon: Zap,
-        roles: ["owner", "admin", "marketing"],
-      },
-      {
-        label: "Customer Feedback",
-        href: "/marketing/customer-feedback",
-        icon: MessageSquare,
         roles: [...FULL_ACCESS, "marketing"],
       },
     ],
