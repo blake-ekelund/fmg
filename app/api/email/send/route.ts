@@ -13,7 +13,7 @@ import {
 } from "@/lib/email/send";
 import { publicOriginFromRequest } from "@/lib/email/origin";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
-import { primaryEmail } from "@/lib/email/addresses";
+import { primaryEmail, parseEmailAddresses } from "@/lib/email/addresses";
 
 export const runtime = "nodejs";
 // Vercel Pro caps serverless functions at ~300s. With concurrency 5 below,
@@ -34,6 +34,11 @@ type SendRequestBody = {
   body_template: string;
   /** Plain text or HTML — we send as HTML, escaping is the caller's job. */
   body_format?: "text" | "html";
+  /**
+   * Optional CC addresses applied to every recipient's email. Accepts a
+   * comma/semicolon-separated string; we parse + dedupe server-side.
+   */
+  cc?: string;
 };
 
 type ContactRow = {
@@ -151,6 +156,17 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  // Parse the optional CC list once — applied to every recipient's email.
+  const ccList = parseEmailAddresses(body.cc ?? null);
+  if (ccList.length > 20) {
+    return NextResponse.json(
+      { error: `Too many Cc addresses (got ${ccList.length}, max 20).` },
+      { status: 400 },
+    );
+  }
+  const ccRecipients = ccList.map((address) => ({ address }));
+  const ccAddressesJson = ccList.map((address) => ({ address }));
 
   // Mint an access token for the sender.
   let accessToken: string;
@@ -274,6 +290,7 @@ export async function POST(request: Request) {
         subject,
         bodyHtml: tracked.html,
         to: [{ address: contact.email, name: contact.name ?? undefined }],
+        cc: ccRecipients.length > 0 ? ccRecipients : undefined,
       });
 
       // Upsert thread keyed by (account, conversationId).
@@ -312,6 +329,7 @@ export async function POST(request: Request) {
           conversation_id: sent.conversationId,
           from_address: sent.fromAddress ?? senderEmail,
           to_addresses: [{ address: contact.email, name: contact.name }],
+          cc_addresses: ccAddressesJson,
           subject,
           // Store the original plain text so the UI can render bubbles cleanly,
           // plus the actual HTML we shipped so we can debug tracking issues.

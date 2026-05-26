@@ -59,6 +59,7 @@ export default function ComposeEmailModal({
   onComplete,
 }: Props) {
   const [subject, setSubject] = useState("");
+  const [cc, setCc] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
@@ -121,6 +122,7 @@ export default function ComposeEmailModal({
   useEffect(() => {
     if (!open) {
       setSubject("");
+      setCc("");
       setBody("");
       setResult(null);
       setError(null);
@@ -196,6 +198,7 @@ export default function ComposeEmailModal({
           subject_template: subject,
           body_template: body,
           body_format: "text",
+          cc: cc.trim() || undefined,
         }),
       });
       const json = await res.json();
@@ -344,6 +347,23 @@ export default function ComposeEmailModal({
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Cc */}
+              <div>
+                <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5 block">
+                  Cc <span className="lowercase tracking-normal text-gray-400">(optional)</span>
+                </label>
+                <input
+                  value={cc}
+                  onChange={(e) => setCc(e.target.value)}
+                  placeholder="manager@example.com, teammate@example.com"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+                <div className="text-[10px] text-gray-400 mt-1">
+                  Separate multiple addresses with commas. CC&apos;d on every
+                  recipient&apos;s copy.
+                </div>
               </div>
 
               {/* Subject */}
