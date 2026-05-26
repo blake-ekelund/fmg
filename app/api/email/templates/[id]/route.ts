@@ -6,8 +6,8 @@ export const runtime = "nodejs";
 
 /**
  * DELETE /api/email/templates/<id>
- * Removes a template the caller owns. 204 on success; 404 if the row
- * doesn't exist or belongs to someone else.
+ * Templates are shared org-wide, so any authenticated user can delete any
+ * row. 204 on success; 404 if the row doesn't exist.
  */
 export async function DELETE(
   request: Request,
@@ -25,7 +25,6 @@ export async function DELETE(
     .from("user_email_templates")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id)
     .select("id")
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -54,8 +53,7 @@ export async function POST(
   await supabaseServer
     .from("user_email_templates")
     .update({ last_used_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("id", id);
 
   return NextResponse.json({ ok: true });
 }

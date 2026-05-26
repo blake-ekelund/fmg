@@ -13,7 +13,7 @@ type UpsertBody = {
 
 /**
  * GET /api/email/templates
- * Returns the current user's templates, most-recently-updated first.
+ * Returns ALL templates (shared org-wide), most-recently-updated first.
  */
 export async function GET(request: Request) {
   const user = await getAuthUser(request);
@@ -22,7 +22,6 @@ export async function GET(request: Request) {
   const { data, error } = await supabaseServer
     .from("user_email_templates")
     .select("id, name, subject, body, last_used_at, updated_at")
-    .eq("user_id", user.id)
     .order("updated_at", { ascending: false })
     .limit(200);
 
@@ -59,13 +58,13 @@ export async function POST(request: Request) {
     );
   }
 
-  // Update path: only allow updating a row that belongs to the caller.
+  // Update path: templates are shared, so any authenticated user can edit
+  // any template. user_id (created-by) is intentionally not touched.
   if (body.id) {
     const { data, error } = await supabaseServer
       .from("user_email_templates")
       .update({ name, subject, body: tplBody })
       .eq("id", body.id)
-      .eq("user_id", user.id)
       .select("id, name, subject, body, last_used_at, updated_at")
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
