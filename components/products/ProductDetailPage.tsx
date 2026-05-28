@@ -45,6 +45,7 @@ import type { Section as MediaSection } from "@/components/marketing/media-kit/c
 import type { AssetType } from "@/components/marketing/media-kit/components/mediaKit/types";
 import { uploadMediaKitAsset } from "@/lib/mediaKit/uploadMediaKitAsset";
 import { DeleteConfirmModal } from "@/components/marketing/media-kit/components/modalSections/DeleteConfirmModal";
+import { StorefrontSection } from "./StorefrontSection";
 
 /* ─── Types ─── */
 
@@ -68,7 +69,7 @@ type SalesRow = {
   units_fulfilled: number;
 };
 
-type Section = "details" | "inventory" | "copy" | "media" | "sales";
+type Section = "details" | "storefront" | "inventory" | "copy" | "media" | "sales";
 
 type TabIndicator = {
   color: string;
@@ -595,6 +596,7 @@ export default function ProductDetailPage({
 
   const NAV_SECTIONS: { value: Section; label: string }[] = [
     { value: "details", label: "Details" },
+    { value: "storefront", label: "Storefront" },
     { value: "inventory", label: "Inventory" },
     { value: "sales", label: "Sales" },
     { value: "copy", label: "Copy" },
@@ -763,6 +765,11 @@ export default function ProductDetailPage({
                 <FormattedNumField label="COGS ($)" value={form.cogs} onChange={(v) => update("cogs", v)} prefix="$" decimals={2} />
               </div>
             </div>
+          )}
+
+          {/* ─── STOREFRONT (publish, pricing, marketing, shipping) ─── */}
+          {section === "storefront" && (
+            <StorefrontSection form={form} update={update} />
           )}
 
           {/* ─── INVENTORY & FORECAST ─── */}
