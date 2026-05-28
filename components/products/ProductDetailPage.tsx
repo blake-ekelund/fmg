@@ -69,7 +69,7 @@ type SalesRow = {
   units_fulfilled: number;
 };
 
-type Section = "details" | "inventory" | "copy" | "media" | "sales";
+type Section = "details" | "inventory" | "media" | "sales";
 
 type TabIndicator = {
   color: string;
@@ -125,8 +125,6 @@ export default function ProductDetailPage({
   const [mkBenefits, setMkBenefits] = useState("");
   const [mkIngredients, setMkIngredients] = useState("");
   const [mkNotes, setMkNotes] = useState("");
-  const [mkSaving, setMkSaving] = useState(false);
-  const [mkSaved, setMkSaved] = useState(false);
 
   /* Per-section asset signed URLs for PhotoSection */
   const [assetImagesBySection, setAssetImagesBySection] = useState<
@@ -381,7 +379,39 @@ export default function ProductDetailPage({
     setSaved(false);
   }
 
-  const hasChanges = form && product && JSON.stringify(form) !== JSON.stringify(product);
+  // Copy fields (now in Details tab) are dirty when local mk* state differs
+  // from the loaded mediaText snapshot.
+  const copyDirty = !!(
+    mediaText &&
+    (
+      (mediaText.short_description ?? "") !== mkShortDesc ||
+      (mediaText.long_description ?? "") !== mkLongDesc ||
+      (mediaText.benefits ?? "") !== mkBenefits ||
+      (mediaText.ingredients_text ?? "") !== mkIngredients ||
+      (mediaText.retailer_notes ?? "") !== mkNotes
+    )
+  );
+  const productDirty = !!(form && product && JSON.stringify(form) !== JSON.stringify(product));
+  const hasChanges = productDirty || copyDirty;
+
+  async function persistCopy() {
+    await supabase.from("media_kit_products").upsert({
+      part,
+      short_description: mkShortDesc,
+      long_description: mkLongDesc,
+      benefits: mkBenefits,
+      ingredients_text: mkIngredients,
+      retailer_notes: mkNotes,
+      updated_at: new Date().toISOString(),
+    });
+    setMediaText({
+      short_description: mkShortDesc || null,
+      long_description: mkLongDesc || null,
+      benefits: mkBenefits || null,
+      ingredients_text: mkIngredients || null,
+      retailer_notes: mkNotes || null,
+    });
+  }
 
   async function handleSave() {
     if (!form) return;
@@ -405,7 +435,14 @@ export default function ProductDetailPage({
       return;
     }
 
-    await supabase.from("inventory_products").update(form).eq("part", part);
+    // Persist inventory + copy in parallel.
+    await Promise.all([
+      productDirty
+        ? supabase.from("inventory_products").update(form).eq("part", part)
+        : Promise.resolve({ error: null }),
+      copyDirty ? persistCopy() : Promise.resolve(),
+    ]);
+
     setProduct({ ...form });
     setSaving(false);
     setSaved(true);
@@ -447,30 +484,7 @@ export default function ProductDetailPage({
       });
   }, [salesData]);
 
-  /* Media kit save */
-  async function handleMediaSave() {
-    setMkSaving(true);
-    await supabase.from("media_kit_products").upsert({
-      part,
-      short_description: mkShortDesc,
-      long_description: mkLongDesc,
-      benefits: mkBenefits,
-      ingredients_text: mkIngredients,
-      retailer_notes: mkNotes,
-      updated_at: new Date().toISOString(),
-    });
-    setMkSaving(false);
-    setMkSaved(true);
-    setTimeout(() => setMkSaved(false), 2000);
-    // Refresh read state
-    setMediaText({
-      short_description: mkShortDesc || null,
-      long_description: mkLongDesc || null,
-      benefits: mkBenefits || null,
-      ingredients_text: mkIngredients || null,
-      retailer_notes: mkNotes || null,
-    });
-  }
+  // Media kit copy now persists via the unified handleSave (defined earlier).
 
   /* ─── Forecast projections ─── */
 
@@ -515,15 +529,6 @@ export default function ProductDetailPage({
 
   /* ─── Tab status indicators ─── */
 
-  const missingCopyCount = useMemo(() => {
-    let count = 0;
-    if (!mkShortDesc) count++;
-    if (!mkLongDesc) count++;
-    if (!mkBenefits) count++;
-    if (!mkIngredients) count++;
-    return count;
-  }, [mkShortDesc, mkLongDesc, mkBenefits, mkIngredients]);
-
   const missingPhotoCount = useMemo(() => {
     return ASSET_SECTIONS.filter((s) => !(assetImagesBySection[s]?.length)).length;
   }, [assetImagesBySection]);
@@ -541,14 +546,6 @@ export default function ProductDetailPage({
     let salesIndicator: TabIndicator = null;
     if (trend !== "unknown") {
       salesIndicator = { color: trendCfg.color, bg: trendCfg.bg, label: trendCfg.label };
-    }
-
-    // Copy
-    let copyIndicator: TabIndicator = null;
-    if (mediaText !== null) {
-      copyIndicator = missingCopyCount > 0
-        ? { color: "text-amber-700", bg: "bg-amber-100", label: `${missingCopyCount} missing` }
-        : { color: "text-green-700", bg: "bg-green-100", label: "Complete" };
     }
 
     // Media (photos)
@@ -574,10 +571,9 @@ export default function ProductDetailPage({
       details: detailsIndicator,
       inventory: invIndicator,
       sales: salesIndicator,
-      copy: copyIndicator,
       media: mediaIndicator,
     };
-  }, [form, monthsOfSupply, trend, trendCfg, mediaText, missingCopyCount, missingPhotoCount]);
+  }, [form, monthsOfSupply, trend, trendCfg, mediaText, missingPhotoCount]);
 
   /* ─── Loading / Not Found ─── */
 
@@ -609,7 +605,6 @@ export default function ProductDetailPage({
     { value: "details", label: "Details" },
     { value: "inventory", label: "Inventory" },
     { value: "sales", label: "Sales" },
-    { value: "copy", label: "Copy" },
     { value: "media", label: "Media" },
   ];
 
@@ -717,9 +712,27 @@ export default function ProductDetailPage({
             })}
           </nav>
 
-          {/* ─── DETAILS (core product + publish + pricing + marketing + shipping) ─── */}
+          {/* ─── DETAILS (core product + publish + pricing + marketing copy + shipping) ─── */}
           {section === "details" && (
-            <DetailsSection form={form} update={update} isNewProduct={isNewProduct} />
+            <DetailsSection
+              form={form}
+              update={update}
+              isNewProduct={isNewProduct}
+              copy={{
+                short_description: mkShortDesc,
+                long_description: mkLongDesc,
+                benefits: mkBenefits,
+                ingredients_text: mkIngredients,
+                retailer_notes: mkNotes,
+              }}
+              updateCopy={(k, v) => {
+                if (k === "short_description") setMkShortDesc(v);
+                else if (k === "long_description") setMkLongDesc(v);
+                else if (k === "benefits") setMkBenefits(v);
+                else if (k === "ingredients_text") setMkIngredients(v);
+                else if (k === "retailer_notes") setMkNotes(v);
+              }}
+            />
           )}
 
           {/* ─── INVENTORY & FORECAST ─── */}
@@ -841,65 +854,6 @@ export default function ProductDetailPage({
                     Set average monthly demand above to generate projections.
                   </div>
                 )}
-              </div>
-            </div>
-          )}
-
-          {/* ─── COPY ─── */}
-          {section === "copy" && (
-            <div className="space-y-4">
-              {/* Missing copy tags */}
-              {(() => {
-                const missing: string[] = [];
-                if (!mkShortDesc) missing.push("Short Description");
-                if (!mkLongDesc) missing.push("Long Description");
-                if (!mkBenefits) missing.push("Benefits");
-                if (!mkIngredients) missing.push("Ingredients");
-
-                return missing.length > 0 ? (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-3">
-                    <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-xs font-medium text-amber-800">Missing copy</p>
-                      <div className="flex flex-wrap gap-1.5 mt-1.5">
-                        {missing.map((m) => (
-                          <span key={m} className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700">
-                            {m}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 flex items-center gap-2">
-                    <CheckCircle size={14} className="text-green-600" />
-                    <p className="text-xs font-medium text-green-700">All copy complete</p>
-                  </div>
-                );
-              })()}
-
-              <div className="rounded-xl border border-gray-200 bg-white">
-                <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-                  <h2 className="text-sm font-medium text-gray-900">Product Copy</h2>
-                  <div className="flex items-center gap-2">
-                    {mkSaved && <span className="text-xs text-green-600 font-medium">Saved</span>}
-                    <button
-                      onClick={handleMediaSave}
-                      disabled={mkSaving}
-                      className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 transition disabled:opacity-50"
-                    >
-                      <Save size={12} />
-                      {mkSaving ? "Saving..." : "Save"}
-                    </button>
-                  </div>
-                </div>
-                <div className="px-5 py-4 space-y-4">
-                  <MediaTextField label="Short Description" value={mkShortDesc} onChange={setMkShortDesc} rows={2} placeholder="Used in cards, previews, summaries" />
-                  <MediaTextField label="Long Description" value={mkLongDesc} onChange={setMkLongDesc} rows={4} placeholder="Canonical description used by retailers" />
-                  <MediaTextField label="Benefits" value={mkBenefits} onChange={setMkBenefits} rows={4} placeholder={"• Gently cleanses without drying\n• Plant-based ingredients"} />
-                  <MediaTextField label="Ingredients" value={mkIngredients} onChange={setMkIngredients} rows={3} placeholder="Ingredients: Water (Aqua), ..." />
-                  <MediaTextField label="Retailer Notes" value={mkNotes} onChange={setMkNotes} rows={2} placeholder="Usage guidance, restrictions…" />
-                </div>
               </div>
             </div>
           )}
@@ -1479,23 +1433,6 @@ function ReadOnlyField({ label, value }: { label: string; value: string | null |
       <p className={clsx("text-sm leading-relaxed", value ? "text-gray-700" : "text-gray-300 italic")}>
         {value || "Not set"}
       </p>
-    </div>
-  );
-}
-
-function MediaTextField({ label, value, onChange, rows, placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; rows?: number; placeholder?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-medium text-gray-500">{label}</label>
-      <textarea
-        rows={rows ?? 3}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 resize-y focus:outline-none focus:ring-2 focus:ring-gray-300 transition"
-      />
     </div>
   );
 }
