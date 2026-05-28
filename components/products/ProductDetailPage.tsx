@@ -559,8 +559,20 @@ export default function ProductDetailPage({
         : { color: "text-green-700", bg: "bg-green-100", label: "Complete" };
     }
 
+    // Storefront tab indicator — show channel state when published.
+    let storefrontIndicator: TabIndicator = null;
+    const channel = form?.storefront_channel ?? "off";
+    if (channel === "d2c") {
+      storefrontIndicator = { color: "text-pink-700", bg: "bg-pink-100", label: "D2C" };
+    } else if (channel === "wholesale") {
+      storefrontIndicator = { color: "text-indigo-700", bg: "bg-indigo-100", label: "Wholesale" };
+    } else if (channel === "both") {
+      storefrontIndicator = { color: "text-gray-900", bg: "bg-gradient-to-r from-pink-100 to-indigo-100", label: "Both" };
+    }
+
     return {
       details: null,
+      storefront: storefrontIndicator,
       inventory: invIndicator,
       sales: salesIndicator,
       copy: copyIndicator,
