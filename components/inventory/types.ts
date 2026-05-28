@@ -41,6 +41,9 @@ export type Product = {
   lead_time_months: number;
   avg_monthly_demand: number;
 
+  // ── Collection (Sassy: everyday/love/holiday; NI: per-fragrance) ──
+  collection?: string | null;
+
   // ── Storefront publish ──
   storefront_channel?: StorefrontChannel;
 

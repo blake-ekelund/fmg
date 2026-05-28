@@ -45,7 +45,7 @@ import type { Section as MediaSection } from "@/components/marketing/media-kit/c
 import type { AssetType } from "@/components/marketing/media-kit/components/mediaKit/types";
 import { uploadMediaKitAsset } from "@/lib/mediaKit/uploadMediaKitAsset";
 import { DeleteConfirmModal } from "@/components/marketing/media-kit/components/modalSections/DeleteConfirmModal";
-import { StorefrontSection } from "./StorefrontSection";
+import { DetailsSection } from "./DetailsSection";
 
 /* ─── Types ─── */
 
@@ -69,7 +69,7 @@ type SalesRow = {
   units_fulfilled: number;
 };
 
-type Section = "details" | "storefront" | "inventory" | "copy" | "media" | "sales";
+type Section = "details" | "inventory" | "copy" | "media" | "sales";
 
 type TabIndicator = {
   color: string;
@@ -559,20 +559,19 @@ export default function ProductDetailPage({
         : { color: "text-green-700", bg: "bg-green-100", label: "Complete" };
     }
 
-    // Storefront tab indicator — show channel state when published.
-    let storefrontIndicator: TabIndicator = null;
+    // Details tab indicator — show channel state at a glance.
+    let detailsIndicator: TabIndicator = null;
     const channel = form?.storefront_channel ?? "off";
     if (channel === "d2c") {
-      storefrontIndicator = { color: "text-pink-700", bg: "bg-pink-100", label: "D2C" };
+      detailsIndicator = { color: "text-pink-700", bg: "bg-pink-100", label: "D2C" };
     } else if (channel === "wholesale") {
-      storefrontIndicator = { color: "text-indigo-700", bg: "bg-indigo-100", label: "Wholesale" };
+      detailsIndicator = { color: "text-indigo-700", bg: "bg-indigo-100", label: "Wholesale" };
     } else if (channel === "both") {
-      storefrontIndicator = { color: "text-gray-900", bg: "bg-gradient-to-r from-pink-100 to-indigo-100", label: "Both" };
+      detailsIndicator = { color: "text-gray-900", bg: "bg-gradient-to-r from-pink-100 to-indigo-100", label: "Both" };
     }
 
     return {
-      details: null,
-      storefront: storefrontIndicator,
+      details: detailsIndicator,
       inventory: invIndicator,
       sales: salesIndicator,
       copy: copyIndicator,
@@ -608,7 +607,6 @@ export default function ProductDetailPage({
 
   const NAV_SECTIONS: { value: Section; label: string }[] = [
     { value: "details", label: "Details" },
-    { value: "storefront", label: "Storefront" },
     { value: "inventory", label: "Inventory" },
     { value: "sales", label: "Sales" },
     { value: "copy", label: "Copy" },
@@ -719,69 +717,9 @@ export default function ProductDetailPage({
             })}
           </nav>
 
-          {/* ─── PRODUCT DETAILS ─── */}
+          {/* ─── DETAILS (core product + publish + pricing + marketing + shipping) ─── */}
           {section === "details" && (
-            <div className="rounded-xl border border-gray-200 bg-white">
-              <div className="px-5 py-4 border-b border-gray-100">
-                <h2 className="text-sm font-medium text-gray-900">Product Details</h2>
-              </div>
-              <div className="px-5 py-5 space-y-5">
-                <Field
-                  label="SKU / Part #"
-                  value={form.part}
-                  disabled={!isNewProduct}
-                  onChange={(v) => update("part", v)}
-                  placeholder="Enter a unique SKU"
-                />
-                <Field label="Display Name" value={form.display_name} onChange={(v) => update("display_name", v)} />
-
-                {/* Brand tags */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">Brand</label>
-                  <div className="flex gap-2">
-                    {(["NI", "Sassy"] as const).map((b) => (
-                      <button key={b} onClick={() => update("brand", b)}
-                        className={clsx("rounded-lg px-4 py-2 text-sm font-medium border transition",
-                          form.brand === b
-                            ? b === "NI" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-pink-50 text-pink-700 border-pink-200"
-                            : "bg-white text-gray-400 border-gray-200 hover:border-gray-300"
-                        )}>
-                        {b}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Product Type tags */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">Product Type</label>
-                  <div className="flex gap-2">
-                    {(["FG", "BOM"] as const).map((t) => (
-                      <button key={t} onClick={() => update("product_type", t)}
-                        className={clsx("rounded-lg px-4 py-2 text-sm font-medium border transition",
-                          form.product_type === t
-                            ? "bg-gray-900 text-white border-gray-900"
-                            : "bg-white text-gray-400 border-gray-200 hover:border-gray-300"
-                        )}>
-                        {t === "FG" ? "Finished Good" : "Bill of Materials"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <Field label="Part Type / Category" value={form.part_type} onChange={(v) => update("part_type", v)} />
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Fragrance" value={form.fragrance ?? ""} onChange={(v) => update("fragrance", v)} />
-                  <Field label="Size" value={form.size ?? ""} onChange={(v) => update("size", v)} />
-                </div>
-                <FormattedNumField label="COGS ($)" value={form.cogs} onChange={(v) => update("cogs", v)} prefix="$" decimals={2} />
-              </div>
-            </div>
-          )}
-
-          {/* ─── STOREFRONT (publish, pricing, marketing, shipping) ─── */}
-          {section === "storefront" && (
-            <StorefrontSection form={form} update={update} />
+            <DetailsSection form={form} update={update} isNewProduct={isNewProduct} />
           )}
 
           {/* ─── INVENTORY & FORECAST ─── */}
