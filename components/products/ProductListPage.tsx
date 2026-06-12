@@ -19,6 +19,7 @@ import { Product } from "@/components/inventory/types";
 import { type Trend, TREND_CONFIG, computeTrend } from "@/lib/trends";
 import { useBrandSettings, brandBadgeStyle } from "@/lib/brand-settings";
 import CreateProductModal from "./CreateProductModal";
+import CopyImportExport from "./CopyImportExport";
 import type { Brand } from "@/types/brand";
 
 /* ─── Sales lookup type ─── */
@@ -446,14 +447,17 @@ export default function ProductListPage() {
           Needs media ({counts.needsMedia})
         </button>
 
-        {/* Add product (pushed right) */}
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm font-medium hover:bg-gray-800 transition"
-        >
-          <Plus size={14} />
-          New product
-        </button>
+        {/* Copy export/import + add product (pushed right) */}
+        <div className="ml-auto flex items-center gap-2">
+          <CopyImportExport onImported={load} />
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm font-medium hover:bg-gray-800 transition"
+          >
+            <Plus size={14} />
+            New product
+          </button>
+        </div>
       </div>
 
       {/* Table */}

@@ -249,7 +249,13 @@ export async function uploadSalesData({
       customercontact:
         row["customerContact"] ?? row["Customer Contact"] ?? null,
       customerid: row["customerId"] ?? row["Customer ID"] ?? null,
-      customerpo: row["customerPo"] ?? row["Customer PO"] ?? null,
+      customerpo:
+        row["customerPO"] ??
+        row["customerPo"] ??
+        row["Customer PO"] ??
+        row["CustomerPO"] ??
+        row["customer_po"] ??
+        null,
       datecompleted: parseDate(row["dateCompleted"] ?? row["Date Completed"]),
       email: row["email"] ?? row["Email"] ?? null,
       num: row["num"] ?? row["Order Number"] ?? null,
@@ -327,6 +333,15 @@ export async function uploadSalesData({
       .neq("upload_id", uploadId);
 
     if (delItemsErr) throw delItemsErr;
+
+    /* --------------------------------------------------
+       Sync withheld_commissions (upsert from fresh raw data)
+       - Inserts brand-new invoices as status='withheld'
+       - Refreshes snapshot fields on existing rows
+       - Preserves lifecycle (ar_received / approved / paid)
+    -------------------------------------------------- */
+    const { error: syncErr } = await supabase.rpc("sync_withheld_commissions");
+    if (syncErr) throw syncErr;
 
     /* --------------------------------------------------
        Mark upload complete

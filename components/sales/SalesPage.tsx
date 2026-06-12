@@ -66,54 +66,70 @@ export default function SalesPage() {
   const params = useSearchParams();
   const now = new Date();
 
-  const query = params.get("q") ?? "";
+  const urlQuery = params.get("q") ?? "";
   const year = Number(params.get("year")) || now.getFullYear();
   const month = Number(params.get("month")) || now.getMonth() + 1;
 
-  const { rows, loading } = useSalesTTM(query, year, month);
+  // Search is purely client-side — the server query doesn't take it,
+  // so changing the input never triggers a refetch.
+  const { rows, loading } = useSalesTTM(year, month);
   const months = getTrailingMonths(year, month);
 
   const [mode, setMode] = useState<MatrixMode>("products");
-  const [localSearch, setLocalSearch] = useState(query);
+  const [localSearch, setLocalSearch] = useState(urlQuery);
 
   /* ---------- URL update for filters ---------- */
 
   function updateUrl(next: { q?: string; year?: number; month?: number }) {
     const p = new URLSearchParams(params.toString());
     if (next.q !== undefined) {
-      next.q ? p.set("q", next.q) : p.delete("q");
+      if (next.q) p.set("q", next.q);
+      else p.delete("q");
     }
     if (next.year !== undefined) p.set("year", String(next.year));
     if (next.month !== undefined) p.set("month", String(next.month));
     window.history.replaceState(null, "", `/sales?${p.toString()}`);
   }
 
+  /* ---------- CLIENT-SIDE SEARCH FILTER ---------- */
+
+  const filteredRows = useMemo(() => {
+    const q = localSearch.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => {
+      const pnum = (r.productnum || "").toLowerCase();
+      const name = (r.display_name || "").toLowerCase();
+      const frag = (r.fragrance || "").toLowerCase();
+      return pnum.includes(q) || name.includes(q) || frag.includes(q);
+    });
+  }, [rows, localSearch]);
+
   /* ---------- BUILD CHART SERIES ---------- */
 
-  const seriesMap: Record<
-    string,
-    { label: string; byMonth: Record<string, number> }
-  > = {};
+  const chartSeries = useMemo(() => {
+    const seriesMap: Record<
+      string,
+      { label: string; byMonth: Record<string, number> }
+    > = {};
 
-  rows.forEach((r) => {
-    let key: string;
-    if (mode === "products") {
-      key = r.display_name ?? "Unknown";
-    } else {
-      const f = r.fragrance ?? "—";
-      key = ALLOWED_FRAGRANCES.has(f) ? f : "Other";
-    }
-    if (!seriesMap[key]) {
-      seriesMap[key] = { label: key, byMonth: {} };
-    }
-    seriesMap[key].byMonth[r.month] =
-      (seriesMap[key].byMonth[r.month] ?? 0) + r.revenue;
-  });
+    filteredRows.forEach((r) => {
+      let key: string;
+      if (mode === "products") {
+        key = r.display_name ?? "Unknown";
+      } else {
+        const f = r.fragrance ?? "—";
+        key = ALLOWED_FRAGRANCES.has(f) ? f : "Other";
+      }
+      if (!seriesMap[key]) {
+        seriesMap[key] = { label: key, byMonth: {} };
+      }
+      seriesMap[key].byMonth[r.month] =
+        (seriesMap[key].byMonth[r.month] ?? 0) + r.revenue;
+    });
 
-  const series = Object.values(seriesMap);
+    const series = Object.values(seriesMap);
 
-  const chartSeries =
-    mode === "products"
+    return mode === "products"
       ? series
           .sort((a, b) => rowTTM(months, b.byMonth) - rowTTM(months, a.byMonth))
           .slice(0, 15)
@@ -121,28 +137,37 @@ export default function SalesPage() {
           ...series.filter((s) => s.label !== "Other"),
           ...series.filter((s) => s.label === "Other"),
         ];
+  }, [filteredRows, months, mode]);
 
   /* ---------- KPI summary ---------- */
 
   const kpis = useMemo(() => {
-    const ttmTotal = rows.reduce((s, r) => s + r.revenue, 0);
-    const uniqueProducts = new Set(rows.map((r) => r.display_name ?? r.productnum)).size;
-    const uniqueFragrances = new Set(rows.map((r) => r.fragrance).filter(Boolean)).size;
+    const ttmTotal = filteredRows.reduce((s, r) => s + r.revenue, 0);
+    const uniqueProducts = new Set(
+      filteredRows.map((r) => r.display_name ?? r.productnum)
+    ).size;
+    const uniqueFragrances = new Set(
+      filteredRows.map((r) => r.fragrance).filter(Boolean)
+    ).size;
     const avgMonthly = ttmTotal / 12;
     return { ttmTotal, uniqueProducts, uniqueFragrances, avgMonthly };
-  }, [rows]);
+  }, [filteredRows]);
+
+  // Only show the full-screen loading overlay on the very first load.
+  // Subsequent month/year changes keep the old data visible and show a small inline indicator.
+  const isInitialLoad = loading && rows.length === 0;
 
   /* ---------- RENDER ---------- */
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto relative">
-      {/* Loading overlay */}
-      {loading && (
-        <div className="absolute inset-0 z-10 bg-white/70 flex items-center justify-center rounded-xl">
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-4 py-3 shadow-sm">
-            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
-            <span className="text-xs font-medium text-gray-500">Loading sales data…</span>
-          </div>
+      {/* Inline refetch indicator (doesn't block or wipe old data) */}
+      {loading && !isInitialLoad && (
+        <div className="fixed top-16 right-4 z-20 flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 shadow-sm">
+          <div className="w-3 h-3 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+          <span className="text-[11px] font-medium text-gray-500">
+            Updating…
+          </span>
         </div>
       )}
 
@@ -171,10 +196,10 @@ export default function SalesPage() {
       </div>
 
       {/* ── Filters + Mode Toggle ── */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4 mb-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+      <div className="rounded-xl border border-gray-200 bg-white p-3 mb-6">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Search */}
-          <div className="relative flex-1 max-w-xs">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
             <Search
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -191,17 +216,6 @@ export default function SalesPage() {
             />
           </div>
 
-          {/* Year */}
-          <select
-            value={year}
-            onChange={(e) => updateUrl({ year: Number(e.target.value) })}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
-          >
-            {Array.from({ length: 6 }, (_, i) => now.getFullYear() - i).map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-
           {/* Month */}
           <select
             value={month}
@@ -210,13 +224,30 @@ export default function SalesPage() {
           >
             {Array.from({ length: 12 }, (_, i) => (
               <option key={i + 1} value={i + 1}>
-                {new Date(2000, i, 1).toLocaleString("en-US", { month: "long" })}
+                {new Date(2000, i, 1).toLocaleString("en-US", {
+                  month: "long",
+                })}
               </option>
             ))}
           </select>
 
+          {/* Year */}
+          <select
+            value={year}
+            onChange={(e) => updateUrl({ year: Number(e.target.value) })}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+          >
+            {Array.from({ length: 6 }, (_, i) => now.getFullYear() - i).map(
+              (y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              )
+            )}
+          </select>
+
           {/* Spacer */}
-          <div className="hidden sm:block flex-1" />
+          <div className="flex-1" />
 
           {/* Mode Toggle */}
           <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
@@ -247,7 +278,14 @@ export default function SalesPage() {
       </div>
 
       {/* ── Content ── */}
-      {!loading && chartSeries.length === 0 ? (
+      {isInitialLoad ? (
+        <div className="rounded-xl border border-gray-200 bg-white py-16 text-center">
+          <div className="inline-flex items-center gap-2 text-xs font-medium text-gray-500">
+            <div className="w-3 h-3 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+            Loading sales data…
+          </div>
+        </div>
+      ) : chartSeries.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white py-16 text-center">
           <Package size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-sm font-medium text-gray-500 mb-1">
@@ -272,15 +310,12 @@ export default function SalesPage() {
                 value: rowTTM(months, s.byMonth),
               }))}
             />
-            <TTMStackedBars
-              months={months}
-              products={chartSeries}
-            />
+            <TTMStackedBars months={months} products={chartSeries} />
           </div>
 
           {/* Matrix */}
           <Trailing12MonthMatrix
-            rows={rows}
+            rows={filteredRows}
             mode={mode}
             endYear={year}
             endMonth={month}

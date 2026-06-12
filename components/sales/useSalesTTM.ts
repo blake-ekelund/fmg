@@ -18,8 +18,12 @@ function ym(year: number, jsMonth: number) {
   return `${year}-${String(jsMonth + 1).padStart(2, "0")}-01`;
 }
 
+/**
+ * Loads the 12-month window of sales data for the given brand/end date.
+ * Search filtering is deliberately NOT in this hook — it's applied client-side
+ * so every keystroke doesn't refetch from the server.
+ */
 export function useSalesTTM(
-  search: string,
   endYear: number,
   endMonth: number // 1–12
 ) {
@@ -28,6 +32,8 @@ export function useSalesTTM(
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
       setLoading(true);
 
@@ -49,7 +55,7 @@ export function useSalesTTM(
         endAnchor.getMonth()
       );
 
-      let allRows: SalesMatrixRow[] = [];
+      const allRows: SalesMatrixRow[] = [];
       let page = 0;
 
       while (true) {
@@ -73,13 +79,8 @@ export function useSalesTTM(
           query = query.eq("brand", brand);
         }
 
-        if (search) {
-          query = query.or(
-            `productnum.ilike.%${search}%,display_name.ilike.%${search}%,fragrance.ilike.%${search}%`
-          );
-        }
-
         const { data, error } = await query;
+        if (cancelled) return;
         if (error || !data || data.length === 0) break;
 
         allRows.push(
@@ -102,12 +103,17 @@ export function useSalesTTM(
         page += 1;
       }
 
-      setRows(allRows);
-      setLoading(false);
+      if (!cancelled) {
+        setRows(allRows);
+        setLoading(false);
+      }
     }
 
     load();
-  }, [search, endYear, endMonth, brand]);
+    return () => {
+      cancelled = true;
+    };
+  }, [endYear, endMonth, brand]);
 
   return { rows, loading };
 }

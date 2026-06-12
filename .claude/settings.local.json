@@ -1,7 +1,30 @@
 {
   "permissions": {
     "allow": [
-      "Bash(NEXT_PUBLIC_SUPABASE_URL='https://vxisjubwezhxfxocoawk.supabase.co' NEXT_PUBLIC_SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aXNqdWJ3ZXpoeGZ4b2NvYXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwNDcyNDMsImV4cCI6MjA4NDYyMzI0M30.F7-Yg5JVryMzueXtaOz8TIunbhC-QxUgJz89ZWKxO6Q' node -e \":*)"
+      "Bash(NEXT_PUBLIC_SUPABASE_URL='https://vxisjubwezhxfxocoawk.supabase.co' NEXT_PUBLIC_SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aXNqdWJ3ZXpoeGZ4b2NvYXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwNDcyNDMsImV4cCI6MjA4NDYyMzI0M30.F7-Yg5JVryMzueXtaOz8TIunbhC-QxUgJz89ZWKxO6Q' node -e \":*)",
+      "Bash(curl -sI \"https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/100-00-01/front/front-1770047990517.jpg\")",
+      "mcp__6ce05346-7414-4aa7-9d05-9b63252d58a9__execute_sql",
+      "Bash(npm install *)",
+      "Bash(npm test *)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' 'https://__TRACKED_VAR____TRACKED_VAR__?lat=40.7&long=-74&r=100' --max-time 10 -L)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' https://www.thymes.com/pages/stores -L --max-time 15)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' https://api.storepoint.co/v1/1674655d03b37d/locations --max-time 15)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' 'https://stockist.co/api/v1/u11956/locations/search?latitude=39.5&longitude=-98.5&distance=__TRACKED_VAR__' --max-time 15)",
+      "Bash(curl -s -o /dev/null -w 'HTTP %{http_code}, bytes %{size_download}\\\\n' -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' https://stockist.co/api/v1/u11956/locations --max-time 15)",
+      "Bash(curl -s -o /dev/null -w 'HTTP %{http_code}, bytes %{size_download}\\\\n' -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' https://stockist.co/api/v1/u11956/locations.json --max-time 15)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' 'https://stockist.co/api/v1/u11956/locations/search?latitude=39.5&longitude=-98.5&distance=10000&page=__TRACKED_VAR__' --max-time 15)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' 'https://stockist.co/api/v1/u11956/locations/search?latitude=39.5&longitude=-98.5&distance=10000&__TRACKED_VAR__' --max-time 15)",
+      "Bash(curl -s -o /dev/null -w 'HTTP %{http_code}, %{size_download} bytes\\\\n' -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' https://stockist.co/api/v1/u11956/locations/all --max-time 15)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' https://stockist.co/api/v1/u11956/locations/all --max-time 15)",
+      "Bash(curl -s -X POST -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' -H 'Content-Type: application/json' https://stockist.co/api/v1/u11956/locations/all --max-time 20)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' 'https://lachatelainebeauty.com/wp-admin/admin-ajax.php?action=asl_load_stores&load_all=1' --max-time 15)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/130.0.0.0 Safari/537.36' -H 'Referer: https://beekman1802.com/' -H 'Origin: https://beekman1802.com' https://www.storemapper.co/api/users/19659/stores.json --max-time 15)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(cd \"C:\\\\Users\\\\blake\\\\OneDrive\\\\Desktop\\\\store\\\\sassy\" && find supabase -type f | head -20)",
+      "Bash(find \"C:\\\\Users\\\\blake\\\\OneDrive\\\\Desktop\\\\store\\\\ni\" -maxdepth 2 -name \"tailwind.config.*\" -type f)",
+      "Bash(find \"C:\\\\Users\\\\blake\\\\OneDrive\\\\Desktop\\\\store\\\\ni\" -maxdepth 2 -name \".env*\" -type f)"
     ]
   }
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { RepGroupRow } from "../hooks/useDashboardRepGroups";
 
 type Props = {
@@ -50,11 +49,6 @@ export default function RepGroupAnalysisView({ groups, loading }: Props) {
             ))}
           </tbody>
         </table>
-      </div>
-      <div className="pt-2 border-t border-gray-100">
-        <Link href="/rep-groups" className="text-xs text-blue-600 hover:text-blue-800 font-medium">
-          View rep groups
-        </Link>
       </div>
     </div>
   );

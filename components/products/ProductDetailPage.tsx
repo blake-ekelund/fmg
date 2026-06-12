@@ -54,6 +54,7 @@ type MediaKitText = {
   long_description: string | null;
   benefits: string | null;
   ingredients_text: string | null;
+  how_to_use: string | null;
   retailer_notes: string | null;
 };
 
@@ -124,6 +125,7 @@ export default function ProductDetailPage({
   const [mkLongDesc, setMkLongDesc] = useState("");
   const [mkBenefits, setMkBenefits] = useState("");
   const [mkIngredients, setMkIngredients] = useState("");
+  const [mkHowToUse, setMkHowToUse] = useState("");
   const [mkNotes, setMkNotes] = useState("");
 
   /* Per-section asset signed URLs for PhotoSection */
@@ -195,7 +197,7 @@ export default function ProductDetailPage({
     const [textRes, assetsRes] = await Promise.all([
       supabase
         .from("media_kit_products")
-        .select("short_description, long_description, benefits, ingredients_text, retailer_notes")
+        .select("short_description, long_description, benefits, ingredients_text, how_to_use, retailer_notes")
         .eq("part", part)
         .maybeSingle(),
       supabase
@@ -206,7 +208,8 @@ export default function ProductDetailPage({
 
     const text = (textRes.data as MediaKitText) ?? {
       short_description: null, long_description: null,
-      benefits: null, ingredients_text: null, retailer_notes: null,
+      benefits: null, ingredients_text: null,
+      how_to_use: null, retailer_notes: null,
     };
     setMediaText(text);
 
@@ -215,6 +218,7 @@ export default function ProductDetailPage({
     setMkLongDesc(text.long_description ?? "");
     setMkBenefits(text.benefits ?? "");
     setMkIngredients(text.ingredients_text ?? "");
+    setMkHowToUse(text.how_to_use ?? "");
     setMkNotes(text.retailer_notes ?? "");
 
     const assets = (assetsRes.data as AssetRecord[]) ?? [];
@@ -388,6 +392,7 @@ export default function ProductDetailPage({
       (mediaText.long_description ?? "") !== mkLongDesc ||
       (mediaText.benefits ?? "") !== mkBenefits ||
       (mediaText.ingredients_text ?? "") !== mkIngredients ||
+      (mediaText.how_to_use ?? "") !== mkHowToUse ||
       (mediaText.retailer_notes ?? "") !== mkNotes
     )
   );
@@ -395,22 +400,26 @@ export default function ProductDetailPage({
   const hasChanges = productDirty || copyDirty;
 
   async function persistCopy() {
-    await supabase.from("media_kit_products").upsert({
+    const { error } = await supabase.from("media_kit_products").upsert({
       part,
       short_description: mkShortDesc,
       long_description: mkLongDesc,
       benefits: mkBenefits,
       ingredients_text: mkIngredients,
+      how_to_use: mkHowToUse,
       retailer_notes: mkNotes,
       updated_at: new Date().toISOString(),
     });
+    if (error) return { error };
     setMediaText({
       short_description: mkShortDesc || null,
       long_description: mkLongDesc || null,
       benefits: mkBenefits || null,
       ingredients_text: mkIngredients || null,
+      how_to_use: mkHowToUse || null,
       retailer_notes: mkNotes || null,
     });
+    return { error: null };
   }
 
   async function handleSave() {
@@ -436,12 +445,20 @@ export default function ProductDetailPage({
     }
 
     // Persist inventory + copy in parallel.
-    await Promise.all([
+    const [invRes, copyRes] = await Promise.all([
       productDirty
         ? supabase.from("inventory_products").update(form).eq("part", part)
         : Promise.resolve({ error: null }),
-      copyDirty ? persistCopy() : Promise.resolve(),
+      copyDirty ? persistCopy() : Promise.resolve({ error: null }),
     ]);
+
+    const saveError = invRes?.error ?? copyRes?.error;
+    if (saveError) {
+      console.error("Save failed", saveError);
+      alert(`Save failed: ${saveError.message}`);
+      setSaving(false);
+      return;
+    }
 
     setProduct({ ...form });
     setSaving(false);
@@ -723,6 +740,7 @@ export default function ProductDetailPage({
                 long_description: mkLongDesc,
                 benefits: mkBenefits,
                 ingredients_text: mkIngredients,
+                how_to_use: mkHowToUse,
                 retailer_notes: mkNotes,
               }}
               updateCopy={(k, v) => {
@@ -730,6 +748,7 @@ export default function ProductDetailPage({
                 else if (k === "long_description") setMkLongDesc(v);
                 else if (k === "benefits") setMkBenefits(v);
                 else if (k === "ingredients_text") setMkIngredients(v);
+                else if (k === "how_to_use") setMkHowToUse(v);
                 else if (k === "retailer_notes") setMkNotes(v);
               }}
             />

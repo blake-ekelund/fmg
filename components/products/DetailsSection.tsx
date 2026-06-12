@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import type { Product, StorefrontChannel } from "@/components/inventory/types";
+import { composeDisplayName, normalizeHexColor } from "./copySheet";
 
 type Update = <K extends keyof Product>(key: K, value: Product[K]) => void;
 
@@ -22,6 +23,7 @@ export type CopyKey =
   | "long_description"
   | "benefits"
   | "ingredients_text"
+  | "how_to_use"
   | "retailer_notes";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -49,6 +51,28 @@ const BRAND_DESTINATION: Record<"NI" | "Sassy", string> = {
   Sassy: "Appears on redek.io",
   NI: "Appears on naturalinspirations.com (coming soon)",
 };
+
+// Display name composition lives in ./copySheet (shared with the Excel
+// import, which recomposes display_name the same way).
+
+// ---------------------------------------------------------------------------
+// Fragrance notes — stored in metafields.notes as {top, mid, dry}
+// ---------------------------------------------------------------------------
+type FragranceNotes = { top?: string; mid?: string; dry?: string };
+
+function getNotes(p: Product): FragranceNotes {
+  const m = p.metafields;
+  if (
+    m &&
+    typeof m === "object" &&
+    m.notes &&
+    typeof m.notes === "object" &&
+    !Array.isArray(m.notes)
+  ) {
+    return m.notes as FragranceNotes;
+  }
+  return {};
+}
 
 // ---------------------------------------------------------------------------
 // Channel toggle
@@ -254,16 +278,34 @@ function TextareaField({
   onChange,
   rows,
   placeholder,
+  hint,
+  /** Show a live character counter that turns amber past this length. */
+  softMax,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   rows?: number;
   placeholder?: string;
+  hint?: string;
+  softMax?: number;
 }) {
+  const over = softMax != null && value.length > softMax;
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-gray-500">{label}</label>
+      <div className="flex items-baseline justify-between">
+        <label className="text-xs font-medium text-gray-500">{label}</label>
+        {softMax != null ? (
+          <span
+            className={clsx(
+              "text-[11px] tabular-nums",
+              over ? "font-semibold text-amber-600" : "text-gray-400"
+            )}
+          >
+            {value.length}/{softMax}
+          </span>
+        ) : null}
+      </div>
       <textarea
         rows={rows ?? 3}
         value={value}
@@ -271,6 +313,7 @@ function TextareaField({
         placeholder={placeholder}
         className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 transition focus:outline-none focus:ring-2 focus:ring-gray-300"
       />
+      {hint ? <p className="text-[11px] text-gray-400">{hint}</p> : null}
     </div>
   );
 }
@@ -440,6 +483,77 @@ function IntField({
           </span>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ColorField — swatch picker + hex input; null means "storefront default"
+// ---------------------------------------------------------------------------
+function ColorField({
+  label,
+  value,
+  onChange,
+  fallback,
+  hint,
+}: {
+  label: string;
+  value: string | null | undefined;
+  onChange: (v: string | null) => void;
+  /** Swatch color shown while unset (what the storefront would use). */
+  fallback: string;
+  hint?: string;
+}) {
+  const [text, setText] = useState(value ?? "");
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setText(value ?? "");
+  }, [value, focused]);
+
+  function commit() {
+    const normalized = normalizeHexColor(text);
+    onChange(normalized);
+    setText(normalized ?? "");
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-gray-500">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value ?? fallback}
+          onChange={(e) => onChange(e.target.value)}
+          className={clsx(
+            "h-9 w-12 shrink-0 cursor-pointer rounded-md border bg-white p-0.5",
+            value ? "border-gray-200" : "border-dashed border-gray-300 opacity-60"
+          )}
+          title={value ? value : "Not set — using storefront default"}
+        />
+        <input
+          value={text}
+          placeholder="Default"
+          onChange={(e) => setText(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            commit();
+          }}
+          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-sm placeholder:text-gray-400 transition focus:outline-none focus:ring-2 focus:ring-gray-300"
+        />
+        {value ? (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="shrink-0 rounded-lg px-2 py-2 text-xs font-medium text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+            title="Clear — fall back to the storefront palette"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+      {hint ? <p className="text-[11px] text-gray-400">{hint}</p> : null}
     </div>
   );
 }
@@ -638,22 +752,118 @@ export function DetailsSection({
   if (!copy.ingredients_text.trim()) missingCopy.push("Ingredients");
   const copyComplete = missingCopy.length === 0;
 
+  const composed = composeDisplayName(form);
+  const displayNameGenerated = composed.length > 0;
+  const notes = getNotes(form);
+
+  /** Update a structured name part and recompose display_name with it. */
+  function applyNameParts(patch: {
+    product_name?: string | null;
+    product_form?: string | null;
+    is_tester?: boolean;
+  }) {
+    if ("product_name" in patch) update("product_name", patch.product_name ?? null);
+    if ("product_form" in patch) update("product_form", patch.product_form ?? null);
+    if ("is_tester" in patch) update("is_tester", patch.is_tester ?? false);
+    const next = composeDisplayName({ ...form, ...patch });
+    if (next) update("display_name", next);
+  }
+
+  /** Write one fragrance note into metafields.notes, pruning empties. */
+  function updateNote(key: keyof FragranceNotes, v: string) {
+    const nextNotes: FragranceNotes = { ...notes };
+    if (v.trim()) nextNotes[key] = v;
+    else delete nextNotes[key];
+    const metafields = { ...(form.metafields ?? {}) } as Record<string, unknown>;
+    if (Object.keys(nextNotes).length > 0) metafields.notes = nextNotes;
+    else delete metafields.notes;
+    update("metafields", metafields);
+  }
+
   return (
     <LayoutGroup>
       <div className="space-y-5">
         {/* ── PRODUCT ── */}
         <Card title="Product">
-          {/* Display Name — hero field */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-500">
-              Display Name
-            </label>
+          {/* Structured name parts — these compose the display name. */}
+          <div
+            className={clsx(
+              "grid grid-cols-1 gap-5",
+              form.brand === "Sassy"
+                ? "md:grid-cols-2"
+                : "md:grid-cols-[1fr_auto]"
+            )}
+          >
+            {form.brand === "Sassy" ? (
+              <TextField
+                label="Product name"
+                value={form.product_name}
+                onChange={(v) => applyNameParts({ product_name: v || null })}
+                placeholder="Bougie Babe"
+                hint="The personality. Pairs with the form to build the display name."
+              />
+            ) : null}
+            <TextField
+              label="Form / format"
+              value={form.product_form}
+              onChange={(v) => applyNameParts({ product_form: v || null })}
+              placeholder={
+                form.brand === "Sassy" ? "Mini Hand Crème" : "Hand + Body Lotion"
+              }
+              hint="The physical format shoppers see."
+            />
+            {form.brand === "NI" ? (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-500">
+                  Tester unit
+                </label>
+                <button
+                  type="button"
+                  onClick={() => applyNameParts({ is_tester: !form.is_tester })}
+                  className={clsx(
+                    "flex h-[38px] items-center rounded-lg border px-4 text-sm font-medium transition",
+                    form.is_tester
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
+                      : "border-gray-200 bg-white text-gray-400 hover:border-gray-300"
+                  )}
+                >
+                  {form.is_tester ? "TESTER" : "Not a tester"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Display Name — composed from the parts above; the storefronts
+              parse this string, so hand-typing it is the legacy fallback. */}
+          <div className="mt-5 space-y-1.5">
+            <div className="flex items-baseline justify-between">
+              <label className="text-xs font-medium text-gray-500">
+                Display name
+              </label>
+              {displayNameGenerated ? (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
+                  auto-composed
+                </span>
+              ) : null}
+            </div>
             <TextInput
               value={form.display_name}
               onChange={(v) => update("display_name", v)}
-              placeholder="Sassy Mini Hand Crème — Bougie Babe"
+              disabled={displayNameGenerated}
+              placeholder={
+                form.brand === "Sassy"
+                  ? "Bougie Babe – Mini Hand Crème"
+                  : "Hand + Body Lotion"
+              }
               className="!py-3 !text-base font-medium"
             />
+            <p className="text-[11px] text-gray-400">
+              {displayNameGenerated
+                ? form.brand === "Sassy"
+                  ? "Composed as “name – form”. The storefront splits on that dash — composing keeps it exact."
+                  : "Composed from the form (plus TESTER when flagged). The NI storefront adds the fragrance to titles."
+                : "Fill the fields above to compose this automatically. Manual entries must match the brand convention exactly."}
+            </p>
           </div>
 
           {/* Brand + Collection */}
@@ -673,6 +883,9 @@ export function DetailsSection({
                       ) {
                         update("collection", null);
                       }
+                      // Brand changes the display-name convention.
+                      const next = composeDisplayName({ ...form, brand: b });
+                      if (next) update("display_name", next);
                     }}
                     className={clsx(
                       "flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition",
@@ -787,13 +1000,21 @@ export function DetailsSection({
               label="Fragrance"
               value={form.fragrance}
               onChange={(v) => update("fragrance", v)}
-              placeholder="Bougie Babe"
+              placeholder={
+                form.brand === "Sassy" ? "Eucalyptus Mint" : "Sea Salt"
+              }
+              hint={
+                form.brand === "Sassy"
+                  ? "The scent, not the product name."
+                  : "NI storefront matches collections on this value."
+              }
             />
             <TextField
               label="Size"
               value={form.size}
               onChange={(v) => update("size", v)}
               placeholder="2oz"
+              hint="Leave blank if not applicable — placeholder text like “N/A” shows up on storefronts."
             />
           </div>
         </Card>
@@ -806,6 +1027,47 @@ export function DetailsSection({
               onChange={(v) => update("storefront_channel", v)}
             />
             <StatusBanner channel={channel} />
+
+            {/* Availability — manual flag the storefronts can read. */}
+            <div className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-gray-900">
+                  {form.storefront_in_stock !== false
+                    ? "In stock"
+                    : "Out of stock"}
+                </div>
+                <p className="text-xs text-gray-400">
+                  Out of stock keeps the product visible but lets the
+                  storefronts disable purchasing.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.storefront_in_stock !== false}
+                onClick={() =>
+                  update(
+                    "storefront_in_stock",
+                    form.storefront_in_stock === false ? true : false
+                  )
+                }
+                className={clsx(
+                  "relative h-6 w-11 rounded-full transition-colors",
+                  form.storefront_in_stock !== false
+                    ? "bg-green-500"
+                    : "bg-gray-300"
+                )}
+              >
+                <span
+                  className={clsx(
+                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    form.storefront_in_stock !== false
+                      ? "translate-x-[22px]"
+                      : "translate-x-0.5"
+                  )}
+                />
+              </button>
+            </div>
           </div>
         </Card>
 
@@ -850,16 +1112,11 @@ export function DetailsSection({
           {/* Headline-level (single line) fields */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <TextField
-              label="Subtitle"
-              value={form.subtitle}
-              onChange={(v) => update("subtitle", v)}
-              placeholder="Sassy + Co Everyday Collection"
-            />
-            <TextField
               label="Infused with"
               value={form.infused_with}
               onChange={(v) => update("infused_with", v)}
               placeholder="GLAM + LUXE ELEGANCE"
+              hint="Renders as “infused with …” — don’t repeat the prefix."
             />
             <TextField
               label="Category path"
@@ -867,12 +1124,39 @@ export function DetailsSection({
               onChange={(v) => update("category_path", v)}
               placeholder="Lotions & Moisturizers in Skin Care"
             />
-            <TextField
-              label="Part type (internal)"
-              value={form.part_type}
-              onChange={(v) => update("part_type", v)}
-              placeholder="Hand Crème"
-            />
+          </div>
+
+          {/* Fragrance notes → metafields.notes {top, mid, dry} */}
+          <div className="mt-5 border-t border-gray-100 pt-5">
+            <div className="mb-3">
+              <div className="text-xs font-medium text-gray-500">
+                Fragrance notes
+              </div>
+              <p className="text-[11px] text-gray-400">
+                Optional — powers a notes section on product pages once
+                filled.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <TextField
+                label="Top"
+                value={notes.top ?? ""}
+                onChange={(v) => updateNote("top", v)}
+                placeholder="pistachio, almond"
+              />
+              <TextField
+                label="Mid"
+                value={notes.mid ?? ""}
+                onChange={(v) => updateNote("mid", v)}
+                placeholder="jasmine petals"
+              />
+              <TextField
+                label="Dry"
+                value={notes.dry ?? ""}
+                onChange={(v) => updateNote("dry", v)}
+                placeholder="vanilla, sandalwood"
+              />
+            </div>
           </div>
 
           {/* Longer copy */}
@@ -882,7 +1166,9 @@ export function DetailsSection({
               value={copy.short_description}
               onChange={(v) => updateCopy("short_description", v)}
               rows={2}
-              placeholder="Used in cards, previews, and summaries."
+              placeholder="The hook — persona voice for Sassy, scent story for NI."
+              softMax={160}
+              hint="Doubles as the page lead AND the Google search snippet — keep it under 160 characters."
             />
             <TextareaField
               label="Long description"
@@ -890,6 +1176,7 @@ export function DetailsSection({
               onChange={(v) => updateCopy("long_description", v)}
               rows={4}
               placeholder="Canonical description used on the product page and by retailers."
+              hint="Formula facts. Sharing one paragraph across same-formula SKUs is fine — the short description carries the differentiation."
             />
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <TextareaField
@@ -898,8 +1185,9 @@ export function DetailsSection({
                 onChange={(v) => updateCopy("benefits", v)}
                 rows={4}
                 placeholder={
-                  "• Deeply hydrating\n• Fast-absorbing\n• Plane-approved"
+                  "Deeply hydrating\nFast-absorbing\nPlane-approved"
                 }
+                hint="One benefit per line — the storefronts render each line as a bullet."
               />
               <TextareaField
                 label="Ingredients"
@@ -907,15 +1195,95 @@ export function DetailsSection({
                 onChange={(v) => updateCopy("ingredients_text", v)}
                 rows={4}
                 placeholder="Water (Aqua), Shea Butter, Squalane, ..."
+                hint="Full INCI list, comma-separated."
               />
             </div>
+            <TextareaField
+              label="How to use"
+              value={copy.how_to_use}
+              onChange={(v) => updateCopy("how_to_use", v)}
+              rows={2}
+              placeholder="Apply generously. Accept compliments."
+              hint="Application directions for the product page."
+            />
             <TextareaField
               label="Retailer notes"
               value={copy.retailer_notes}
               onChange={(v) => updateCopy("retailer_notes", v)}
               rows={2}
               placeholder="Usage guidance, merchandising tips, restrictions…"
+              hint="Internal + line sheets only — never shown on the storefronts."
             />
+          </div>
+        </Card>
+
+        {/* ── PAGE COLORS ── */}
+        <Card
+          title="Product page colors"
+          hint="Drives the storefront product page. Empty fields fall back to the brand's built-in collection palette."
+        >
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-[1fr_240px]">
+            <div className="space-y-4">
+              <ColorField
+                label="Background"
+                value={form.page_bg_color}
+                onChange={(v) => update("page_bg_color", v)}
+                fallback="#fbf9f4"
+                hint="Page background behind the whole product page."
+              />
+              <ColorField
+                label="Text"
+                value={form.page_text_color}
+                onChange={(v) => update("page_text_color", v)}
+                fallback="#2a3b35"
+                hint="Headlines and body copy."
+              />
+              <ColorField
+                label="Accent"
+                value={form.page_accent_color}
+                onChange={(v) => update("page_accent_color", v)}
+                fallback="#44705f"
+                hint="Add-to-bag button, links, and highlights."
+              />
+            </div>
+
+            {/* Live preview */}
+            <div
+              className="flex flex-col justify-between rounded-xl border border-gray-200 px-4 py-4 transition-colors"
+              style={{
+                backgroundColor: form.page_bg_color ?? "#f9fafb",
+                color: form.page_text_color ?? "#111827",
+              }}
+            >
+              <div>
+                <div className="text-[10px] font-medium uppercase tracking-[0.2em] opacity-60">
+                  Preview
+                </div>
+                <div className="mt-2 text-base font-semibold leading-snug">
+                  {form.display_name || "Product name"}
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed opacity-80">
+                  {copy.short_description || "Short description copy appears here in the text color."}
+                </p>
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                <span
+                  className="rounded-full px-3 py-1.5 text-xs font-semibold"
+                  style={{
+                    backgroundColor: form.page_accent_color ?? "#374151",
+                    color: form.page_bg_color ?? "#ffffff",
+                  }}
+                >
+                  Add to bag
+                </span>
+                <span
+                  className="text-xs font-medium underline underline-offset-2"
+                  style={{ color: form.page_accent_color ?? "#374151" }}
+                >
+                  Learn more
+                </span>
+              </div>
+            </div>
           </div>
         </Card>
 

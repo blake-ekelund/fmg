@@ -344,260 +344,136 @@ export default function SalesHubPage() {
   const activeBrand: BrandContent =
     brand === "Sassy" ? SASSY_BRAND : NI_BRAND;
 
-  /* ── Data Loading ── */
+  /* ── Data Loading ──
+     Uses pre-aggregated views (sales_hub_channel_stats_v, sales_hub_product_breakdown_v)
+     so the DB does the heavy lifting instead of fetching all raw orders + line items. */
   const loadData = useCallback(async () => {
     setLoading(true);
 
-    // ── Fetch all raw data once ──
-    const ttmStart = new Date();
-    ttmStart.setFullYear(ttmStart.getFullYear() - 1);
-    const ttmStartStr = ttmStart.toISOString().slice(0, 10);
+    const [channelRes, productRes] = await Promise.all([
+      supabase
+        .from("sales_hub_channel_stats_v")
+        .select(
+          "channel, brand, ttm_customers, ttm_orders, ttm_revenue, prior_ttm_revenue, total_revenue"
+        ),
+      supabase
+        .from("sales_hub_product_breakdown_v")
+        .select("channel, brand, display_name, fragrance, revenue, units")
+        .range(0, 9999),
+    ]);
 
-    // Prior TTM window (12-24 months ago)
-    const priorStart = new Date();
-    priorStart.setFullYear(priorStart.getFullYear() - 2);
-    const priorStartStr = priorStart.toISOString().slice(0, 10);
+    if (channelRes.error) console.error("channel stats error:", channelRes.error);
+    if (productRes.error) console.error("product breakdown error:", productRes.error);
 
-    // Fetch ALL orders in date range (paginate to avoid 1000-row default limit)
-    let allOrders: Record<string, unknown>[] = [];
-    const ORDER_PAGE = 1000;
-    let orderOffset = 0;
-    let hasMore = true;
-    while (hasMore) {
-      const { data: batch, error: ordErr } = await supabase
-        .from("sales_orders_raw")
-        .select("id, channel, customerid, datecompleted, totalprice")
-        .gte("datecompleted", priorStartStr)
-        .range(orderOffset, orderOffset + ORDER_PAGE - 1);
+    type ChannelRow = {
+      channel: string;
+      brand: string;
+      ttm_customers: number;
+      ttm_orders: number;
+      ttm_revenue: number;
+      prior_ttm_revenue: number;
+      total_revenue: number;
+    };
+    type ProductRow = {
+      channel: string;
+      brand: string;
+      display_name: string;
+      fragrance: string;
+      revenue: number;
+      units: number;
+    };
 
-      if (ordErr) {
-        console.error("Sales Hub orders error:", ordErr);
-        break;
-      }
-      if (batch && batch.length > 0) {
-        allOrders = allOrders.concat(batch as Record<string, unknown>[]);
-        orderOffset += ORDER_PAGE;
-        hasMore = batch.length === ORDER_PAGE;
-      } else {
-        hasMore = false;
-      }
-    }
-    const orders = allOrders;
+    const channelRows = (channelRes.data as ChannelRow[] | null) ?? [];
+    const productRows = (productRes.data as ProductRow[] | null) ?? [];
 
-    // Fetch product master with brand
-    const { data: products } = await supabase
-      .from("inventory_products")
-      .select("part, display_name, fragrance, brand");
-
-    const prodLookup: Record<
-      string,
-      { displayName: string; fragrance: string; brand: string }
-    > = {};
-    if (products) {
-      (products as Record<string, unknown>[]).forEach((p) => {
-        prodLookup[p.part as string] = {
-          displayName: (p.display_name as string) || (p.part as string),
-          fragrance: (p.fragrance as string) || "—",
-          brand: (p.brand as string) || "NI",
+    /* ── Channel stats: collapse per-brand rows down to per-channel, filtered by brand ── */
+    const channelMap: Record<string, ChannelStats> = {};
+    for (const r of channelRows) {
+      if (brand !== "all" && r.brand !== brand) continue;
+      const existing = channelMap[r.channel];
+      const ttmRev = Number(r.ttm_revenue) || 0;
+      const priorRev = Number(r.prior_ttm_revenue) || 0;
+      const total = Number(r.total_revenue) || 0;
+      const ttmOrders = Number(r.ttm_orders) || 0;
+      const ttmCust = Number(r.ttm_customers) || 0;
+      if (!existing) {
+        channelMap[r.channel] = {
+          channel: r.channel,
+          customers: ttmCust,
+          totalRevenue: total,
+          ttmRevenue: ttmRev,
+          priorTtmRevenue: priorRev,
+          totalOrders: ttmOrders,
         };
-      });
+      } else {
+        // "all" brand: sum NI + Sassy rows for the same channel
+        existing.ttmRevenue += ttmRev;
+        existing.priorTtmRevenue += priorRev;
+        existing.totalRevenue += total;
+        existing.totalOrders += ttmOrders;
+        existing.customers += ttmCust;
+      }
+    }
+    setChannelStats(
+      Object.values(channelMap).sort((a, b) => b.ttmRevenue - a.ttmRevenue)
+    );
+
+    /* ── Product breakdown: group by channel -> display_name -> fragrance ── */
+    const chProd: Record<
+      string,
+      Record<string, Record<string, { revenue: number; units: number }>>
+    > = {};
+    for (const r of productRows) {
+      if (brand !== "all" && r.brand !== brand) continue;
+      const ch = r.channel;
+      const name = r.display_name || "—";
+      const frag = r.fragrance || "—";
+      if (!chProd[ch]) chProd[ch] = {};
+      if (!chProd[ch][name]) chProd[ch][name] = {};
+      if (!chProd[ch][name][frag])
+        chProd[ch][name][frag] = { revenue: 0, units: 0 };
+      chProd[ch][name][frag].revenue += Number(r.revenue) || 0;
+      chProd[ch][name][frag].units += Number(r.units) || 0;
     }
 
-    if (orders && orders.length > 0) {
-      // Build order lookups (deduplicate by order id — same order may appear in multiple uploads)
-      const orderChannel: Record<number, string> = {};
-      const orderDate: Record<number, string> = {};
-      const orderCustomer: Record<number, string> = {};
-      const orderTotal: Record<number, number> = {};
-      orders.forEach((o: Record<string, unknown>) => {
-        const id = o.id as number;
-        const ch = (o.channel as string) || "None";
-        if (id && ch !== "None") {
-          if (!orderChannel[id]) {
-            orderChannel[id] = ch;
-            orderDate[id] = (o.datecompleted as string) || "";
-            orderCustomer[id] = (o.customerid as string) || "";
-            orderTotal[id] = (o.totalprice as number) || 0;
-          }
-        }
-      });
-
-      // Fetch all line items (use small order batches + paginate within each to avoid 1000-row limit)
-      const orderIds = Object.keys(orderChannel).map(Number);
-      let allItems: Record<string, unknown>[] = [];
-      const BATCH = 200; // smaller batches so items per batch stay under limits
-      for (let i = 0; i < orderIds.length; i += BATCH) {
-        const batch = orderIds.slice(i, i + BATCH);
-        let offset = 0;
-        let fetching = true;
-        while (fetching) {
-          const { data: items } = await supabase
-            .from("so_items_raw")
-            .select("id, soid, productnum, description, totalprice, qtyfulfilled")
-            .in("soid", batch)
-            .range(offset, offset + 999);
-          if (items && items.length > 0) {
-            allItems = allItems.concat(items as Record<string, unknown>[]);
-            offset += 1000;
-            fetching = items.length === 1000;
-          } else {
-            fetching = false;
-          }
-        }
-      }
-
-      // ── Deduplicate line items (same item can appear in multiple uploads) ──
-      const seenItems = new Set<string>();
-      const uniqueItems = allItems.filter((item) => {
-        const soid = item.soid as number;
-        const itemId = item.id as number | null;
-        const key = itemId
-          ? `${soid}-${itemId}`
-          : `${soid}-${item.productnum}-${item.totalprice}`;
-        if (seenItems.has(key)) return false;
-        seenItems.add(key);
-        return true;
-      });
-
-      // ── For brand filtering: build set of orders that contain matching brand products ──
-      const ordersMatchingBrand = new Set<number>();
-      if (brand !== "all") {
-        uniqueItems.forEach((item) => {
-          const soid = item.soid as number;
-          const pnum = (item.productnum as string) || "Unknown";
-          const prod = prodLookup[pnum];
-          const itemBrand = prod?.brand || "NI";
-          if (itemBrand === brand) ordersMatchingBrand.add(soid);
-        });
-      }
-
-      // ── Build channel stats from ORDER-LEVEL totalprice (not line items) ──
-      const channelMap: Record<string, ChannelStats> = {};
-      const channelCustomers: Record<string, Set<string>> = {};
-      const channelOrders: Record<string, Set<number>> = {};
-
-      // Iterate over deduplicated orders and use order-level totalprice
-      Object.keys(orderChannel).forEach((idStr) => {
-        const id = Number(idStr);
-        const ch = orderChannel[id];
-        if (!ch) return;
-
-        // Brand filter: for specific brand, only include orders with at least one matching product
-        if (brand !== "all" && !ordersMatchingBrand.has(id)) return;
-
-        const date = orderDate[id] || "";
-        const oTotal = orderTotal[id] || 0;
-        const isTTM = date >= ttmStartStr;
-        const isPriorTTM = date >= priorStartStr && date < ttmStartStr;
-
-        if (!channelMap[ch]) {
-          channelMap[ch] = {
-            channel: ch, customers: 0, totalRevenue: 0,
-            ttmRevenue: 0, priorTtmRevenue: 0, totalOrders: 0,
-          };
-          channelCustomers[ch] = new Set();
-          channelOrders[ch] = new Set();
-        }
-        if (isTTM) {
-          channelMap[ch].ttmRevenue += oTotal;
-          channelCustomers[ch].add(orderCustomer[id]);
-          channelOrders[ch].add(id);
-        }
-        if (isPriorTTM) {
-          channelMap[ch].priorTtmRevenue += oTotal;
-        }
-        channelMap[ch].totalRevenue += oTotal;
-      });
-
-      // ── Product breakdown from line items (TTM only) ──
-      const chProd: Record<
-        string,
-        Record<string, Record<string, { revenue: number; units: number }>>
-      > = {};
-
-      uniqueItems.forEach((item) => {
-        const soid = item.soid as number;
-        const ch = orderChannel[soid];
-        if (!ch) return;
-
-        const pnum = (item.productnum as string) || "Unknown";
-        const desc = ((item.description as string) || pnum).toUpperCase();
-        if (
-          pnum === "Subtotal" || pnum === "Shipping" ||
-          desc === "SUBTOTAL" || desc === "SHIPPING"
-        ) return;
-
-        const prod = prodLookup[pnum];
-        const itemBrand = prod?.brand || "NI";
-
-        // Brand filter: skip items that don't match selected brand
-        if (brand !== "all" && itemBrand !== brand) return;
-
-        const rev = (item.totalprice as number) || 0;
-        const qty = (item.qtyfulfilled as number) || 0;
-        const date = orderDate[soid] || "";
-        const isTTM = date >= ttmStartStr;
-
-        // Product breakdown (TTM only)
-        if (isTTM) {
-          const displayName = prod?.displayName || (item.description as string) || pnum;
-          const fragrance = prod?.fragrance || "—";
-          if (!chProd[ch]) chProd[ch] = {};
-          if (!chProd[ch][displayName]) chProd[ch][displayName] = {};
-          if (!chProd[ch][displayName][fragrance])
-            chProd[ch][displayName][fragrance] = { revenue: 0, units: 0 };
-          chProd[ch][displayName][fragrance].revenue += rev;
-          chProd[ch][displayName][fragrance].units += qty;
-        }
-      });
-
-      // Finalize channel stats
-      Object.keys(channelMap).forEach((ch) => {
-        channelMap[ch].customers = channelCustomers[ch].size;
-        channelMap[ch].totalOrders = channelOrders[ch].size;
-      });
-      setChannelStats(
-        Object.values(channelMap).sort((a, b) => b.ttmRevenue - a.ttmRevenue)
+    const result: Record<string, ProductGroupStat[]> = {};
+    for (const [ch, prodGroups] of Object.entries(chProd)) {
+      const channelTotal = Object.values(prodGroups).reduce(
+        (s, frags) =>
+          s + Object.values(frags).reduce((s2, f) => s2 + f.revenue, 0),
+        0
       );
-
-      // Finalize product breakdown
-      const result: Record<string, ProductGroupStat[]> = {};
-      Object.entries(chProd).forEach(([ch, prodGroups]) => {
-        const channelTotal = Object.values(prodGroups).reduce(
-          (s, frags) =>
-            s + Object.values(frags).reduce((s2, f) => s2 + f.revenue, 0),
-          0
-        );
-        result[ch] = Object.entries(prodGroups)
-          .map(([displayName, frags]) => {
-            const totalRev = Object.values(frags).reduce(
-              (s, f) => s + f.revenue, 0
-            );
-            const totalUnits = Object.values(frags).reduce(
-              (s, f) => s + f.units, 0
-            );
-            const fragrances: FragranceStat[] = Object.entries(frags)
-              .map(([fragrance, f]) => ({
-                fragrance,
-                revenue: f.revenue,
-                units: f.units,
-                pctOfChannel:
-                  channelTotal > 0 ? (f.revenue / channelTotal) * 100 : 0,
-              }))
-              .sort((a, b) => b.revenue - a.revenue);
-            return {
-              displayName,
-              revenue: totalRev,
-              units: totalUnits,
+      result[ch] = Object.entries(prodGroups)
+        .map(([displayName, frags]) => {
+          const totalRev = Object.values(frags).reduce(
+            (s, f) => s + f.revenue,
+            0
+          );
+          const totalUnits = Object.values(frags).reduce(
+            (s, f) => s + f.units,
+            0
+          );
+          const fragrances: FragranceStat[] = Object.entries(frags)
+            .map(([fragrance, f]) => ({
+              fragrance,
+              revenue: f.revenue,
+              units: f.units,
               pctOfChannel:
-                channelTotal > 0 ? (totalRev / channelTotal) * 100 : 0,
-              fragrances,
-            };
-          })
-          .sort((a, b) => b.revenue - a.revenue);
-      });
-      setProductsByChannel(result);
+                channelTotal > 0 ? (f.revenue / channelTotal) * 100 : 0,
+            }))
+            .sort((a, b) => b.revenue - a.revenue);
+          return {
+            displayName,
+            revenue: totalRev,
+            units: totalUnits,
+            pctOfChannel:
+              channelTotal > 0 ? (totalRev / channelTotal) * 100 : 0,
+            fragrances,
+          };
+        })
+        .sort((a, b) => b.revenue - a.revenue);
     }
+    setProductsByChannel(result);
 
     setLoading(false);
   }, [brand]);

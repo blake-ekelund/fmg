@@ -21,7 +21,8 @@ export default function CreateProductModal({
 }: Props) {
   const router = useRouter();
   const [sku, setSku] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [productName, setProductName] = useState("");
+  const [productForm, setProductForm] = useState("");
   const [brand, setBrand] = useState<Brand>(defaultBrand);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,11 +31,22 @@ export default function CreateProductModal({
   useEffect(() => {
     if (!open) return;
     setSku("");
-    setDisplayName("");
+    setProductName("");
+    setProductForm("");
     setBrand(defaultBrand);
     setSaving(false);
     setError(null);
   }, [open, defaultBrand]);
+
+  // display_name is composed, never hand-typed — the storefronts parse it.
+  // Sassy: "{name} – {form}". NI: "{form}" (testers are flagged later on
+  // the product page).
+  const displayName =
+    brand === "Sassy"
+      ? productName.trim() && productForm.trim()
+        ? `${productName.trim()} – ${productForm.trim()}`
+        : ""
+      : productForm.trim();
 
   // Close on Escape
   useEffect(() => {
@@ -46,8 +58,7 @@ export default function CreateProductModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const canSubmit =
-    sku.trim().length > 0 && displayName.trim().length > 0 && !saving;
+  const canSubmit = sku.trim().length > 0 && displayName.length > 0 && !saving;
 
   async function submit() {
     if (!canSubmit) return;
@@ -59,7 +70,9 @@ export default function CreateProductModal({
       .from("inventory_products")
       .insert({
         part: trimmedSku,
-        display_name: displayName.trim(),
+        display_name: displayName,
+        product_name: brand === "Sassy" ? productName.trim() : null,
+        product_form: productForm.trim(),
         product_type: "FG",
         fragrance: "",
         size: "",
@@ -133,16 +146,39 @@ export default function CreateProductModal({
             </p>
           </div>
 
+          {brand === "Sassy" ? (
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">
+                Product name
+              </label>
+              <input
+                value={productName}
+                onChange={(e) => setProductName(e.target.value)}
+                placeholder="e.g. Bougie Babe"
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+              />
+            </div>
+          ) : null}
+
           <div>
             <label className="text-xs font-medium text-gray-700 mb-1 block">
-              Display name
+              Form / format
             </label>
             <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="e.g. Lavender Lotion 8oz"
+              value={productForm}
+              onChange={(e) => setProductForm(e.target.value)}
+              placeholder={
+                brand === "Sassy"
+                  ? "e.g. Mini Hand Crème"
+                  : "e.g. Hand + Body Lotion 8oz"
+              }
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
             />
+            {displayName ? (
+              <p className="text-[11px] text-gray-400 mt-1">
+                Display name: <span className="font-medium text-gray-600">{displayName}</span>
+              </p>
+            ) : null}
           </div>
 
           <div>

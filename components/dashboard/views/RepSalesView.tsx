@@ -1,7 +1,6 @@
 "use client";
 
 import { TrendingUp, TrendingDown, Minus, DollarSign, Users, Percent } from "lucide-react";
-import Link from "next/link";
 import clsx from "clsx";
 import type { RepSalesRow, RepSalesKPIs } from "../hooks/useDashboardRepSales";
 
@@ -157,14 +156,6 @@ export default function RepSalesView({
         </div>
       )}
 
-      <div className="pt-2 border-t border-gray-100">
-        <Link
-          href="/rep-groups"
-          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-        >
-          Manage rep groups
-        </Link>
-      </div>
     </div>
   );
 }

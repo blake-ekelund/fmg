@@ -19,6 +19,11 @@ import {
   Headphones,
   Filter,
   MessageSquare,
+  UserCheck,
+  Globe,
+  TicketPercent,
+  Activity,
+  Receipt,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -108,6 +113,38 @@ export const navSections: readonly NavSection[] = [
         label: "Sales Analysis",
         href: "/sales",
         icon: TrendingUp,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+    ],
+  },
+  {
+    // Admin panel for the Sassy + Natural Inspirations storefronts
+    // (redek.io / naturalinspirations.com).
+    label: "Storefronts",
+    icon: Globe,
+    items: [
+      {
+        label: "Partner Applications",
+        href: "/partners",
+        icon: UserCheck,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Discounts",
+        href: "/storefronts/discounts",
+        icon: TicketPercent,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        label: "Web Analytics",
+        href: "/storefronts/analytics",
+        icon: Activity,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        label: "Purchases",
+        href: "/storefronts/purchases",
+        icon: Receipt,
         roles: [...FULL_ACCESS, "sales"],
       },
     ],

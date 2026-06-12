@@ -26,6 +26,13 @@ export type Product = {
 
   part: string;
   display_name: string;
+  /** Structured name parts — display_name is composed from these by the
+   *  form (Sassy: "{product_name} – {product_form}"; NI: "{product_form}"
+   *  with a "TESTER " prefix when is_tester). Legacy rows may have only
+   *  display_name. */
+  product_name?: string | null;
+  product_form?: string | null;
+  is_tester?: boolean;
   product_type: "FG" | "BOM";
   fragrance: string | null;
   size: string | null;
@@ -46,6 +53,8 @@ export type Product = {
 
   // ── Storefront publish ──
   storefront_channel?: StorefrontChannel;
+  /** Manual availability flag; false lets storefronts show out-of-stock. */
+  storefront_in_stock?: boolean;
 
   // ── Pricing ──
   msrp?: number | null;
@@ -57,6 +66,11 @@ export type Product = {
   // ── Marketing ──
   subtitle?: string | null;
   infused_with?: string | null;
+
+  // ── Product page colors (#rrggbb; null = storefront default palette) ──
+  page_bg_color?: string | null;
+  page_text_color?: string | null;
+  page_accent_color?: string | null;
 
   // ── Catalog / shipping ──
   barcode?: string | null;
