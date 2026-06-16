@@ -57,6 +57,17 @@ export type StorefrontOrder = {
   note?: string | null;
   approved_at?: string | null;
   approved_by?: string | null;
+  /** Deep-link shipment tracking, recorded from the Purchases order-detail
+   *  view. carrier: 'usps' | 'ups' | 'fedex'. No carrier API — we link out
+   *  to the carrier's own page (see lib/tracking.ts). */
+  carrier?: string | null;
+  tracking_code?: string | null;
+  shipped_at?: string | null;
+  /** Fishbowl entry stamp — set from the Purchases view once the order's
+   *  details are keyed into Fishbowl. The fulfillment gate that replaces the
+   *  old `approved_*` columns. */
+  fishbowl_entered_at?: string | null;
+  fishbowl_entered_by?: string | null;
   [key: string]: unknown;
 };
 
@@ -137,4 +148,28 @@ export function composeInvoiceLines(o: StorefrontOrder): InvoiceLine[] {
   }
 
   return lines;
+}
+
+/** Where an order sits in the fulfillment pipeline, derived from its columns.
+ *  Precedence mirrors the workflow: cancelled → shipped (has a tracking
+ *  number) → needs tracking (in Fishbowl, not yet shipped) → needs Fishbowl
+ *  entry. `badge` is the Tailwind bg+text for the status pill. */
+export type FulfillmentKey =
+  | "needs-fishbowl"
+  | "needs-tracking"
+  | "shipped"
+  | "cancelled";
+
+export function fulfillmentState(o: StorefrontOrder): {
+  key: FulfillmentKey;
+  label: string;
+  badge: string;
+} {
+  if (o.status === "cancelled")
+    return { key: "cancelled", label: "Cancelled", badge: "bg-gray-100 text-gray-500" };
+  if (o.tracking_code)
+    return { key: "shipped", label: "Shipped", badge: "bg-emerald-50 text-emerald-700" };
+  if (o.fishbowl_entered_at)
+    return { key: "needs-tracking", label: "Needs tracking", badge: "bg-sky-50 text-sky-700" };
+  return { key: "needs-fishbowl", label: "Needs Fishbowl", badge: "bg-rose-50 text-rose-700" };
 }

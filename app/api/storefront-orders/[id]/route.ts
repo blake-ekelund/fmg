@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
+import { isCarrierId } from "@/lib/tracking";
 
 /**
  * A single storefront order (for the Purchases detail / invoice view), plus
@@ -45,19 +46,56 @@ export async function PATCH(
 
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as {
-    action?: "approve" | "unapprove";
+    action?:
+      | "enter-fishbowl"
+      | "clear-fishbowl"
+      | "set-tracking"
+      | "clear-tracking";
+    carrier?: string;
+    tracking_code?: string;
   };
 
-  // Approval is its own stamp (approved_at / approved_by); it deliberately
-  // doesn't touch `status`, whose check constraint has no 'approved' value.
+  // These stamps deliberately don't touch `status` (its check constraint has a
+  // fixed value set). Fishbowl entry is the fulfillment gate that replaces the
+  // old "approved" action — set once the order is keyed into Fishbowl. Tracking
+  // is a carrier + hand-entered number we link out to (no carrier API),
+  // stamped with shipped_at the first time it's saved.
   let patch: Record<string, unknown>;
-  if (body.action === "approve") {
+  if (body.action === "enter-fishbowl") {
     patch = {
-      approved_at: new Date().toISOString(),
-      approved_by: user.email ?? user.id,
+      fishbowl_entered_at: new Date().toISOString(),
+      fishbowl_entered_by: user.email ?? user.id,
     };
-  } else if (body.action === "unapprove") {
-    patch = { approved_at: null, approved_by: null };
+  } else if (body.action === "clear-fishbowl") {
+    patch = { fishbowl_entered_at: null, fishbowl_entered_by: null };
+  } else if (body.action === "set-tracking") {
+    const code = body.tracking_code?.trim();
+    if (!isCarrierId(body.carrier)) {
+      return NextResponse.json(
+        { error: "Pick a carrier (USPS, UPS, or FedEx)." },
+        { status: 400 }
+      );
+    }
+    if (!code) {
+      return NextResponse.json(
+        { error: "Enter a tracking number." },
+        { status: 400 }
+      );
+    }
+    // Preserve the original ship date across edits — fixing a typo in the
+    // number shouldn't bump shipped_at; only stamp it the first time.
+    const { data: existing } = await admin
+      .from("orders")
+      .select("shipped_at")
+      .eq("id", id)
+      .maybeSingle();
+    patch = {
+      carrier: body.carrier,
+      tracking_code: code,
+      shipped_at: existing?.shipped_at ?? new Date().toISOString(),
+    };
+  } else if (body.action === "clear-tracking") {
+    patch = { carrier: null, tracking_code: null, shipped_at: null };
   } else {
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   }

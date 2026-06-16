@@ -233,3 +233,31 @@ article.prose::after {
     text-align: center;
   }
 }
+
+/* ─── Print: only the order/invoice document, not the app shell ─── */
+@media print {
+  /* Hide everything, then reveal just the marked document. We use
+     visibility (not display) so the document's box still flows and can be
+     repositioned to the page origin; elements inside it that opt out with
+     Tailwind's `print:hidden` (display:none) stay hidden regardless. */
+  body * {
+    visibility: hidden;
+  }
+  .print-document,
+  .print-document * {
+    visibility: visible;
+  }
+  /* Anchored to the initial containing block (no positioned ancestor in the
+     shell), so the sidebar's margin-left offset doesn't apply — the document
+     prints full-width from the top-left. */
+  .print-document {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}

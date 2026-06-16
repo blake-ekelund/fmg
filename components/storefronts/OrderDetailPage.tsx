@@ -6,16 +6,19 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  ExternalLink,
   Loader2,
   Printer,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
   composeInvoiceLines,
+  fulfillmentState,
   orderRef,
   type OrderAddress,
   type StorefrontOrder,
 } from "@/lib/storefrontOrder";
+import { CARRIER_OPTIONS, carrierLabel, trackingUrl } from "@/lib/tracking";
 
 async function authHeader(): Promise<Record<string, string>> {
   const sb = supabaseBrowser();
@@ -58,27 +61,43 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
     })();
   }, [load]);
 
-  async function setApproval(action: "approve" | "unapprove") {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/storefront-orders/${orderId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ action }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json?.error ?? `Failed (${res.status})`);
-        return;
+  /** One PATCH to the order; refreshes local state on success. Returns
+   *  whether it saved so callers (e.g. the shipment editor) can react. */
+  const patchOrder = useCallback(
+    async (body: Record<string, unknown>): Promise<boolean> => {
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/storefront-orders/${orderId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(await authHeader()),
+          },
+          body: JSON.stringify(body),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          setError(json?.error ?? `Failed (${res.status})`);
+          return false;
+        }
+        setError(null);
+        setOrder(json.order as StorefrontOrder);
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        return false;
+      } finally {
+        setSaving(false);
       }
-      setError(null);
-      setOrder(json.order as StorefrontOrder);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+    [orderId]
+  );
+
+  const enterFishbowl = () => patchOrder({ action: "enter-fishbowl" });
+  const clearFishbowl = () => patchOrder({ action: "clear-fishbowl" });
+  const saveTracking = (carrier: string, tracking_code: string) =>
+    patchOrder({ action: "set-tracking", carrier, tracking_code });
+  const clearTracking = () => patchOrder({ action: "clear-tracking" });
 
   if (loading) {
     return (
@@ -104,10 +123,11 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
 
   const wholesale = order.channel === "wholesale";
   const lines = composeInvoiceLines(order);
-  const approved = Boolean(order.approved_at);
+  const inFishbowl = Boolean(order.fishbowl_entered_at);
+  const fulfillment = fulfillmentState(order);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 p-6">
+    <div className="mx-auto max-w-5xl space-y-5 p-6">
       {/* Action bar — hidden when printing */}
       <div className="flex items-center justify-between gap-3 print:hidden">
         <BackLink />
@@ -119,19 +139,19 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
           >
             <Printer size={14} /> Print
           </button>
-          {approved ? (
+          {inFishbowl ? (
             <button
               type="button"
-              onClick={() => setApproval("unapprove")}
+              onClick={clearFishbowl}
               disabled={saving}
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
             >
-              Unapprove
+              Undo Fishbowl
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => setApproval("approve")}
+              onClick={enterFishbowl}
               disabled={saving}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
@@ -140,7 +160,7 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
               ) : (
                 <CheckCircle2 size={14} />
               )}
-              Approve
+              Mark in Fishbowl
             </button>
           )}
         </div>
@@ -153,8 +173,8 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
         </div>
       ) : null}
 
-      {/* Invoice */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-8">
+      {/* Invoice — `print-document` is the only thing that prints (globals.css) */}
+      <div className="print-document rounded-2xl border border-gray-200 bg-white p-8">
         <div className="flex items-start justify-between gap-4 border-b border-gray-100 pb-5">
           <div>
             <h1 className="font-mono text-2xl font-semibold tracking-tight text-gray-900">
@@ -185,11 +205,11 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
                   : order.payment_status}
               </span>
             ) : null}
-            {order.status ? (
-              <span className="text-[11px] capitalize text-gray-500">
-                {order.status}
-              </span>
-            ) : null}
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${fulfillment.badge}`}
+            >
+              {fulfillment.label}
+            </span>
           </div>
         </div>
 
@@ -220,6 +240,14 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
             value={order.email ?? order.phone ?? "—"}
           />
         </div>
+
+        {/* Shipment — deep-link carrier tracking, recorded once it ships */}
+        <Shipment
+          order={order}
+          saving={saving}
+          onSave={saveTracking}
+          onClear={clearTracking}
+        />
 
         {/* Line items */}
         <table className="mt-5 w-full text-sm">
@@ -307,19 +335,24 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
           </dl>
         </div>
 
-        {/* Approval */}
+        {/* Fishbowl entry — the fulfillment gate that replaces "approved" */}
         <div className="mt-6 border-t border-gray-100 pt-4">
-          {approved ? (
+          {inFishbowl ? (
             <div className="flex items-center gap-2 text-sm text-emerald-700">
               <CheckCircle2 size={15} />
-              Approved by{" "}
-              <span className="font-medium">{order.approved_by ?? "—"}</span> on{" "}
-              {order.approved_at
-                ? new Date(order.approved_at).toLocaleString()
+              Entered into Fishbowl by{" "}
+              <span className="font-medium">
+                {order.fishbowl_entered_by ?? "—"}
+              </span>{" "}
+              on{" "}
+              {order.fishbowl_entered_at
+                ? new Date(order.fishbowl_entered_at).toLocaleString()
                 : "—"}
             </div>
           ) : (
-            <div className="text-sm text-gray-400">Not yet approved.</div>
+            <div className="text-sm text-gray-400">
+              Not yet entered into Fishbowl.
+            </div>
           )}
         </div>
 
@@ -328,6 +361,140 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
             <span className="font-medium text-gray-600">Note:</span>{" "}
             {order.note}
           </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shipment tracking — the team records a carrier + tracking number once the
+ * order ships, and the saved view links straight to the carrier's own page
+ * (no carrier API). The link also prints, so a packing slip carries it.
+ */
+function Shipment({
+  order,
+  saving,
+  onSave,
+  onClear,
+}: {
+  order: StorefrontOrder;
+  saving: boolean;
+  onSave: (carrier: string, code: string) => Promise<boolean>;
+  onClear: () => Promise<boolean>;
+}) {
+  const hasTracking = Boolean(order.carrier && order.tracking_code);
+  const [editing, setEditing] = useState(!hasTracking);
+  const [carrier, setCarrier] = useState(order.carrier ?? "");
+  const [code, setCode] = useState(order.tracking_code ?? "");
+  const url = trackingUrl(order.carrier, order.tracking_code);
+
+  if (hasTracking && !editing) {
+    return (
+      <div className="flex items-start justify-between gap-3 border-b border-gray-100 py-4">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            Shipment
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+            <span className="text-gray-900">{carrierLabel(order.carrier)}</span>
+            {url ? (
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-mono text-indigo-600 hover:text-indigo-800 hover:underline"
+              >
+                {order.tracking_code}
+                <ExternalLink size={12} className="print:hidden" />
+              </a>
+            ) : (
+              <span className="font-mono text-gray-700">
+                {order.tracking_code}
+              </span>
+            )}
+            {order.shipped_at ? (
+              <span className="text-xs text-gray-400">
+                · shipped{" "}
+                {new Date(order.shipped_at).toLocaleDateString()}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 print:hidden"
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-b border-gray-100 py-4 print:hidden">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+        Shipment
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        <select
+          value={carrier}
+          onChange={(e) => setCarrier(e.target.value)}
+          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-gray-900 focus:border-gray-400 focus:outline-none"
+        >
+          <option value="">Carrier…</option>
+          {CARRIER_OPTIONS.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Tracking number"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 font-mono text-sm text-gray-900 placeholder:font-sans placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+        />
+        <button
+          type="button"
+          disabled={saving || !carrier || !code.trim()}
+          onClick={async () => {
+            if (await onSave(carrier, code.trim())) setEditing(false);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : null}
+          Save
+        </button>
+        {hasTracking ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setCarrier(order.carrier ?? "");
+                setCode(order.tracking_code ?? "");
+                setEditing(false);
+              }}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={async () => {
+                if (await onClear()) {
+                  setCarrier("");
+                  setCode("");
+                  setEditing(false);
+                }
+              }}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              Clear
+            </button>
+          </>
         ) : null}
       </div>
     </div>
