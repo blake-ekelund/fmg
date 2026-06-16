@@ -30,6 +30,7 @@ function row(overrides: Partial<CopyRow> & { part: string }): CopyRow {
     retailer_notes: null,
     page_bg_color: null,
     page_text_color: null,
+    page_heading_color: null,
     page_accent_color: null,
     ...overrides,
   };

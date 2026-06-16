@@ -43,7 +43,8 @@ export const COPY_COLUMNS: CopyColumn[] = [
   { key: "how_to_use", header: "How To Use", kind: "text", width: 40, wrap: true },
   { key: "retailer_notes", header: "Retailer Notes (internal)", kind: "text", width: 40, wrap: true },
   { key: "page_bg_color", header: "Background Color", kind: "color", width: 17 },
-  { key: "page_text_color", header: "Text Color", kind: "color", width: 17 },
+  { key: "page_text_color", header: "Body Color", kind: "color", width: 17 },
+  { key: "page_heading_color", header: "Headline Color", kind: "color", width: 17 },
   { key: "page_accent_color", header: "Accent Color", kind: "color", width: 17 },
 ];
 
@@ -65,6 +66,7 @@ export type EditableKey =
   | "retailer_notes"
   | "page_bg_color"
   | "page_text_color"
+  | "page_heading_color"
   | "page_accent_color";
 
 /** media_kit_products columns (vs inventory_products / metafields.notes). */
@@ -82,6 +84,7 @@ export const NOTE_KEYS: EditableKey[] = ["note_top", "note_mid", "note_dry"];
 const COLOR_KEYS: EditableKey[] = [
   "page_bg_color",
   "page_text_color",
+  "page_heading_color",
   "page_accent_color",
 ];
 

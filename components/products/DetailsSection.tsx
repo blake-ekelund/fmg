@@ -1232,11 +1232,18 @@ export function DetailsSection({
                 hint="Page background behind the whole product page."
               />
               <ColorField
-                label="Text"
+                label="Headline"
+                value={form.page_heading_color}
+                onChange={(v) => update("page_heading_color", v)}
+                fallback={form.page_text_color ?? "#2a3b35"}
+                hint="Product name + section headings. Falls back to the body color when empty."
+              />
+              <ColorField
+                label="Body copy"
                 value={form.page_text_color}
                 onChange={(v) => update("page_text_color", v)}
                 fallback="#2a3b35"
-                hint="Headlines and body copy."
+                hint="Paragraphs and body text."
               />
               <ColorField
                 label="Accent"
@@ -1259,7 +1266,15 @@ export function DetailsSection({
                 <div className="text-[10px] font-medium uppercase tracking-[0.2em] opacity-60">
                   Preview
                 </div>
-                <div className="mt-2 text-base font-semibold leading-snug">
+                <div
+                  className="mt-2 text-base font-semibold leading-snug"
+                  style={{
+                    color:
+                      form.page_heading_color ??
+                      form.page_text_color ??
+                      "#111827",
+                  }}
+                >
                   {form.display_name || "Product name"}
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed opacity-80">

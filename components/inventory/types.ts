@@ -68,8 +68,11 @@ export type Product = {
   infused_with?: string | null;
 
   // ── Product page colors (#rrggbb; null = storefront default palette) ──
+  // page_text_color = body copy; page_heading_color = headings (falls back
+  // to the body color on the storefronts when unset).
   page_bg_color?: string | null;
   page_text_color?: string | null;
+  page_heading_color?: string | null;
   page_accent_color?: string | null;
 
   // ── Catalog / shipping ──

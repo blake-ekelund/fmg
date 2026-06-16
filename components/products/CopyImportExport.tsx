@@ -37,6 +37,7 @@ type InvRow = {
   metafields: Record<string, unknown> | null;
   page_bg_color: string | null;
   page_text_color: string | null;
+  page_heading_color: string | null;
   page_accent_color: string | null;
 };
 
@@ -85,6 +86,7 @@ function toCopyRow(p: InvRow, m: MediaRow | undefined): CopyRow {
     retailer_notes: m?.retailer_notes ?? null,
     page_bg_color: p.page_bg_color ?? null,
     page_text_color: p.page_text_color ?? null,
+    page_heading_color: p.page_heading_color ?? null,
     page_accent_color: p.page_accent_color ?? null,
   };
 }
@@ -94,7 +96,7 @@ async function fetchCopyState(): Promise<{ rows: CopyRow[]; invByPart: Map<strin
     supabase
       .from("inventory_products")
       .select(
-        "part, brand, display_name, product_name, product_form, is_tester, subtitle, infused_with, category_path, metafields, page_bg_color, page_text_color, page_accent_color"
+        "part, brand, display_name, product_name, product_form, is_tester, subtitle, infused_with, category_path, metafields, page_bg_color, page_text_color, page_heading_color, page_accent_color"
       )
       .eq("product_type", "FG")
       .order("brand")
