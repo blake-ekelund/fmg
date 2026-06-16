@@ -25,7 +25,10 @@ export const maxDuration = 60;
  * now regardless of the hour (both require a signed-in portal user).
  */
 
-const DIGEST_TO = "blake.ekelund@fragrancemarketinggroup.com";
+const DIGEST_TO: { address: string; name?: string }[] = [
+  { address: "blake.ekelund@fragrancemarketinggroup.com", name: "Blake Ekelund" },
+  { address: "julie.ekelund@fragrancemarketinggroup.com", name: "Julie Ekelund" },
+];
 const DIGEST_TZ = "America/New_York";
 const SEND_HOURS = new Set([6, 15]); // 6 AM and 3 PM Eastern
 
@@ -198,7 +201,7 @@ export async function GET(request: Request) {
     await sendEmail(accessToken, {
       subject,
       bodyHtml: buildHtml(orders, origin, label),
-      to: [{ address: DIGEST_TO, name: "Blake Ekelund" }],
+      to: DIGEST_TO,
     });
     return NextResponse.json({ sent: true, count: orders.length, to: DIGEST_TO });
   } catch (e) {
