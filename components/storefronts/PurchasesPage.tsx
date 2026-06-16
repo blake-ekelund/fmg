@@ -1,24 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2, Receipt } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-
-type StorefrontOrder = {
-  id: string;
-  created_at: string;
-  number?: number;
-  channel?: "d2c" | "wholesale" | string;
-  status?: string;
-  payment_status?: string;
-  business_name?: string | null;
-  contact_name?: string | null;
-  email?: string | null;
-  subtotal?: number;
-  total?: number;
-  items?: { name?: string; quantity?: number }[] | null;
-  [key: string]: unknown;
-};
+import { orderRef, type StorefrontOrder } from "@/lib/storefrontOrder";
 
 async function authHeader(): Promise<Record<string, string>> {
   const sb = supabaseBrowser();
@@ -33,6 +19,7 @@ async function authHeader(): Promise<Record<string, string>> {
  * honest empty state that activates by itself once orders start landing.
  */
 export default function PurchasesPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<StorefrontOrder[]>([]);
   const [notReady, setNotReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -89,18 +76,18 @@ export default function PurchasesPage() {
         <div className="rounded-xl border border-dashed border-gray-200 px-6 py-12 text-center">
           <Receipt size={24} className="mx-auto text-gray-300" />
           <h2 className="mt-3 text-sm font-medium text-gray-900">
-            No orders yet — checkout hasn't shipped
+            Orders table isn&apos;t set up yet
           </h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
-            The storefront carts work, but payment integration is still
-            pending. Once checkout writes orders into the wholesale
-            database, they appear here automatically — order number,
-            brand, buyer, items, totals, and fulfillment status.
+            Run the wholesale-project SQL snippet to create the orders
+            table. Once it exists, purchases from both storefronts appear
+            here automatically — order number, buyer, items, totals, and
+            status.
           </p>
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
-          No orders yet. They'll show up here the moment the first one
+          No orders yet. They&apos;ll show up here the moment the first one
           lands.
         </div>
       ) : (
@@ -125,9 +112,13 @@ export default function PurchasesPage() {
                 );
                 const wholesale = o.channel === "wholesale";
                 return (
-                  <tr key={o.id} className="border-b border-gray-50 last:border-0">
+                  <tr
+                    key={o.id}
+                    onClick={() => router.push(`/storefronts/purchases/${o.id}`)}
+                    className="cursor-pointer border-b border-gray-50 last:border-0 hover:bg-gray-50"
+                  >
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono text-gray-900">
-                      {o.number != null ? `SO-${o.number}` : o.id.slice(0, 8)}
+                      {orderRef(o)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-gray-500">
                       {new Date(o.created_at).toLocaleString()}
