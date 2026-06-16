@@ -11,10 +11,6 @@
     {
       "path": "/api/cron/fishbowl-digest",
       "schedule": "0 10,11,19,20 * * *"
-    },
-    {
-      "path": "/api/cron/fishbowl-tasks",
-      "schedule": "*/15 * * * *"
     }
   ]
 }

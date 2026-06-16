@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
+import { supabaseServer } from "@/lib/supabaseServer";
 import { isCarrierId } from "@/lib/tracking";
 
 /**
@@ -108,5 +109,13 @@ export async function PATCH(
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Entering an order into Fishbowl instantly clears its "Enter into Fishbowl"
+  // task — no waiting for the twice-daily digest sweep (which is the backstop
+  // for cancellations/edits). Best-effort; never blocks the order update.
+  if (body.action === "enter-fishbowl") {
+    await supabaseServer.from("tasks").delete().eq("fishbowl_order_id", id);
+  }
+
   return NextResponse.json({ order: data });
 }
