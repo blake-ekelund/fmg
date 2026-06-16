@@ -190,7 +190,7 @@ export async function GET(request: Request) {
 
   const origin =
     (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "") ||
-    "https://fmg-ashy.vercel.app";
+    "https://www.fragrance-marketing-group.com";
 
   try {
     const { accessToken } = await getAccessTokenForUser(senderUserId);
