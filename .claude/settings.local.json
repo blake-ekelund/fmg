@@ -24,7 +24,8 @@
       "Skill(run:*)",
       "Bash(cd \"C:\\\\Users\\\\blake\\\\OneDrive\\\\Desktop\\\\store\\\\sassy\" && find supabase -type f | head -20)",
       "Bash(find \"C:\\\\Users\\\\blake\\\\OneDrive\\\\Desktop\\\\store\\\\ni\" -maxdepth 2 -name \"tailwind.config.*\" -type f)",
-      "Bash(find \"C:\\\\Users\\\\blake\\\\OneDrive\\\\Desktop\\\\store\\\\ni\" -maxdepth 2 -name \".env*\" -type f)"
+      "Bash(find \"C:\\\\Users\\\\blake\\\\OneDrive\\\\Desktop\\\\store\\\\ni\" -maxdepth 2 -name \".env*\" -type f)",
+      "Bash(node -e ' *)"
     ]
   }
 }

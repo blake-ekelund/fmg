@@ -447,7 +447,7 @@ export default function ForecastSection() {
           <span>{snapshotMeta.label}</span>
           {isAdmin && (
             <Link
-              href="/data"
+              href="/integrations"
               className="ml-1 inline-flex items-center gap-0.5 underline hover:text-gray-900"
             >
               Upload

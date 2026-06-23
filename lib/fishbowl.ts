@@ -24,7 +24,7 @@
  * so credentials aren't sent in the clear. Never import from client components.
  */
 
-import { SALES_ORDERS_SQL, LINE_ITEMS_SQL } from "./fishbowlQueries";
+import { SALES_ORDERS_SQL, LINE_ITEMS_SQL, INVENTORY_SQL } from "./fishbowlQueries";
 
 const APP_NAME = process.env.FISHBOWL_APP_NAME || "FMG Storefront";
 const APP_ID = Number(process.env.FISHBOWL_APP_ID || 47821);
@@ -218,4 +218,14 @@ export async function getSalesSnapshot(): Promise<{
     const items = await dataQueryWith(call, LINE_ITEMS_SQL);
     return { orders, items };
   });
+}
+
+/**
+ * Pull the Point B Solutions inventory-availability snapshot (the data view
+ * that reproduces Blake's "Inventory Availability" report) in one Fishbowl
+ * session. Used by the inventory sync. Columns: part, description, uom, onHand,
+ * allocated, notAvailable, dropShip, available, onOrder, committed, shortQty.
+ */
+export async function getInventoryAvailability(): Promise<Record<string, unknown>[]> {
+  return runDataQuery(INVENTORY_SQL);
 }

@@ -59,3 +59,55 @@ export const LINE_ITEMS_SQL = `SELECT
 FROM soitem
 LEFT JOIN so ON soitem.soId = so.id
 LEFT JOIN SOITEMTYPE ON soitem.typeId = SOITEMTYPE.id`;
+
+/**
+ * Point B Solutions location group id, validated 2026-06-23 (the warehouse the
+ * storefront/forecasting inventory comes from). Interpolated as a number into
+ * INVENTORY_SQL below — never a user value, so it can't be SQL-injected.
+ */
+export const POINT_B_LOCATION_GROUP_ID = 1;
+
+/**
+ * Reproduces Fishbowl's "Inventory Availability" report filtered to the Point B
+ * Solutions location group — the manual `inv.xls` upload, automated. Reverse-
+ * engineered + validated column-by-column against a real export (2026-06-23):
+ *
+ *  - On Hand     = SUM(qohview.qty) for the group  (per-tag on-hand)
+ *  - Allocated   = qtyallocated      (committed reservations)
+ *  - NotAvailable= qtynotavailable
+ *  - DropShip    = qtydropship
+ *  - OnOrder     = qtyonorder        (incoming, currently all PO)
+ *  - Committed   = qtycommitted
+ *  - Available   = max(0, OnHand − Allocated − NotAvailable)   (Fishbowl clamps at 0)
+ *  - Short       = max(0, Allocated + NotAvailable − OnHand)
+ *
+ * Part universe = parts that have a tag in the group (qohview), which is exactly
+ * what the report lists; on-order-only parts with no tag are excluded, as in the
+ * report. The qty* views are pre-aggregated per (partId, locationGroupId).
+ */
+export const INVENTORY_SQL = `SELECT
+  p.num AS part,
+  p.description AS description,
+  uom.code AS uom,
+  oh.qty AS onHand,
+  COALESCE(al.qty, 0) AS allocated,
+  COALESCE(na.qty, 0) AS notAvailable,
+  COALESCE(ds.qty, 0) AS dropShip,
+  GREATEST(oh.qty - COALESCE(al.qty, 0) - COALESCE(na.qty, 0), 0) AS available,
+  COALESCE(oo.qty, 0) AS onOrder,
+  COALESCE(cm.qty, 0) AS committed,
+  GREATEST(COALESCE(al.qty, 0) + COALESCE(na.qty, 0) - oh.qty, 0) AS shortQty
+FROM (
+  SELECT partId, SUM(qty) AS qty
+  FROM qohview
+  WHERE locationGroupId = ${POINT_B_LOCATION_GROUP_ID} AND partId IS NOT NULL
+  GROUP BY partId
+) oh
+JOIN part p ON p.id = oh.partId
+LEFT JOIN uom ON p.uomId = uom.id
+LEFT JOIN qtyallocated    al ON al.partId = oh.partId AND al.locationGroupId = ${POINT_B_LOCATION_GROUP_ID}
+LEFT JOIN qtynotavailable na ON na.partId = oh.partId AND na.locationGroupId = ${POINT_B_LOCATION_GROUP_ID}
+LEFT JOIN qtydropship     ds ON ds.partId = oh.partId AND ds.locationGroupId = ${POINT_B_LOCATION_GROUP_ID}
+LEFT JOIN qtyonorder      oo ON oo.partId = oh.partId AND oo.locationGroupId = ${POINT_B_LOCATION_GROUP_ID}
+LEFT JOIN qtycommitted    cm ON cm.partId = oh.partId AND cm.locationGroupId = ${POINT_B_LOCATION_GROUP_ID}
+ORDER BY p.num`;

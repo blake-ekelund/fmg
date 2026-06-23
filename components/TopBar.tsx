@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, FileText, Settings, LogOut, ChevronDown, Database } from "lucide-react";
+import { Search, FileText, Settings, LogOut, ChevronDown, Blocks } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { navItems } from "./navConfig";
@@ -187,12 +187,12 @@ function UserMenu() {
           </Link>
           {isAdmin && (
             <Link
-              href="/data"
+              href="/integrations"
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition"
             >
-              <Database size={14} className="text-gray-400" />
-              Data uploads
+              <Blocks size={14} className="text-gray-400" />
+              Integrations
             </Link>
           )}
           <button

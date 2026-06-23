@@ -255,7 +255,8 @@ export function getDefaultRoute(role: UserRole | null): string {
  */
 const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   { href: "/settings" }, // every signed-in user
-  { href: "/data", roles: ["owner", "admin"] }, // admin-only upload history
+  { href: "/integrations", roles: ["owner", "admin"] }, // admin-only integrations + upload history
+  { href: "/data", roles: ["owner", "admin"] }, // legacy alias → redirects to /integrations
   { href: "/fishbowl-sandbox", roles: ["owner", "admin"] }, // internal Fishbowl API scratch page
 ];
 

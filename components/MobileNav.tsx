@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Menu, X, Settings, LogOut, Database } from "lucide-react";
+import { Menu, X, Settings, LogOut, Blocks } from "lucide-react";
 import { getNavForRole } from "./navConfig";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -86,12 +86,12 @@ export default function MobileNav() {
               </Link>
               {isAdmin && (
                 <Link
-                  href="/data"
+                  href="/integrations"
                   onClick={() => setOpen(false)}
                   className="flex items-center gap-3 rounded-md px-3 py-3 text-[15px] font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
                 >
-                  <Database size={18} />
-                  <span>Data uploads</span>
+                  <Blocks size={18} />
+                  <span>Integrations</span>
                 </Link>
               )}
               <button

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { fishbowlConfigured, getSalesSnapshot } from "@/lib/fishbowl";
+import {
+  FISHBOWL_SYNC_ORDERS_LABEL,
+  FISHBOWL_SYNC_ITEMS_LABEL,
+} from "@/lib/integrations";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -9,17 +13,19 @@ export const maxDuration = 300;
 /**
  * GET /api/cron/fishbowl-sales-sync
  *
- * Automated replacement for the manual "Orders.xls + Items.csv" upload on
- * /data. Pulls Blake's sales-orders + line-items data views from Fishbowl and
- * full-replaces the same snapshot tables the upload writes (sales_orders_raw /
- * so_items_raw), then runs the same `sync_withheld_commissions` RPC. Writes a
- * sales_uploads audit row so the sync shows up in /data history.
+ * Automated replacement for the manual "Orders.xls + Items.csv" upload. Pulls
+ * Blake's sales-orders + line-items data views from Fishbowl and full-replaces
+ * the same snapshot tables the upload writes (sales_orders_raw / so_items_raw),
+ * then runs the same `sync_withheld_commissions` RPC. Writes a sales_uploads
+ * audit row so the sync surfaces on the /integrations page.
  *
  * Auth: Vercel cron Bearer CRON_SECRET, or a signed-in user (so ?dry / ?force
  * are testable from the browser).
  * Schedule: 3 AM / 11 AM / 7 PM Eastern, DST-aware (cron fires the UTC hours
  * covering EST+EDT, handler gates to the exact local hours).
  *   ?dry=1   — pull + report counts, write nothing (works any hour).
+ *   ?now=1   — run now regardless of hour, but KEEP the shrink guard
+ *              (this is what the "Sync now" button on /integrations uses).
  *   ?force=1 — run now regardless of hour; also bypasses the shrink guard.
  *
  * Safety: a pull of 0 orders aborts before touching the tables, and a pull
@@ -95,12 +101,14 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const dry = url.searchParams.get("dry") === "1";
+  const now = url.searchParams.get("now") === "1";
   const force = url.searchParams.get("force") === "1";
 
   // Only do real work at the scheduled Eastern hours — the cron fires more
-  // often to cover DST. ?dry / ?force bypass this so manual runs work anytime.
+  // often to cover DST. ?dry / ?now / ?force bypass this so manual runs work
+  // anytime. (?now keeps the shrink guard below; only ?force overrides it.)
   const hour = hourInTz(SYNC_TZ);
-  if (!dry && !force && !SYNC_HOURS.has(hour)) {
+  if (!dry && !now && !force && !SYNC_HOURS.has(hour)) {
     return NextResponse.json({ skipped: true, hour, tz: SYNC_TZ });
   }
 
@@ -140,14 +148,14 @@ export async function GET(request: Request) {
     );
   }
 
-  // 4) Audit row (mirrors the manual upload so /data shows the sync).
+  // 4) Audit row (mirrors the manual upload so /integrations shows the sync).
   const today = new Date().toISOString().split("T")[0];
   const { data: upload, error: upErr } = await supabaseServer
     .from("sales_uploads")
     .insert({
       pulled_date: today,
-      original_filename_orders: "Fishbowl sync · sales orders",
-      original_filename_items: "Fishbowl sync · line items",
+      original_filename_orders: FISHBOWL_SYNC_ORDERS_LABEL,
+      original_filename_items: FISHBOWL_SYNC_ITEMS_LABEL,
       status: "processing",
     })
     .select()

@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/fishbowl-sales-sync",
       "schedule": "0 0,7,8,15,16,23 * * *"
+    },
+    {
+      "path": "/api/cron/fishbowl-inventory-sync",
+      "schedule": "0 0,1,8,9,16,17 * * *"
     }
   ]
 }
