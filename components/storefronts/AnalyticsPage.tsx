@@ -3,10 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  DollarSign,
   Eye,
   Loader2,
   MousePointerClick,
+  Percent,
+  ShoppingBag,
+  ShoppingCart,
   Timer,
+  type LucideIcon,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -18,6 +23,7 @@ import {
   Tooltip,
 } from "recharts";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useBrand } from "@/components/BrandContext";
 
 // ---- API shape (mirrors /api/storefront-analytics) ----
 type Totals = {
@@ -35,8 +41,10 @@ type Summary = {
   error?: string;
   range?: { days: number; since: string };
   capped?: boolean;
+  checkouts?: { total: number; revenue: number };
+  abandoned?: { total: number; revenue: number };
   totals?: Totals;
-  byDay?: { date: string; pageviews: number; visitors: number }[];
+  byDay?: { date: string; pageviews: number; visitors: number; checkouts: number }[];
   topPages?: Ranked[];
   topButtons?: Ranked[];
   devices?: { key: string; count: number }[];
@@ -59,6 +67,14 @@ function fmtNum(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+function fmtMoney(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
 function fmtDuration(ms: number): string {
   if (!ms) return "—";
   const s = Math.round(ms / 1000);
@@ -79,39 +95,54 @@ function fmtDay(date: string): string {
  * shows an honest "not collecting yet" state.
  */
 export default function AnalyticsPage() {
+  const { brand } = useBrand();
+  // Brand toggle (top-right) → storefront filter. "all" = both stores.
+  const store = brand === "Sassy" ? "sassy" : brand === "NI" ? "ni" : null;
+
   const [days, setDays] = useState<number>(7);
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async (windowDays: number) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/storefront-analytics?days=${windowDays}`, {
-        headers: await authHeader(),
-      });
-      const json: Summary = await res.json();
-      if (!res.ok) {
-        setError(json?.error ?? `Failed (${res.status})`);
+  const reload = useCallback(
+    async (windowDays: number, storeFilter: string | null) => {
+      setLoading(true);
+      try {
+        const qs = new URLSearchParams({ days: String(windowDays) });
+        if (storeFilter) qs.set("store", storeFilter);
+        const res = await fetch(`/api/storefront-analytics?${qs}`, {
+          headers: await authHeader(),
+        });
+        const json: Summary = await res.json();
+        if (!res.ok) {
+          setError(json?.error ?? `Failed (${res.status})`);
+          setData(null);
+          return;
+        }
+        setError(null);
+        setData(json);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
         setData(null);
-        return;
+      } finally {
+        setLoading(false);
       }
-      setError(null);
-      setData(json);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
-    reload(days);
-  }, [days, reload]);
+    reload(days, store);
+  }, [days, store, reload]);
 
   const totals = data?.totals;
+  const checkouts = data?.checkouts;
+  const abandoned = data?.abandoned;
   const notReady = !!data?.notReady;
+  const convRate =
+    totals && checkouts && totals.uniqueVisitors > 0
+      ? `${((checkouts.total / totals.uniqueVisitors) * 100).toFixed(1)}%`
+      : "—";
 
   const kpis = useMemo(
     () => [
@@ -124,7 +155,7 @@ export default function AnalyticsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-6">
+    <div className="w-full space-y-6 p-6 md:px-8">
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Web analytics</h1>
@@ -193,6 +224,45 @@ export default function AnalyticsPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Conversions — checkouts/revenue from orders; abandoned carts needs
+          a checkout-start signal the storefront doesn't emit yet. */}
+      <div>
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+          Conversions
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            label="Completed checkouts"
+            Icon={ShoppingCart}
+            value={checkouts ? fmtNum(checkouts.total) : "—"}
+            active={!!checkouts}
+          />
+          <StatCard
+            label="Revenue"
+            Icon={DollarSign}
+            value={checkouts ? fmtMoney(checkouts.revenue) : "—"}
+            active={!!checkouts}
+          />
+          <StatCard
+            label="Conversion rate"
+            Icon={Percent}
+            value={convRate}
+            active={convRate !== "—"}
+          />
+          <StatCard
+            label="Abandoned carts"
+            Icon={ShoppingBag}
+            value={abandoned ? fmtNum(abandoned.total) : "—"}
+            active={!!abandoned}
+            hint={
+              abandoned && abandoned.revenue > 0
+                ? `${fmtMoney(abandoned.revenue)} recoverable`
+                : undefined
+            }
+          />
+        </div>
       </div>
 
       {/* Traffic chart */}
@@ -317,6 +387,37 @@ export default function AnalyticsPage() {
         respected. Currently live on Sassy; Natural Inspirations lights up here
         once it adopts the same tracker.
       </p>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  Icon,
+  value,
+  hint,
+  active = true,
+}: {
+  label: string;
+  Icon: LucideIcon;
+  value: string;
+  hint?: string;
+  active?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+        <Icon size={12} />
+        {label}
+      </div>
+      <div
+        className={`mt-1 text-2xl font-semibold tabular-nums ${
+          active ? "text-gray-900" : "text-gray-300"
+        }`}
+      >
+        {value}
+      </div>
+      {hint ? <div className="mt-0.5 text-[11px] text-gray-400">{hint}</div> : null}
     </div>
   );
 }

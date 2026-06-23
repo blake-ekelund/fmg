@@ -155,16 +155,69 @@ export async function GET(request: Request) {
     }
   }
 
+  // ---- checkouts + abandoned carts (orders table, same wholesale project) ----
+  // A D2C order is created `unpaid` at checkout-start and flipped to `paid` by
+  // the Stripe webhook, so an aged, still-unpaid, non-cancelled D2C order is an
+  // abandoned cart. Wholesale orders are placed on terms (no Stripe payment at
+  // checkout), so they count as completed regardless of payment_status.
+  let checkoutsTotal = 0;
+  let checkoutsRevenue = 0;
+  let abandonedTotal = 0;
+  let abandonedRevenue = 0;
+  const checkoutsByDay = new Map<string, number>();
+  for (const [date] of perDay) checkoutsByDay.set(date, 0);
+  const abandonedBefore = Date.now() - 60 * 60 * 1000; // ≥1h old = not mid-checkout
+
+  let ordersQuery = admin
+    .from("orders")
+    .select("created_at, total, status, payment_status, channel")
+    .gte("created_at", since)
+    .limit(MAX_ROWS);
+  if (store) ordersQuery = ordersQuery.eq("store", store);
+  const { data: orderRows } = await ordersQuery;
+  for (const o of (orderRows ?? []) as {
+    created_at: string;
+    total: number | null;
+    status: string | null;
+    payment_status: string | null;
+    channel: string | null;
+  }[]) {
+    if (o.status === "cancelled") continue;
+    const completed = o.channel !== "d2c" || o.payment_status === "paid";
+    if (completed) {
+      checkoutsTotal++;
+      checkoutsRevenue += Number(o.total) || 0;
+      const k = dayKey(o.created_at);
+      if (checkoutsByDay.has(k)) checkoutsByDay.set(k, (checkoutsByDay.get(k) ?? 0) + 1);
+    } else if (
+      o.channel === "d2c" &&
+      o.payment_status === "unpaid" &&
+      new Date(o.created_at).getTime() < abandonedBefore
+    ) {
+      abandonedTotal++;
+      abandonedRevenue += Number(o.total) || 0;
+    }
+  }
+
   const byDay = [...perDay.entries()].map(([date, v]) => ({
     date,
     pageviews: v.pageviews,
     visitors: v.visitors.size,
+    checkouts: checkoutsByDay.get(date) ?? 0,
   }));
 
   return NextResponse.json({
     notReady: false,
     range: { days, since },
     capped: rows.length >= MAX_ROWS,
+    checkouts: {
+      total: checkoutsTotal,
+      revenue: Math.round(checkoutsRevenue * 100) / 100,
+    },
+    abandoned: {
+      total: abandonedTotal,
+      revenue: Math.round(abandonedRevenue * 100) / 100,
+    },
     totals: {
       pageviews,
       uniqueVisitors: visitors.size,
