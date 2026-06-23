@@ -34,8 +34,15 @@ function parseNumber(value: unknown): number {
 
 function parseDate(value: unknown): string | null {
   if (!value) return null;
-  const parsed = new Date(String(value));
-  return isNaN(parsed.getTime()) ? null : parsed.toISOString().split("T")[0];
+  const s = String(value).trim();
+  // Fishbowl returns dates like "2021-06-06T23:00:00.000-05" — a malformed tz
+  // offset (no minutes) that new Date() rejects, which silently nulled every
+  // date and zeroed the dashboards. Take the leading YYYY-MM-DD directly (also
+  // preserves Fishbowl's local calendar date instead of shifting to UTC).
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 async function insertInChunks(
