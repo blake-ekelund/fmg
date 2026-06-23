@@ -17,13 +17,33 @@ export const maxDuration = 300;
  *
  * Auth: Vercel cron Bearer CRON_SECRET, or a signed-in user (so ?dry / ?force
  * are testable from the browser).
- *   ?dry=1   — pull + report counts, write nothing.
- *   ?force=1 — bypass the "snapshot shrank >50%" safety guard.
+ * Schedule: 3 AM / 11 AM / 7 PM Eastern, DST-aware (cron fires the UTC hours
+ * covering EST+EDT, handler gates to the exact local hours).
+ *   ?dry=1   — pull + report counts, write nothing (works any hour).
+ *   ?force=1 — run now regardless of hour; also bypasses the shrink guard.
  *
  * Safety: a pull of 0 orders aborts before touching the tables, and a pull
  * that's <50% of the current snapshot is refused without ?force — so a bad or
  * partial Fishbowl response can never wipe the data the dashboards depend on.
  */
+
+// Sync runs at 3 AM / 11 AM / 7 PM Eastern. Vercel crons fire in UTC and
+// Eastern shifts with DST, so vercel.json fires at the six UTC hours that cover
+// those local times across the year (0,7,8,15,16,23); this gate then does real
+// work only at the exact Eastern hours — no seasonal maintenance. Same approach
+// as the fishbowl-digest cron.
+const SYNC_TZ = "America/New_York";
+const SYNC_HOURS = new Set([3, 11, 19]); // 3 AM, 11 AM, 7 PM Eastern
+
+/** Current hour (0–23) in a named timezone, DST-aware. */
+function hourInTz(tz: string): number {
+  const h = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour: "numeric",
+    hour12: false,
+  }).format(new Date());
+  return Number(h) % 24;
+}
 
 function parseNumber(value: unknown): number {
   if (value == null) return 0;
@@ -76,6 +96,13 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const dry = url.searchParams.get("dry") === "1";
   const force = url.searchParams.get("force") === "1";
+
+  // Only do real work at the scheduled Eastern hours — the cron fires more
+  // often to cover DST. ?dry / ?force bypass this so manual runs work anytime.
+  const hour = hourInTz(SYNC_TZ);
+  if (!dry && !force && !SYNC_HOURS.has(hour)) {
+    return NextResponse.json({ skipped: true, hour, tz: SYNC_TZ });
+  }
 
   // 1) Pull both views from Fishbowl (one login/seat for both).
   let orders: Record<string, unknown>[];
