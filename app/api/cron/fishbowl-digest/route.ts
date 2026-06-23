@@ -27,7 +27,7 @@ export const maxDuration = 60;
 
 const DIGEST_TO: { address: string; name?: string }[] = [
   { address: "blake.ekelund@fragrancemarketinggroup.com", name: "Blake Ekelund" },
-  { address: "julie.ekelund@fragrancemarketinggroup.com", name: "Julie Ekelund" },
+  { address: "jekelund@fragrancemarketinggroup.com", name: "Julie Ekelund" },
 ];
 const DIGEST_TZ = "America/New_York";
 const SEND_HOURS = new Set([6, 15]); // 6 AM and 3 PM Eastern

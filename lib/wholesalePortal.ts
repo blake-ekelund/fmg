@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 /**
  * Server-only client for the WHOLESALE Supabase project — the separate
- * project that powers partner accounts on redek.io and
+ * project that powers partner accounts on sassyandco.com and
  * naturalinspirations.com (auth + profiles + addresses). Not this app's
  * own database.
  *

@@ -136,7 +136,7 @@ export default function PurchasesPage() {
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Purchases</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Orders from redek.io and naturalinspirations.com — retail and
+          Orders from sassyandco.com and naturalinspirations.com — retail and
           wholesale.
         </p>
       </div>

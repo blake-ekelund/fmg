@@ -241,7 +241,7 @@ export default function PartnersPage() {
           title="Filter by signup store"
         >
           <option value="all">All stores</option>
-          <option value="sassy">Sassy (redek.io)</option>
+          <option value="sassy">Sassy (sassyandco.com)</option>
           <option value="ni">NI (naturalinspirations)</option>
         </select>
 

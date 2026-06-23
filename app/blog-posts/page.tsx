@@ -1,27 +1,23 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Sparkles, Mail, X, Send } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import KanbanBoard from "@/components/blog-posts/KanbanBoard";
-import BlogPostModal from "@/components/blog-posts/BlogPostModal";
 import GeneratePostModal from "@/components/blog-posts/GeneratePostModal";
-import DeleteFeedbackModal from "@/components/blog-posts/DeleteFeedbackModal";
 import type { BlogPost, BlogPostStatus } from "@/components/blog-posts/types";
 
 export default function BlogPostsPage() {
+  const router = useRouter();
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [editPost, setEditPost] = useState<BlogPost | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   // Email template modals
   const [emailPost, setEmailPost] = useState<BlogPost | null>(null);
   const [reviewEmailPost, setReviewEmailPost] = useState<BlogPost | null>(null);
-  // Delete feedback modal
-  const [deletePost, setDeletePost] = useState<BlogPost | null>(null);
 
   /* ─── Load posts ─── */
   const loadPosts = useCallback(async () => {
@@ -82,7 +78,7 @@ export default function BlogPostsPage() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       await supabase.from("tasks").insert({
         name: `Review Blog Post: ${currentPost.title}`,
-        description: `Review AI-drafted blog post "${currentPost.title}" (${currentPost.brand}). Link: ${window.location.origin}/blog-posts?post=${currentPost.id}`,
+        description: `Review AI-drafted blog post "${currentPost.title}" (${currentPost.brand}). Link: ${window.location.origin}/blog-posts/${currentPost.id}`,
         owner: "Julie",
         priority: "Medium",
         status: "Not Started",
@@ -95,16 +91,15 @@ export default function BlogPostsPage() {
       // Update task owner from Julie to Brooke
       await supabase
         .from("tasks")
-        .update({ owner: "Brooke", status: "Not Started", description: `Publish blog post "${currentPost.title}" (${currentPost.brand}) to Shopify. Link: ${window.location.origin}/blog-posts?post=${currentPost.id}` })
+        .update({ owner: "Brooke", status: "Not Started", description: `Publish blog post "${currentPost.title}" (${currentPost.brand}) to Shopify. Link: ${window.location.origin}/blog-posts/${currentPost.id}` })
         .ilike("name", `%${currentPost.title}%`)
         .eq("owner", "Julie");
     }
   }
 
-  /* ─── Card click ─── */
+  /* ─── Card click → open the full review page (renders exactly as published) ─── */
   function handleCardClick(post: BlogPost) {
-    setEditPost(post);
-    setModalOpen(true);
+    router.push(`/blog-posts/${post.id}`);
   }
 
   /* ─── Auto-refresh to pick up generating → ai_draft transitions ─── */
@@ -150,19 +145,6 @@ export default function BlogPostsPage() {
           onDrop={handleDrop}
         />
       )}
-
-      {/* Edit modal */}
-      <BlogPostModal
-        open={modalOpen}
-        post={editPost}
-        onClose={() => setModalOpen(false)}
-        onSaved={loadPosts}
-        onDeleted={() => {
-          // Close edit modal, open delete feedback modal
-          setDeletePost(editPost);
-          setModalOpen(false);
-        }}
-      />
 
       {/* Generate with AI modal */}
       <GeneratePostModal
@@ -221,7 +203,7 @@ export default function BlogPostsPage() {
                     A new blog post has been drafted and is ready for your review. Please click the link below to review, then move to Ready when satisfied.
                   </p>
                   <a
-                    href={`${window.location.origin}/blog-posts?post=${reviewEmailPost.id}`}
+                    href={`${window.location.origin}/blog-posts/${reviewEmailPost.id}`}
                     className="block rounded-lg bg-white border border-gray-200 px-3 py-2.5 hover:bg-gray-50 transition"
                   >
                     <div className="flex items-center gap-2">
@@ -353,18 +335,6 @@ export default function BlogPostsPage() {
         </div>
       )}
 
-      {/* Delete feedback modal */}
-      <DeleteFeedbackModal
-        open={!!deletePost}
-        postId={deletePost?.id ?? ""}
-        postTitle={deletePost?.title ?? ""}
-        contentType="blog"
-        onClose={() => setDeletePost(null)}
-        onDeleted={() => {
-          setDeletePost(null);
-          loadPosts();
-        }}
-      />
     </div>
   );
 }

@@ -48,7 +48,7 @@ const COLLECTIONS: Record<"NI" | "Sassy", { slug: string; label: string }[]> = {
 };
 
 const BRAND_DESTINATION: Record<"NI" | "Sassy", string> = {
-  Sassy: "Appears on redek.io",
+  Sassy: "Appears on sassyandco.com",
   NI: "Appears on naturalinspirations.com (coming soon)",
 };
 
@@ -177,14 +177,14 @@ function StatusBanner({ channel }: { channel: StorefrontChannel }) {
     d2c: {
       bg: "bg-pink-100",
       text: "text-pink-700",
-      label: "Live on redek.io (D2C only)",
+      label: "Live on sassyandco.com (D2C only)",
       sub: "Wholesale column is locked. Switch to Both to also sell to stockists.",
     },
     wholesale: {
       bg: "bg-indigo-100",
       text: "text-indigo-700",
       label: "Live for wholesale (only)",
-      sub: "D2C column is locked. Switch to Both to also sell on redek.io.",
+      sub: "D2C column is locked. Switch to Both to also sell on sassyandco.com.",
     },
     both: {
       bg: "bg-gradient-to-r from-pink-100 to-indigo-100",
@@ -1089,7 +1089,7 @@ export function DetailsSection({
         {/* ── MARKETING COPY (merged with old Copy tab) ── */}
         <Card
           title="Marketing copy"
-          hint="The copy that ships to redek.io product pages and to retailer line sheets."
+          hint="The copy that ships to sassyandco.com product pages and to retailer line sheets."
         >
           {/* Completeness banner */}
           {copyComplete ? (

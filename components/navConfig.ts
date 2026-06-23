@@ -119,7 +119,7 @@ export const navSections: readonly NavSection[] = [
   },
   {
     // Admin panel for the Sassy + Natural Inspirations storefronts
-    // (redek.io / naturalinspirations.com).
+    // (sassyandco.com / naturalinspirations.com).
     label: "Storefronts",
     icon: Globe,
     items: [
