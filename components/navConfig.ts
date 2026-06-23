@@ -256,6 +256,7 @@ export function getDefaultRoute(role: UserRole | null): string {
 const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   { href: "/settings" }, // every signed-in user
   { href: "/data", roles: ["owner", "admin"] }, // admin-only upload history
+  { href: "/fishbowl-sandbox", roles: ["owner", "admin"] }, // internal Fishbowl API scratch page
 ];
 
 /** Get all allowed href paths for a role (used for route guarding) */
