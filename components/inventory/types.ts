@@ -74,6 +74,8 @@ export type Product = {
   page_text_color?: string | null;
   page_heading_color?: string | null;
   page_accent_color?: string | null;
+  // Buy-button color (Sassy product page); null = falls back to the accent.
+  page_button_color?: string | null;
 
   // ── Catalog / shipping ──
   barcode?: string | null;

@@ -735,6 +735,7 @@ export default function ProductDetailPage({
               form={form}
               update={update}
               isNewProduct={isNewProduct}
+              onHand={forecastOnHand}
               copy={{
                 short_description: mkShortDesc,
                 long_description: mkLongDesc,

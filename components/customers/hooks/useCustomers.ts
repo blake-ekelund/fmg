@@ -14,6 +14,7 @@ interface FilterableQuery<T> {
   gte: (column: string, value: string | number) => T;
   lt: (column: string, value: string | number) => T;
   is: (column: string, value: null) => T;
+  in: (column: string, values: string[]) => T;
 }
 
 export type WholesaleSpendBucket =
@@ -31,6 +32,7 @@ type Params = {
   status: string;
   channel: string;
   agency: string;
+  states: string[];
   repeatOnly: boolean;
   spendBucket: WholesaleSpendBucket;
   sortColumn: string;
@@ -62,6 +64,7 @@ export function applyFilters<T extends FilterableQuery<T>>(
   agency?: string,
   repeatOnly?: boolean,
   spendBucket?: WholesaleSpendBucket,
+  states?: string[],
 ): T {
   if (search) {
     const q = search.trim();
@@ -83,6 +86,10 @@ export function applyFilters<T extends FilterableQuery<T>>(
 
   if (agency) {
     query = query.eq("agency_code", agency);
+  }
+
+  if (states && states.length > 0) {
+    query = query.in("bill_to_state", states);
   }
 
   if (status) {
@@ -146,6 +153,7 @@ export function useCustomers({
   status,
   channel,
   agency,
+  states,
   repeatOnly,
   spendBucket,
   sortColumn,
@@ -163,6 +171,8 @@ export function useCustomers({
   const [channelOptions, setChannelOptions] =
     useState<{ label: string; value: string }[]>([]);
   const [agencyOptions, setAgencyOptions] =
+    useState<{ label: string; value: string }[]>([]);
+  const [stateOptions, setStateOptions] =
     useState<{ label: string; value: string }[]>([]);
   const [stats, setStats] = useState({
     active: 0,
@@ -197,6 +207,7 @@ export function useCustomers({
         agency,
         repeatOnly,
         spendBucket,
+        states,
       );
 
       if (brand !== "all") {
@@ -236,6 +247,7 @@ export function useCustomers({
         agency,
         repeatOnly,
         spendBucket,
+        states,
       );
 
       if (brand !== "all") {
@@ -305,6 +317,7 @@ export function useCustomers({
     status,
     channel,
     agency,
+    states,
     repeatOnly,
     spendBucket,
     sortColumn,
@@ -364,8 +377,25 @@ export function useCustomers({
       );
     }
 
+    async function loadStates() {
+      const { data } = await supabase
+        .from("customer_summary")
+        .select("bill_to_state")
+        .not("bill_to_state", "is", null)
+        .neq("bill_to_state", "");
+
+      if (!data) return;
+
+      const unique = Array.from(
+        new Set(data.map((d) => d.bill_to_state as string).filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b));
+
+      setStateOptions(unique.map((s) => ({ label: s, value: s })));
+    }
+
     loadChannels();
     loadAgencies();
+    loadStates();
   }, []);
 
   return {
@@ -374,6 +404,7 @@ export function useCustomers({
     totalCount,
     channelOptions,
     agencyOptions,
+    stateOptions,
     stats,
   };
 }

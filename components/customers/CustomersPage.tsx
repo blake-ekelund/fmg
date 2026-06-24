@@ -62,6 +62,7 @@ export default function CustomersPage({
   const [status, setStatus] = useState("");
   const [channel, setChannel] = useState("");
   const [agency, setAgency] = useState("");
+  const [states, setStates] = useState<string[]>([]);
 
   /* Repeat-customer + lifetime-spend filters. The spend bucket string values
      differ between D2C (lt50, 50to100, …) and wholesale (lt1k, 1kto5k, …);
@@ -95,7 +96,7 @@ export default function CustomersPage({
   // Clear selection on page / filter / view change
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, status, channel, agency, repeatOnly, spendBucket, viewMode]);
+  }, [page, search, status, channel, agency, states, repeatOnly, spendBucket, viewMode]);
 
   /* Export column picker state */
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
@@ -139,6 +140,7 @@ export default function CustomersPage({
     totalCount: wholesaleTotalCount = 0,
     channelOptions = [],
     agencyOptions = [],
+    stateOptions: wholesaleStateOptions = [],
     stats: wholesaleStats = { active: 0, atRisk: 0, churned: 0 },
   } = useCustomers({
     page,
@@ -147,6 +149,7 @@ export default function CustomersPage({
     status,
     channel,
     agency,
+    states,
     repeatOnly,
     spendBucket: spendBucket as WholesaleSpendBucket,
     sortColumn,
@@ -159,12 +162,14 @@ export default function CustomersPage({
     customers: d2cCustomers = [],
     loading: d2cLoading = false,
     totalCount: d2cTotalCount = 0,
+    stateOptions: d2cStateOptions = [],
     stats: d2cStats = { active: 0, atRisk: 0, churned: 0 },
   } = useD2CCustomers({
     page,
     pageSize: PAGE_SIZE,
     search,
     status,
+    states,
     repeatOnly,
     spendBucket: spendBucket as D2CSpendBucket,
     sortColumn,
@@ -177,6 +182,7 @@ export default function CustomersPage({
   const loading = isD2C ? d2cLoading : wholesaleLoading;
   const totalCount = isD2C ? d2cTotalCount : wholesaleTotalCount;
   const stats = isD2C ? d2cStats : wholesaleStats;
+  const stateOptions = isD2C ? d2cStateOptions : wholesaleStateOptions;
 
   const handleToggleAll = useCallback(() => {
     const currentCustomers = isD2C ? d2cCustomers : wholesaleCustomers;
@@ -197,11 +203,18 @@ export default function CustomersPage({
     setSelectAllLoading(true);
     try {
       if (isD2C) {
-        const q = applyD2CFilters(
-          supabase.from("d2c_customer_summary").select("person_key"),
-          { search, status, repeatOnly, spendBucket: spendBucket as D2CSpendBucket },
-        ).range(0, 4999);
-        const { data } = await q;
+        // Pin the builder to its concrete type before passing it through the
+        // generic applyD2CFilters, then chain range — chaining on the generic
+        // return trips TS2589 ("excessively deep").
+        let q = supabase.from("d2c_customer_summary").select("person_key");
+        q = applyD2CFilters(q, {
+          search,
+          status,
+          repeatOnly,
+          spendBucket: spendBucket as D2CSpendBucket,
+          states,
+        });
+        const { data } = await q.range(0, 4999);
         const ids = (data ?? []).map((r: { person_key: string }) => r.person_key);
         setSelectedIds(new Set(ids));
       } else {
@@ -217,6 +230,7 @@ export default function CustomersPage({
           agency,
           repeatOnly,
           spendBucket as WholesaleSpendBucket,
+          states,
         );
         const { data } = await q;
         const ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
@@ -225,7 +239,7 @@ export default function CustomersPage({
     } finally {
       setSelectAllLoading(false);
     }
-  }, [isD2C, search, status, channel, agency, repeatOnly, spendBucket]);
+  }, [isD2C, search, status, channel, agency, states, repeatOnly, spendBucket]);
 
   /* ─── Customer name map for workflow modal ─── */
   const customerNames = useMemo(() => {
@@ -247,7 +261,7 @@ export default function CustomersPage({
   /* Reset page when filters/sort/view change */
   useEffect(() => {
     setPage(0);
-  }, [search, status, channel, agency, repeatOnly, spendBucket, sortColumn, sortDir]);
+  }, [search, status, channel, agency, states, repeatOnly, spendBucket, sortColumn, sortDir]);
 
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : 1;
   const canGoNext = page + 1 < totalPages;
@@ -334,6 +348,10 @@ export default function CustomersPage({
       if (status === "churned") query = query.lt("last_order_date", risk.toISOString());
     }
 
+    if (states.length > 0) {
+      query = query.in("bill_to_state", states);
+    }
+
     const { data, error } = await query;
     if (error || !data?.length) return;
 
@@ -369,7 +387,7 @@ export default function CustomersPage({
       .select("*")
       .range(0, 4999);
 
-    query = applyFilters(query, search, status, channel, agency);
+    query = applyFilters(query, search, status, channel, agency, undefined, undefined, states);
 
     const { data, error } = await query;
     if (error || !data?.length) return;
@@ -444,6 +462,9 @@ export default function CustomersPage({
         agency={agency}
         setAgency={setAgency}
         agencyOptions={agencyOptions}
+        states={states}
+        setStates={setStates}
+        stateOptions={stateOptions}
         repeatOnly={repeatOnly}
         setRepeatOnly={setRepeatOnly}
         spendBucket={spendBucket}

@@ -183,15 +183,11 @@ export default function PartnersPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-6">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900">Partners</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Wholesale accounts from the storefronts. New signups order at case
-          pricing immediately — approving confirms them, denying pauses their
-          wholesale access on next page load.
-        </p>
-      </div>
+    <div className="w-full space-y-6 p-6 md:px-8">
+      <p className="max-w-6xl text-sm text-gray-500">
+        Wholesale signups from the Sassy and Natural Inspirations storefronts —
+        approve to confirm an account, deny to pause its access.
+      </p>
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

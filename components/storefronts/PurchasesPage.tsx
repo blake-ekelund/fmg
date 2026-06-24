@@ -132,14 +132,11 @@ export default function PurchasesPage() {
     "rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-gray-400 focus:outline-none";
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-6">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900">Purchases</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Orders from sassyandco.com and naturalinspirations.com — retail and
-          wholesale.
-        </p>
-      </div>
+    <div className="w-full space-y-6 p-6 md:px-8">
+      <p className="max-w-2xl text-sm text-gray-500">
+        Orders from sassyandco.com and naturalinspirations.com — retail and
+        wholesale.
+      </p>
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

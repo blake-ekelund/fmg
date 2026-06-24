@@ -15,6 +15,7 @@ type Params = {
   pageSize: number;
   search: string;
   status: string;
+  states: string[];
   repeatOnly: boolean;
   spendBucket: D2CSpendBucket;
   sortColumn: string;
@@ -42,6 +43,7 @@ interface FilterableD2CQuery<T> {
   gt: (column: string, value: string | number) => T;
   gte: (column: string, value: string | number) => T;
   lt: (column: string, value: string | number) => T;
+  in: (column: string, values: string[]) => T;
 }
 
 /**
@@ -51,12 +53,15 @@ interface FilterableD2CQuery<T> {
  */
 export function applyD2CFilters<T extends FilterableD2CQuery<T>>(
   q: T,
-  args: { search: string; status: string; repeatOnly: boolean; spendBucket: D2CSpendBucket },
+  args: { search: string; status: string; repeatOnly: boolean; spendBucket: D2CSpendBucket; states?: string[] },
 ): T {
   let out = q;
   if (args.search) {
     const s = args.search.trim();
     out = out.or(`name.ilike.%${s}%,email.ilike.%${s}%,bill_to_state.ilike.%${s}%`);
+  }
+  if (args.states && args.states.length > 0) {
+    out = out.in("bill_to_state", args.states);
   }
   if (args.status) {
     const { active, risk } = getDateCutoffs();
@@ -98,6 +103,7 @@ export function useD2CCustomers({
   pageSize,
   search,
   status,
+  states,
   repeatOnly,
   spendBucket,
   sortColumn,
@@ -108,6 +114,7 @@ export function useD2CCustomers({
   const [loading, setLoading] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [stats, setStats] = useState({ active: 0, atRisk: 0, churned: 0 });
+  const [stateOptions, setStateOptions] = useState<{ label: string; value: string }[]>([]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -120,10 +127,20 @@ export function useD2CCustomers({
       const from = page * pageSize;
       const to = from + pageSize - 1;
 
-      const tableQuery = applyD2CFilters(
-        supabase.from("d2c_customer_summary").select("*", { count: "exact" }),
-        { search, status, repeatOnly, spendBucket },
-      )
+      // Pin the builder to its concrete type before passing it through the
+      // generic applyD2CFilters, then chain order/range on the concrete type —
+      // chaining on the generic return trips TS2589 ("excessively deep").
+      let baseQuery = supabase
+        .from("d2c_customer_summary")
+        .select("*", { count: "exact" });
+      baseQuery = applyD2CFilters(baseQuery, {
+        search,
+        status,
+        repeatOnly,
+        spendBucket,
+        states,
+      });
+      const tableQuery = baseQuery
         .order(sortColumn, { ascending: sortDir === "asc", nullsFirst: false })
         .order("person_key", { ascending: false })
         .range(from, to);
@@ -133,10 +150,17 @@ export function useD2CCustomers({
       // Stats query: same filters EXCEPT status, so the status counts reflect
       // the rest of the user's filter selection but show distribution across
       // active/at-risk/churned.
-      const statsQuery = applyD2CFilters(
-        supabase.from("d2c_customer_summary").select("last_order_date"),
-        { search, status: "", repeatOnly, spendBucket },
-      ).range(0, 9999);
+      let statsBase = supabase
+        .from("d2c_customer_summary")
+        .select("last_order_date");
+      statsBase = applyD2CFilters(statsBase, {
+        search,
+        status: "",
+        repeatOnly,
+        spendBucket,
+        states,
+      });
+      const statsQuery = statsBase.range(0, 9999);
 
       const { data: statsData } = await statsQuery;
 
@@ -170,7 +194,28 @@ export function useD2CCustomers({
 
     load();
     return () => { cancelled = true; };
-  }, [page, pageSize, search, status, repeatOnly, spendBucket, sortColumn, sortDir, enabled]);
+  }, [page, pageSize, search, status, states, repeatOnly, spendBucket, sortColumn, sortDir, enabled]);
 
-  return { customers, loading, totalCount, stats };
+  /* Distinct billing states for the filter dropdown (only when this view is
+     active, so the wholesale page doesn't query the D2C summary needlessly). */
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    async function loadStates() {
+      const { data } = await supabase
+        .from("d2c_customer_summary")
+        .select("bill_to_state")
+        .not("bill_to_state", "is", null)
+        .neq("bill_to_state", "");
+      if (cancelled || !data) return;
+      const unique = Array.from(
+        new Set(data.map((d) => d.bill_to_state as string).filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b));
+      setStateOptions(unique.map((s) => ({ label: s, value: s })));
+    }
+    loadStates();
+    return () => { cancelled = true; };
+  }, [enabled]);
+
+  return { customers, loading, totalCount, stats, stateOptions };
 }

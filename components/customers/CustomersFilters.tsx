@@ -5,6 +5,7 @@ import { Search, SlidersHorizontal, X } from "lucide-react";
 import clsx from "clsx";
 import type { CustomerViewMode } from "./constants";
 import CustomersHeader from "./CustomersHeader";
+import MultiSelectFilter from "./MultiSelectFilter";
 
 type Option = { label: string; value: string };
 type SpendOption = { label: string; value: string };
@@ -27,6 +28,9 @@ export default function CustomersFilters({
   agency = "",
   setAgency,
   agencyOptions = [],
+  states = [],
+  setStates,
+  stateOptions = [],
   repeatOnly = false,
   setRepeatOnly,
   spendBucket = "",
@@ -49,6 +53,9 @@ export default function CustomersFilters({
   agency?: string;
   setAgency?: (v: string) => void;
   agencyOptions?: Option[];
+  states?: string[];
+  setStates?: (v: string[]) => void;
+  stateOptions?: Option[];
   repeatOnly?: boolean;
   setRepeatOnly?: (v: boolean) => void;
   spendBucket?: string;
@@ -74,18 +81,21 @@ export default function CustomersFilters({
   const advancedActive =
     (channel ? 1 : 0) +
     (agency ? 1 : 0) +
+    (states.length > 0 ? 1 : 0) +
     (spendBucket ? 1 : 0) +
     (repeatOnly ? 1 : 0);
 
   const hasAdvanced =
     (viewMode === "wholesale" && channelOptions.length > 0) ||
     (viewMode === "wholesale" && agencyOptions.length > 0 && !!setAgency) ||
+    (stateOptions.length > 0 && !!setStates) ||
     (!!setSpendBucket && !!spendBucketOptions && spendBucketOptions.length > 0) ||
     !!setRepeatOnly;
 
   function clearAdvanced() {
     setChannel("");
     setAgency?.("");
+    setStates?.([]);
     setSpendBucket?.("");
     setRepeatOnly?.(false);
   }
@@ -198,6 +208,17 @@ export default function CustomersFilters({
                 options={agencyOptions}
               />
             )}
+
+          {stateOptions.length > 0 && setStates && (
+            <MultiSelectFilter
+              selected={states}
+              onChange={setStates}
+              options={stateOptions}
+              placeholder="All states"
+              searchPlaceholder="Search states…"
+              noun="states"
+            />
+          )}
 
           {setSpendBucket &&
             spendBucketOptions &&

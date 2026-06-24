@@ -124,9 +124,9 @@ export const navSections: readonly NavSection[] = [
     icon: Globe,
     items: [
       {
-        label: "Partner Applications",
-        href: "/partners",
-        icon: UserCheck,
+        label: "Purchases",
+        href: "/storefronts/purchases",
+        icon: Receipt,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
@@ -142,9 +142,9 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "sales", "marketing"],
       },
       {
-        label: "Purchases",
-        href: "/storefronts/purchases",
-        icon: Receipt,
+        label: "Wholesale Partners",
+        href: "/storefronts/partners",
+        icon: UserCheck,
         roles: [...FULL_ACCESS, "sales"],
       },
     ],
@@ -257,6 +257,7 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   { href: "/settings" }, // every signed-in user
   { href: "/integrations", roles: ["owner", "admin"] }, // admin-only integrations + upload history
   { href: "/data", roles: ["owner", "admin"] }, // legacy alias → redirects to /integrations
+  { href: "/partners", roles: [...FULL_ACCESS, "sales"] }, // legacy alias → redirects to /storefronts/partners
   { href: "/fishbowl-sandbox", roles: ["owner", "admin"] }, // internal Fishbowl API scratch page
 ];
 

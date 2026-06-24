@@ -725,6 +725,8 @@ export type DetailsSectionProps = {
   isNewProduct: boolean;
   copy: Record<CopyKey, string>;
   updateCopy: (k: CopyKey, v: string) => void;
+  /** Current on-hand quantity for this part (latest inventory snapshot). */
+  onHand?: number;
 };
 
 export function DetailsSection({
@@ -733,6 +735,7 @@ export function DetailsSection({
   isNewProduct,
   copy,
   updateCopy,
+  onHand = 0,
 }: DetailsSectionProps) {
   const channel: StorefrontChannel = form.storefront_channel ?? "off";
 
@@ -1028,45 +1031,35 @@ export function DetailsSection({
             />
             <StatusBanner channel={channel} />
 
-            {/* Availability — manual flag the storefronts can read. */}
-            <div className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
-              <div>
-                <div className="text-sm font-semibold text-gray-900">
-                  {form.storefront_in_stock !== false
-                    ? "In stock"
-                    : "Out of stock"}
-                </div>
-                <p className="text-xs text-gray-400">
-                  Out of stock keeps the product visible but lets the
-                  storefronts disable purchasing.
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={form.storefront_in_stock !== false}
-                onClick={() =>
-                  update(
-                    "storefront_in_stock",
-                    form.storefront_in_stock === false ? true : false
-                  )
-                }
-                className={clsx(
-                  "relative h-6 w-11 rounded-full transition-colors",
-                  form.storefront_in_stock !== false
-                    ? "bg-green-500"
-                    : "bg-gray-300"
-                )}
-              >
-                <span
-                  className={clsx(
-                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                    form.storefront_in_stock !== false
-                      ? "translate-x-[22px]"
-                      : "translate-x-0.5"
-                  )}
+            {/* Availability — manual flag + live on-hand the storefronts read. */}
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={form.storefront_in_stock !== false}
+                  onChange={(e) =>
+                    update("storefront_in_stock", e.target.checked)
+                  }
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
                 />
-              </button>
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    In stock
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Uncheck to mark out of stock — keeps the product visible but
+                    lets the storefronts disable purchasing.
+                  </p>
+                </div>
+              </label>
+              <div className="shrink-0 text-right">
+                <div className="text-base font-semibold text-gray-900 tabular-nums">
+                  {onHand.toLocaleString()}
+                </div>
+                <div className="text-[11px] uppercase tracking-wider text-gray-400">
+                  On hand
+                </div>
+              </div>
             </div>
           </div>
         </Card>
@@ -1250,7 +1243,14 @@ export function DetailsSection({
                 value={form.page_accent_color}
                 onChange={(v) => update("page_accent_color", v)}
                 fallback="#44705f"
-                hint="Add-to-bag button, links, and highlights."
+                hint="Links and highlights."
+              />
+              <ColorField
+                label="Buy button"
+                value={form.page_button_color}
+                onChange={(v) => update("page_button_color", v)}
+                fallback={form.page_accent_color ?? "#44705f"}
+                hint="Main Buy button on the Sassy product page. Falls back to the accent color."
               />
             </div>
 

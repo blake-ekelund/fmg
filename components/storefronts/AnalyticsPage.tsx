@@ -156,13 +156,10 @@ export default function AnalyticsPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Web analytics</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            First-party traffic &amp; engagement for the storefronts.
-          </p>
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-2xl text-sm text-gray-500">
+          First-party traffic &amp; engagement for the storefronts.
+        </p>
         <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
           {WINDOWS.map((w) => (
             <button
