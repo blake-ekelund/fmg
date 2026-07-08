@@ -24,6 +24,7 @@ import {
   TicketPercent,
   Activity,
   Receipt,
+  Contact,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -113,6 +114,18 @@ export const navSections: readonly NavSection[] = [
         label: "Sales Analysis",
         href: "/sales",
         icon: TrendingUp,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+    ],
+  },
+  {
+    label: "Sales Team",
+    icon: Contact,
+    items: [
+      {
+        label: "Rep Directory",
+        href: "/sales-team",
+        icon: Contact,
         roles: [...FULL_ACCESS, "sales"],
       },
     ],
