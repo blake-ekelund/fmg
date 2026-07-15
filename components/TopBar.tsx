@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, FileText, Settings, LogOut, ChevronDown, Blocks } from "lucide-react";
+import { Search, Settings, LogOut, ChevronDown, Blocks } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { navItems } from "./navConfig";
@@ -30,7 +30,6 @@ function usePageTitle(): string {
   if (pathname.startsWith("/products/")) return "Product Detail";
   if (pathname === "/customers/d2c") return "D2C Customers";
   if (pathname.startsWith("/customers/")) return "Customer Detail";
-  if (pathname === "/docs") return "Docs";
 
   const segment = pathname.split("/").filter(Boolean)[0];
   if (segment) return segment.charAt(0).toUpperCase() + segment.slice(1);
@@ -75,15 +74,6 @@ export default function TopBar() {
               ⌘K
             </kbd>
           </button>
-
-          {/* Docs */}
-          <Link
-            href="/docs"
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition"
-          >
-            <FileText size={14} />
-            <span className="hidden lg:inline">Docs</span>
-          </Link>
 
           {/* Divider */}
           <div className="h-5 w-px bg-gray-200" />

@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  Fragment,
-} from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -16,12 +9,10 @@ import {
   CheckSquare,
   ArrowRight,
   CornerDownLeft,
-  FileText,
   Hash,
   LayoutDashboard,
   Boxes,
   TrendingUp,
-  Building,
   KanbanSquare,
 } from "lucide-react";
 import clsx from "clsx";
@@ -64,8 +55,6 @@ const PAGE_RESULTS: SearchResult[] = [
   { id: "p-sales", category: "pages", title: "Sales Analysis", subtitle: "Revenue and trend data", href: "/sales", icon: TrendingUp },
   { id: "p-marketing", category: "pages", title: "Social Media", subtitle: "Content calendar and planning", href: "/marketing", icon: Hash },
   { id: "p-tasks", category: "pages", title: "Task List", subtitle: "Manage workspace tasks", href: "/task-list", icon: KanbanSquare },
-  { id: "p-company", category: "pages", title: "Company", subtitle: "Company information", href: "/company", icon: Building },
-  { id: "p-docs", category: "pages", title: "Docs", subtitle: "Documentation and guides", href: "/docs", icon: FileText },
 ];
 
 /* ─── Component ─── */
@@ -159,7 +148,7 @@ export default function CommandPalette({
             subtitle: [c.channel, c.bill_to_state]
               .filter(Boolean)
               .join(" · "),
-            href: `/customers`,
+            href: `/customers/${encodeURIComponent(c.customerid)}`,
             icon: Users,
           })
         );
