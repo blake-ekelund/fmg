@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import { sendReply, type ReplyAttachment } from "@/lib/email/reply";
 import { publicOriginFromRequest } from "@/lib/email/origin";
@@ -34,7 +34,7 @@ type ReplyRequest = {
  * thread as the reply target so Graph preserves the conversationId.
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }

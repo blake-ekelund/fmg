@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 
 export const runtime = "nodejs";
 
@@ -43,7 +43,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { id } = await params;
@@ -76,7 +76,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { id } = await params;

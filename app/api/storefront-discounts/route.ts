@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 
@@ -141,7 +141,7 @@ async function computeBatchCounts(): Promise<
 }
 
 export async function GET(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { data, error } = await supabaseServer
@@ -168,7 +168,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await request.json().catch(() => null)) as Record<
@@ -239,7 +239,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await request.json().catch(() => null)) as Record<
@@ -327,7 +327,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await request.json().catch(() => null)) as { id?: string } | null;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { signState } from "@/lib/email/state";
 import { buildAuthUrl } from "@/lib/email/microsoft";
 import { publicOriginFromRequest } from "@/lib/email/origin";
@@ -17,7 +17,7 @@ export const runtime = "nodejs";
  * host they started from — no NEXT_PUBLIC_APP_URL needed.
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }

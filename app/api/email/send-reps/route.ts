@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import {
   currentQuarterLabel,
@@ -84,7 +84,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * customers, we don't thread these into the inbox; we just send + report.
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }

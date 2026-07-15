@@ -22,6 +22,8 @@ export default function LayoutShell({
   const isAuthRoute = pathname.startsWith("/auth");
   // Customer-facing public routes — no sidebar / dashboard chrome.
   const isPublicRoute = pathname.startsWith("/quarterly-check-in");
+  // External sales-rep portal — its own isolated shell, never the admin chrome.
+  const isPortalRoute = pathname.startsWith("/portal");
   const { profile, loading } = useUser();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -42,7 +44,7 @@ export default function LayoutShell({
     }
   }, [pathname, profile, loading, isAuthRoute, router]);
 
-  if (isAuthRoute || isPublicRoute) {
+  if (isAuthRoute || isPublicRoute || isPortalRoute) {
     return <>{children}</>;
   }
 

@@ -22,6 +22,7 @@ import AssetLibraryCategory from "./categories/AssetLibraryCategory";
 import WorkflowCategory from "./categories/WorkflowCategory";
 import WholesaleCategory from "./categories/WholesaleCategory";
 import D2CCategory from "./categories/D2CCategory";
+import DailySalesLogCategory from "./categories/DailySalesLogCategory";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -204,7 +205,12 @@ export default function DashboardPage() {
           )}
         </motion.div>
 
-        {/* ═══ Zone B: Primary — Wholesale | D2C ═══ */}
+        {/* ═══ Zone B: Daily Sales Log (full-width) ═══ */}
+        <motion.div variants={itemVariants}>
+          <DailySalesLogCategory />
+        </motion.div>
+
+        {/* ═══ Zone C: Primary — Wholesale | D2C ═══ */}
         <motion.div
           variants={itemVariants}
           className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start"

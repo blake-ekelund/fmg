@@ -13,6 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  UserPlus,
+  Check,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { SALES_REPS, type SalesRep } from "./reps";
@@ -66,6 +68,30 @@ export default function SalesTeamPage() {
   const [emailOpen, setEmailOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<SalesRep | null>(null);
+
+  // Portal-invite state, keyed by rep id.
+  const [inviteState, setInviteState] = useState<Record<string, "loading" | "done" | "error">>({});
+  const [inviteMsg, setInviteMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function invite(rep: SalesRep) {
+    if (!rep.id) return;
+    setInviteState((s) => ({ ...s, [rep.id as string]: "loading" }));
+    setInviteMsg(null);
+    try {
+      const res = await fetch("/api/portal/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ repId: rep.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+      setInviteState((s) => ({ ...s, [rep.id as string]: "done" }));
+      setInviteMsg({ ok: true, text: `${rep.name}: ${json.message ?? "Invite sent."}` });
+    } catch (e) {
+      setInviteState((s) => ({ ...s, [rep.id as string]: "error" }));
+      setInviteMsg({ ok: false, text: `${rep.name}: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -191,6 +217,20 @@ export default function SalesTeamPage() {
         </div>
       )}
 
+      {inviteMsg && (
+        <div
+          className={
+            "flex items-start gap-2 rounded-xl border px-4 py-3 text-sm " +
+            (inviteMsg.ok
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-red-200 bg-red-50 text-red-700")
+          }
+        >
+          {inviteMsg.ok ? <Check size={15} className="mt-0.5 shrink-0" /> : <AlertTriangle size={15} className="mt-0.5 shrink-0" />}
+          {inviteMsg.text}
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative">
@@ -281,7 +321,7 @@ export default function SalesTeamPage() {
                   <th className="px-3 py-2.5 font-medium">Location</th>
                   <th className="px-3 py-2.5 font-medium">Contact</th>
                   <th className="px-3 py-2.5 font-medium">Samples</th>
-                  <th className="w-10 px-3 py-2.5" />
+                  <th className="w-24 px-3 py-2.5 text-right font-medium">Portal</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -364,16 +404,44 @@ export default function SalesTeamPage() {
                         )}
                       </td>
                       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                        {!isSeed(r) && (
-                          <button
-                            type="button"
-                            onClick={() => openEdit(r)}
-                            className="rounded-md p-1 text-gray-300 opacity-0 transition hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
-                            title={`Edit ${r.name}`}
-                          >
-                            <Pencil size={13} />
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          {!isSeed(r) && (
+                            <button
+                              type="button"
+                              onClick={() => openEdit(r)}
+                              className="rounded-md p-1 text-gray-300 opacity-0 transition hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
+                              title={`Edit ${r.name}`}
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                          {!isSeed(r) && r.email && (
+                            <button
+                              type="button"
+                              onClick={() => invite(r)}
+                              disabled={inviteState[id] === "loading"}
+                              className={
+                                "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition " +
+                                (inviteState[id] === "done"
+                                  ? "text-emerald-600"
+                                  : "text-gray-400 hover:bg-gray-100 hover:text-gray-700")
+                              }
+                              title={`Invite ${r.name} to the rep portal`}
+                            >
+                              {inviteState[id] === "loading" ? (
+                                <Loader2 size={13} className="animate-spin" />
+                              ) : inviteState[id] === "done" ? (
+                                <>
+                                  <Check size={13} /> Sent
+                                </>
+                              ) : (
+                                <>
+                                  <UserPlus size={13} /> Invite
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

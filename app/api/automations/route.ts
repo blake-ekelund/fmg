@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 
 export const runtime = "nodejs";
 
@@ -17,7 +17,7 @@ type CreateBody = {
  * Returns all automations + step counts + enrollment counts for the list view.
  */
 export async function GET(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const { data: autos, error } = await supabaseServer
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
  * Create a new automation. Steps are added separately via the steps endpoint.
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   let body: CreateBody;

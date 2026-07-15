@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { fishbowlConfigured } from "@/lib/fishbowl";
 import {
   FISHBOWL_SCHEDULE_LABEL,
@@ -116,7 +116,7 @@ async function inventoryFeed(): Promise<Feed> {
 }
 
 export async function GET(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const [sales, inventory] = await Promise.all([salesFeed(), inventoryFeed()]);

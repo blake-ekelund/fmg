@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { fishbowlConfigured, runDataQuery } from "@/lib/fishbowl";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export const maxDuration = 60;
  * end users; once you settle on a query, bake it into a dedicated endpoint.
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   if (!fishbowlConfigured()) {

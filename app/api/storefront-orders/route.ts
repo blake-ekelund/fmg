@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 
 /**
@@ -8,7 +8,7 @@ import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
  * notReady so the admin page can show an honest empty state.
  */
 export async function GET(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const admin = wholesalePortalAdmin();

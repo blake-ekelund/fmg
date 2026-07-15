@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 
 export const runtime = "nodejs";
 
@@ -46,7 +46,7 @@ function normalize(input: RepInput) {
  * built-in roster instead of erroring.
  */
 export async function GET(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const { data, error } = await supabaseServer
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
  * POST /api/sales-reps — create a rep. Name is required.
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   let body: RepInput;

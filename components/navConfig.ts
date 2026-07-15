@@ -256,6 +256,7 @@ export function getNavForRole(role: UserRole | null): NavSection[] {
 
 /** Default landing page per role */
 export function getDefaultRoute(role: UserRole | null): string {
+  if (role === "rep") return "/portal";
   if (role === "sales") return "/customers";
   if (role === "marketing") return "/social-media";
   return "/dashboard";
@@ -277,6 +278,9 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
 /** Get all allowed href paths for a role (used for route guarding) */
 export function getAllowedPaths(role: UserRole | null): string[] {
   if (!role) return [];
+  // External reps live entirely inside the isolated /portal surface and must
+  // never reach any internal page. The portal supplies its own nav/chrome.
+  if (role === "rep") return ["/portal"];
   const navAllowed = navSections
     .flatMap((s) => s.items)
     .filter((item) => !item.roles || item.roles.includes(role))

@@ -17,6 +17,7 @@ import FishbowlCard, {
   type Feed,
   type SyncMessage,
 } from "./FishbowlCard";
+import SlackCard from "./SlackCard";
 
 type UploadType = "inventory" | "sales";
 
@@ -178,6 +179,9 @@ export default function IntegrationsPage() {
           Loading integration…
         </div>
       )}
+
+      {/* Slack assistant */}
+      <SlackCard />
 
       <InventoryUploadModal open={showInventoryModal} onClose={() => setShowInventoryModal(false)} />
       <SalesUploadModal open={showSalesModal} onClose={() => setShowSalesModal(false)} />

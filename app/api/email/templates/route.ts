@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,7 @@ type UpsertBody = {
  * Returns ALL templates (shared org-wide), most-recently-updated first.
  */
 export async function GET(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const { data, error } = await supabaseServer
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
  *   { id?: string, name: string, subject: string, body: string }
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   let body: UpsertBody;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { getAuthUser } from "@/lib/email/server-auth";
+import { requireInternalUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import { deleteSubscription } from "@/lib/email/subscriptions";
 
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
  * https://myapps.microsoft.com if they want.
  */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request);
+  const user = await requireInternalUser(request);
   if (!user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
