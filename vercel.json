@@ -2,7 +2,6 @@
   "crons": [
     {
       "path": "/api/cron/automations",
-      "_comment": "7:45am + 3:45pm Eastern. Vercel crons are UTC-only, so both the EDT (11:45/19:45) and EST (12:45/20:45) hours are listed; the route itself checks Eastern local time and no-ops on the off-season firing.",
       "schedule": "45 11,12,19,20 * * *"
     },
     {
