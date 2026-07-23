@@ -8,7 +8,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   MailOpen,
-  Reply,
+  MousePointerClick,
   TrendingUp,
   MinusCircle,
 } from "lucide-react";
@@ -25,7 +25,7 @@ type Cohort = {
   size: number;
   sent: number;
   opened: number;
-  replied: number;
+  clicked: number;
   wonBack: number;
   unsubscribed: number;
   noAction: number;
@@ -85,7 +85,7 @@ export default function CohortsPage() {
   }, [load]);
 
   /* Test batches are hidden by default: their mail went to a tester, so their
-     open and reply numbers say nothing about the campaign and would quietly
+     open and click numbers say nothing about the campaign and would quietly
      poison the headline rates. */
   const [showTests, setShowTests] = useState(false);
 
@@ -101,12 +101,12 @@ export default function CohortsPage() {
 
   /* Totals across the visible set — the baseline each batch is measured against. */
   const totals = useMemo(() => {
-    const t = { size: 0, sent: 0, opened: 0, replied: 0, wonBack: 0, noAction: 0, unsubscribed: 0 };
+    const t = { size: 0, sent: 0, opened: 0, clicked: 0, wonBack: 0, noAction: 0, unsubscribed: 0 };
     for (const c of shown) {
       t.size += c.size;
       t.sent += c.sent;
       t.opened += c.opened;
-      t.replied += c.replied;
+      t.clicked += c.clicked;
       t.wonBack += c.wonBack;
       t.noAction += c.noAction;
       t.unsubscribed += c.unsubscribed;
@@ -185,10 +185,10 @@ export default function CohortsPage() {
             detail={`${totals.opened} of ${totals.size}`}
           />
           <Kpi
-            icon={Reply}
-            label="Response rate"
-            value={`${pct(totals.replied, totals.size)}%`}
-            detail={`${totals.replied} replied`}
+            icon={MousePointerClick}
+            label="Click rate"
+            value={`${pct(totals.clicked, totals.size)}%`}
+            detail={`${totals.clicked} clicked through`}
           />
           <Kpi
             icon={TrendingUp}
@@ -240,7 +240,7 @@ export default function CohortsPage() {
                     <th className="px-3 py-2 text-right">Size</th>
                     <th className="px-3 py-2 text-right">Sent</th>
                     <th className="px-3 py-2 text-right">Opened</th>
-                    <th className="px-3 py-2 text-right">Replied</th>
+                    <th className="px-3 py-2 text-right">Clicked</th>
                     <th className="px-3 py-2 text-right">Won back</th>
                     <th className="px-3 py-2 text-right">No action</th>
                     <th className="px-3 py-2 text-right">Unsub</th>
@@ -273,7 +273,7 @@ export default function CohortsPage() {
                       <td className="px-3 py-2 text-right tabular-nums text-ink">{c.size}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-ink-muted">{c.sent}</td>
                       <RateCell n={c.opened} of={c.size} />
-                      <RateCell n={c.replied} of={c.size} />
+                      <RateCell n={c.clicked} of={c.size} />
                       <RateCell n={c.wonBack} of={c.size} strong />
                       <RateCell n={c.noAction} of={c.size} muted />
                       <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
@@ -321,7 +321,7 @@ export default function CohortsPage() {
 
                 <div className="mt-2 grid grid-cols-4 gap-2 text-center">
                   <MiniStat label="Open" value={`${pct(c.opened, c.size)}%`} />
-                  <MiniStat label="Reply" value={`${pct(c.replied, c.size)}%`} />
+                  <MiniStat label="Click" value={`${pct(c.clicked, c.size)}%`} />
                   <MiniStat label="Won" value={`${pct(c.wonBack, c.size)}%`} strong />
                   <MiniStat label="None" value={`${pct(c.noAction, c.size)}%`} muted />
                 </div>
@@ -333,9 +333,12 @@ export default function CohortsPage() {
 
       {shown.length > 0 && (
         <p className="text-[10px] text-ink-subtle">
-          Open rate depends on tracking pixels, which many mail clients block —
-          treat it as a floor, not a precise figure. Replies and win-backs are
-          counted from real inbox and order activity, so they&apos;re reliable.
+          Open rate depends on tracking pixels, which Gmail and Apple Mail
+          prefetch and many gateways block — treat it as noisy. Clicks and
+          win-backs come from real link redirects and order activity, so those
+          are the numbers to judge a batch on. Replies aren&apos;t tracked:
+          mail is outbound-only, so customers reply straight to the rep&apos;s
+          own mailbox.
         </p>
       )}
     </div>
@@ -409,12 +412,12 @@ function RateCell({
   );
 }
 
-/** Single stacked bar: won back → replied → no action → unsubscribed. */
+/** Single stacked bar: won back → clicked → no action → unsubscribed. */
 function MixBar({ cohort }: { cohort: Cohort }) {
   const total = Math.max(cohort.size, 1);
   const segments = [
     { n: cohort.wonBack, cls: "bg-positive", title: "Won back" },
-    { n: cohort.replied, cls: "bg-brand-500", title: "Replied" },
+    { n: cohort.clicked, cls: "bg-brand-500", title: "Clicked" },
     { n: cohort.noAction, cls: "bg-line-strong", title: "No action" },
     { n: cohort.unsubscribed, cls: "bg-critical", title: "Unsubscribed" },
   ].filter((s) => s.n > 0);

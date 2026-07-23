@@ -19,6 +19,13 @@ import {
 import { primaryEmail, parseEmailAddresses } from "@/lib/email/addresses";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import type { EmailBlock } from "@/components/templates/types";
+import {
+  findSuppressed,
+  listUnsubscribeHeaders,
+  normalizeEmail,
+  unsubscribeFooterHtml,
+  unsubscribeUrl,
+} from "@/lib/email/unsubscribe";
 
 export const runtime = "nodejs";
 // Vercel Pro caps serverless functions at ~300s. With concurrency 5 below,
@@ -274,6 +281,14 @@ export async function POST(request: Request) {
     .map((r) => r.customer_ref);
   const contacts = await loadContacts(wholesaleRefs, d2cRefs);
 
+  // Opt-outs, resolved in one batched query rather than per recipient. This is
+  // a bulk commercial send, so honouring the suppression list is not optional —
+  // and the list is keyed by address, so an opt-out made as a D2C shopper also
+  // suppresses the same person's wholesale contact.
+  const suppressed = await findSuppressed(
+    [...contacts.values()].map((c) => c.email ?? "").filter(Boolean),
+  );
+
   // Open the job row.
   const { data: jobRow, error: jobErr } = await supabaseServer
     .from("email_send_jobs")
@@ -297,6 +312,10 @@ export async function POST(request: Request) {
 
   let sentCount = 0;
   let failedCount = 0;
+  // Counts sends where Graph refused the List-Unsubscribe headers and we fell
+  // back to sending without them. Surfaced in the response so a silent
+  // deliverability regression can't hide.
+  let headersRejected = 0;
   const origin = publicOriginFromRequest(request);
 
   // Per-recipient processor — extracted so we can run a small pool in parallel.
@@ -329,6 +348,16 @@ export async function POST(request: Request) {
       return;
     }
 
+    if (suppressed.has(normalizeEmail(contact.email))) {
+      recipientRow.status = "skipped";
+      recipientRow.error_text = "Unsubscribed";
+      recipientRow.personalized_subject = subjectTemplate;
+      recipientRow.personalized_body = bodyTemplate;
+      failedCount++;
+      await supabaseServer.from("email_send_job_recipients").insert(recipientRow);
+      return;
+    }
+
     const vars: MergeVars = {
       firstName: firstNameOf(contact.name),
       customerName: contact.name,
@@ -352,10 +381,20 @@ export async function POST(request: Request) {
     // body_format was declared on this endpoint from the start but never read,
     // so every send went through the plain-text escaper. Block templates
     // arrive as finished HTML from lib/email/renderBlocks and must skip it.
+    // Every recipient gets their own token, so the link opts out the person who
+    // clicked it and nobody else.
+    const unsubPayload = {
+      email: contact.email,
+      customerType: r.customer_type,
+      customerRef: r.customer_ref,
+    };
+    const footerHtml = unsubscribeFooterHtml(unsubscribeUrl(origin, unsubPayload));
+    const unsubHeaders = listUnsubscribeHeaders(origin, unsubPayload);
+
     const tracked =
       bodyFormat === "html"
-        ? buildTrackedHtmlFromHtml({ html: bodyContent, origin, messageId })
-        : buildTrackedHtmlBody({ plainText: bodyContent, origin, messageId });
+        ? buildTrackedHtmlFromHtml({ html: bodyContent, origin, messageId, footerHtml })
+        : buildTrackedHtmlBody({ plainText: bodyContent, origin, messageId, footerHtml });
 
     try {
       const sent = await sendEmail(accessToken, {
@@ -363,7 +402,9 @@ export async function POST(request: Request) {
         bodyHtml: tracked.html,
         to: [{ address: contact.email, name: contact.name ?? undefined }],
         cc: ccRecipients.length > 0 ? ccRecipients : undefined,
+        headers: unsubHeaders,
       });
+      if (!sent.headersApplied) headersRejected++;
 
       // Upsert thread keyed by (account, conversationId).
       const { data: thread, error: threadErr } = await supabaseServer
@@ -459,6 +500,9 @@ export async function POST(request: Request) {
     sent: sentCount,
     failed: failedCount,
     total: body.recipients.length,
+    // 0 on a healthy send. Non-zero means Graph refused the List-Unsubscribe
+    // headers for that many messages — mail delivered, one-click missing.
+    list_unsubscribe_rejected: headersRejected,
   });
 }
 

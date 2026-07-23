@@ -7,6 +7,7 @@ import {
   GRAPH_SCOPES,
 } from "@/lib/email/microsoft";
 import { encryptToken } from "@/lib/email/crypto";
+import { createSubscription, generateClientState } from "@/lib/email/subscriptions";
 import { publicOriginFromRequest } from "@/lib/email/origin";
 
 export const runtime = "nodejs";
@@ -95,9 +96,42 @@ export async function GET(request: Request) {
     return back(`Failed to save account: ${upsertErr.message}`);
   }
 
-  // Mail is outbound-only: we send on the rep's behalf and customers reply
-  // straight to their real mailbox. There is no Graph webhook subscription to
-  // create here, and nothing reads the inbox.
+  /* Subscribe to inbound mail. Automation exit rules and cohort response
+     rates depend on knowing when a customer replies, and a Graph webhook is
+     the only source of that. Failure here is recorded but never blocks the
+     connection — sending works with or without a subscription. */
+  const webhookUrl = `${publicOrigin}/api/email/webhook`;
+  let subscribeNote: string;
+
+  if (!webhookUrl.startsWith("https://")) {
+    // Graph refuses non-https notification URLs, so a localhost connect can
+    // send but will never receive.
+    subscribeNote = `Webhook skipped: origin ${publicOrigin} isn't https — inbound replies won't sync until reconnected from a public URL.`;
+  } else {
+    try {
+      const clientState = generateClientState();
+      const sub = await createSubscription(tokens.access_token, webhookUrl, clientState);
+      await supabaseServer
+        .from("user_email_accounts")
+        .update({
+          subscription_id: sub.id,
+          subscription_expires_at: sub.expirationDateTime,
+          subscription_client_state: clientState,
+          last_error: null,
+        })
+        .eq("user_id", payload.uid);
+      subscribeNote = `OK · subscribed at ${webhookUrl} · sub ${sub.id} · expires ${sub.expirationDateTime}`;
+    } catch (e) {
+      subscribeNote = `Webhook subscribe failed for ${webhookUrl}: ${
+        e instanceof Error ? e.message : String(e)
+      }`;
+    }
+  }
+
+  await supabaseServer
+    .from("user_email_accounts")
+    .update({ last_error: subscribeNote })
+    .eq("user_id", payload.uid);
 
   return NextResponse.redirect(
     new URL(`/settings?section=email-connection&outlook=connected`, url.origin),

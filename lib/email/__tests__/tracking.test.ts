@@ -77,6 +77,68 @@ describe("buildTrackedHtmlFromHtml", () => {
   });
 });
 
+describe("unsubscribe footer", () => {
+  const FOOTER = '<div>bye <a href="https://portal.example.com/api/email/unsubscribe?t=TOK">Unsubscribe</a></div>';
+
+  it("appends the footer to a block email, centred to the content column", () => {
+    const { html } = buildTrackedHtmlFromHtml({
+      html: "<html><body><table><tr><td>hi</td></tr></table></body></html>",
+      origin: ORIGIN,
+      messageId: MSG,
+      footerHtml: FOOTER,
+    });
+    expect(html).toContain("Unsubscribe");
+    expect(html).toContain("max-width:600px");
+    // Inside the document, not trailing after </html>.
+    expect(html).toMatch(/Unsubscribe[\s\S]*<\/body>/);
+  });
+
+  it("appends the footer to a plain-text email", () => {
+    const { html } = buildTrackedHtmlBody({
+      plainText: "Hi there",
+      origin: ORIGIN,
+      messageId: MSG,
+      footerHtml: FOOTER,
+    });
+    expect(html).toContain("Unsubscribe");
+    expect(html).toMatch(/Hi there[\s\S]*Unsubscribe[\s\S]*<\/body>/);
+  });
+
+  it("does NOT route the unsubscribe link through the click tracker", () => {
+    // An opt-out is not an engagement — counting it as a click would inflate
+    // click metrics and add a redirect hop to the one link that must just work.
+    for (const built of [
+      buildTrackedHtmlFromHtml({ html: "<body><p>x</p></body>", origin: ORIGIN, messageId: MSG, footerHtml: FOOTER }),
+      buildTrackedHtmlBody({ plainText: "x", origin: ORIGIN, messageId: MSG, footerHtml: FOOTER }),
+    ]) {
+      expect(built.links).toHaveLength(0);
+      expect(built.html).toContain("/api/email/unsubscribe?t=TOK");
+    }
+  });
+
+  it("still tracks body links while leaving the footer link alone", () => {
+    const { html, links } = buildTrackedHtmlFromHtml({
+      html: '<body><a href="https://sassyandco.com">Shop</a></body>',
+      origin: ORIGIN,
+      messageId: MSG,
+      footerHtml: FOOTER,
+    });
+    expect(links).toHaveLength(1);
+    expect(links[0].original_url).toBe("https://sassyandco.com");
+    expect(html).toContain("/api/email/unsubscribe?t=TOK");
+  });
+
+  it("omits the footer entirely when none is supplied", () => {
+    const { html } = buildTrackedHtmlFromHtml({
+      html: "<body><p>x</p></body>",
+      origin: ORIGIN,
+      messageId: MSG,
+    });
+    expect(html).not.toContain("Unsubscribe");
+    expect(html).not.toContain("max-width:600px");
+  });
+});
+
 describe("buildTrackedHtmlBody (plain text path, unchanged)", () => {
   it("still escapes markup typed into a plain-text body", () => {
     const { html } = buildTrackedHtmlBody({

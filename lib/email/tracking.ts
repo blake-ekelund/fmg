@@ -49,8 +49,15 @@ export function buildTrackedHtmlFromHtml(opts: {
   html: string;
   origin: string;
   messageId: string;
+  /**
+   * Appended just above the pixel, centred to the same column as the content
+   * so it reads as part of the design rather than loose markup after the
+   * table. Pass the unsubscribe footer here.
+   */
+  footerHtml?: string;
+  footerWidth?: number;
 }): TrackedBody {
-  const { html, origin, messageId } = opts;
+  const { html, origin, messageId, footerHtml, footerWidth = 600 } = opts;
   const links: TrackedLink[] = [];
   let linkIndex = 0;
 
@@ -66,13 +73,26 @@ export function buildTrackedHtmlFromHtml(opts: {
     },
   );
 
-  const pixel = openPixel(origin, messageId);
-  // Slot the pixel just inside </body> so it stays part of the rendered doc.
-  const withPixel = /<\/body\s*>/i.test(tracked)
-    ? tracked.replace(/<\/body\s*>/i, `${pixel}</body>`)
-    : tracked + pixel;
+  // The block document is a full-width canvas table wrapping a centred column,
+  // so a bare footer div would sit flush-left against the page edge. Wrap it
+  // in a matching centred table.
+  const footer = footerHtml
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">` +
+      `<tr><td align="center" style="padding:0 12px 24px;">` +
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" ` +
+      `style="width:100%;max-width:${Math.round(footerWidth)}px;margin:0 auto;">` +
+      `<tr><td>${footerHtml}</td></tr></table>` +
+      `</td></tr></table>`
+    : "";
 
-  return { html: withPixel, links };
+  const pixel = openPixel(origin, messageId);
+  // Slot the footer + pixel just inside </body> so they stay part of the doc.
+  const tail = footer + pixel;
+  const withTail = /<\/body\s*>/i.test(tracked)
+    ? tracked.replace(/<\/body\s*>/i, `${tail}</body>`)
+    : tracked + tail;
+
+  return { html: withTail, links };
 }
 
 function openPixel(origin: string, messageId: string): string {
@@ -87,8 +107,13 @@ export function buildTrackedHtmlBody(opts: {
   plainText: string;
   origin: string;
   messageId: string;
+  /**
+   * Trusted HTML appended after the body — the unsubscribe footer. It is NOT
+   * escaped, unlike plainText, so only pass markup this codebase generated.
+   */
+  footerHtml?: string;
 }): TrackedBody {
-  const { plainText, origin, messageId } = opts;
+  const { plainText, origin, messageId, footerHtml } = opts;
   const links: TrackedLink[] = [];
   const parts: string[] = [];
   let lastEnd = 0;
@@ -129,6 +154,7 @@ export function buildTrackedHtmlBody(opts: {
   const html =
     `<!doctype html><html><body style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.45;color:#111;">` +
     body +
+    (footerHtml ?? "") +
     pixel +
     `</body></html>`;
 

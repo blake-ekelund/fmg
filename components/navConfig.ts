@@ -28,6 +28,7 @@ import {
   Target,
   Eye,
   Layers,
+  LayoutTemplate,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -174,6 +175,17 @@ export const navSections: readonly NavSection[] = [
         label: "Email Templates",
         href: "/email-templates",
         icon: FileText,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        /* The block-based builder — header/hero/product/button layouts that
+           render to real email HTML. Labelled "Designed" to separate it from
+           "Email Templates" above, which is the plain-text snippet library;
+           the two are different tables and different send paths, and the
+           compose modal uses the same word for this mode. */
+        label: "Designed Templates",
+        href: "/templates",
+        icon: LayoutTemplate,
         roles: [...FULL_ACCESS, "sales", "marketing"],
       },
       {
@@ -370,7 +382,7 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   // behind /sales-team/portal-preview. Reps get their own allow-list below.
   { href: "/portal", roles: ["owner", "admin"] },
   // Reached from inside another page rather than the sidebar:
-  { href: "/templates", roles: [...FULL_ACCESS, "sales", "marketing"] }, // template editor, opened from Email Templates
+  // (/templates moved into the Email section as "Designed Templates")
   { href: "/marketing", roles: [...FULL_ACCESS, "marketing"] }, // legacy tabbed marketing page
   { href: "/amazon-payments", roles: ["owner", "admin"] }, // placeholder, spec TBD
 ];

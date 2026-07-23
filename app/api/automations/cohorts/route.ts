@@ -9,7 +9,7 @@ const MAX_ENROLLMENTS = 20000;
 
 type Outcome =
   | "won_back"
-  | "replied"
+  | "clicked"
   | "opened_no_action"
   | "no_action"
   | "unsubscribed";
@@ -24,7 +24,7 @@ type CohortRow = {
   size: number;
   sent: number;
   opened: number;
-  replied: number;
+  clicked: number;
   wonBack: number;
   unsubscribed: number;
   noAction: number;
@@ -37,12 +37,12 @@ type CohortRow = {
  * GET /api/automations/cohorts
  *
  * One row per released batch, with the outcome mix. Aggregated in JS from a
- * handful of bulk queries rather than a view, because the chain spans five
- * tables (enrollments → step_sends → messages → opens, plus threads for
- * replies) and PostgREST can't express that join in one call.
+ * handful of bulk queries rather than a view, because the chain spans four
+ * tables (enrollments → step_sends → messages → opens/link clicks) and
+ * PostgREST can't express that join in one call.
  *
  * Every customer lands in exactly one outcome bucket, most-committed first:
- *   won back > replied > opened but no action > no action, with unsubscribed
+ *   won back > clicked > opened but no action > no action, with unsubscribed
  * pulled out separately. Otherwise the percentages wouldn't sum.
  */
 export async function GET(request: Request) {
@@ -125,51 +125,26 @@ export async function GET(request: Request) {
     }
   }
 
-  /* 5. Replies. Threads are keyed by customer, so map customer → enrollments,
-        then look for inbound mail after the enrollment date. */
-  const repliedEnrollments = new Set<string>();
-  const byCustomer = new Map<string, typeof enrollments>();
-  for (const e of enrollments) {
-    const key = `${e.customer_type}:${e.customer_ref}`;
-    const arr = byCustomer.get(key) ?? [];
-    arr.push(e);
-    byCustomer.set(key, arr);
-  }
+  /* 5. Click-throughs.
+        Engagement is measured by link clicks, not replies: mail is
+        outbound-only (20260722000000_email_outbound_only.sql), so customers
+        reply to the rep's own mailbox and the app never sees it — an inbound
+        check could only ever return zero. Clicks are also immune to the proxy
+        prefetching that inflates opens.
 
-  const refs = [...new Set(enrollments.map((e) => e.customer_ref))];
-  const threadToCustomer = new Map<string, string>();
-  for (let i = 0; i < refs.length; i += 200) {
-    const slice = refs.slice(i, i + 200);
+        click_count / first_clicked_at are trigger-maintained on
+        email_message_links, so the link rows alone answer this. */
+  const clickedEnrollments = new Set<string>();
+  for (let i = 0; i < messageIds.length; i += 200) {
+    const slice = messageIds.slice(i, i + 200);
     const { data } = await supabaseServer
-      .from("email_threads")
-      .select("id, customer_type, customer_ref")
-      .in("customer_ref", slice);
-    for (const t of (data ?? []) as Array<{
-      id: string;
-      customer_type: string;
-      customer_ref: string;
-    }>) {
-      threadToCustomer.set(t.id, `${t.customer_type}:${t.customer_ref}`);
-    }
-  }
-
-  const threadIds = [...threadToCustomer.keys()];
-  for (let i = 0; i < threadIds.length; i += 200) {
-    const slice = threadIds.slice(i, i + 200);
-    const { data } = await supabaseServer
-      .from("email_messages")
-      .select("thread_id, sent_at")
-      .in("thread_id", slice)
-      .eq("direction", "received");
-    for (const m of (data ?? []) as Array<{ thread_id: string; sent_at: string }>) {
-      const custKey = threadToCustomer.get(m.thread_id);
-      if (!custKey) continue;
-      const received = new Date(m.sent_at).getTime();
-      // A reply only counts if it landed after we enrolled them — older
-      // correspondence isn't a response to this campaign.
-      for (const e of byCustomer.get(custKey) ?? []) {
-        if (received > new Date(e.enrolled_at).getTime()) repliedEnrollments.add(e.id);
-      }
+      .from("email_message_links")
+      .select("message_id")
+      .in("message_id", slice)
+      .gt("click_count", 0);
+    for (const l of (data ?? []) as Array<{ message_id: string }>) {
+      const eid = messageToEnrollment.get(l.message_id);
+      if (eid) clickedEnrollments.add(eid);
     }
   }
 
@@ -180,7 +155,15 @@ export async function GET(request: Request) {
     if (reason === "Placed an order" || reason === "Customer is active again") {
       return "won_back";
     }
-    if (repliedEnrollments.has(e.id) || reason === "Customer replied") return "replied";
+    // "Customer replied" is the pre-outbound-only exit reason; keep reading it
+    // so historic rows still bucket as engaged.
+    if (
+      clickedEnrollments.has(e.id) ||
+      reason === "Customer clicked through" ||
+      reason === "Customer replied"
+    ) {
+      return "clicked";
+    }
     if (openedEnrollments.has(e.id)) return "opened_no_action";
     return "no_action";
   }
@@ -202,7 +185,7 @@ export async function GET(request: Request) {
         size: 0,
         sent: 0,
         opened: 0,
-        replied: 0,
+        clicked: 0,
         wonBack: 0,
         unsubscribed: 0,
         noAction: 0,
@@ -222,8 +205,8 @@ export async function GET(request: Request) {
       case "won_back":
         row.wonBack++;
         break;
-      case "replied":
-        row.replied++;
+      case "clicked":
+        row.clicked++;
         break;
       case "unsubscribed":
         row.unsubscribed++;

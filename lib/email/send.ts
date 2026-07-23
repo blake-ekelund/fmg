@@ -17,6 +17,11 @@ export type SendEmailInput = {
   to: EmailRecipient[];
   cc?: EmailRecipient[];
   bcc?: EmailRecipient[];
+  /**
+   * Extra Internet message headers (e.g. List-Unsubscribe). Best-effort — see
+   * the note on sendEmail about Graph's documented `x-` restriction.
+   */
+  headers?: Array<{ name: string; value: string }>;
 };
 
 export type SendEmailResult = {
@@ -26,6 +31,11 @@ export type SendEmailResult = {
   sentAt: string;
   bodyPreview: string | null;
   fromAddress: string | null;
+  /**
+   * False when `headers` were requested but Graph rejected the draft and we
+   * retried without them. The mail still went out, minus those headers.
+   */
+  headersApplied: boolean;
 };
 
 function toRecipientField(r: EmailRecipient) {
@@ -53,6 +63,12 @@ async function graphFetch(
  * Why not /me/sendMail? That endpoint returns 202 with an empty body, so we
  * never see the conversationId — making it impossible to roll up the customer's
  * reply into the same thread.
+ *
+ * `input.headers` is best-effort. Graph documents that custom Internet message
+ * headers "must be named starting with x-", which List-Unsubscribe is not, so
+ * the draft create may be rejected outright. Rather than fail the send, we
+ * retry once without the headers and report that via `headersApplied` — a
+ * missing List-Unsubscribe costs deliverability; a failed send costs the email.
  */
 export async function sendEmail(
   accessToken: string,
@@ -63,7 +79,7 @@ export async function sendEmail(
       ? { contentType: "HTML", content: input.bodyHtml }
       : { contentType: "Text", content: input.bodyText ?? "" };
 
-  const draftBody = {
+  const baseDraft = {
     subject: input.subject,
     body,
     toRecipients: input.to.map(toRecipientField),
@@ -71,11 +87,25 @@ export async function sendEmail(
     bccRecipients: (input.bcc ?? []).map(toRecipientField),
   };
 
-  // 1) Create draft
-  const draftRes = await graphFetch(accessToken, "/me/messages", {
+  const wantsHeaders = (input.headers?.length ?? 0) > 0;
+
+  // 1) Create draft — with headers first, then bare if Graph refuses them.
+  let headersApplied = wantsHeaders;
+  let draftRes = await graphFetch(accessToken, "/me/messages", {
     method: "POST",
-    body: JSON.stringify(draftBody),
+    body: JSON.stringify(
+      wantsHeaders ? { ...baseDraft, internetMessageHeaders: input.headers } : baseDraft,
+    ),
   });
+
+  if (!draftRes.ok && wantsHeaders) {
+    headersApplied = false;
+    draftRes = await graphFetch(accessToken, "/me/messages", {
+      method: "POST",
+      body: JSON.stringify(baseDraft),
+    });
+  }
+
   if (!draftRes.ok) {
     const text = await draftRes.text().catch(() => "");
     throw new Error(`Graph createDraft failed: ${draftRes.status} ${text.slice(0, 300)}`);
@@ -106,6 +136,7 @@ export async function sendEmail(
     sentAt: new Date().toISOString(),
     bodyPreview: draft.bodyPreview ?? null,
     fromAddress: draft.from?.emailAddress?.address ?? null,
+    headersApplied,
   };
 }
 

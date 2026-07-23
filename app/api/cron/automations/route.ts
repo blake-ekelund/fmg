@@ -16,6 +16,7 @@ import { parseEmailAddresses } from "@/lib/email/addresses";
 import {
   findSuppressed,
   isSuppressed,
+  listUnsubscribeHeaders,
   unsubscribeUrl,
   unsubscribeFooterHtml,
 } from "@/lib/email/unsubscribe";
@@ -80,7 +81,15 @@ type Automation = {
        Evaluated before every send, so a customer who converts mid-sequence
        stops hearing from it instead of receiving the rest of the win-back. */
     exit_on_order?: boolean;   // placed an order since enrolling
-    exit_on_reply?: boolean;   // replied to any of our email since enrolling
+    /** Clicked a link in one of this automation's emails since enrolling.
+     *  `exit_on_reply` is the old name, still honoured for configs saved
+     *  before mail went outbound-only and reply data stopped existing. */
+    exit_on_click?: boolean;
+    exit_on_reply?: boolean;
+    /** Exit when the customer actually writes back. Requires inbound
+     *  ingestion (the Graph webhook) to be live — the UI refuses to enable
+     *  this rule when no reply has ever been recorded. */
+    exit_on_reply_inbound?: boolean;
     exit_on_active?: boolean;  // is back to "active" status
     exit_after_days?: number;  // still here after N days with no reply
     /* ── Batching ──
@@ -602,20 +611,18 @@ export async function GET(request: Request) {
       /* Every automated send carries a way out. Conversational replies sent
          from the inbox deliberately don't — those are person-to-person mail,
          not a list send. */
+      const unsubPayload = {
+        /* On a test batch the token must belong to the tester, not the
+           customer whose data was borrowed — otherwise clicking
+           "unsubscribe" while reviewing would opt out a real customer. */
+        email: redirectTo || e.customer_email,
+        automationId: e.automation_id,
+        ...(redirectTo
+          ? {}
+          : { customerType: e.customer_type, customerRef: e.customer_ref }),
+      };
       const bodyHtmlWithFooter =
-        tracked.html +
-        unsubscribeFooterHtml(
-          unsubscribeUrl(origin, {
-            /* On a test batch the token must belong to the tester, not the
-               customer whose data was borrowed — otherwise clicking
-               "unsubscribe" while reviewing would opt out a real customer. */
-            email: redirectTo || e.customer_email,
-            automationId: e.automation_id,
-            ...(redirectTo
-              ? {}
-              : { customerType: e.customer_type, customerRef: e.customer_ref }),
-          }),
-        );
+        tracked.html + unsubscribeFooterHtml(unsubscribeUrl(origin, unsubPayload));
 
       try {
         const sent = await sendEmail(accessToken, {
@@ -624,6 +631,9 @@ export async function GET(request: Request) {
           to: redirectTo
             ? [{ address: redirectTo }]
             : [{ address: e.customer_email, name: e.customer_name ?? undefined }],
+          /* Same one-click opt-out the mass-send path uses — an automation is
+             just as much a list send. */
+          headers: listUnsubscribeHeaders(origin, unsubPayload),
         });
 
         const { data: thread } = await supabaseServer
@@ -1138,9 +1148,9 @@ async function evaluateExit(
   if (cfg.exit_after_days && cfg.exit_after_days > 0) {
     const elapsed = (Date.now() - enrolledAt) / 86_400_000;
     if (elapsed >= cfg.exit_after_days) {
-      const replied = await hasRepliedSince(e, enrolledAt);
-      if (!replied) {
-        return `No reply after ${cfg.exit_after_days} days`;
+      const engaged = await hasClickedSince(e, enrolledAt);
+      if (!engaged) {
+        return `No engagement after ${cfg.exit_after_days} days`;
       }
     }
   }
@@ -1162,13 +1172,29 @@ async function evaluateExit(
     }
   }
 
-  if (cfg.exit_on_reply && (await hasRepliedSince(e, enrolledAt))) {
+  if ((cfg.exit_on_click ?? cfg.exit_on_reply) && (await hasClickedSince(e, enrolledAt))) {
+    return "Customer clicked through";
+  }
+
+  if (cfg.exit_on_reply_inbound && (await hasRepliedSince(e, enrolledAt))) {
     return "Customer replied";
   }
 
   return null;
 }
 
+/**
+ * Did this customer click a link in one of this automation's emails since
+ * enrolling?
+ *
+ * Engagement is measured by clicks rather than replies because mail here is
+ * outbound-only (see 20260722000000_email_outbound_only.sql) — customers reply
+ * to the rep's own mailbox, which the app deliberately never reads, so an
+ * inbound-message check could only ever return false.
+ *
+ * Clicks are the better signal anyway: unlike opens they aren't inflated by
+ * Gmail and Apple image proxies prefetching the pixel.
+ */
 /** Any inbound message from this customer since they were enrolled. */
 async function hasRepliedSince(e: Enrollment, sinceMs: number): Promise<boolean> {
   const { data: threads } = await supabaseServer
@@ -1189,6 +1215,31 @@ async function hasRepliedSince(e: Enrollment, sinceMs: number): Promise<boolean>
     .limit(1);
 
   return (replies ?? []).length > 0;
+}
+
+async function hasClickedSince(e: Enrollment, sinceMs: number): Promise<boolean> {
+  const { data: sends } = await supabaseServer
+    .from("automation_step_sends")
+    .select("message_id")
+    .eq("enrollment_id", e.id)
+    .not("message_id", "is", null);
+
+  const messageIds = (sends ?? [])
+    .map((s) => (s as { message_id: string | null }).message_id)
+    .filter((m): m is string => !!m);
+  if (messageIds.length === 0) return false;
+
+  // click_count / first_clicked_at are maintained by a trigger on
+  // email_message_link_clicks, so the link row alone answers this.
+  const { data: clicked } = await supabaseServer
+    .from("email_message_links")
+    .select("id")
+    .in("message_id", messageIds)
+    .gt("click_count", 0)
+    .gte("first_clicked_at", new Date(sinceMs).toISOString())
+    .limit(1);
+
+  return (clicked ?? []).length > 0;
 }
 
 async function loadContact(

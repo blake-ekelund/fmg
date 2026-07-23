@@ -59,6 +59,33 @@ export function unsubscribeFooterHtml(url: string): string {
 }
 
 /**
+ * The List-Unsubscribe pair for a bulk send (RFC 2369 + RFC 8058).
+ *
+ * These headers are what put the "Unsubscribe" control in Gmail's and Apple
+ * Mail's own UI, next to the sender name — separate from the link in the
+ * footer. Gmail and Yahoo require them from bulk senders and factor them into
+ * spam placement, so they matter for deliverability, not just courtesy.
+ *
+ * `List-Unsubscribe-Post` is the one-click half: the mailbox provider POSTs to
+ * the URL itself, with no human ever loading the page, and expects the opt-out
+ * to be recorded on that POST alone. Our /api/email/unsubscribe POST handler
+ * does exactly that and reads the token from the query string, which is why
+ * the URL must carry `?t=` rather than expecting a form body.
+ *
+ * Only send these on bulk/marketing mail. On a one-to-one reply they'd be
+ * wrong — there is no list to leave.
+ */
+export function listUnsubscribeHeaders(
+  origin: string,
+  payload: UnsubscribePayload,
+): Array<{ name: string; value: string }> {
+  return [
+    { name: "List-Unsubscribe", value: `<${unsubscribeUrl(origin, payload)}>` },
+    { name: "List-Unsubscribe-Post", value: "List-Unsubscribe=One-Click" },
+  ];
+}
+
+/**
  * Which of these addresses have opted out. Returns a Set of lowercased emails.
  *
  * Chunked because the enrollment pass can hand in thousands of candidates and

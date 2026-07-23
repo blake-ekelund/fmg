@@ -61,7 +61,11 @@ type Automation = {
     status_filter?: "active" | "at_risk" | "churned";
     /** Exit rules — checked before every send. */
     exit_on_order?: boolean;
+    exit_on_click?: boolean;
+    /** Legacy name, honoured for configs saved before mail went outbound-only. */
     exit_on_reply?: boolean;
+    /** Needs live inbound ingestion; gated by /api/email/inbound-health. */
+    exit_on_reply_inbound?: boolean;
     exit_on_active?: boolean;
     exit_after_days?: number;
     /** Batching — see the cron runner for the release semantics. */
@@ -172,6 +176,14 @@ export default function AutomationEditor({
   const [testCustomer, setTestCustomer] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  /* Guard rail: reply rules are only offered when inbound mail is genuinely
+     flowing. Otherwise "exit on reply" silently never fires, and "no reply
+     after N days" exits everyone. */
+  const [inbound, setInbound] = useState<{
+    healthy: boolean;
+    everReceived: boolean;
+    reason: string | null;
+  } | null>(null);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -196,6 +208,12 @@ export default function AutomationEditor({
     setRecent((detail.recent as StepSend[]) ?? []);
     setEnrollments((detail.enrollments as Enrollment[]) ?? []);
     setCohorts((detail.cohorts as Cohort[]) ?? []);
+
+    // Non-blocking: a failure here just leaves the reply rule disabled.
+    fetch("/api/email/inbound-health", { headers: await authHeader() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h) => h && setInbound(h))
+      .catch(() => {});
     setAllTemplates((tplJson?.templates as Template[]) ?? []);
   }, [automationId]);
 
@@ -979,10 +997,35 @@ export default function AutomationEditor({
                 hint="Stops win-back mail the moment it works."
               />
               <ExitToggle
-                checked={!!cfg.exit_on_reply}
-                onChange={(v) => updateTriggerConfig({ exit_on_reply: v || undefined })}
+                checked={!!(cfg.exit_on_click ?? cfg.exit_on_reply)}
+                onChange={(v) =>
+                  updateTriggerConfig({
+                    exit_on_click: v || undefined,
+                    exit_on_reply: undefined, // retire the legacy key on edit
+                  })
+                }
+                label="They click a link in the email"
+                hint="They're engaged — stop the sequence and let a rep follow up."
+              />
+
+              {/* Reply rule, gated on inbound actually working. */}
+              <ExitToggle
+                checked={!!cfg.exit_on_reply_inbound}
+                disabled={!inbound?.healthy}
+                onChange={(v) =>
+                  updateTriggerConfig({ exit_on_reply_inbound: v || undefined })
+                }
                 label="They reply to any of our emails"
-                hint="A real conversation has started — hand it to a human."
+                hint={
+                  inbound === null
+                    ? "Checking whether inbound mail is syncing…"
+                    : inbound.healthy
+                      ? inbound.everReceived
+                        ? "A real conversation has started — hand it to a human."
+                        : "Inbound sync is live, but no reply has been received yet."
+                      : (inbound.reason ??
+                        "Unavailable — inbound mail isn't syncing, so replies can't be detected.")
+                }
               />
               <ExitToggle
                 checked={!!cfg.exit_on_active}
@@ -1000,7 +1043,7 @@ export default function AutomationEditor({
                   }
                   className="h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-gray-300 accent-gray-900"
                 />
-                <span className="text-xs text-gray-700">No reply after</span>
+                <span className="text-xs text-gray-700">No clicks after</span>
                 <select
                   value={String(cfg.exit_after_days ?? 30)}
                   disabled={!cfg.exit_after_days}
@@ -2191,23 +2234,38 @@ function ExitToggle({
   onChange,
   label,
   hint,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label: string;
   hint: string;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 transition hover:bg-gray-50">
+    <label
+      className={clsx(
+        "flex items-start gap-2 rounded-lg px-2 py-1.5 transition",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-gray-50",
+      )}
+    >
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-gray-300 accent-gray-900"
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-gray-300 accent-gray-900 disabled:cursor-not-allowed"
       />
       <span className="min-w-0">
         <span className="block text-xs text-gray-700">{label}</span>
-        <span className="block text-[10px] text-gray-400">{hint}</span>
+        <span
+          className={clsx(
+            "block text-[10px]",
+            disabled ? "text-amber-700" : "text-gray-400",
+          )}
+        >
+          {hint}
+        </span>
       </span>
     </label>
   );
