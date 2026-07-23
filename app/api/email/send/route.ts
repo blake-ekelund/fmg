@@ -12,8 +12,13 @@ import {
   type MergeVars,
 } from "@/lib/email/send";
 import { publicOriginFromRequest } from "@/lib/email/origin";
-import { buildTrackedHtmlBody } from "@/lib/email/tracking";
+import {
+  buildTrackedHtmlBody,
+  buildTrackedHtmlFromHtml,
+} from "@/lib/email/tracking";
 import { primaryEmail, parseEmailAddresses } from "@/lib/email/addresses";
+import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
+import type { EmailBlock } from "@/components/templates/types";
 
 export const runtime = "nodejs";
 // Vercel Pro caps serverless functions at ~300s. With concurrency 5 below,
@@ -31,9 +36,15 @@ type SendRequestBody = {
     customer_ref: string;
   }>;
   subject_template: string;
-  body_template: string;
+  body_template?: string;
   /** Plain text or HTML — we send as HTML, escaping is the caller's job. */
   body_format?: "text" | "html";
+  /**
+   * Send a block template from /templates instead of a typed body. The blocks
+   * are rendered to email HTML server-side (never trust a client-rendered
+   * body), so this is mutually exclusive with body_template.
+   */
+  block_template_id?: string;
   /**
    * Optional CC addresses applied to every recipient's email. Accepts a
    * comma/semicolon-separated string; we parse + dedupe server-side.
@@ -121,8 +132,40 @@ function numOrNull(v: unknown): number | null {
 }
 
 /**
+ * Load a block template and render it to email HTML.
+ *
+ * Rendering happens here rather than in the browser on purpose: the HTML we
+ * ship to a customer's inbox is built from the stored blocks by code we
+ * control, so a tampered client can't post arbitrary markup as a "template".
+ */
+async function renderBlockTemplate(
+  id: string,
+): Promise<{ html: string; subject: string | null } | { error: string }> {
+  const { data, error } = await supabaseServer
+    .from("email_templates")
+    .select("name, subject, preview_text, blocks, status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) return { error: `Could not load template: ${error.message}` };
+  if (!data) return { error: "Template not found" };
+
+  const blocks = (data.blocks ?? []) as EmailBlock[];
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    return { error: `Template "${data.name}" has no content blocks yet.` };
+  }
+
+  return {
+    html: renderBlocksToEmailHtml(blocks, {
+      previewText: (data.preview_text as string | null) ?? undefined,
+    }),
+    subject: (data.subject as string | null) ?? null,
+  };
+}
+
+/**
  * POST /api/email/send
- * Body: { recipients, subject_template, body_template, body_format? }
+ * Body: { recipients, subject_template, body_template | block_template_id, body_format?, cc? }
  * Sends one email per recipient (per-customer separate, not group). Returns
  * a job summary the UI can show.
  */
@@ -139,10 +182,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!body.subject_template?.trim()) {
+  if (body.block_template_id && body.body_template?.trim()) {
+    return NextResponse.json(
+      { error: "Send either a block template or a typed body, not both." },
+      { status: 400 },
+    );
+  }
+
+  // Resolve the outgoing body up front: either the caller's typed text, or a
+  // block template rendered here. Everything downstream treats it as a string.
+  let bodyTemplate: string;
+  let bodyFormat: "text" | "html";
+  let subjectTemplate = body.subject_template?.trim() ?? "";
+
+  if (body.block_template_id) {
+    const rendered = await renderBlockTemplate(body.block_template_id);
+    if ("error" in rendered) {
+      return NextResponse.json({ error: rendered.error }, { status: 400 });
+    }
+    bodyTemplate = rendered.html;
+    bodyFormat = "html";
+    // The template carries its own subject; the caller may still override it.
+    if (!subjectTemplate) subjectTemplate = (rendered.subject ?? "").trim();
+  } else {
+    bodyTemplate = body.body_template ?? "";
+    bodyFormat = body.body_format === "html" ? "html" : "text";
+  }
+
+  if (!subjectTemplate) {
     return NextResponse.json({ error: "Subject is required" }, { status: 400 });
   }
-  if (!body.body_template?.trim()) {
+  if (!bodyTemplate.trim()) {
     return NextResponse.json({ error: "Body is required" }, { status: 400 });
   }
   if (!Array.isArray(body.recipients) || body.recipients.length === 0) {
@@ -209,8 +279,8 @@ export async function POST(request: Request) {
     .from("email_send_jobs")
     .insert({
       account_id: accountId,
-      subject_template: body.subject_template,
-      body_template: body.body_template,
+      subject_template: subjectTemplate,
+      body_template: bodyTemplate,
       target_count: body.recipients.length,
       status: "in_progress",
       started_at: new Date().toISOString(),
@@ -252,8 +322,8 @@ export async function POST(request: Request) {
       recipientRow.status = "skipped";
       recipientRow.error_text = "No email address on file";
       // personalized_* columns are NOT NULL — fall back to the template text.
-      recipientRow.personalized_subject = body.subject_template;
-      recipientRow.personalized_body = body.body_template;
+      recipientRow.personalized_subject = subjectTemplate;
+      recipientRow.personalized_body = bodyTemplate;
       failedCount++;
       await supabaseServer.from("email_send_job_recipients").insert(recipientRow);
       return;
@@ -271,19 +341,21 @@ export async function POST(request: Request) {
       daysSinceLastOrder: daysSince(contact.last_order_date),
       ...senderVars,
     };
-    const subject = applyMergeFields(body.subject_template, vars);
-    const bodyContent = applyMergeFields(body.body_template, vars);
+    const subject = applyMergeFields(subjectTemplate, vars);
+    const bodyContent = applyMergeFields(bodyTemplate, vars);
     recipientRow.personalized_subject = subject;
     recipientRow.personalized_body = bodyContent;
 
     // Pre-generate the message id so the tracking pixel URL we embed in the
     // outbound HTML matches the row we'll insert below.
     const messageId = randomUUID();
-    const tracked = buildTrackedHtmlBody({
-      plainText: bodyContent,
-      origin,
-      messageId,
-    });
+    // body_format was declared on this endpoint from the start but never read,
+    // so every send went through the plain-text escaper. Block templates
+    // arrive as finished HTML from lib/email/renderBlocks and must skip it.
+    const tracked =
+      bodyFormat === "html"
+        ? buildTrackedHtmlFromHtml({ html: bodyContent, origin, messageId })
+        : buildTrackedHtmlBody({ plainText: bodyContent, origin, messageId });
 
     try {
       const sent = await sendEmail(accessToken, {

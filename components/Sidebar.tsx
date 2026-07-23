@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { useRef, useCallback, useEffect, useState } from "react";
-import { getNavForRole, type NavSection } from "./navConfig";
+import { getNavForRole, isNavItemActive, type NavSection } from "./navConfig";
+import Logo from "./ui/Logo";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
@@ -44,19 +45,29 @@ export default function Sidebar({
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
 
-  /* Track which sections are open */
-  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
+  const isActive = useCallback(
+    (href: string) => isNavItemActive(pathname, href),
+    [pathname]
+  );
 
-  // Auto-open section containing active page
+  function sectionHasActive(section: NavSection) {
+    return section.items.some((item) => isActive(item.href));
+  }
+
+  /* Sections are open by default — we track the ones the user collapsed, so a
+     first load shows the whole tree instead of a stack of shut accordions. */
+  const [closedSections, setClosedSections] = useState<Set<string>>(new Set());
+
+  // Never leave the section containing the active page collapsed
   useEffect(() => {
     for (const section of sections) {
       if (!section.label) continue;
       const hasActive = section.items.some((item) => isActive(item.href));
       if (hasActive) {
-        setOpenSections((prev) => {
-          if (prev.has(section.label)) return prev;
+        setClosedSections((prev) => {
+          if (!prev.has(section.label)) return prev;
           const next = new Set(prev);
-          next.add(section.label);
+          next.delete(section.label);
           return next;
         });
       }
@@ -64,7 +75,7 @@ export default function Sidebar({
   }, [pathname, sections.length]);
 
   function toggleSection(label: string) {
-    setOpenSections((prev) => {
+    setClosedSections((prev) => {
       const next = new Set(prev);
       if (next.has(label)) next.delete(label);
       else next.add(label);
@@ -114,59 +125,49 @@ export default function Sidebar({
 
   const sidebarWidth = collapsed ? COLLAPSED_WIDTH : width;
 
-  function isActive(href: string) {
-    if (href === "/dashboard") return pathname === "/dashboard";
-    if (href === "/customers")
-      return (
-        pathname === "/customers" ||
-        (pathname.startsWith("/customers/") && !pathname.startsWith("/customers/d2c"))
-      );
-    if (href === "/customers/d2c")
-      return pathname === "/customers/d2c" || pathname.startsWith("/customers/d2c/");
-    const base = href.split("?")[0];
-    if (pathname === base) return true;
-    return pathname.startsWith(base + "/");
-  }
-
-  function sectionHasActive(section: NavSection) {
-    return section.items.some((item) => isActive(item.href));
-  }
-
   return (
     <aside
-      className="hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-[#fafafa] border-r border-gray-200/60 z-40 select-none"
+      className="hidden md:fixed md:inset-y-0 md:left-0 md:flex flex-col bg-brand-900 z-40 select-none"
       style={{
         width: sidebarWidth,
         transition: dragRef.current ? "none" : "width 200ms ease",
       }}
     >
       {/* Header */}
-      <div className="h-14 px-4 flex items-center justify-between shrink-0">
-        {!collapsed && (
-          <span className="font-semibold tracking-tight text-[15px] text-gray-900">
-            FMG
-          </span>
+      <div
+        className={clsx(
+          "h-14 flex items-center shrink-0 border-b border-white/8",
+          collapsed ? "justify-center px-0" : "justify-between px-3"
         )}
+      >
+        {!collapsed && <Logo inverse size={26} className="min-w-0" />}
         <button
-          aria-label="Toggle sidebar"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           onClick={onToggle}
-          className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 transition"
+          className="p-1.5 rounded-md text-white/40 hover:text-white hover:bg-white/10 transition"
         >
           {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-1 px-2 space-y-0.5">
+      {/* Collapsed mode needs overflow visible so the hover flyouts aren't clipped;
+          it's only a column of icons, so it never needs to scroll. */}
+      <nav
+        className={clsx(
+          "nav-rail flex-1 py-2 px-2 space-y-0.5",
+          collapsed ? "overflow-visible" : "overflow-y-auto"
+        )}
+      >
         {sections.map((section) => {
           const isRoot = !section.label;
-          const isOpen = openSections.has(section.label);
+          const isOpen = !closedSections.has(section.label);
           const hasActive = sectionHasActive(section);
 
           /* ─── Root items (Overview) — no dropdown ─── */
           if (isRoot) {
             return (
-              <div key="__root" className="mb-1">
+              <div key="__root" className="mb-2 space-y-0.5">
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const active = isActive(item.href);
@@ -175,14 +176,17 @@ export default function Sidebar({
                       key={item.href}
                       href={item.href}
                       className={clsx(
-                        "flex items-center gap-2.5 rounded-md px-2 py-[7px] text-[13px] transition-colors",
+                        "relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
                         collapsed && "justify-center px-0",
                         active
-                          ? "bg-gray-200/70 text-gray-900 font-medium"
-                          : "text-gray-500 hover:bg-gray-200/40 hover:text-gray-700"
+                          ? "bg-white/12 text-white font-medium"
+                          : "text-white/60 hover:bg-white/8 hover:text-white"
                       )}
                     >
-                      <Icon size={15} className="shrink-0" strokeWidth={active ? 2 : 1.5} />
+                      {active && (
+                        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-accent-500" />
+                      )}
+                      <Icon size={15} className="shrink-0" strokeWidth={active ? 2.2 : 1.6} />
                       {!collapsed && <span className="truncate">{item.label}</span>}
                     </Link>
                   );
@@ -191,24 +195,53 @@ export default function Sidebar({
             );
           }
 
-          /* ─── Collapsed sidebar: just show section icon ─── */
+          /* ─── Collapsed sidebar: section icon links to its first page, and
+                 hovering reveals the full section as a flyout ─── */
           if (collapsed) {
-            const SectionIcon = section.icon;
+            const SectionIcon = section.icon ?? section.items[0].icon;
             return (
-              <div key={section.label} className="flex justify-center py-0.5">
-                {SectionIcon && (
-                  <div
-                    className={clsx(
-                      "p-2 rounded-md transition-colors cursor-pointer",
-                      hasActive
-                        ? "bg-gray-200/70 text-gray-900"
-                        : "text-gray-400 hover:bg-gray-200/40 hover:text-gray-600"
-                    )}
-                    title={section.label}
-                  >
-                    <SectionIcon size={15} />
+              <div key={section.label} className="relative group flex justify-center py-0.5">
+                <Link
+                  href={section.items[0].href}
+                  aria-label={section.label}
+                  className={clsx(
+                    "relative p-2 rounded-lg transition-colors",
+                    hasActive
+                      ? "bg-white/12 text-white"
+                      : "text-white/50 hover:bg-white/8 hover:text-white"
+                  )}
+                >
+                  {hasActive && (
+                    <span className="absolute left-[-8px] top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-accent-500" />
+                  )}
+                  <SectionIcon size={15} />
+                </Link>
+
+                {/* Flyout */}
+                <div className="absolute left-full top-0 ml-2 hidden group-hover:block z-50 min-w-[190px] rounded-xl border border-line bg-surface shadow-overlay p-1.5">
+                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
+                    {section.label}
                   </div>
-                )}
+                  {section.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = isActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={clsx(
+                          "flex items-center gap-2.5 rounded-lg px-2 py-[7px] text-[13px] transition-colors",
+                          active
+                            ? "bg-brand-50 text-brand-700 font-medium"
+                            : "text-ink-secondary hover:bg-surface-muted hover:text-ink"
+                        )}
+                      >
+                        <Icon size={14} className="shrink-0" strokeWidth={active ? 2 : 1.5} />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
             );
           }
@@ -220,10 +253,10 @@ export default function Sidebar({
               <button
                 onClick={() => toggleSection(section.label)}
                 className={clsx(
-                  "flex items-center gap-1.5 w-full rounded-md px-2 py-[5px] text-[11px] font-medium uppercase tracking-wider transition-colors",
+                  "flex items-center gap-1.5 w-full rounded-md px-2 py-[6px] text-[10px] font-semibold uppercase tracking-[0.12em] transition-colors",
                   hasActive
-                    ? "text-gray-500"
-                    : "text-gray-400 hover:text-gray-500"
+                    ? "text-white/70"
+                    : "text-white/35 hover:text-white/60"
                 )}
               >
                 <ChevronRight
@@ -253,16 +286,19 @@ export default function Sidebar({
                         key={item.href}
                         href={item.href}
                         className={clsx(
-                          "flex items-center gap-2.5 rounded-md px-2 pl-[22px] py-[6px] text-[13px] transition-colors",
+                          "relative flex items-center gap-2.5 rounded-lg px-2 pl-[22px] py-[7px] text-[13px] transition-colors",
                           active
-                            ? "bg-gray-200/70 text-gray-900 font-medium"
-                            : "text-gray-500 hover:bg-gray-200/40 hover:text-gray-700"
+                            ? "bg-white/12 text-white font-medium"
+                            : "text-white/60 hover:bg-white/8 hover:text-white"
                         )}
                       >
+                        {active && (
+                          <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-accent-500" />
+                        )}
                         <Icon
                           size={14}
                           className="shrink-0"
-                          strokeWidth={active ? 2 : 1.5}
+                          strokeWidth={active ? 2.2 : 1.6}
                         />
                         <span className="truncate">{item.label}</span>
                       </Link>
@@ -276,11 +312,11 @@ export default function Sidebar({
       </nav>
 
       {/* Logout */}
-      <div className="px-2 pb-3 shrink-0 pt-2 border-t border-gray-200/60">
+      <div className="px-2 pb-3 shrink-0 pt-2 border-t border-white/8">
         <button
           onClick={handleLogout}
           className={clsx(
-            "flex items-center gap-2.5 rounded-md px-2 py-[7px] text-[13px] transition-colors text-gray-400 hover:bg-gray-200/40 hover:text-gray-600 w-full",
+            "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors text-white/45 hover:bg-white/8 hover:text-white w-full",
             collapsed && "justify-center px-0"
           )}
         >
@@ -293,11 +329,11 @@ export default function Sidebar({
       {!collapsed && (
         <div
           onMouseDown={startDrag}
-          className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize group hover:bg-gray-300/40 transition-colors"
+          className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize group hover:bg-accent-500/60 transition-colors"
           title="Drag to resize"
         >
           <div className="absolute top-1/2 -translate-y-1/2 right-0 translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <GripVertical size={10} className="text-gray-400" />
+            <GripVertical size={10} className="text-white/50" />
           </div>
         </div>
       )}

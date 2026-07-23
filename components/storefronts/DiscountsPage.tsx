@@ -185,6 +185,9 @@ export default function DiscountsPage() {
   const [uniqueCodes, setUniqueCodes] = useState(false);
   const [genCount, setGenCount] = useState("");
   const [saving, setSaving] = useState(false);
+  /* Save failures render inside the dialog — the page-level banner sits behind
+     the overlay, so routing form errors there would hide them. */
+  const [formError, setFormError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -305,7 +308,9 @@ export default function DiscountsPage() {
   const clampedPage = Math.min(page, pageCount - 1);
   const paged = filtered.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
-  function resetForm() {
+  /* Stable identities so the dialog's Escape-key effect doesn't re-subscribe
+     on every render. Every setter here is already stable. */
+  const resetForm = useCallback(() => {
     setEditingId(null);
     setCode("");
     setBrand("both");
@@ -318,21 +323,39 @@ export default function DiscountsPage() {
     setPerCustomerLimit("");
     setUniqueCodes(false);
     setGenCount("");
-  }
+  }, []);
 
-  function closeForm() {
+  const closeForm = useCallback(() => {
     setShowForm(false);
+    setFormError(null);
     resetForm();
-  }
+  }, [resetForm]);
 
   function toggleForm() {
     if (showForm) {
       closeForm();
     } else {
       resetForm();
+      setFormError(null);
       setShowForm(true);
     }
   }
+
+  /* Dialog behaviour: Escape closes, and the page behind stops scrolling.
+     Both are suppressed mid-save so a stray keypress can't strand a request. */
+  useEffect(() => {
+    if (!showForm) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !saving) closeForm();
+    }
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [showForm, saving, closeForm]);
 
   function beginEdit(d: Discount) {
     setEditingId(d.id);
@@ -348,16 +371,18 @@ export default function DiscountsPage() {
     setUniqueCodes(d.unique_codes);
     setGenCount("");
     setError(null);
+    setFormError(null);
     setShowForm(true);
   }
 
   async function submitForm() {
     // Friendly guard: an end date before the start date is almost always a typo.
     if (startsAt && endsAt && endsAt < startsAt) {
-      setError("The end date can't be before the start date.");
+      setFormError("The end date can't be before the start date.");
       return;
     }
     setSaving(true);
+    setFormError(null);
     try {
       const payload = {
         code,
@@ -379,7 +404,7 @@ export default function DiscountsPage() {
       });
       const json = await res.json();
       if (!res.ok) {
-        setError(json?.error ?? `Failed (${res.status})`);
+        setFormError(json?.error ?? `Failed (${res.status})`);
         return;
       }
 
@@ -553,184 +578,225 @@ export default function DiscountsPage() {
       ) : null}
 
       {showForm ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <h2 className="text-sm font-medium text-gray-900">
-            {editingId ? "Edit discount code" : "New discount code"}
-          </h2>
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">
-                {uniqueCodes ? "Batch name (prefix)" : "Code"}
-              </label>
-              <input
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder={uniqueCodes ? "INFLUENCER" : "GLOWUP15"}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm uppercase focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 sm:items-center"
+          onClick={() => {
+            if (!saving) closeForm();
+          }}
+        >
+          <div
+            className="my-auto w-full max-w-3xl rounded-xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingId ? "Edit discount code" : "New discount code"}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
+              <h2 className="text-sm font-semibold text-gray-900">
+                {editingId ? "Edit discount code" : "New discount code"}
+              </h2>
+              <button
+                type="button"
+                onClick={closeForm}
+                disabled={saving}
+                aria-label="Close"
+                className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">Brand</label>
-              <div className="flex gap-1.5">
-                {(["Sassy", "NI", "both"] as const).map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => setBrand(b)}
-                    className={clsx(
-                      "flex-1 rounded-lg border px-2 py-2 text-xs font-medium transition",
-                      brand === b
-                        ? "border-gray-900 bg-gray-900 text-white"
-                        : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
-                    )}
-                  >
-                    {b === "both" ? "Both" : b}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">Amount</label>
-              <div className="flex gap-1.5">
-                <select
-                  value={kind}
-                  onChange={(e) => setKind(e.target.value as Discount["kind"])}
-                  className="rounded-lg border border-gray-200 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-                >
-                  <option value="percent">% off</option>
-                  <option value="fixed">$ off</option>
-                </select>
-                <input
-                  value={value}
-                  onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, ""))}
-                  placeholder={kind === "percent" ? "15" : "10.00"}
-                  inputMode="decimal"
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">
-                Minimum subtotal (optional)
-              </label>
-              <input
-                value={minSubtotal}
-                onChange={(e) =>
-                  setMinSubtotal(e.target.value.replace(/[^\d.]/g, ""))
-                }
-                placeholder="50"
-                inputMode="decimal"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">
-                Starts (optional)
-              </label>
-              <input
-                type="date"
-                value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">
-                Ends (optional)
-              </label>
-              <input
-                type="date"
-                value={endsAt}
-                min={startsAt || undefined}
-                onChange={(e) => setEndsAt(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">
-                Max uses per customer (optional)
-              </label>
-              <input
-                value={perCustomerLimit}
-                onChange={(e) => setPerCustomerLimit(e.target.value.replace(/[^\d]/g, ""))}
-                placeholder="Unlimited"
-                inputMode="numeric"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="text-xs font-medium text-gray-500">
-                Internal note (optional)
-              </label>
-              <input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="newsletter welcome offer"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-          </div>
 
-          {/* Unique single-use code batch (only when creating) */}
-          {!editingId ? (
-            <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50/60 p-3">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={uniqueCodes}
-                  onChange={(e) => setUniqueCodes(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400"
-                />
-                Unique one-time codes — generate a batch of single-use codes
-              </label>
-              {uniqueCodes ? (
-                <div className="mt-3 flex flex-wrap items-end gap-3 pl-6">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-gray-500">
-                      How many to generate
-                    </label>
+            {/* Body — scrolls independently so the footer stays reachable
+                on short screens. */}
+            <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">
+                    {uniqueCodes ? "Batch name (prefix)" : "Code"}
+                  </label>
+                  <input
+                    autoFocus
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                    placeholder={uniqueCodes ? "INFLUENCER" : "GLOWUP15"}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm uppercase focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">Brand</label>
+                  <div className="flex gap-1.5">
+                    {(["Sassy", "NI", "both"] as const).map((b) => (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => setBrand(b)}
+                        className={clsx(
+                          "flex-1 rounded-lg border px-2 py-2 text-xs font-medium transition",
+                          brand === b
+                            ? "border-gray-900 bg-gray-900 text-white"
+                            : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                        )}
+                      >
+                        {b === "both" ? "Both" : b}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">Amount</label>
+                  <div className="flex gap-1.5">
+                    <select
+                      value={kind}
+                      onChange={(e) => setKind(e.target.value as Discount["kind"])}
+                      className="rounded-lg border border-gray-200 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                    >
+                      <option value="percent">% off</option>
+                      <option value="fixed">$ off</option>
+                    </select>
                     <input
-                      value={genCount}
-                      onChange={(e) => setGenCount(e.target.value.replace(/[^\d]/g, ""))}
-                      placeholder="100"
-                      inputMode="numeric"
-                      className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
+                      value={value}
+                      onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, ""))}
+                      placeholder={kind === "percent" ? "15" : "10.00"}
+                      inputMode="decimal"
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
                     />
                   </div>
-                  <p className="max-w-md text-xs text-gray-400">
-                    Each shopper gets a one-time code like{" "}
-                    <code className="rounded bg-gray-100 px-1 py-0.5">
-                      {(code || "SAVE")}-7K2QX9
-                    </code>
-                    . The amount/dates above apply to the whole batch. You can
-                    generate more later.
-                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">
+                    Minimum subtotal (optional)
+                  </label>
+                  <input
+                    value={minSubtotal}
+                    onChange={(e) =>
+                      setMinSubtotal(e.target.value.replace(/[^\d.]/g, ""))
+                    }
+                    placeholder="50"
+                    inputMode="decimal"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">
+                    Starts (optional)
+                  </label>
+                  <input
+                    type="date"
+                    value={startsAt}
+                    onChange={(e) => setStartsAt(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">
+                    Ends (optional)
+                  </label>
+                  <input
+                    type="date"
+                    value={endsAt}
+                    min={startsAt || undefined}
+                    onChange={(e) => setEndsAt(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">
+                    Max uses per customer (optional)
+                  </label>
+                  <input
+                    value={perCustomerLimit}
+                    onChange={(e) => setPerCustomerLimit(e.target.value.replace(/[^\d]/g, ""))}
+                    placeholder="Unlimited"
+                    inputMode="numeric"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <label className="text-xs font-medium text-gray-500">
+                    Internal note (optional)
+                  </label>
+                  <input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="newsletter welcome offer"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                </div>
+              </div>
+
+              {/* Unique single-use code batch (only when creating) */}
+              {!editingId ? (
+                <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={uniqueCodes}
+                      onChange={(e) => setUniqueCodes(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400"
+                    />
+                    Unique one-time codes — generate a batch of single-use codes
+                  </label>
+                  {uniqueCodes ? (
+                    <div className="mt-3 flex flex-wrap items-end gap-3 pl-6">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-gray-500">
+                          How many to generate
+                        </label>
+                        <input
+                          value={genCount}
+                          onChange={(e) => setGenCount(e.target.value.replace(/[^\d]/g, ""))}
+                          placeholder="100"
+                          inputMode="numeric"
+                          className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
+                        />
+                      </div>
+                      <p className="max-w-md text-xs text-gray-400">
+                        Each shopper gets a one-time code like{" "}
+                        <code className="rounded bg-gray-100 px-1 py-0.5">
+                          {(code || "SAVE")}-7K2QX9
+                        </code>
+                        . The amount/dates above apply to the whole batch. You can
+                        generate more later.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <p className="mt-3 text-xs text-gray-400">
+                Leave the dates blank for an always-on code. Dates follow your local
+                day — a start applies from midnight, an end lasts through the whole day.
+              </p>
+
+              {formError ? (
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  {formError}
                 </div>
               ) : null}
             </div>
-          ) : null}
 
-          <p className="mt-3 text-xs text-gray-400">
-            Leave the dates blank for an always-on code. Dates follow your local
-            day — a start applies from midnight, an end lasts through the whole day.
-          </p>
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={closeForm}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!code.trim() || !value || saving}
-              onClick={submitForm}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {saving ? <Loader2 size={13} className="animate-spin" /> : null}
-              {editingId ? "Save changes" : uniqueCodes ? "Create batch" : "Create code"}
-            </button>
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-3">
+              <button
+                type="button"
+                onClick={closeForm}
+                disabled={saving}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-100 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!code.trim() || !value || saving}
+                onClick={submitForm}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {saving ? <Loader2 size={13} className="animate-spin" /> : null}
+                {editingId ? "Save changes" : uniqueCodes ? "Create batch" : "Create code"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -894,7 +960,7 @@ export default function DiscountsPage() {
                                   className={clsx(
                                     "flex h-5 w-5 items-center justify-center rounded-md border transition",
                                     d.active
-                                      ? "border-green-500 bg-green-500 text-white"
+                                      ? "border-brand-700 bg-brand-700 text-white"
                                       : "border-gray-300 bg-white text-transparent hover:border-gray-400"
                                   )}
                                 >

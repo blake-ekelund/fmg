@@ -19,6 +19,7 @@ type Form = {
   agencyCode: string;
   email: string;
   phone: string;
+  address: string;
   city: string;
   state: string;
   zip: string;
@@ -32,6 +33,7 @@ const EMPTY: Form = {
   agencyCode: "",
   email: "",
   phone: "",
+  address: "",
   city: "",
   state: "",
   zip: "",
@@ -69,6 +71,7 @@ export default function RepFormModal({ open, onClose, rep, onSaved }: Props) {
         agencyCode: rep.agencyCode ? String(rep.agencyCode) : "",
         email: rep.email,
         phone: rep.phone,
+        address: rep.address ?? "",
         city: rep.city,
         state: rep.state,
         zip: rep.zip,
@@ -100,6 +103,7 @@ export default function RepFormModal({ open, onClose, rep, onSaved }: Props) {
         agency_code: form.agencyCode.trim() === "" ? null : Number(form.agencyCode),
         email: form.email,
         phone: form.phone,
+        address: form.address,
         city: form.city,
         state: form.state,
         zip: form.zip,
@@ -217,6 +221,17 @@ export default function RepFormModal({ open, onClose, rep, onSaved }: Props) {
                 className={fieldCls}
               />
             </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>Street address</label>
+            <input
+              value={form.address}
+              onChange={(e) => set("address", e.target.value)}
+              placeholder="1234 Market St, Suite 200"
+              autoComplete="street-address"
+              className={fieldCls}
+            />
           </div>
 
           <div className="grid grid-cols-6 gap-3">

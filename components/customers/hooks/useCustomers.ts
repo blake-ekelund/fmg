@@ -2,6 +2,11 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
 import type { Customer } from "../types";
+import {
+  orIlikeClauses,
+  getStatusCutoffs,
+  type CustomerStats,
+} from "./queryHelpers";
 
 /**
  * Represents a Supabase PostgREST query builder that supports
@@ -40,18 +45,6 @@ type Params = {
   enabled?: boolean;
 };
 
-function getDateCutoffs() {
-  const now = new Date();
-
-  const active = new Date(now);
-  active.setDate(now.getDate() - 180);
-
-  const risk = new Date(now);
-  risk.setDate(now.getDate() - 365);
-
-  return { active, risk };
-}
-
 /* -------------------------------------------------- */
 /* Shared Filter Builder */
 /* -------------------------------------------------- */
@@ -66,17 +59,12 @@ export function applyFilters<T extends FilterableQuery<T>>(
   spendBucket?: WholesaleSpendBucket,
   states?: string[],
 ): T {
-  if (search) {
-    const q = search.trim();
-
+  if (search.trim()) {
     query = query.or(
-      [
-        `name.ilike.%${q}%`,
-        `customerid.ilike.%${q}%`,
-        `bill_to_state.ilike.%${q}%`,
-        `agency_code.ilike.%${q}%`,
-        `rep_name.ilike.%${q}%`,
-      ].join(",")
+      orIlikeClauses(
+        ["name", "customerid", "bill_to_state", "agency_code", "rep_name"],
+        search,
+      ),
     );
   }
 
@@ -93,7 +81,7 @@ export function applyFilters<T extends FilterableQuery<T>>(
   }
 
   if (status) {
-    const { active, risk } = getDateCutoffs();
+    const { active, risk } = getStatusCutoffs();
 
     if (status === "active") {
       query = query.gte(
@@ -174,7 +162,8 @@ export function useCustomers({
     useState<{ label: string; value: string }[]>([]);
   const [stateOptions, setStateOptions] =
     useState<{ label: string; value: string }[]>([]);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<CustomerStats>({
+    all: 0,
     active: 0,
     atRisk: 0,
     churned: 0,
@@ -228,76 +217,62 @@ export function useCustomers({
         await tableQuery;
 
       /* ---------------------------
-         STATS QUERY (Full Dataset)
+         STATS (exact, uncapped)
+
+         One head-only count per status bucket. The previous version pulled
+         last_order_date for up to 5,000 matching rows and bucketed them in
+         JS, which both transferred a lot of data and silently under-counted
+         once a filter matched more than the cap. `head: true` transfers no
+         rows at all and the count is exact however large the table gets.
+
+         Counts reflect the rest of the filter selection but ignore the status
+         dimension, so the Active / At Risk / Churned numbers stay meaningful
+         whichever one is currently selected.
       ---------------------------- */
 
-      let statsQuery = supabase
-        .from("customer_summary")
-        .select("last_order_date")
-        .range(0, 4999);
-
-      // Stats reflect the rest of the filter selection but ignore the status
-      // dimension so the All / Active / At Risk / Churned counts remain
-      // meaningful regardless of which one is selected.
-      statsQuery = applyFilters(
-        statsQuery,
-        search,
-        "",
-        channel,
-        agency,
-        repeatOnly,
-        spendBucket,
-        states,
-      );
-
-      if (brand !== "all") {
-        statsQuery = statsQuery.ilike("brands_purchased", `%${brand}%`);
+      function countFor(bucket: "" | "active" | "at_risk" | "churned") {
+        let q = supabase
+          .from("customer_summary")
+          .select("customerid", { count: "exact", head: true });
+        q = applyFilters(
+          q,
+          search,
+          bucket,
+          channel,
+          agency,
+          repeatOnly,
+          spendBucket,
+          states,
+        );
+        if (brand !== "all") {
+          q = q.ilike("brands_purchased", `%${brand}%`);
+        }
+        return q;
       }
 
-      const { data: statsData } =
-        await statsQuery;
+      const [allRes, activeRes, atRiskRes, churnedRes] = await Promise.all([
+        countFor(""),
+        countFor("active"),
+        countFor("at_risk"),
+        countFor("churned"),
+      ]);
 
       if (!cancelled) {
         if (error) {
           console.error(error);
+          // Surface the failure instead of leaving the previous page's rows
+          // on screen looking like a valid result for the new filters.
+          setCustomers([]);
+          setTotalCount(0);
+          setStats({ all: 0, active: 0, atRisk: 0, churned: 0 });
         } else {
           setCustomers((data as Customer[]) ?? []);
           setTotalCount(count ?? 0);
-
-          const full = statsData ?? [];
-
-          const now = new Date();
-
-          const activeCutoff = new Date(now);
-          activeCutoff.setDate(now.getDate() - 180);
-
-          const riskCutoff = new Date(now);
-          riskCutoff.setDate(now.getDate() - 365);
-
-          let activeCount = 0;
-          let atRiskCount = 0;
-          let churnedCount = 0;
-
-          for (const c of full) {
-            if (!c.last_order_date) {
-              continue;
-            }
-
-            const d = new Date(c.last_order_date);
-
-            if (d >= activeCutoff) {
-              activeCount++;
-            } else if (d >= riskCutoff) {
-              atRiskCount++;
-            } else {
-              churnedCount++;
-            }
-          }
-
           setStats({
-            active: activeCount,
-            atRisk: atRiskCount,
-            churned: churnedCount,
+            all: allRes.count ?? 0,
+            active: activeRes.count ?? 0,
+            atRisk: atRiskRes.count ?? 0,
+            churned: churnedRes.count ?? 0,
           });
         }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { requireRep } from "@/lib/email/server-auth";
+import { resolvePortalAgency } from "@/lib/email/server-auth";
 
 export const runtime = "nodejs";
 
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
  * customer set. Agency is taken from the profile (requireRep) — never the client.
  */
 export async function GET(request: Request) {
-  const rep = await requireRep(request);
+  const rep = await resolvePortalAgency(request);
   if (!rep) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const agency = String(rep.agencyCode);

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import clsx from "clsx";
@@ -20,8 +20,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Fragrance Marketing Group",
-  description: "FMG internal site",
+  title: {
+    default: "FMG Portal",
+    template: "%s · FMG Portal",
+  },
+  description:
+    "Fragrance Marketing Group's internal portal — inventory forecasting, sales analysis, storefront management, marketing and team operations in one place.",
+  applicationName: "FMG Portal",
+};
+
+export const viewport: Viewport = {
+  // Matches --color-brand-900, so mobile browser chrome blends into the nav bar.
+  themeColor: "#10293a",
 };
 
 export default function RootLayout({
@@ -36,7 +46,7 @@ export default function RootLayout({
         className={clsx(
           geistSans.variable,
           geistMono.variable,
-          "antialiased bg-white text-black"
+          "antialiased bg-surface-muted text-ink"
         )}
       >
         <AuthGate>

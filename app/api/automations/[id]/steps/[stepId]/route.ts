@@ -5,7 +5,8 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 export const runtime = "nodejs";
 
 type PatchBody = {
-  template_id?: string;
+  /** null clears the template — the step keeps its place as "Add later". */
+  template_id?: string | null;
   delay_days?: number;
   step_order?: number;
 };

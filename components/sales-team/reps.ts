@@ -12,6 +12,12 @@ export type SalesRep = {
   /** Lowercased; empty string when none is on file. */
   email: string;
   phone: string;
+  /**
+   * Street line. Optional because the built-in roster below predates the field
+   * and has never carried one — DB-backed reps always get a string (possibly
+   * empty) from `fromRow`.
+   */
+  address?: string;
   city: string;
   state: string;
   zip: string;

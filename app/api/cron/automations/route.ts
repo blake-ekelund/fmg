@@ -13,9 +13,34 @@ import {
 } from "@/lib/email/send";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
 import { parseEmailAddresses } from "@/lib/email/addresses";
+import {
+  findSuppressed,
+  isSuppressed,
+  unsubscribeUrl,
+  unsubscribeFooterHtml,
+} from "@/lib/email/unsubscribe";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+/**
+ * Intended run times, in Eastern local time. Vercel cron schedules are UTC and
+ * have no timezone support, so vercel.json lists both the EDT and EST hours
+ * (11:45/12:45 and 19:45/20:45 UTC) and this guard discards the one that isn't
+ * the real local time for the current season. Without it the job would drift an
+ * hour every daylight-saving change.
+ */
+const RUN_HOURS_ET = [7, 15];
+
+/** Hour of day right now in America/New_York, DST handled by the runtime. */
+function easternHour(now: Date = new Date()): number {
+  const s = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    hour12: false,
+  }).format(now);
+  return Number(s);
+}
 
 // Caps to keep a single cron run bounded.
 const MAX_NEW_ENROLLMENTS_PER_AUTOMATION = 200;
@@ -44,9 +69,36 @@ type Automation = {
     recurring?: Recurring;
     // filters (shared)
     min_spend?: number;
+    /** Legacy single-value filters, still honoured for un-migrated configs. */
     channel?: string;
     state?: string;
+    /** Multi-select filters written by the editor. Empty/absent = any. */
+    channels?: string[];
+    states?: string[];
     status_filter?: "active" | "at_risk" | "churned";
+    /* ── Exit rules — "remove the customer from this flow if…" ──
+       Evaluated before every send, so a customer who converts mid-sequence
+       stops hearing from it instead of receiving the rest of the win-back. */
+    exit_on_order?: boolean;   // placed an order since enrolling
+    exit_on_reply?: boolean;   // replied to any of our email since enrolling
+    exit_on_active?: boolean;  // is back to "active" status
+    exit_after_days?: number;  // still here after N days with no reply
+    /* ── Batching ──
+       'continuous' (default) enrolls whoever became eligible since the last
+       run — a trickle. 'cohort' holds them back and releases everyone waiting
+       on one weekday as a numbered group, so each batch is a comparable unit
+       for testing subject lines and offers. */
+    batch_mode?: "continuous" | "cohort";
+    batch_weekday?: number;       // 0=Sun … 6=Sat, default Monday
+    batch_label_prefix?: string;  // "Wholesale At Risk" → "Wholesale At Risk 1000"
+    batch_start_number?: number;  // first cohort number, default 1000
+    batch_size?: number;          // optional cap; the remainder waits for next release
+    /* ── Test batches ──
+       Enroll real customers and run the real sequence, but deliver every
+       message to test_email instead of the customer. Enrollments are marked
+       is_test so they never block the live campaign. */
+    test_mode?: boolean;
+    test_email?: string;
   };
   sender_user_id: string | null;
 };
@@ -57,7 +109,7 @@ type Step = {
   id: string;
   automation_id: string;
   step_order: number;
-  template_id: string;
+  template_id: string | null;
   delay_days: number;
 };
 
@@ -75,6 +127,10 @@ type Enrollment = {
   customer_name: string | null;
   customer_email: string | null;
   next_step_order: number | null;
+  /** Used by the exit rules to measure elapsed time and "since enrolling". */
+  enrolled_at: string;
+  /** Created by a test batch: mail is redirected, never sent to the customer. */
+  is_test: boolean;
 };
 
 type ContactRow = {
@@ -117,6 +173,22 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const dry = url.searchParams.get("dry") === "1";
 
+  /* Discard the off-season firing. Applies ONLY to the scheduled call — a
+     signed-in "Run now" or a dry-run preview must work at any hour. */
+  if (isCronCall && !dry && !RUN_HOURS_ET.includes(easternHour())) {
+    return NextResponse.json({
+      skipped: true,
+      reason: `Not a scheduled Eastern run hour (now ${easternHour()}:00 ET, expected ${RUN_HOURS_ET.join(
+        " or ",
+      )}:45)`,
+    });
+  }
+  /* Scope a manual "Run now" to one automation. Only meaningful for the
+     signed-in path — the scheduled call never passes it, so the nightly pass
+     still covers everything. Without this, a Run-now button would fire every
+     live automation in the account as a side effect. */
+  const onlyAutomationId = isCronCall ? null : url.searchParams.get("automation");
+
   /* ── 1) Load automations + their steps ──
      In dry mode include disabled automations too so the UI's "Preview
      eligible" button shows real numbers before the user enables. */
@@ -124,6 +196,7 @@ export async function GET(request: Request) {
     .from("automations")
     .select("id, name, enabled, trigger_type, trigger_config, sender_user_id");
   if (!dry) autosQuery = autosQuery.eq("enabled", true);
+  if (onlyAutomationId) autosQuery = autosQuery.eq("id", onlyAutomationId);
   const { data: autos } = await autosQuery;
   const automations = (autos as Automation[] | null) ?? [];
 
@@ -146,6 +219,8 @@ export async function GET(request: Request) {
 
   /* ── 2) Enroll new candidates for each automation ── */
   let totalEnrolled = 0;
+  /** Surfaced in the response — see the insert below for why. */
+  const enrollErrors: string[] = [];
   // In dry mode, accumulate a sample of who would be enrolled so the UI
   // can show the user the actual customer list, not just a count.
   const sampleCandidates: Array<{
@@ -172,25 +247,61 @@ export async function GET(request: Request) {
     const candidates = await findTriggerCandidates(a, { dry });
     if (candidates.length === 0) continue;
 
-    // Filter out anyone already enrolled in this automation.
+    /* Filter out anyone already enrolled — but only within the SAME mode.
+       A customer used in a test batch must remain available for the real
+       campaign, and vice versa. */
+    const isTestRun = a.trigger_config?.test_mode === true;
     const refs = candidates.map((c) => c.customer_ref);
     const { data: existing } = await supabaseServer
       .from("automation_enrollments")
       .select("customer_ref")
       .eq("automation_id", a.id)
+      .eq("is_test", isTestRun)
       .in("customer_ref", refs);
     const enrolledSet = new Set(
       (existing ?? []).map((r) => (r as { customer_ref: string }).customer_ref),
     );
 
+    /* Never enroll someone who has opted out. Filtering here (rather than only
+       at send time) keeps them out of the enrollment table entirely, so the
+       preview counts and the card stats reflect who we can actually mail. */
+    const suppressed = await findSuppressed(
+      candidates.map((c) => c.email ?? "").filter(Boolean),
+    );
+
     const eligible = candidates.filter(
-      (c) => !enrolledSet.has(c.customer_ref) && !!c.email,
+      (c) =>
+        !enrolledSet.has(c.customer_ref) &&
+        !!c.email &&
+        !suppressed.has(c.email.trim().toLowerCase()),
     );
     if (eligible.length === 0) continue;
 
     if (!dry) {
-      // Live mode: cap at MAX_NEW_ENROLLMENTS_PER_AUTOMATION so cron stays bounded.
-      const toEnroll = eligible.slice(0, MAX_NEW_ENROLLMENTS_PER_AUTOMATION);
+      const cfgA = a.trigger_config ?? {};
+
+      if (cfgA.batch_mode === "cohort") {
+        /* Hold everyone until release day. They stay eligible in the meantime,
+           so nobody is lost — the pool simply grows until the weekday hits. */
+        const releaseDay = cfgA.batch_weekday ?? 1; // Monday
+        if (new Date().getUTCDay() !== releaseDay) continue;
+      }
+
+      /* EVERY group of enrollments gets a cohort number, in both modes.
+         Previously only weekly-batch releases were numbered, so a continuous
+         run wrote NULLs and became invisible on Cohort Results — you could run
+         a whole test batch and find nothing to look at. Weekly batches now
+         means "one group per release day"; continuous means "one group per
+         run". Either way the results page has something to group by. */
+      const cohort = await nextCohort(a);
+
+      // Cap the batch, then the global per-run cap. Anything over the line
+      // stays eligible and joins the next release.
+      const cap = Math.min(
+        cfgA.batch_size && cfgA.batch_size > 0 ? cfgA.batch_size : Infinity,
+        MAX_NEW_ENROLLMENTS_PER_AUTOMATION,
+      );
+      const toEnroll = eligible.slice(0, cap);
       const rows = toEnroll.map((c) => ({
         automation_id: a.id,
         customer_type: c.audience_side,
@@ -200,9 +311,23 @@ export async function GET(request: Request) {
         next_step_order: 1,
         next_send_at: new Date().toISOString(),
         status: "enrolled" as const,
+        cohort_label: cohort
+          ? isTestRun
+            ? `${cohort.label} (test)`
+            : cohort.label
+          : null,
+        cohort_number: cohort?.number ?? null,
+        is_test: isTestRun,
       }));
       const { error } = await supabaseServer.from("automation_enrollments").insert(rows);
-      if (!error) totalEnrolled += rows.length;
+      if (error) {
+        /* Was silently discarded. A failed insert — a missing column after an
+           unapplied migration, say — looked exactly like "nobody qualified",
+           which is impossible to debug from the outside. */
+        enrollErrors.push(`${a.name}: ${error.message}`);
+      } else {
+        totalEnrolled += rows.length;
+      }
     } else {
       // Dry mode: count the full eligible set + tally email-quality issues
       // across the whole pool, but only sample the first N for the panel.
@@ -227,10 +352,10 @@ export async function GET(request: Request) {
   }
 
   /* ── 3) Process due enrollments ── */
-  const { data: dueRows } = await supabaseServer
+  const { data: dueRows, error: dueErr } = await supabaseServer
     .from("automation_enrollments")
     .select(
-      "id, automation_id, customer_type, customer_ref, customer_name, customer_email, next_step_order",
+      "id, automation_id, customer_type, customer_ref, customer_name, customer_email, next_step_order, enrolled_at, is_test",
     )
     .eq("status", "enrolled")
     .lte("next_send_at", new Date().toISOString())
@@ -260,7 +385,7 @@ export async function GET(request: Request) {
     const step = steps.find((s) => s.step_order === e.next_step_order);
     if (step) {
       stepIds.add(step.id);
-      templateIds.add(step.template_id);
+      if (step.template_id) templateIds.add(step.template_id);
     }
   }
   const { data: tplRows } = await supabaseServer
@@ -287,6 +412,8 @@ export async function GET(request: Request) {
   let sentCount = 0;
   let failedCount = 0;
   let completedCount = 0;
+  // Enrollments stopped early by an exit rule or an unsubscribe.
+  let exitedCount = 0;
 
   const origin =
     (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "") ||
@@ -353,6 +480,12 @@ export async function GET(request: Request) {
         completedCount++;
         return;
       }
+      /* A step with no template ("Add later") is not an error — the editor
+         won't let such an automation be turned on, but an in-flight enrollment
+         could still reach one if a template was cleared mid-run. Leave the
+         enrollment alone so it resumes once the email is filled in. */
+      if (!step.template_id) return;
+
       const tpl = templates.get(step.template_id);
       if (!tpl) {
         await supabaseServer
@@ -388,6 +521,43 @@ export async function GET(request: Request) {
       // Load customer details for merge fields. One row per send is fine for
       // the cron's volume — pre-batching is a follow-up if this gets slow.
       const contact = await loadContact(e.customer_type, e.customer_ref);
+
+      /* Opted out since enrolling — stop here. The enrollment filter catches
+         this at enrollment time, but a customer can unsubscribe mid-sequence. */
+      /* Check whoever will actually receive this — the tester on a test batch,
+         the customer otherwise. */
+      const suppressionTarget = e.is_test
+        ? (auto.trigger_config?.test_email ?? e.customer_email)
+        : e.customer_email;
+      if (await isSuppressed(suppressionTarget)) {
+        await supabaseServer
+          .from("automation_enrollments")
+          .update({
+            status: "unsubscribed",
+            exit_reason: "Unsubscribed",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", e.id);
+        exitedCount++;
+        return;
+      }
+
+      /* Exit rules — "remove customer if…". Checked before every send so a
+         customer who converts stops receiving the rest of the sequence. */
+      const exitReason = await evaluateExit(e, auto.trigger_config ?? {}, contact);
+      if (exitReason) {
+        await supabaseServer
+          .from("automation_enrollments")
+          .update({
+            status: "exited",
+            exit_reason: exitReason,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", e.id);
+        exitedCount++;
+        return;
+      }
+
       const vars: MergeVars = {
         firstName: firstNameOf(contact?.customer_name ?? e.customer_name),
         customerName: contact?.customer_name ?? e.customer_name,
@@ -400,7 +570,27 @@ export async function GET(request: Request) {
         daysSinceLastOrder: daysSince(contact?.last_order_date ?? null),
         ...senderVars,
       };
-      const subject = applyMergeFields(tpl.subject, vars);
+      /* Test batch: everything about the send is real — the customer's merge
+         fields, the step timing, the tracking — except the recipient. The
+         address comes from the ENROLLMENT's is_test flag rather than the
+         current config, so a batch that started as a test stays a test even if
+         someone flips the automation live mid-sequence. */
+      const redirectTo = e.is_test
+        ? (auto.trigger_config?.test_email ?? "").trim()
+        : "";
+      if (e.is_test && !redirectTo) {
+        await supabaseServer
+          .from("automation_enrollments")
+          .update({ status: "failed", last_error: "Test batch has no test address set" })
+          .eq("id", e.id);
+        failedCount++;
+        return;
+      }
+
+      const subjectBase = applyMergeFields(tpl.subject, vars);
+      const subject = e.is_test
+        ? `[TEST → ${e.customer_name ?? e.customer_email}] ${subjectBase}`
+        : subjectBase;
       const bodyText = applyMergeFields(tpl.body, vars);
       const messageId = randomUUID();
       const tracked = buildTrackedHtmlBody({
@@ -409,11 +599,31 @@ export async function GET(request: Request) {
         messageId,
       });
 
+      /* Every automated send carries a way out. Conversational replies sent
+         from the inbox deliberately don't — those are person-to-person mail,
+         not a list send. */
+      const bodyHtmlWithFooter =
+        tracked.html +
+        unsubscribeFooterHtml(
+          unsubscribeUrl(origin, {
+            /* On a test batch the token must belong to the tester, not the
+               customer whose data was borrowed — otherwise clicking
+               "unsubscribe" while reviewing would opt out a real customer. */
+            email: redirectTo || e.customer_email,
+            automationId: e.automation_id,
+            ...(redirectTo
+              ? {}
+              : { customerType: e.customer_type, customerRef: e.customer_ref }),
+          }),
+        );
+
       try {
         const sent = await sendEmail(accessToken, {
           subject,
-          bodyHtml: tracked.html,
-          to: [{ address: e.customer_email, name: e.customer_name ?? undefined }],
+          bodyHtml: bodyHtmlWithFooter,
+          to: redirectTo
+            ? [{ address: redirectTo }]
+            : [{ address: e.customer_email, name: e.customer_name ?? undefined }],
         });
 
         const { data: thread } = await supabaseServer
@@ -533,6 +743,14 @@ export async function GET(request: Request) {
     sent: sentCount,
     failed: failedCount,
     completed: completedCount,
+    /** Stopped early by an exit rule or an unsubscribe. */
+    exited: exitedCount,
+    /* Non-fatal problems that would otherwise be invisible: a run reporting
+       0 enrolled and 0 sent is ambiguous without these. */
+    errors: [
+      ...enrollErrors,
+      ...(dueErr ? [`Loading due enrollments: ${dueErr.message}`] : []),
+    ],
   });
 }
 
@@ -622,8 +840,16 @@ async function findTriggerCandidates(
   const applyFilters = (q: any) => {
     let out = q.not("email", "is", null);
     if ((cfg.min_spend ?? 0) > 0) out = out.gte("lifetime_revenue", cfg.min_spend);
-    if (cfg.channel) out = out.eq("primary_channel", cfg.channel);
-    if (cfg.state) out = out.eq("billto_state", cfg.state);
+
+    /* Multi-select wins when present; the single-value keys remain for configs
+       saved before the editor moved to multi-select. */
+    const channels = cfg.channels?.length ? cfg.channels : cfg.channel ? [cfg.channel] : [];
+    const states = cfg.states?.length ? cfg.states : cfg.state ? [cfg.state] : [];
+    if (channels.length === 1) out = out.eq("primary_channel", channels[0]);
+    else if (channels.length > 1) out = out.in("primary_channel", channels);
+    if (states.length === 1) out = out.eq("billto_state", states[0]);
+    else if (states.length > 1) out = out.in("billto_state", states);
+
     return out;
   };
 
@@ -852,6 +1078,117 @@ async function runContactQuery(
       audience_side: side,
     };
   });
+}
+
+/**
+ * Number and label for the cohort about to be released.
+ *
+ * The number comes from max(cohort_number) + 1 for this automation rather than
+ * a counter stored on the automation row — a stored counter can be lost to a
+ * concurrent update, and it would drift if enrollments were ever deleted.
+ */
+async function nextCohort(a: Automation): Promise<{ number: number; label: string }> {
+  const cfg = a.trigger_config ?? {};
+  const start = cfg.batch_start_number ?? 1000;
+
+  const { data } = await supabaseServer
+    .from("automation_enrollments")
+    .select("cohort_number")
+    .eq("automation_id", a.id)
+    .not("cohort_number", "is", null)
+    .order("cohort_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const highest = (data as { cohort_number: number } | null)?.cohort_number ?? null;
+  const number = highest === null ? start : highest + 1;
+
+  return { number, label: `${cohortPrefix(a)} ${number}` };
+}
+
+/** "Wholesale At Risk" — the automation's own name is the fallback. */
+function cohortPrefix(a: Automation): string {
+  const cfg = a.trigger_config ?? {};
+  if (cfg.batch_label_prefix?.trim()) return cfg.batch_label_prefix.trim();
+
+  const audience =
+    cfg.audience === "wholesale" ? "Wholesale" : cfg.audience === "both" ? "All" : "D2C";
+
+  if (a.trigger_type === "status_change") {
+    return `${audience} ${cfg.status_target === "churned" ? "Churned" : "At Risk"}`;
+  }
+  return a.name;
+}
+
+/**
+ * Should this enrollment stop early? Returns a human-readable reason, or null
+ * to carry on. Checked before every send.
+ *
+ * Ordering is cheapest-first: the two rules that need no extra query run
+ * before the ones that hit the database.
+ */
+async function evaluateExit(
+  e: Enrollment,
+  cfg: Automation["trigger_config"],
+  contact: ContactRow | null,
+): Promise<string | null> {
+  const enrolledAt = new Date(e.enrolled_at).getTime();
+
+  // No-reply timeout — pure arithmetic, no query.
+  if (cfg.exit_after_days && cfg.exit_after_days > 0) {
+    const elapsed = (Date.now() - enrolledAt) / 86_400_000;
+    if (elapsed >= cfg.exit_after_days) {
+      const replied = await hasRepliedSince(e, enrolledAt);
+      if (!replied) {
+        return `No reply after ${cfg.exit_after_days} days`;
+      }
+    }
+  }
+
+  // Ordered since enrolling — the contact row is already loaded for merge
+  // fields, so this costs nothing extra.
+  if (cfg.exit_on_order && contact?.last_order_date) {
+    if (new Date(contact.last_order_date).getTime() > enrolledAt) {
+      return "Placed an order";
+    }
+  }
+
+  // Back to active. "Active" mirrors the 180-day threshold used everywhere
+  // else in the app for customer status.
+  if (cfg.exit_on_active && contact?.last_order_date) {
+    const days = daysSince(contact.last_order_date);
+    if (days !== null && days <= 180) {
+      return "Customer is active again";
+    }
+  }
+
+  if (cfg.exit_on_reply && (await hasRepliedSince(e, enrolledAt))) {
+    return "Customer replied";
+  }
+
+  return null;
+}
+
+/** Any inbound message from this customer since they were enrolled. */
+async function hasRepliedSince(e: Enrollment, sinceMs: number): Promise<boolean> {
+  const { data: threads } = await supabaseServer
+    .from("email_threads")
+    .select("id")
+    .eq("customer_type", e.customer_type)
+    .eq("customer_ref", e.customer_ref);
+
+  const threadIds = (threads ?? []).map((t) => (t as { id: string }).id);
+  if (threadIds.length === 0) return false;
+
+  const { data: replies } = await supabaseServer
+    .from("email_messages")
+    .select("id")
+    .in("thread_id", threadIds)
+    .eq("direction", "received")
+    .gte("sent_at", new Date(sinceMs).toISOString())
+    .limit(1);
+
+  return (replies ?? []).length > 0;
 }
 
 async function loadContact(

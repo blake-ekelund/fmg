@@ -14,9 +14,8 @@ import {
   Tag,
   Archive,
   BarChart3,
-  Inbox,
   Zap,
-  Headphones,
+  Mail,
   Filter,
   MessageSquare,
   UserCheck,
@@ -25,6 +24,10 @@ import {
   Activity,
   Receipt,
   Contact,
+  BookOpen,
+  Target,
+  Eye,
+  Layers,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -51,6 +54,11 @@ const FULL_ACCESS: UserRole[] = ["owner", "admin", "user"];
 
 /* ---------------------------
    Navigation Structure
+
+   Sections group by *what the page is about*, not by which team owns it.
+   Labels are unique across the whole tree — if two pages would read the
+   same at a glance (e.g. the wholesale customer list vs. wholesale signup
+   applications), the label says which one it is.
 --------------------------- */
 export const navSections: readonly NavSection[] = [
   {
@@ -71,7 +79,25 @@ export const navSections: readonly NavSection[] = [
     ],
   },
   {
-    label: "Products",
+    label: "Customers",
+    icon: Users,
+    items: [
+      {
+        label: "Wholesale",
+        href: "/customers",
+        icon: Users,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "D2C",
+        href: "/customers/d2c",
+        icon: ShoppingBag,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+    ],
+  },
+  {
+    label: "Catalog",
     icon: PackageSearch,
     items: [
       {
@@ -93,39 +119,15 @@ export const navSections: readonly NavSection[] = [
     icon: TrendingUp,
     items: [
       {
-        label: "Wholesale",
-        href: "/customers",
-        icon: Users,
-        roles: [...FULL_ACCESS, "sales"],
-      },
-      {
-        label: "D2C",
-        href: "/customers/d2c",
-        icon: ShoppingBag,
+        label: "Sales Analysis",
+        href: "/sales",
+        icon: TrendingUp,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
         label: "Shopify Analytics",
         href: "/shopify-analytics",
         icon: BarChart3,
-        roles: [...FULL_ACCESS, "sales"],
-      },
-      {
-        label: "Sales Analysis",
-        href: "/sales",
-        icon: TrendingUp,
-        roles: [...FULL_ACCESS, "sales"],
-      },
-    ],
-  },
-  {
-    label: "Sales Team",
-    icon: Contact,
-    items: [
-      {
-        label: "Rep Directory",
-        href: "/sales-team",
-        icon: Contact,
         roles: [...FULL_ACCESS, "sales"],
       },
     ],
@@ -137,16 +139,24 @@ export const navSections: readonly NavSection[] = [
     icon: Globe,
     items: [
       {
-        label: "Purchases",
+        label: "Storefront Orders",
         href: "/storefronts/purchases",
         icon: Receipt,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
-        label: "Discounts",
+        label: "Discount Codes",
         href: "/storefronts/discounts",
         icon: TicketPercent,
         roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        // Wholesale signup applications awaiting approval — *not* the
+        // wholesale customer list under Customers.
+        label: "Wholesale Applications",
+        href: "/storefronts/partners",
+        icon: UserCheck,
+        roles: [...FULL_ACCESS, "sales"],
       },
       {
         label: "Web Analytics",
@@ -154,24 +164,12 @@ export const navSections: readonly NavSection[] = [
         icon: Activity,
         roles: [...FULL_ACCESS, "sales", "marketing"],
       },
-      {
-        label: "Wholesale Partners",
-        href: "/storefronts/partners",
-        icon: UserCheck,
-        roles: [...FULL_ACCESS, "sales"],
-      },
     ],
   },
   {
-    label: "Outreach",
-    icon: Headphones,
+    label: "Email",
+    icon: Mail,
     items: [
-      {
-        label: "Inbox",
-        href: "/inbox",
-        icon: Inbox,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
-      },
       {
         label: "Email Templates",
         href: "/email-templates",
@@ -185,11 +183,18 @@ export const navSections: readonly NavSection[] = [
         roles: ["owner", "admin", "marketing"],
       },
       {
-        label: "Customer Feedback",
-        href: "/marketing/customer-feedback",
-        icon: MessageSquare,
-        roles: [...FULL_ACCESS, "marketing"],
+        label: "Cohort Results",
+        href: "/automations/cohorts",
+        icon: Layers,
+        roles: ["owner", "admin", "marketing"],
       },
+      /* "Workflows" used to sit here, but it was a design prototype: its flow
+         definitions were a hardcoded array held in component state, so edits
+         vanished on refresh and nothing it described was ever sent. Sitting in
+         the Email section next to the real thing, it read as a second, live
+         sequence builder. Automations is the engine; its editor now carries
+         the step model Workflows was mocking up. The route still resolves for
+         anyone holding a link — see EXTRA_ALLOWED below. */
     ],
   },
   {
@@ -227,6 +232,18 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "marketing"],
       },
       {
+        label: "Competitors",
+        href: "/marketing/competitors",
+        icon: Target,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Customer Feedback",
+        href: "/marketing/customer-feedback",
+        icon: MessageSquare,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
         label: "Asset Library",
         href: "/assets",
         icon: ImageIcon,
@@ -237,6 +254,32 @@ export const navSections: readonly NavSection[] = [
         href: "/archives",
         icon: Archive,
         roles: [...FULL_ACCESS, "marketing"],
+      },
+    ],
+  },
+  {
+    label: "Team",
+    icon: Contact,
+    items: [
+      {
+        label: "Rep Directory",
+        href: "/sales-team",
+        icon: Contact,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Sales Hub",
+        href: "/sales-hub",
+        icon: BookOpen,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        // Read-only look at the external rep portal, scoped to a chosen rep.
+        // Admin-only: it renders another user's view of the data.
+        label: "Rep Portal Preview",
+        href: "/sales-team/portal-preview",
+        icon: Eye,
+        roles: ["owner", "admin"],
       },
     ],
   },
@@ -254,6 +297,53 @@ export function getNavForRole(role: UserRole | null): NavSection[] {
     .filter((section) => section.items.length > 0);
 }
 
+/** Every nav destination — used to stop a parent path swallowing a child. */
+const ALL_NAV_HREFS: string[] = navSections.flatMap((s) =>
+  s.items.map((i) => i.href.split("?")[0])
+);
+
+/**
+ * Whether a nav item points at the page currently being viewed.
+ *
+ * Most items match on prefix so drill-downs keep their parent lit, but the
+ * overlapping customer routes need explicit handling: /customers would
+ * otherwise swallow /customers/d2c and light up both rows at once.
+ */
+export function isNavItemActive(pathname: string, href: string): boolean {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  if (href === "/customers")
+    return (
+      pathname === "/customers" ||
+      (pathname.startsWith("/customers/") && !pathname.startsWith("/customers/d2c"))
+    );
+  if (href === "/customers/d2c")
+    return pathname === "/customers/d2c" || pathname.startsWith("/customers/d2c/");
+  const base = href.split("?")[0];
+  if (pathname === base) return true;
+  if (!pathname.startsWith(base + "/")) return false;
+
+  /* Prefix matching keeps drill-downs lit under their parent (/sales-team/<id>
+     → Rep Directory), but it must yield when a MORE SPECIFIC nav destination
+     owns the path. Without this, /sales-team/portal-preview lights up both
+     Rep Directory and Rep Portal Preview at once. */
+  return !ALL_NAV_HREFS.some(
+    (other) =>
+      other.length > base.length &&
+      (pathname === other || pathname.startsWith(other + "/"))
+  );
+}
+
+/** The section containing the active page, if any. Root items have no label. */
+export function activeSectionLabel(
+  sections: NavSection[],
+  pathname: string
+): string | null {
+  const match = sections.find(
+    (s) => s.label && s.items.some((i) => isNavItemActive(pathname, i.href))
+  );
+  return match?.label ?? null;
+}
+
 /** Default landing page per role */
 export function getDefaultRoute(role: UserRole | null): string {
   if (role === "rep") return "/portal";
@@ -263,9 +353,9 @@ export function getDefaultRoute(role: UserRole | null): string {
 }
 
 /**
- * Paths reachable outside the sidebar (e.g. user dropdown). Listed here so
- * the route guard doesn't bounce users away from them. Each entry may carry
- * its own role gate, mirroring the way NavItem.roles works.
+ * Paths reachable outside the sidebar (e.g. user dropdown, drill-downs, and
+ * legacy aliases). Listed here so the route guard doesn't bounce users away
+ * from them. Each entry may carry its own role gate, mirroring NavItem.roles.
  */
 const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   { href: "/settings" }, // every signed-in user
@@ -273,6 +363,16 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   { href: "/data", roles: ["owner", "admin"] }, // legacy alias → redirects to /integrations
   { href: "/partners", roles: [...FULL_ACCESS, "sales"] }, // legacy alias → redirects to /storefronts/partners
   { href: "/fishbowl-sandbox", roles: ["owner", "admin"] }, // internal Fishbowl API scratch page
+  // Retired from the nav (prototype, not a live sender) but still reachable so
+  // existing links and the manual enrollment tracker don't 404.
+  { href: "/workflows", roles: ["owner", "admin", "marketing"] },
+  // Rep portal, reachable by admins only as the embedded read-only preview
+  // behind /sales-team/portal-preview. Reps get their own allow-list below.
+  { href: "/portal", roles: ["owner", "admin"] },
+  // Reached from inside another page rather than the sidebar:
+  { href: "/templates", roles: [...FULL_ACCESS, "sales", "marketing"] }, // template editor, opened from Email Templates
+  { href: "/marketing", roles: [...FULL_ACCESS, "marketing"] }, // legacy tabbed marketing page
+  { href: "/amazon-payments", roles: ["owner", "admin"] }, // placeholder, spec TBD
 ];
 
 /** Get all allowed href paths for a role (used for route guarding) */

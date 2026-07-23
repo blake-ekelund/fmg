@@ -68,11 +68,11 @@ type Windows = {
   curLabel: string;
 };
 
-function brandParam(brand: BrandFilter): string | null {
+export function brandParam(brand: BrandFilter): string | null {
   return brand === "all" ? null : brand;
 }
 
-function dateKeyOf(d: Date): string {
+export function dateKeyOf(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -94,7 +94,7 @@ function addDays(d: Date, n: number): Date {
  * Compute the current + prior comparison windows for a period. Returns null
  * when there's nothing completed yet (e.g. MTD on the 1st, YTD on Jan 1).
  */
-function computeWindows(period: DriverPeriod, now: Date): Windows | null {
+export function computeWindows(period: DriverPeriod, now: Date): Windows | null {
   const curYear = now.getFullYear();
   const curMonth0 = now.getMonth();
   const yesterday = new Date(curYear, curMonth0, now.getDate() - 1);

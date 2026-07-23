@@ -2,15 +2,25 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
+import clsx from "clsx";
 import { useUser } from "@/components/UserContext";
 import { useBrand } from "@/components/BrandContext";
 import { useDashboardSales } from "./hooks/useDashboardSales";
+import { useDashboardTasks } from "./hooks/useDashboardTasks";
+import { useMonthlySales } from "./hooks/useMonthlySales";
+import { useDashboardCustomers } from "./hooks/useDashboardCustomers";
+import { useDashboardInventory } from "./hooks/useDashboardInventory";
+import { useDashboardRepSales } from "./hooks/useDashboardRepSales";
+import { useDashboardAlerts } from "./hooks/useDashboardAlerts";
+import PulseRow from "./PulseRow";
+import TodaysMoves from "./TodaysMoves";
 import {
   Plus,
   ListTodo,
   Sparkles,
   CalendarPlus,
   X,
+  ChevronDown,
 } from "lucide-react";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
 import GeneratePostModal from "@/components/blog-posts/GeneratePostModal";
@@ -168,21 +178,49 @@ export default function DashboardPage() {
   const { brand } = useBrand();
   const [activeModal, setActiveModal] = useState<ActionModal>(null);
 
-  // ── Minimal data for summary sentence ──
+  const [showAll, setShowAll] = useState(false);
+
+  /* Every source is fetched once here and handed down, so the pulse tiles and
+     the action list are guaranteed to be reading the same rows. */
   const { kpis: salesKpis, loading: salesLoading } = useDashboardSales(brand);
+  const { pace, loading: monthlyLoading } = useMonthlySales(brand);
+  const { customers, kpis: custKpis, loading: custLoading } =
+    useDashboardCustomers(brand, "wholesale");
+  const { items, kpis: invKpis, loading: invLoading } =
+    useDashboardInventory(brand);
+  const { rows: repRows, loading: repLoading } = useDashboardRepSales(brand);
+  const { overdue } = useDashboardTasks(profile?.first_name);
+
+  const pulseLoading =
+    salesLoading || monthlyLoading || custLoading || invLoading;
+
+  const { alerts, totalAtStake, loading: alertsLoading } = useDashboardAlerts({
+    brand,
+    customers,
+    items,
+    repRows,
+    loading: custLoading || invLoading || repLoading,
+  });
 
   const greeting = getGreeting();
   const todayStr = formatToday();
 
   const closeModal = () => setActiveModal(null);
 
-  // Summary sentence
+  /* One-line read of the business, so the page says something before any
+     widget renders. */
   const summaryParts: string[] = [];
   if (!salesLoading && salesKpis.total_variance !== 0) {
     const dir = salesKpis.total_variance > 0 ? "up" : "down";
     summaryParts.push(
       `Sales ${dir} ${fmt(Math.abs(salesKpis.total_variance))} YTD`
     );
+  }
+  if (!monthlyLoading && pace.paceRevenue > 0) {
+    summaryParts.push(`${pace.monthLabel} pacing to ${fmt(pace.paceRevenue)}`);
+  }
+  if (!alertsLoading && alerts.length > 0) {
+    summaryParts.push(`${fmt(totalAtStake)} at stake across ${alerts.length} items`);
   }
 
   return (
@@ -205,43 +243,72 @@ export default function DashboardPage() {
           )}
         </motion.div>
 
-        {/* ═══ Zone B: Monthly Sales (full-width; drills into daily log) ═══ */}
+        {/* ═══ Zone B: Pulse — four vital signs ═══ */}
         <motion.div variants={itemVariants}>
-          <MonthlySalesCategory />
+          <PulseRow
+            sales={salesKpis}
+            pace={pace}
+            custKpis={custKpis}
+            invKpis={invKpis}
+            loading={pulseLoading}
+          />
         </motion.div>
 
-        {/* ═══ Zone C: Primary — Wholesale | D2C ═══ */}
-        <motion.div
-          variants={itemVariants}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start"
-        >
-          <WholesaleCategory />
-          <D2CCategory />
-        </motion.div>
-
-        {/* ═══ Zone C: Secondary — Content | Promotions ═══ */}
-        <motion.div
-          variants={itemVariants}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start"
-        >
-          <ContentCategory />
-          <PromotionsCategory />
-        </motion.div>
-
-        {/* ═══ Zone D: Reference — collapsed by default ═══ */}
+        {/* ═══ Zone C: Do today — at most five ranked moves ═══ */}
         <motion.div variants={itemVariants}>
-          <div className="flex items-center gap-3 mb-4 mt-2">
-            <div className="h-px flex-1 bg-gray-200" />
-            <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-              More
+          <TodaysMoves
+            alerts={alerts}
+            totalAtStake={totalAtStake}
+            overdueTaskCount={overdue.length}
+            loading={alertsLoading}
+          />
+        </motion.div>
+
+        {/* ═══ Zone D: The full widget wall, collapsed ═══
+             Nothing is deleted — it's just no longer the first thing you see.
+             The pulse and the move list are the founder view; this is the
+             operator view, one click away. */}
+        <motion.div variants={itemVariants} className="pt-2">
+          <button
+            onClick={() => setShowAll((v) => !v)}
+            aria-expanded={showAll}
+            className="flex w-full items-center gap-3 text-xs font-medium uppercase tracking-wider text-gray-400 transition-colors hover:text-gray-600"
+          >
+            <span className="h-px flex-1 bg-gray-200" />
+            <span className="inline-flex items-center gap-1.5">
+              <ChevronDown
+                size={14}
+                className={clsx(
+                  "transition-transform duration-150",
+                  showAll && "rotate-180"
+                )}
+              />
+              {showAll ? "Hide detail" : "Full dashboard"}
             </span>
-            <div className="h-px flex-1 bg-gray-200" />
-          </div>
-          <div className="space-y-4">
-            <InventoryCategory />
-            <AssetLibraryCategory />
-            <WorkflowCategory />
-          </div>
+            <span className="h-px flex-1 bg-gray-200" />
+          </button>
+
+          {showAll && (
+            <div className="mt-6 space-y-6">
+              <MonthlySalesCategory />
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <WholesaleCategory />
+                <D2CCategory />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <ContentCategory />
+                <PromotionsCategory />
+              </div>
+
+              <div className="space-y-4">
+                <InventoryCategory />
+                <AssetLibraryCategory />
+                <WorkflowCategory />
+              </div>
+            </div>
+          )}
         </motion.div>
       </motion.div>
 

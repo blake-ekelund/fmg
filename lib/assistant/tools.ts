@@ -172,7 +172,9 @@ async function customerLookup(input: { query: string }) {
 async function listSalesReps(input: { query?: string }) {
   let q = supabaseServer
     .from("sales_reps")
-    .select("agency_code, agency, name, email, phone, city, state, territory");
+    .select(
+      "agency_code, agency, name, email, phone, address, city, state, zip, territory",
+    );
   const search = input.query?.trim();
   if (search) {
     q = q.or(

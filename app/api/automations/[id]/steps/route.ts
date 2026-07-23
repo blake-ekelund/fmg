@@ -34,9 +34,9 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!body.template_id) {
-    return NextResponse.json({ error: "template_id is required" }, { status: 400 });
-  }
+  /* template_id is optional — a step can be added before its email exists
+     ("Add later"). The editor blocks turning the automation on until every
+     step has one, and the cron runner skips template-less steps. */
   const delayDays = body.delay_days ?? 0;
   if (delayDays < 0) {
     return NextResponse.json({ error: "delay_days must be >= 0" }, { status: 400 });
@@ -60,7 +60,7 @@ export async function POST(
     .insert({
       automation_id: id,
       step_order: stepOrder,
-      template_id: body.template_id,
+      template_id: body.template_id ?? null,
       delay_days: delayDays,
     })
     .select("id, step_order, template_id, delay_days")

@@ -51,10 +51,10 @@ export default function LayoutShell({
   /* Block render until profile is loaded — prevents nav flash */
   if (loading || !profile) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50/60">
+      <div className="flex items-center justify-center min-h-screen bg-surface-muted">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
-          <span className="text-sm text-gray-400">Loading…</span>
+          <div className="w-8 h-8 border-2 border-line-strong border-t-brand-700 rounded-full animate-spin" />
+          <span className="text-sm text-ink-muted">Loading…</span>
         </div>
       </div>
     );
@@ -63,7 +63,7 @@ export default function LayoutShell({
   const marginLeft = sidebarCollapsed ? COLLAPSED_WIDTH : sidebarWidth;
 
   return (
-    <div className="min-h-screen bg-gray-50/60">
+    <div className="min-h-screen bg-surface-muted">
       {/* Desktop sidebar */}
       <Sidebar
         collapsed={sidebarCollapsed}
@@ -72,13 +72,21 @@ export default function LayoutShell({
         onWidthChange={setSidebarWidth}
       />
 
-      {/* Main content */}
+      {/* Main content.
+
+          The sidebar offset must be md-only: the rail itself is `hidden
+          md:flex`, so applying the margin unconditionally (as an inline style
+          did) shoved every page ~224px off-screen on phones, leaving a sliver
+          of usable width. The width rides in on a custom property so the
+          md-only utility can consume it. */}
       <div
-        className="flex min-h-screen flex-col pt-16 md:pt-0"
-        style={{
-          marginLeft: `${marginLeft}px`,
-          transition: "margin-left 200ms ease",
-        }}
+        className="flex min-h-screen flex-col pt-16 md:pt-0 md:ml-[var(--sidebar-w)]"
+        style={
+          {
+            "--sidebar-w": `${marginLeft}px`,
+            transition: "margin-left 200ms ease",
+          } as React.CSSProperties
+        }
       >
         <MobileNav />
         <TopBar />

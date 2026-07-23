@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { requireRep } from "@/lib/email/server-auth";
+import { resolvePortalAgency } from "@/lib/email/server-auth";
 
 export const runtime = "nodejs";
 
@@ -22,7 +22,8 @@ type Asset = {
  * lived signed links generated with the service role. Gated to provisioned reps.
  */
 export async function GET(request: Request) {
-  const rep = await requireRep(request);
+  // Global data, but gated the same way so admin preview renders the real tab.
+  const rep = await resolvePortalAgency(request);
   if (!rep) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const assets: Asset[] = [];

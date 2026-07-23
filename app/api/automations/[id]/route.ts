@@ -74,12 +74,47 @@ export async function GET(
     templates = (data as typeof templates | null) ?? [];
   }
 
+  /* Cohort roll-up — the point of batching is comparing one release against
+     the next, which needs counts across ALL enrollments, not just the 100 most
+     recent the panel above lists. Status-only select keeps it cheap. */
+  const { data: cohortRows } = await supabaseServer
+    .from("automation_enrollments")
+    .select("cohort_label, cohort_number, status")
+    .eq("automation_id", id)
+    .not("cohort_number", "is", null);
+
+  const cohortMap = new Map<
+    number,
+    { label: string; number: number; total: number; active: number; completed: number; exited: number }
+  >();
+  for (const r of (cohortRows ?? []) as Array<{
+    cohort_label: string | null;
+    cohort_number: number;
+    status: string;
+  }>) {
+    const entry = cohortMap.get(r.cohort_number) ?? {
+      label: r.cohort_label ?? `Cohort ${r.cohort_number}`,
+      number: r.cohort_number,
+      total: 0,
+      active: 0,
+      completed: 0,
+      exited: 0,
+    };
+    entry.total++;
+    if (r.status === "enrolled") entry.active++;
+    else if (r.status === "completed") entry.completed++;
+    else if (r.status === "exited" || r.status === "unsubscribed") entry.exited++;
+    cohortMap.set(r.cohort_number, entry);
+  }
+  const cohorts = [...cohortMap.values()].sort((a, b) => b.number - a.number);
+
   return NextResponse.json({
     automation: automation.data,
     steps: steps.data ?? [],
     templates,
     recent: recent.data ?? [],
     enrollments: enrollments.data ?? [],
+    cohorts,
   });
 }
 

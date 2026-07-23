@@ -11,7 +11,10 @@ import {
   ChevronDown,
   Save,
   Trash2,
+  LayoutTemplate,
+  Eye,
 } from "lucide-react";
+import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 type Props = {
@@ -43,6 +46,19 @@ type Template = {
   updated_at: string;
 };
 
+/** A designed, block-based template from /templates (rendered server-side). */
+type BlockTemplate = {
+  id: string;
+  name: string;
+  subject: string | null;
+  preview_text: string | null;
+  brand: string | null;
+  channel: string | null;
+  status: string | null;
+  updated_at: string;
+  block_count: number;
+};
+
 async function authHeader(): Promise<Record<string, string>> {
   const supabase = supabaseBrowser();
   const { data } = await supabase.auth.getSession();
@@ -65,6 +81,13 @@ export default function ComposeEmailModal({
   const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outlook, setOutlook] = useState<OutlookStatus>({ state: "loading" });
+
+  /* Compose mode. "text" is the typed plain-text body; "block" sends a
+     designed template from /templates, rendered to HTML server-side. */
+  const [mode, setMode] = useState<"text" | "block">("text");
+  const [blockTemplates, setBlockTemplates] = useState<BlockTemplate[]>([]);
+  const [blockTemplateId, setBlockTemplateId] = useState<string | null>(null);
+  const [blockTemplatesLoading, setBlockTemplatesLoading] = useState(false);
 
   /* Template state */
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -117,6 +140,34 @@ export default function ComposeEmailModal({
     if (!open) return;
     loadTemplates();
   }, [open, loadTemplates]);
+
+  // Designed block templates — loaded lazily the first time the user switches
+  // to that mode, since most sends are plain text.
+  useEffect(() => {
+    if (!open || mode !== "block" || blockTemplates.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      setBlockTemplatesLoading(true);
+      try {
+        const res = await fetch("/api/email/block-templates", {
+          headers: await authHeader(),
+        });
+        const json = await res.json();
+        if (!cancelled && res.ok) {
+          setBlockTemplates((json.templates as BlockTemplate[]) ?? []);
+        }
+      } catch {
+        /* non-critical — the empty state explains what to do */
+      } finally {
+        if (!cancelled) setBlockTemplatesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, blockTemplates.length]);
+
+  const selectedBlockTemplate = blockTemplates.find((t) => t.id === blockTemplateId) ?? null;
 
   // Reset state when the modal closes.
   useEffect(() => {
@@ -196,8 +247,12 @@ export default function ComposeEmailModal({
         body: JSON.stringify({
           recipients: ids.map((id) => ({ customer_type: customerType, customer_ref: id })),
           subject_template: subject,
-          body_template: body,
-          body_format: "text",
+          // Block mode sends only the template id — the server loads the
+          // blocks and renders the HTML, so nothing rendered client-side is
+          // trusted as an outgoing body.
+          ...(mode === "block"
+            ? { block_template_id: blockTemplateId }
+            : { body_template: body, body_format: "text" }),
           cc: cc.trim() || undefined,
         }),
       });
@@ -222,7 +277,7 @@ export default function ComposeEmailModal({
   const canSend =
     outlook.state === "connected" &&
     subject.trim().length > 0 &&
-    body.trim().length > 0 &&
+    (mode === "block" ? !!blockTemplateId : body.trim().length > 0) &&
     !sending &&
     !result;
 
@@ -294,8 +349,31 @@ export default function ComposeEmailModal({
             </div>
           ) : (
             <>
-              {/* Templates */}
-              <div className="flex items-center gap-2 relative">
+              {/* Compose mode */}
+              <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
+                <button
+                  onClick={() => setMode("text")}
+                  className={clsx(
+                    "rounded-md px-3 py-1.5 font-medium transition",
+                    mode === "text" ? "bg-gray-900 text-white" : "text-gray-600 hover:text-gray-900",
+                  )}
+                >
+                  Write a message
+                </button>
+                <button
+                  onClick={() => setMode("block")}
+                  className={clsx(
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition",
+                    mode === "block" ? "bg-gray-900 text-white" : "text-gray-600 hover:text-gray-900",
+                  )}
+                >
+                  <LayoutTemplate size={12} />
+                  Designed template
+                </button>
+              </div>
+
+              {/* Templates (plain-text mode only) */}
+              <div className={clsx("flex items-center gap-2 relative", mode !== "text" && "hidden")}>
                 <button
                   onClick={() => setTemplatesOpen((v) => !v)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition"
@@ -379,8 +457,91 @@ export default function ComposeEmailModal({
                 />
               </div>
 
+              {/* Designed template picker */}
+              {mode === "block" && (
+                <div>
+                  <label className="mb-1.5 block text-[10px] font-medium uppercase tracking-wider text-gray-400">
+                    Template
+                  </label>
+
+                  {blockTemplatesLoading ? (
+                    <div className="rounded-lg border border-gray-200 py-6 text-center text-xs text-gray-400">
+                      Loading templates…
+                    </div>
+                  ) : blockTemplates.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center">
+                      <div className="text-xs font-medium text-gray-600">
+                        No designed templates yet
+                      </div>
+                      <p className="mt-1 text-[11px] text-gray-400">
+                        Build one in Email → Templates, or generate one with AI.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="max-h-56 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200">
+                      {blockTemplates.map((t) => {
+                        const active = blockTemplateId === t.id;
+                        return (
+                          <li key={t.id}>
+                            <button
+                              onClick={() => {
+                                setBlockTemplateId(t.id);
+                                // Adopt the template's subject unless the user
+                                // already typed one of their own.
+                                if (!subject.trim() && t.subject) setSubject(t.subject);
+                              }}
+                              className={clsx(
+                                "flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-gray-50",
+                                active && "bg-gray-50",
+                              )}
+                            >
+                              <span
+                                className={clsx(
+                                  "h-3.5 w-3.5 shrink-0 rounded-full border",
+                                  active ? "border-[5px] border-gray-900" : "border-gray-300",
+                                )}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-xs font-medium text-gray-800">
+                                  {t.name}
+                                </span>
+                                <span className="block truncate text-[11px] text-gray-500">
+                                  {t.subject || "(no subject)"}
+                                </span>
+                              </span>
+                              <span className="shrink-0 text-[10px] tabular-nums text-gray-400">
+                                {t.block_count} block{t.block_count === 1 ? "" : "s"}
+                                {t.status && t.status !== "active" ? ` · ${t.status}` : ""}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+
+                  {selectedBlockTemplate && (
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <p className="text-[10px] leading-relaxed text-gray-400">
+                        Rendered to email HTML when you send. Merge fields in the
+                        template are filled per recipient.
+                      </p>
+                      <a
+                        href={`/api/email/block-templates/${selectedBlockTemplate.id}/preview`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700"
+                      >
+                        <Eye size={12} />
+                        Preview
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Body */}
-              <div>
+              <div className={clsx(mode !== "text" && "hidden")}>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
                     Message

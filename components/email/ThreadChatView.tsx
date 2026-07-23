@@ -3,7 +3,7 @@
 /**
  * Drill-in chat view for a single email thread.
  *
- * Used by the customer-detail Emails tab and by the dedicated /inbox pages.
+ * Used by the customer-detail Emails tab.
  * The thread row + an optional "back" handler are the only inputs; everything
  * else (messages, reply composer, sender labels) is self-contained.
  */

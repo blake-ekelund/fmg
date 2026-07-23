@@ -20,6 +20,7 @@ import {
   Settings2,
 } from "lucide-react";
 import clsx from "clsx";
+import Link from "next/link";
 import WorkflowEnrollments from "@/components/workflows/WorkflowEnrollments";
 
 /* ─── Types ─── */
@@ -692,6 +693,25 @@ export default function WorkflowsPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
+      {/* This page is a design prototype, not a sender. The flow definitions
+          below are a hardcoded array in component state — edits are lost on
+          refresh and nothing here is ever emailed. It has been removed from
+          the nav; Automations is the system that actually runs. */}
+      <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+        <div>
+          <div className="font-semibold">Prototype — nothing here sends email</div>
+          <p className="mt-0.5 leading-relaxed">
+            These flows are a design mockup: edits aren&apos;t saved and no
+            message is ever delivered. Real, sending sequences live in{" "}
+            <Link href="/automations" className="font-medium underline">
+              Automations
+            </Link>
+            . The enrollment list at the bottom is real data.
+          </p>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>

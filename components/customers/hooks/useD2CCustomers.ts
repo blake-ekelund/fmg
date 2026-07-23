@@ -1,6 +1,11 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { D2CCustomer } from "../types";
+import {
+  orIlikeClauses,
+  getStatusCutoffs,
+  type CustomerStats,
+} from "./queryHelpers";
 
 export type D2CSpendBucket =
   | ""
@@ -22,15 +27,6 @@ type Params = {
   sortDir: "asc" | "desc";
   enabled: boolean;
 };
-
-function getDateCutoffs() {
-  const now = new Date();
-  const active = new Date(now);
-  active.setDate(now.getDate() - 180);
-  const risk = new Date(now);
-  risk.setDate(now.getDate() - 365);
-  return { active, risk };
-}
 
 /**
  * Structural type covering the chain methods applyD2CFilters needs. Used
@@ -56,15 +52,16 @@ export function applyD2CFilters<T extends FilterableD2CQuery<T>>(
   args: { search: string; status: string; repeatOnly: boolean; spendBucket: D2CSpendBucket; states?: string[] },
 ): T {
   let out = q;
-  if (args.search) {
-    const s = args.search.trim();
-    out = out.or(`name.ilike.%${s}%,email.ilike.%${s}%,bill_to_state.ilike.%${s}%`);
+  if (args.search.trim()) {
+    out = out.or(
+      orIlikeClauses(["name", "email", "bill_to_state"], args.search),
+    );
   }
   if (args.states && args.states.length > 0) {
     out = out.in("bill_to_state", args.states);
   }
   if (args.status) {
-    const { active, risk } = getDateCutoffs();
+    const { active, risk } = getStatusCutoffs();
     if (args.status === "active") {
       out = out.gte("last_order_date", active.toISOString());
     } else if (args.status === "at_risk") {
@@ -113,7 +110,12 @@ export function useD2CCustomers({
   const [customers, setCustomers] = useState<D2CCustomer[]>([]);
   const [loading, setLoading] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
-  const [stats, setStats] = useState({ active: 0, atRisk: 0, churned: 0 });
+  const [stats, setStats] = useState<CustomerStats>({
+    all: 0,
+    active: 0,
+    atRisk: 0,
+    churned: 0,
+  });
   const [stateOptions, setStateOptions] = useState<{ label: string; value: string }[]>([]);
 
   useEffect(() => {
@@ -147,46 +149,48 @@ export function useD2CCustomers({
 
       const { data, count, error } = await tableQuery;
 
-      // Stats query: same filters EXCEPT status, so the status counts reflect
-      // the rest of the user's filter selection but show distribution across
-      // active/at-risk/churned.
-      let statsBase = supabase
-        .from("d2c_customer_summary")
-        .select("last_order_date");
-      statsBase = applyD2CFilters(statsBase, {
-        search,
-        status: "",
-        repeatOnly,
-        spendBucket,
-        states,
-      });
-      const statsQuery = statsBase.range(0, 9999);
+      // Stats: one head-only count per bucket. Same filters EXCEPT status, so
+      // the counts show the distribution across active/at-risk/churned for the
+      // rest of the user's selection. `head: true` transfers no rows, so this
+      // is exact at any table size — the old version capped at 10,000 matching
+      // rows and silently under-counted past that.
+      function countFor(bucket: "" | "active" | "at_risk" | "churned") {
+        const q = supabase
+          .from("d2c_customer_summary")
+          .select("person_key", { count: "exact", head: true });
+        return applyD2CFilters(q, {
+          search,
+          status: bucket,
+          repeatOnly,
+          spendBucket,
+          states,
+        });
+      }
 
-      const { data: statsData } = await statsQuery;
+      const [allRes, activeRes, atRiskRes, churnedRes] = await Promise.all([
+        countFor(""),
+        countFor("active"),
+        countFor("at_risk"),
+        countFor("churned"),
+      ]);
 
       if (!cancelled) {
         if (error) {
           console.error(error);
+          // Don't leave the previous filter's rows on screen as if they were
+          // a valid result for the new one.
+          setCustomers([]);
+          setTotalCount(0);
+          setStats({ all: 0, active: 0, atRisk: 0, churned: 0 });
         } else {
           setCustomers((data as D2CCustomer[]) ?? []);
           setTotalCount(count ?? 0);
-
-          const full = statsData ?? [];
-          const now = new Date();
-          const activeCutoff = new Date(now);
-          activeCutoff.setDate(now.getDate() - 180);
-          const riskCutoff = new Date(now);
-          riskCutoff.setDate(now.getDate() - 365);
-
-          let activeCount = 0, atRiskCount = 0, churnedCount = 0;
-          for (const c of full) {
-            if (!c.last_order_date) continue;
-            const d = new Date(c.last_order_date);
-            if (d >= activeCutoff) activeCount++;
-            else if (d >= riskCutoff) atRiskCount++;
-            else churnedCount++;
-          }
-          setStats({ active: activeCount, atRisk: atRiskCount, churned: churnedCount });
+          setStats({
+            all: allRes.count ?? 0,
+            active: activeRes.count ?? 0,
+            atRisk: atRiskRes.count ?? 0,
+            churned: churnedRes.count ?? 0,
+          });
         }
         setLoading(false);
       }

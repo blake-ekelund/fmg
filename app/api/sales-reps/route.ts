@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 /** Columns we read/return to the client. */
 const COLS =
-  "id, agency_code, agency, name, email, phone, city, state, zip, territory, samples";
+  "id, agency_code, agency, name, email, phone, address, city, state, zip, territory, samples";
 
 type RepInput = {
   agency_code?: number | null;
@@ -14,6 +14,7 @@ type RepInput = {
   name?: string;
   email?: string;
   phone?: string;
+  address?: string;
   city?: string;
   state?: string;
   zip?: string;
@@ -32,6 +33,7 @@ function normalize(input: RepInput) {
     name: s(input.name),
     email: s(input.email).toLowerCase(),
     phone: s(input.phone),
+    address: s(input.address),
     city: s(input.city),
     state: s(input.state),
     zip: s(input.zip),

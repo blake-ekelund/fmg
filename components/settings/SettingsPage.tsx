@@ -671,9 +671,9 @@ function OutlookCard() {
                 <StatusPill status={outlook} />
               </div>
               <p className="text-xs text-gray-500 mt-0.5 max-w-md">
-                Replies thread back into the customer record. Email still lands
-                in your normal Outlook inbox — colleagues never see your
-                mailbox.
+                Lets the portal send on your behalf, so customers reply
+                straight to you in Outlook. The portal only sends — it never
+                reads your mailbox.
               </p>
               {outlook.state === "connected" && (
                 <div className="mt-2 text-xs text-gray-600">
@@ -789,8 +789,8 @@ function DisconnectModal({
           </div>
           <ul className="text-xs text-gray-500 space-y-1 pl-1 mt-2">
             <li>· You won&apos;t be able to send portal emails until you reconnect.</li>
-            <li>· Incoming replies will stop threading into customer records.</li>
-            <li>· Email already in your inbox is untouched.</li>
+            <li>· Emails you already sent stay on the customer record.</li>
+            <li>· Your Outlook mailbox is untouched.</li>
           </ul>
         </div>
 

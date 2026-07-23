@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { requireRep } from "@/lib/email/server-auth";
+import { resolvePortalAgency } from "@/lib/email/server-auth";
 
 export const runtime = "nodejs";
 
@@ -17,7 +17,7 @@ const LIST_COLS =
  * can't read another agency's customer by guessing an id.
  */
 export async function GET(request: Request) {
-  const rep = await requireRep(request);
+  const rep = await resolvePortalAgency(request);
   if (!rep) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const agency = String(rep.agencyCode);

@@ -10,9 +10,23 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * Admin preview: when the portal is opened as /portal?previewAgency=210 from
+ * Team → Rep Portal Preview, forward that agency to the API as ?agencyCode=.
+ * The server only honours it for owner/admin — a real rep's own agency always
+ * wins — so this is a no-op for every actual portal user.
+ */
+function previewParam(): string {
+  if (typeof window === "undefined") return "";
+  const code = new URLSearchParams(window.location.search).get("previewAgency");
+  return code ? `agencyCode=${encodeURIComponent(code)}` : "";
+}
+
 /** GET a portal endpoint with the session token attached. Throws on non-2xx. */
 export async function portalGet<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: await authHeader(), cache: "no-store" });
+  const extra = previewParam();
+  const url = extra ? `${path}${path.includes("?") ? "&" : "?"}${extra}` : path;
+  const res = await fetch(url, { headers: await authHeader(), cache: "no-store" });
   if (!res.ok) {
     const msg = await res.json().catch(() => ({}));
     throw new Error((msg as { error?: string }).error ?? `Request failed (${res.status})`);

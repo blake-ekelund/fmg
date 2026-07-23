@@ -260,15 +260,15 @@ export default function CommandPalette({
     <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh]">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-brand-950/45 backdrop-blur-[2px]"
         onClick={onClose}
       />
 
       {/* Palette */}
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl ring-1 ring-black/5 overflow-hidden flex flex-col max-h-[70vh]">
+      <div className="relative w-full max-w-lg bg-surface rounded-2xl shadow-overlay ring-1 ring-line overflow-hidden flex flex-col max-h-[70vh]">
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 border-b border-gray-100">
-          <Search size={16} className="text-gray-400 shrink-0" />
+        <div className="flex items-center gap-3 px-4 border-b border-line">
+          <Search size={16} className="text-ink-subtle shrink-0" />
           <input
             ref={inputRef}
             value={query}
@@ -278,12 +278,12 @@ export default function CommandPalette({
             }}
             onKeyDown={onKeyDown}
             placeholder="Search pages, products, customers, tasks…"
-            className="flex-1 py-3.5 text-sm bg-transparent outline-none placeholder:text-gray-400"
+            className="flex-1 py-3.5 text-sm bg-transparent outline-none text-ink placeholder:text-ink-subtle"
           />
           {loading && (
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-200 border-t-gray-500 shrink-0" />
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-brand-600 shrink-0" />
           )}
-          <kbd className="shrink-0 rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-400">
+          <kbd className="shrink-0 rounded border border-line bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-ink-subtle">
             ESC
           </kbd>
         </div>
@@ -292,11 +292,11 @@ export default function CommandPalette({
         <div ref={listRef} className="flex-1 overflow-y-auto py-2">
           {grouped.length === 0 && query.length >= 2 && !loading && (
             <div className="flex flex-col items-center py-10 text-center">
-              <Search size={24} className="text-gray-300 mb-2" />
-              <p className="text-sm font-medium text-gray-500">
+              <Search size={24} className="text-ink-subtle mb-2" />
+              <p className="text-sm font-medium text-ink-secondary">
                 No results found
               </p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-ink-muted mt-1">
                 Try a different search term
               </p>
             </div>
@@ -308,8 +308,8 @@ export default function CommandPalette({
               <div key={group.category} className="mb-1">
                 {/* Category header */}
                 <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
-                  <meta.icon size={12} className="text-gray-400" />
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                  <meta.icon size={12} className="text-ink-subtle" />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
                     {meta.label}
                   </span>
                 </div>
@@ -328,7 +328,7 @@ export default function CommandPalette({
                       onMouseEnter={() => setActiveIndex(idx)}
                       className={clsx(
                         "flex items-center gap-3 w-full px-4 py-2.5 text-left transition-colors",
-                        isActive ? "bg-gray-50" : "hover:bg-gray-50/50"
+                        isActive ? "bg-brand-50/70" : "hover:bg-surface-muted"
                       )}
                     >
                       {/* Icon */}
@@ -336,8 +336,8 @@ export default function CommandPalette({
                         className={clsx(
                           "flex items-center justify-center w-8 h-8 rounded-lg shrink-0",
                           isActive
-                            ? "bg-gray-900 text-white"
-                            : "bg-gray-100 text-gray-500"
+                            ? "bg-brand-700 text-white"
+                            : "bg-surface-sunken text-ink-muted"
                         )}
                       >
                         <item.icon size={14} />
@@ -349,7 +349,7 @@ export default function CommandPalette({
                           <span
                             className={clsx(
                               "text-sm font-medium truncate",
-                              isActive ? "text-gray-900" : "text-gray-700"
+                              isActive ? "text-brand-800" : "text-ink-secondary"
                             )}
                           >
                             {item.title}
@@ -359,8 +359,8 @@ export default function CommandPalette({
                               className={clsx(
                                 "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium",
                                 item.meta === "NI"
-                                  ? "bg-blue-50 text-blue-600"
-                                  : "bg-pink-50 text-pink-600"
+                                  ? "bg-brand-100 text-brand-700"
+                                  : "bg-accent-100 text-accent-700"
                               )}
                             >
                               {item.meta}
@@ -368,7 +368,7 @@ export default function CommandPalette({
                           )}
                         </div>
                         {item.subtitle && (
-                          <p className="text-xs text-gray-400 truncate mt-0.5">
+                          <p className="text-xs text-ink-muted truncate mt-0.5">
                             {item.subtitle}
                           </p>
                         )}
@@ -378,7 +378,7 @@ export default function CommandPalette({
                       {isActive && (
                         <ArrowRight
                           size={14}
-                          className="text-gray-400 shrink-0"
+                          className="text-brand-500 shrink-0"
                         />
                       )}
                     </button>
@@ -390,7 +390,7 @@ export default function CommandPalette({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-4 px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 text-[11px] text-gray-400">
+        <div className="flex items-center gap-4 px-4 py-2.5 border-t border-line bg-surface-muted text-[11px] text-ink-muted">
           <span className="inline-flex items-center gap-1">
             <CornerDownLeft size={10} />
             to select

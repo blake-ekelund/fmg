@@ -7,6 +7,7 @@ import {
   Zap,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -22,6 +23,10 @@ type Automation = {
   sender_user_id: string | null;
   step_count: number;
   enrollment_count: number;
+  /** Enrollments still moving through the sequence. */
+  active_count: number;
+  /** Enrollments that reached the end. */
+  completed_count: number;
   updated_at: string;
 };
 
@@ -38,6 +43,7 @@ export default function AutomationsPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const reload = useCallback(async () => {
     try {
@@ -65,12 +71,9 @@ export default function AutomationsPage() {
     };
   }, [reload]);
 
-  // Auto-select the first automation once loaded.
-  useEffect(() => {
-    if (!activeId && automations.length > 0) {
-      setActiveId(automations[0].id);
-    }
-  }, [activeId, automations]);
+  /* No auto-select: cards start collapsed so the page opens on the full
+     roster and its stats. The old two-pane layout had to auto-pick something
+     or the right pane sat empty. */
 
   async function createNew() {
     setError(null);
@@ -78,9 +81,19 @@ export default function AutomationsPage() {
       method: "POST",
       headers: { ...(await authHeader()), "Content-Type": "application/json" },
       body: JSON.stringify({
+        /* Must be one of the trigger types the editor and the cron runner both
+           understand. This previously created 'd2c_at_risk' — a leftover from
+           automations_v2 — which no trigger pill matched, rendered a blank
+           "when to enroll" sentence, and made findTriggerCandidates() return
+           zero candidates, so a brand-new automation could be switched Live and
+           silently enroll nobody. */
         name: "New automation",
-        trigger_type: "d2c_at_risk",
-        trigger_config: { days_inactive: 180, lookback_days: 30 },
+        trigger_type: "status_change",
+        trigger_config: {
+          audience: "wholesale",
+          status_target: "at_risk",
+          lookback_days: 30,
+        },
       }),
     });
     const json = await res.json();
@@ -89,22 +102,28 @@ export default function AutomationsPage() {
       return;
     }
     await reload();
-    setActiveId(json.automation.id);
+    setActiveId(json.automation.id); // expand the new card straight away
   }
 
+  const filtered = automations.filter((a) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return `${a.name} ${plainDescription(a)}`.toLowerCase().includes(q);
+  });
+
   return (
-    <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Automations</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
+    <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1000px] mx-auto">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-ink">Automations</h1>
+          <p className="text-[11px] text-ink-muted mt-0.5">
             Triggered email sequences. Each step picks a saved template + delay.
-            Runs daily at 14:00 UTC.
+            Runs twice daily, 7:45am and 3:45pm Eastern.
           </p>
         </div>
         <button
           onClick={createNew}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-3.5 py-2 text-xs font-medium hover:bg-gray-800 transition"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-700 text-white px-3 py-2 text-[11px] font-medium hover:bg-brand-800 transition"
         >
           <Plus size={13} />
           New automation
@@ -112,110 +131,150 @@ export default function AutomationsPage() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 inline-flex items-start gap-2 mb-3">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+        <div className="rounded-lg border border-critical/20 bg-critical-soft px-3 py-2 text-[11px] text-critical inline-flex items-start gap-2 mb-3">
+          <AlertTriangle size={13} className="mt-px shrink-0" />
           <span>{error}</span>
         </div>
       )}
       {banner && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700 inline-flex items-center gap-2 mb-3">
-          <CheckCircle2 size={14} />
+        <div className="rounded-lg border border-positive/20 bg-positive-soft px-3 py-2 text-[11px] text-positive inline-flex items-center gap-2 mb-3">
+          <CheckCircle2 size={13} />
           {banner}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
-        {/* List — sticky on the left so it stays in view while the editor scrolls */}
-        <div className="rounded-xl border border-gray-200 bg-white lg:sticky lg:top-4">
-          {loading ? (
-            <div className="py-12 text-center text-sm text-gray-400 inline-flex items-center gap-2 justify-center w-full">
-              <Loader2 size={14} className="animate-spin" />
-              Loading…
-            </div>
-          ) : automations.length === 0 ? (
-            <div className="px-4 py-10 text-center">
-              <Zap size={24} className="mx-auto text-gray-300 mb-2" />
-              <div className="text-sm font-medium text-gray-500">No automations yet</div>
-              <p className="text-xs text-gray-400 mt-1">
-                Click <span className="font-medium">New automation</span> to create one.
-              </p>
-            </div>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {automations.map((a) => {
-                const isActive = activeId === a.id;
-                return (
-                  <li key={a.id}>
-                    <button
-                      onClick={() => setActiveId(a.id)}
-                      className={clsx(
-                        "w-full text-left px-4 py-3 hover:bg-gray-50 transition",
-                        isActive && "bg-gray-50",
-                      )}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium text-gray-800 truncate flex-1">
-                          {a.name}
-                        </div>
-                        <span
-                          className={clsx(
-                            "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0",
-                            a.enabled
-                              ? "bg-green-100 text-green-700"
-                              : "bg-gray-100 text-gray-500",
-                          )}
-                        >
-                          {a.enabled ? "Live" : "Paused"}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-gray-500 mt-0.5 truncate leading-relaxed">
-                        {plainDescription(a)}
-                      </div>
-                      <div className="text-[10px] text-gray-400 mt-1">
-                        {a.enrollment_count > 0
-                          ? `${a.enrollment_count} customer${a.enrollment_count === 1 ? "" : "s"} in flow`
-                          : "Nothing in flow yet"}
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+      {automations.length > 3 && (
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search automations"
+          className="mb-3 w-full rounded-lg border border-line bg-surface px-3 py-2 text-[11px] text-ink placeholder:text-ink-subtle focus:border-brand-400 focus:outline-none sm:w-72"
+        />
+      )}
 
-        {/* Editor */}
-        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-          {activeId ? (
-            <AutomationEditor
-              key={activeId}
-              automationId={activeId}
-              onChanged={async () => {
-                await reload();
-              }}
-              onDeleted={async () => {
-                await reload();
-                setActiveId(null);
-                setBanner("Automation deleted.");
-                setTimeout(() => setBanner(null), 2500);
-              }}
-            />
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-center px-6 py-10">
-              <div>
-                <Zap size={28} className="mx-auto text-gray-300 mb-3" />
-                <div className="text-sm font-medium text-gray-500">
-                  Pick an automation on the left
-                </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  Or click <span className="font-medium">New automation</span> to create one.
-                </p>
+      {/* One card per automation, expanding in place. Replaces the list +
+          detail split: every automation stays visible with its own stats, and
+          there is no separate mobile master/detail mode to maintain. */}
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-16 text-[11px] text-ink-muted">
+          <Loader2 size={14} className="animate-spin" />
+          Loading…
+        </div>
+      ) : automations.length === 0 ? (
+        <div className="rounded-xl border border-line bg-surface px-4 py-14 text-center shadow-card">
+          <Zap size={24} className="mx-auto text-ink-subtle mb-2" />
+          <div className="text-xs font-medium text-ink-secondary">No automations yet</div>
+          <p className="text-[11px] text-ink-muted mt-1">
+            Click <span className="font-medium">New automation</span> to create one.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((a) => {
+            const open = activeId === a.id;
+            const inert = a.enabled && a.step_count === 0;
+            return (
+              <div
+                key={a.id}
+                className={clsx(
+                  "rounded-xl border bg-surface shadow-card overflow-hidden transition-colors",
+                  open ? "border-brand-300" : "border-line",
+                )}
+              >
+                {/* Card head — always visible summary */}
+                <button
+                  onClick={() => setActiveId(open ? null : a.id)}
+                  aria-expanded={open}
+                  className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-surface-muted"
+                >
+                  <span
+                    className={clsx(
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+                      a.enabled ? "bg-positive-soft text-positive" : "bg-surface-sunken text-ink-muted",
+                    )}
+                  >
+                    <Zap size={13} />
+                  </span>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-xs font-medium text-ink">{a.name}</span>
+                      <span
+                        className={clsx(
+                          "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                          a.enabled
+                            ? "bg-positive-soft text-positive"
+                            : "bg-surface-sunken text-ink-muted",
+                        )}
+                      >
+                        {a.enabled ? "Live" : "Paused"}
+                      </span>
+                      {inert && (
+                        <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-warning-soft px-1 py-0.5 text-[10px] font-medium text-warning">
+                          <AlertTriangle size={8} /> No emails
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] text-ink-muted">
+                      {plainDescription(a)}
+                    </span>
+                  </span>
+
+                  {/* Stats — the workflows cards had these, but hardcoded to
+                      zero. These are the real enrollment numbers. */}
+                  <span className="hidden shrink-0 items-center gap-4 sm:flex">
+                    <Stat label="In flow" value={a.active_count} />
+                    <Stat label="Completed" value={a.completed_count} />
+                    <Stat label="Steps" value={a.step_count} />
+                  </span>
+
+                  <ChevronDown
+                    size={14}
+                    className={clsx(
+                      "shrink-0 text-ink-subtle transition-transform",
+                      open && "rotate-180",
+                    )}
+                  />
+                </button>
+
+                {open && (
+                  <div className="border-t border-line">
+                    <AutomationEditor
+                      key={a.id}
+                      automationId={a.id}
+                      onChanged={async () => {
+                        await reload();
+                      }}
+                      onDeleted={async () => {
+                        await reload();
+                        setActiveId(null);
+                        setBanner("Automation deleted.");
+                        setTimeout(() => setBanner(null), 2500);
+                      }}
+                    />
+                  </div>
+                )}
               </div>
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <div className="rounded-xl border border-line bg-surface px-4 py-10 text-center text-[11px] text-ink-muted shadow-card">
+              No automations match “{query.trim()}”.
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="flex flex-col items-end leading-tight">
+      <span className="text-xs font-semibold tabular-nums text-ink">{value}</span>
+      <span className="text-[10px] uppercase tracking-wider text-ink-subtle">{label}</span>
+    </span>
   );
 }
 

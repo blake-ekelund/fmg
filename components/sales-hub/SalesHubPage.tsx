@@ -535,6 +535,48 @@ export default function SalesHubPage() {
         </div>
       )}
 
+      {/* ── Mobile channel filter ──
+             The desktop rail is a vertical list of 11 channels. On a phone that
+             was a horizontal scroller, so everything past the first two or three
+             was hidden off-screen with no affordance. A native picker puts the
+             whole list one tap away and leads the page, since choosing a channel
+             is what every other section on this page hangs off. */}
+      {/* Sticky, because everything below it is downstream of this one choice
+          and the page runs long on a phone — banner, KPIs, talking points,
+          elevator pitch, then a 20-row table. Pinned at top-16 to sit directly
+          under the fixed mobile nav (h-16), and full-bleed via -mx-4 so it
+          reads as a bar rather than a floating control. The visible label is
+          dropped once pinned — the select's own value says the channel, and
+          the height is permanent screen real estate. */}
+      <div className="md:hidden sticky top-16 z-20 -mx-4 mb-4 border-b border-line bg-surface/95 px-4 py-2.5 backdrop-blur-sm">
+        <div className="relative">
+          <select
+            id="channel-filter"
+            aria-label="Channel"
+            value={selectedChannel}
+            onChange={(e) => {
+              setSelectedChannel(e.target.value);
+              setExpandedProducts(new Set());
+            }}
+            className="w-full appearance-none rounded-lg border border-line bg-surface py-2.5 pl-3 pr-9 text-sm font-medium text-ink transition focus:border-brand-400 focus:outline-none"
+          >
+            {sortedChannels.map((ch) => {
+              const chStats = channelStatsMap[ch];
+              return (
+                <option key={ch} value={ch}>
+                  {ch}
+                  {chStats ? ` — $${(chStats.ttmRevenue / 1000).toFixed(0)}K` : ""}
+                </option>
+              );
+            })}
+          </select>
+          <ChevronDown
+            size={15}
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-subtle"
+          />
+        </div>
+      </div>
+
       {/* ── Brand Quick Reference (compact banner) ── */}
       <div className="rounded-xl border border-gray-200 bg-white p-4 md:p-5 mb-6">
         <div className="flex items-center gap-2 mb-3">
@@ -575,8 +617,8 @@ export default function SalesHubPage() {
 
       {/* ── Main Layout: Channel Selector + Detail ── */}
       <div className="flex flex-col md:flex-row gap-5">
-        {/* Left — Channel Selector */}
-        <div className="md:w-56 shrink-0">
+        {/* Left — Channel Selector (desktop; mobile uses the picker above) */}
+        <div className="hidden md:block md:w-56 shrink-0">
           <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2 px-1">
             Select Channel
           </div>
@@ -784,7 +826,10 @@ export default function SalesHubPage() {
                 No product data available for this channel yet.
               </div>
             ) : (
-              <div className="rounded-lg border border-gray-100 overflow-hidden">
+              <>
+              {/* Desktop: table. Mobile gets cards below — four numeric columns
+                  plus a progress bar don't survive a 390px viewport. */}
+              <div className="hidden md:block rounded-lg border border-gray-100 overflow-hidden">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50 text-left">
@@ -910,6 +955,106 @@ export default function SalesHubPage() {
                   </div>
                 )}
               </div>
+
+              {/* Mobile: one card per product, tap to reveal fragrances */}
+              <ul className="space-y-2 md:hidden">
+                {channelProducts.slice(0, 20).map((p) => {
+                  const prodKey = `${selectedChannel}::${p.displayName}`;
+                  const isProductExpanded = expandedProducts.has(prodKey);
+                  const hasFragrances = p.fragrances.length > 1;
+                  return (
+                    <li
+                      key={p.displayName}
+                      className="rounded-lg border border-gray-100 overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        disabled={!hasFragrances}
+                        aria-expanded={hasFragrances ? isProductExpanded : undefined}
+                        onClick={() =>
+                          setExpandedProducts((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(prodKey)) next.delete(prodKey);
+                            else next.add(prodKey);
+                            return next;
+                          })
+                        }
+                        className="w-full px-3 py-2.5 text-left"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-xs font-medium text-gray-900">
+                            {p.displayName}
+                          </span>
+                          <span className="shrink-0 text-xs font-semibold text-gray-900 tabular-nums">
+                            $
+                            {p.revenue.toLocaleString("en-US", {
+                              maximumFractionDigits: 0,
+                            })}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+                            <div
+                              className="h-full rounded-full bg-gray-900"
+                              style={{ width: `${Math.min(p.pctOfChannel, 100)}%` }}
+                            />
+                          </div>
+                          <span className="w-10 shrink-0 text-right text-[10px] font-medium tabular-nums text-gray-900">
+                            {p.pctOfChannel.toFixed(1)}%
+                          </span>
+                        </div>
+
+                        <div className="mt-1.5 flex items-center justify-between text-[10px] text-gray-400">
+                          <span className="tabular-nums">
+                            {p.units.toLocaleString()} units
+                          </span>
+                          {hasFragrances && (
+                            <span className="inline-flex items-center gap-0.5">
+                              {p.fragrances.length} fragrances
+                              {isProductExpanded ? (
+                                <ChevronUp size={11} />
+                              ) : (
+                                <ChevronDown size={11} />
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+
+                      {isProductExpanded && (
+                        <ul className="space-y-1.5 border-t border-gray-100 bg-gray-50/60 px-3 py-2">
+                          {p.fragrances.map((f) => (
+                            <li
+                              key={f.fragrance}
+                              className="flex items-baseline justify-between gap-3 text-[11px]"
+                            >
+                              <span className="min-w-0 truncate text-gray-500">
+                                {f.fragrance}
+                              </span>
+                              <span className="shrink-0 tabular-nums text-gray-600">
+                                $
+                                {f.revenue.toLocaleString("en-US", {
+                                  maximumFractionDigits: 0,
+                                })}
+                                <span className="ml-1.5 text-gray-400">
+                                  {f.pctOfChannel.toFixed(1)}%
+                                </span>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {channelProducts.length > 20 && (
+                <p className="mt-2 text-[11px] text-gray-400 md:hidden">
+                  Showing top 20 of {channelProducts.length} products
+                </p>
+              )}
+              </>
             )}
           </div>
         </div>

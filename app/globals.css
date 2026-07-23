@@ -1,31 +1,138 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* ═══════════════════════════════════════════════════════════════
+   FMG Design Tokens
+
+   One palette for the whole portal. Pages should reach for the
+   semantic utilities (bg-surface, text-ink-muted, border-line,
+   bg-brand-700, text-accent-600) rather than raw grays, so a brand
+   change is a change to this file and nothing else.
+   ═══════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ─── Brand: navy. The identity color — nav rail, primary actions,
+         active states, chart series 1. ─── */
+  --color-brand-50: #f2f8fb;
+  --color-brand-100: #e4eff6;
+  --color-brand-200: #c6ddeb;
+  --color-brand-300: #8fbad6;
+  --color-brand-400: #4a87b3;
+  --color-brand-500: #2e6690;
+  --color-brand-600: #245071;
+  --color-brand-700: #1b3c53; /* base — matches legacy --color-chart-navy */
+  --color-brand-800: #16354a;
+  --color-brand-900: #10293a;
+  --color-brand-950: #0a1b27;
+
+  /* ─── Accent: gold. Used sparingly — highlights, badges, the mark's
+         punctuation. Never as a large fill. ─── */
+  --color-accent-50: #fef9e9;
+  --color-accent-100: #fdf3d3;
+  --color-accent-200: #fbe79f;
+  --color-accent-300: #f7d75f;
+  --color-accent-400: #f2c92f;
+  --color-accent-500: #ebb700; /* base — matches legacy --color-accent-gold */
+  --color-accent-600: #c29500;
+  --color-accent-700: #94710b;
+
+  /* ─── Ink: text hierarchy. Four steps, nothing in between. ─── */
+  --color-ink: #0f1c26;
+  --color-ink-secondary: #3c4d5a;
+  --color-ink-muted: #6b7b88;
+  --color-ink-subtle: #94a2ad;
+  --color-ink-inverse: #ffffff;
+
+  /* ─── Surfaces & lines ─── */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f7f9fb;
+  --color-surface-sunken: #eef2f6;
+  --color-line: #e3e9ef;
+  --color-line-strong: #cfd8e1;
+
+  /* ─── Status ─── */
+  --color-positive: #12805c;
+  --color-positive-soft: #e7f6f0;
+  --color-warning: #b45309;
+  --color-warning-soft: #fdf3e3;
+  --color-critical: #c0342c;
+  --color-critical-soft: #fdeceb;
+
+  /* ─── Elevation — flat by default, shadows carry meaning ─── */
+  --shadow-card: 0 1px 2px rgb(15 28 38 / 0.04), 0 1px 3px rgb(15 28 38 / 0.06);
+  --shadow-raised: 0 4px 12px rgb(15 28 38 / 0.08), 0 1px 3px rgb(15 28 38 / 0.05);
+  --shadow-overlay: 0 16px 48px rgb(15 28 38 / 0.16), 0 2px 8px rgb(15 28 38 / 0.08);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: var(--color-surface-muted);
+  --foreground: var(--color-ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-accent-gold: #ebb700;
-  --color-chart-navy: #1B3C53;
+  /* Legacy aliases — kept so existing charts/pages keep rendering while
+     they migrate to the brand/accent scales above. */
+  --color-accent-gold: var(--color-accent-500);
+  --color-chart-navy: var(--color-brand-700);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Geist, loaded in app/layout.tsx. Previously hard-coded to Arial, which
+     silently threw away the webfont on every page. */
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers line up in tables, KPI cards and charts */
+.tabular,
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* One focus treatment across the portal */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Restrained scrollbars — the portal is dense, chrome shouldn't compete */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-line-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-ink-subtle);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Dark nav rail keeps its own scrollbar treatment */
+.nav-rail {
+  scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+}
+.nav-rail::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.18);
+}
+.nav-rail::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(255 255 255 / 0.3);
 }
 
 /* ─── Blog Post Rich Image Layouts ─── */

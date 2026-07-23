@@ -27,8 +27,8 @@ export default function TabNav<T extends string>({
           className={clsx(
             "rounded-lg px-3 py-1.5 text-sm font-medium transition",
             active === tab.value
-              ? "bg-gray-100 text-gray-900"
-              : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+              ? "bg-brand-50 text-brand-700"
+              : "text-ink-muted hover:text-ink hover:bg-surface-muted"
           )}
         >
           {tab.label}

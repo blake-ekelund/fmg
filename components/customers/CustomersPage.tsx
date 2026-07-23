@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Mail, Workflow, X } from "lucide-react";
+import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
+import { useBrand } from "@/components/BrandContext";
 import {
   useCustomers,
   applyFilters,
@@ -15,7 +17,7 @@ import {
 } from "./hooks/useD2CCustomers";
 import CustomersFilters from "./CustomersFilters";
 import CustomersTable from "./CustomersTable";
-import CustomersCardGrid from "./CustomersCardGrid";
+import CustomerListCards from "./CustomerListCards";
 import type { CustomerViewMode } from "./constants";
 import type { Customer, D2CCustomer } from "./types";
 import AssignWorkflowModal from "./AssignWorkflowModal";
@@ -56,6 +58,11 @@ export default function CustomersPage({
 }: {
   viewMode?: CustomerViewMode;
 }) {
+  // The wholesale list is brand-scoped (see useCustomers). Export and
+  // select-all-matching have to honour the same scope or they reach outside
+  // the rows the user can actually see.
+  const { brand } = useBrand();
+
   const [page, setPage] = useState(0);
 
   const [search, setSearch] = useState("");
@@ -141,7 +148,7 @@ export default function CustomersPage({
     channelOptions = [],
     agencyOptions = [],
     stateOptions: wholesaleStateOptions = [],
-    stats: wholesaleStats = { active: 0, atRisk: 0, churned: 0 },
+    stats: wholesaleStats = { all: 0, active: 0, atRisk: 0, churned: 0 },
   } = useCustomers({
     page,
     pageSize: PAGE_SIZE,
@@ -163,7 +170,7 @@ export default function CustomersPage({
     loading: d2cLoading = false,
     totalCount: d2cTotalCount = 0,
     stateOptions: d2cStateOptions = [],
-    stats: d2cStats = { active: 0, atRisk: 0, churned: 0 },
+    stats: d2cStats = { all: 0, active: 0, atRisk: 0, churned: 0 },
   } = useD2CCustomers({
     page,
     pageSize: PAGE_SIZE,
@@ -232,6 +239,9 @@ export default function CustomersPage({
           spendBucket as WholesaleSpendBucket,
           states,
         );
+        if (brand !== "all") {
+          q = q.ilike("brands_purchased", `%${brand}%`);
+        }
         const { data } = await q;
         const ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
         setSelectedIds(new Set(ids));
@@ -239,7 +249,7 @@ export default function CustomersPage({
     } finally {
       setSelectAllLoading(false);
     }
-  }, [isD2C, search, status, channel, agency, states, repeatOnly, spendBucket]);
+  }, [isD2C, search, status, channel, agency, states, repeatOnly, spendBucket, brand]);
 
   /* ─── Customer name map for workflow modal ─── */
   const customerNames = useMemo(() => {
@@ -331,26 +341,21 @@ export default function CustomersPage({
   }
 
   async function handleD2CDownload() {
+    // Route through the shared builder rather than re-deriving the filters
+    // here: the hand-rolled copy dropped repeatOnly/spendBucket and used an
+    // unescaped search term in .or().
     let query = supabase
       .from("d2c_customer_summary")
       .select("*")
       .range(0, 9999);
 
-    if (search) {
-      const q = search.trim();
-      query = query.or(`name.ilike.%${q}%,email.ilike.%${q}%,bill_to_state.ilike.%${q}%`);
-    }
-
-    if (status) {
-      const { active, risk } = getDateCutoffs();
-      if (status === "active") query = query.gte("last_order_date", active.toISOString());
-      if (status === "at_risk") query = query.lt("last_order_date", active.toISOString()).gte("last_order_date", risk.toISOString());
-      if (status === "churned") query = query.lt("last_order_date", risk.toISOString());
-    }
-
-    if (states.length > 0) {
-      query = query.in("bill_to_state", states);
-    }
+    query = applyD2CFilters(query, {
+      search,
+      status,
+      repeatOnly,
+      spendBucket: spendBucket as D2CSpendBucket,
+      states,
+    });
 
     const { data, error } = await query;
     if (error || !data?.length) return;
@@ -387,7 +392,23 @@ export default function CustomersPage({
       .select("*")
       .range(0, 4999);
 
-    query = applyFilters(query, search, status, channel, agency, undefined, undefined, states);
+    // Every filter the user set has to reach the export — repeatOnly and
+    // spendBucket used to be dropped here, so a filtered view exported a
+    // wider set of customers than it displayed.
+    query = applyFilters(
+      query,
+      search,
+      status,
+      channel,
+      agency,
+      repeatOnly,
+      spendBucket as WholesaleSpendBucket,
+      states,
+    );
+
+    if (brand !== "all") {
+      query = query.ilike("brands_purchased", `%${brand}%`);
+    }
 
     const { data, error } = await query;
     if (error || !data?.length) return;
@@ -477,7 +498,7 @@ export default function CustomersPage({
         setExportColumns={activeSetExportColumns}
       />
 
-      {/* Table */}
+      {/* Table (md+) */}
       <CustomersTable
         customers={isD2C ? d2cCustomers : wholesaleCustomers}
         loading={loading}
@@ -490,24 +511,41 @@ export default function CustomersPage({
         onToggleAll={handleToggleAll}
       />
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between text-xs pt-2">
-        <span className="text-gray-400 tabular-nums">
+      {/* Cards (phones) */}
+      <div className="md:hidden">
+        <CustomerListCards
+          customers={isD2C ? d2cCustomers : wholesaleCustomers}
+          loading={loading}
+          viewMode={viewMode}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
+        />
+      </div>
+
+      {/* Pagination. Extra bottom padding on phones keeps the last row clear of
+          the floating action bar when a selection is active. */}
+      <div
+        className={clsx(
+          "flex items-center justify-between gap-3 pt-2 text-xs",
+          selectedIds.size > 0 && "pb-24 md:pb-0",
+        )}
+      >
+        <span className="shrink-0 text-gray-400 tabular-nums">
           Page {page + 1} of {totalPages}
         </span>
 
-        <div className="flex gap-1.5">
+        <div className="flex gap-2">
           <button
             disabled={!canGoPrev}
             onClick={() => setPage((p) => Math.max(0, p - 1))}
-            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 text-xs font-medium hover:bg-gray-50 transition disabled:opacity-30 disabled:cursor-default"
+            className="min-h-[40px] rounded-lg border border-gray-200 bg-white px-4 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-default disabled:opacity-30 md:min-h-0 md:py-1.5"
           >
             Previous
           </button>
           <button
             disabled={!canGoNext}
             onClick={() => setPage((p) => p + 1)}
-            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 text-xs font-medium hover:bg-gray-50 transition disabled:opacity-30 disabled:cursor-default"
+            className="min-h-[40px] rounded-lg border border-gray-200 bg-white px-4 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:cursor-default disabled:opacity-30 md:min-h-0 md:py-1.5"
           >
             Next
           </button>
@@ -515,48 +553,68 @@ export default function CustomersPage({
       </div>
 
       {/* ─── Floating Action Bar ─── */}
+      {/* On phones this is a full-width bar pinned to the bottom edge (five
+          controls in a centred row overflowed a 375px screen); from md up it
+          returns to the floating centred pill. */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-2xl border border-gray-200 bg-white/95 backdrop-blur-sm shadow-lg px-5 py-3">
-          <span className="text-xs font-semibold text-gray-700 tabular-nums">
-            {selectedIds.size} selected
-          </span>
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 px-4 pt-3 shadow-lg backdrop-blur-sm [padding-bottom:calc(0.75rem+env(safe-area-inset-bottom))] md:inset-x-auto md:bottom-6 md:left-1/2 md:w-auto md:-translate-x-1/2 md:rounded-2xl md:border md:px-5 md:py-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-gray-700 tabular-nums">
+                {selectedIds.size} selected
+              </span>
 
-          {selectedIds.size < totalCount && (
+              {selectedIds.size < totalCount && (
+                <button
+                  onClick={handleSelectAllMatching}
+                  disabled={selectAllLoading}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                  title={`Replace selection with all ${totalCount.toLocaleString()} customers matching the current filter.`}
+                >
+                  {selectAllLoading
+                    ? "Loading…"
+                    : `Select all ${totalCount.toLocaleString()}`}
+                </button>
+              )}
+
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 md:hidden"
+                title="Clear selection"
+                aria-label="Clear selection"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="hidden h-5 w-px bg-gray-200 md:block" />
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEmailModalOpen(true)}
+                className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-3 text-xs font-medium text-white transition hover:bg-gray-800 md:min-h-0 md:flex-none md:py-2"
+              >
+                <Mail size={13} />
+                Send Email
+              </button>
+
+              <button
+                onClick={() => setWorkflowModalOpen(true)}
+                className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-50 md:min-h-0 md:flex-none md:py-2"
+              >
+                <Workflow size={13} />
+                Assign Workflow
+              </button>
+            </div>
+
             <button
-              onClick={handleSelectAllMatching}
-              disabled={selectAllLoading}
-              className="text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
-              title={`Replace selection with all ${totalCount.toLocaleString()} customers matching the current filter.`}
+              onClick={() => setSelectedIds(new Set())}
+              className="hidden items-center gap-1 rounded-lg px-2 py-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 md:inline-flex"
+              title="Clear selection"
             >
-              {selectAllLoading ? "Loading…" : `Select all ${totalCount.toLocaleString()} matching`}
+              <X size={14} />
             </button>
-          )}
-
-          <div className="w-px h-5 bg-gray-200" />
-
-          <button
-            onClick={() => setEmailModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 transition"
-          >
-            <Mail size={13} />
-            Send Email
-          </button>
-
-          <button
-            onClick={() => setWorkflowModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-xs font-medium hover:bg-gray-50 transition"
-          >
-            <Workflow size={13} />
-            Assign Workflow
-          </button>
-
-          <button
-            onClick={() => setSelectedIds(new Set())}
-            className="inline-flex items-center gap-1 px-2 py-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
-            title="Clear selection"
-          >
-            <X size={14} />
-          </button>
+          </div>
         </div>
       )}
 
@@ -583,11 +641,3 @@ export default function CustomersPage({
   );
 }
 
-function getDateCutoffs() {
-  const now = new Date();
-  const active = new Date(now);
-  active.setDate(now.getDate() - 180);
-  const risk = new Date(now);
-  risk.setDate(now.getDate() - 365);
-  return { active, risk };
-}

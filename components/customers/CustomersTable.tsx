@@ -3,32 +3,11 @@
 import { useRouter } from "next/navigation";
 import type { Customer, D2CCustomer } from "./types";
 import type { CustomerViewMode } from "./constants";
-
-function formatMoney(n: number | null | undefined) {
-  if (n == null) return "—";
-  return n.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-}
-
-function formatDate(d: string | null) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString();
-}
-
-function getCustomerStatus(lastOrderDate: string | null) {
-  if (!lastOrderDate) {
-    return { label: "No Orders", color: "bg-slate-100 text-slate-600" };
-  }
-  const now = new Date();
-  const last = new Date(lastOrderDate);
-  const diffDays = (now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24);
-  if (diffDays <= 180) return { label: "Active", color: "bg-emerald-50 text-emerald-700" };
-  if (diffDays <= 365) return { label: "At Risk", color: "bg-amber-50 text-amber-700" };
-  return { label: "Churned", color: "bg-rose-50 text-rose-700" };
-}
+import {
+  formatMoney,
+  formatDate,
+  getCustomerStatus,
+} from "./customerDisplay";
 
 type SortColumn =
   | "name"
@@ -131,7 +110,11 @@ export default function CustomersTable({
 
   if (isD2C) {
     return (
-      <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+      /* md and up only — CustomerListCards takes over on phones. The columns
+         still need ~860px to stay legible, so tablets scroll horizontally
+         rather than crushing them. */
+      <div className="hidden md:block bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm overflow-x-auto">
+        <div className="min-w-[860px]">
         {/* D2C Header */}
         <div className={`grid ${gridCols} px-2 py-3 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/70 border-b border-slate-200/60`}>
           {hasSelection && (
@@ -195,21 +178,23 @@ export default function CustomersTable({
                 <div className="text-xs">{c.bill_to_state ?? "—"}</div>
                 <div className="text-xs text-center">{formatDate(c.last_order_date)}</div>
                 <div className="text-xs text-right tabular-nums">{c.lifetime_orders}</div>
-                <div className="text-xs text-right">{formatMoney(c.sales_2026)}</div>
-                <div className="text-xs text-right">{formatMoney(c.sales_2025)}</div>
-                <div className="text-xs text-right">{formatMoney(c.sales_2024)}</div>
-                <div className="text-xs text-right">{formatMoney(c.sales_2023)}</div>
-                <div className="text-xs font-medium text-right">{formatMoney(c.lifetime_revenue)}</div>
+                <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2026)}</div>
+                <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2025)}</div>
+                <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2024)}</div>
+                <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2023)}</div>
+                <div className="text-xs font-medium text-right tabular-nums">{formatMoney(c.lifetime_revenue)}</div>
               </div>
             );
           })}
+        </div>
       </div>
     );
   }
 
   /* ─── Wholesale Table ─── */
   return (
-    <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+    <div className="hidden md:block bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm overflow-x-auto">
+      <div className="min-w-[940px]">
       {/* Header */}
       <div className={`grid ${gridCols} px-2 py-3 text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50/70 border-b border-slate-200/60`}>
         {hasSelection && (
@@ -287,14 +272,15 @@ export default function CustomersTable({
               </div>
               <div className="text-xs">{c.bill_to_state ?? "—"}</div>
               <div className="text-xs text-center">{formatDate(c.last_order_date)}</div>
-              <div className="text-xs font-medium text-right">{formatMoney(c.last_order_amount)}</div>
-              <div className="text-xs text-right">{formatMoney(c.sales_2026)}</div>
-              <div className="text-xs text-right">{formatMoney(c.sales_2025)}</div>
-              <div className="text-xs text-right">{formatMoney(c.sales_2024)}</div>
-              <div className="text-xs text-right">{formatMoney(c.sales_2023)}</div>
+              <div className="text-xs font-medium text-right tabular-nums">{formatMoney(c.last_order_amount)}</div>
+              <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2026)}</div>
+              <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2025)}</div>
+              <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2024)}</div>
+              <div className="text-xs text-right tabular-nums">{formatMoney(c.sales_2023)}</div>
             </div>
           );
         })}
+      </div>
     </div>
   );
 }

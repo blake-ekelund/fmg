@@ -16,7 +16,7 @@ export default function PageHeader({
     <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       {/* Left: subtitle */}
       {subtitle && (
-        <p className="text-sm text-gray-500">{subtitle}</p>
+        <p className="text-sm text-ink-muted">{subtitle}</p>
       )}
 
       {/* Right: page-specific actions */}

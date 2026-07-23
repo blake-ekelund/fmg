@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Search,
   Mail,
@@ -8,53 +10,61 @@ import {
   MapPin,
   Users,
   Plus,
-  Pencil,
   Loader2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
   AlertTriangle,
   UserPlus,
   Check,
+  Building2,
+  Globe2,
+  MailWarning,
+  X,
 } from "lucide-react";
-import { supabaseBrowser } from "@/lib/supabase/browser";
-import { SALES_REPS, type SalesRep } from "./reps";
+import { SEED_REPS, authHeader, isSeed, loadReps, location } from "./repShared";
+import RepAvatar from "./RepAvatar";
+import type { SalesRep } from "./reps";
 import RepEmailModal from "./RepEmailModal";
 import RepFormModal from "./RepFormModal";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 25;
 
-const selectCls =
-  "rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-gray-400 focus:outline-none";
+/* ---------------------------
+   Sorting
+--------------------------- */
+type SortKey = "name" | "agency" | "territory" | "location" | "email" | "phone";
+type SortDir = "asc" | "desc";
 
-async function authHeader(): Promise<Record<string, string>> {
-  const supabase = supabaseBrowser();
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+const SORT_VALUE: Record<SortKey, (r: SalesRep) => string> = {
+  name: (r) => r.name,
+  // Sort by agency name, then code, so one agency's reps stay together.
+  agency: (r) => `${r.agency} ${String(r.agencyCode ?? "").padStart(6, "0")}`,
+  territory: (r) => r.territory,
+  // State first: "who covers the Southwest" is the real question behind this column.
+  location: (r) => [r.state, r.city].filter(Boolean).join(" "),
+  email: (r) => r.email,
+  // Compare digits only, so 612-281-7921 and 612.281.7921 sort together.
+  phone: (r) => r.phone.replace(/\D/g, ""),
+};
 
-/** Map a DB row (snake_case) to the SalesRep shape the UI uses. */
-function fromRow(r: Record<string, unknown>): SalesRep {
-  return {
-    id: r.id as string,
-    agencyCode: (r.agency_code as number) ?? 0,
-    agency: (r.agency as string) ?? "",
-    name: (r.name as string) ?? "",
-    email: (r.email as string) ?? "",
-    phone: (r.phone as string) ?? "",
-    city: (r.city as string) ?? "",
-    state: (r.state as string) ?? "",
-    zip: (r.zip as string) ?? "",
-    territory: (r.territory as string) ?? "",
-    samples: (r.samples as string) ?? "",
-  };
-}
+const COLUMNS: { key: SortKey; label: string }[] = [
+  { key: "name", label: "Rep" },
+  { key: "agency", label: "Agency" },
+  { key: "territory", label: "Territory" },
+  { key: "location", label: "Location" },
+  { key: "email", label: "Email" },
+  { key: "phone", label: "Phone" },
+];
 
-/** Fallback seed rows get a stable synthetic key; they're read-only. */
-const SEED_REPS: SalesRep[] = SALES_REPS.map((r, i) => ({ ...r, id: `seed-${i}` }));
-const isSeed = (rep: SalesRep) => !rep.id || rep.id.startsWith("seed-");
+const controlCls =
+  "rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] text-ink-secondary transition focus:border-brand-400 focus:outline-none";
 
 export default function SalesTeamPage() {
+  const router = useRouter();
+
   const [reps, setReps] = useState<SalesRep[]>(SEED_REPS);
   const [readOnly, setReadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -63,11 +73,24 @@ export default function SalesTeamPage() {
   const [query, setQuery] = useState("");
   const [agency, setAgency] = useState<string>("all");
   const [page, setPage] = useState(0);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: "name",
+    dir: "asc",
+  });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  /** New column starts ascending; the same column flips direction. */
+  function toggleSort(key: SortKey) {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" },
+    );
+    setPage(0);
+  }
 
   const [emailOpen, setEmailOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<SalesRep | null>(null);
 
   // Portal-invite state, keyed by rep id.
   const [inviteState, setInviteState] = useState<Record<string, "loading" | "done" | "error">>({});
@@ -95,21 +118,10 @@ export default function SalesTeamPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/sales-reps", { headers: await authHeader() });
-      const json = await res.json();
-      if (!res.ok) {
-        setLoadError(json?.error ?? `Failed to load (${res.status})`);
-        return;
-      }
+      const { reps, readOnly } = await loadReps();
       setLoadError(null);
-      if (json.notReady) {
-        // Table not created yet — show the built-in roster read-only.
-        setReadOnly(true);
-        setReps(SEED_REPS);
-      } else {
-        setReadOnly(false);
-        setReps((json.reps as Record<string, unknown>[]).map(fromRow));
-      }
+      setReadOnly(readOnly);
+      setReps(reps);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     }
@@ -143,9 +155,25 @@ export default function SalesTeamPage() {
     });
   }, [reps, query, agency]);
 
+  /* Blanks always sink to the bottom, in either direction — a directory sorted
+     by Phone should lead with the reps who have one, not with the gaps. */
+  const sorted = useMemo(() => {
+    const value = SORT_VALUE[sort.key];
+    const factor = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = value(a);
+      const bv = value(b);
+      if (!av && !bv) return a.name.localeCompare(b.name);
+      if (!av) return 1;
+      if (!bv) return -1;
+      const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+      return cmp !== 0 ? cmp * factor : a.name.localeCompare(b.name);
+    });
+  }, [filtered, sort]);
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
-  const pageItems = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageItems = sorted.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
   const from = filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
   const to = Math.min(filtered.length, (safePage + 1) * PAGE_SIZE);
 
@@ -181,62 +209,67 @@ export default function SalesTeamPage() {
   );
 
   const withoutEmail = filtered.filter((r) => !r.email).length;
+  const states = useMemo(
+    () => new Set(reps.map((r) => r.state).filter(Boolean)).size,
+    [reps],
+  );
 
-  function openAdd() {
-    setEditing(null);
-    setFormOpen(true);
-  }
-  function openEdit(rep: SalesRep) {
-    setEditing(rep);
-    setFormOpen(true);
+  const isFiltered = query.trim() !== "" || agency !== "all";
+
+  function clearFilters() {
+    setQuery("");
+    setAgency("all");
+    setPage(0);
   }
 
   return (
-    <div className="w-full space-y-6 p-6 md:px-8">
-      <p className="max-w-2xl text-sm text-gray-500">
-        Our independent sales reps and rep agencies. Select reps to send them a
-        personalized email blast, or edit the roster.
-      </p>
+    <div className="w-full space-y-4 p-5 md:px-7">
+      {/* ─── Summary strip (desktop only — on a phone the roster itself is
+             the point, and four counters push it below the fold) ─── */}
+      <div className="hidden gap-2 sm:grid sm:grid-cols-4">
+        <Stat icon={Users} label="Reps" value={reps.length} />
+        <Stat icon={Building2} label="Agencies" value={agencies.length} />
+        <Stat icon={Globe2} label="States" value={states} />
+        <Stat
+          icon={MailWarning}
+          label="No email"
+          value={reps.filter((r) => !r.email).length}
+          muted
+        />
+      </div>
 
       {loadError && (
-        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+        <Banner tone="critical" icon={AlertTriangle}>
           {loadError}
-        </div>
+        </Banner>
       )}
 
       {readOnly && !loading && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>
-            Showing the built-in roster (read-only). Run the{" "}
-            <code className="rounded bg-amber-100 px-1">sales_reps</code> migration
-            (<code className="rounded bg-amber-100 px-1">supabase db push</code>) to
-            enable editing and adding reps.
-          </span>
-        </div>
+        <Banner tone="warning" icon={AlertTriangle}>
+          Showing the built-in roster (read-only). Run the{" "}
+          <code className="rounded bg-warning-soft px-1 font-mono">sales_reps</code>{" "}
+          migration (<code className="rounded bg-warning-soft px-1 font-mono">supabase db push</code>)
+          to enable editing, adding reps and portal invites.
+        </Banner>
       )}
 
       {inviteMsg && (
-        <div
-          className={
-            "flex items-start gap-2 rounded-xl border px-4 py-3 text-sm " +
-            (inviteMsg.ok
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700")
-          }
+        <Banner
+          tone={inviteMsg.ok ? "positive" : "critical"}
+          icon={inviteMsg.ok ? Check : AlertTriangle}
+          onDismiss={() => setInviteMsg(null)}
         >
-          {inviteMsg.ok ? <Check size={15} className="mt-0.5 shrink-0" /> : <AlertTriangle size={15} className="mt-0.5 shrink-0" />}
           {inviteMsg.text}
-        </div>
+        </Banner>
       )}
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative">
+      {/* ─── Toolbar ─── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Mobile: search fills the row and the Email CTA sits beside it. */}
+        <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
           <Search
-            size={14}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+            size={13}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-subtle"
           />
           <input
             value={query}
@@ -245,17 +278,18 @@ export default function SalesTeamPage() {
               setPage(0);
             }}
             placeholder="Search name, agency, territory, location"
-            className="w-80 rounded-lg border border-gray-200 py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+            className="w-full rounded-lg border border-line bg-surface py-2 pl-8 pr-3 text-[11px] text-ink placeholder:text-ink-subtle transition focus:border-brand-400 focus:outline-none sm:py-1.5"
           />
         </div>
 
+        {/* Agency filter is desktop-only — search already covers agency names. */}
         <select
           value={agency}
           onChange={(e) => {
             setAgency(e.target.value);
             setPage(0);
           }}
-          className={selectCls}
+          className={`hidden sm:block ${controlCls}`}
         >
           <option value="all">All agencies ({reps.length})</option>
           {agencies.map((a) => (
@@ -265,20 +299,32 @@ export default function SalesTeamPage() {
           ))}
         </select>
 
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-xs text-gray-400">
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="hidden items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-ink-muted transition hover:text-ink sm:inline-flex"
+          >
+            <X size={11} /> Clear
+          </button>
+        )}
+
+        <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
+          {/* Count is desktop-only; on mobile the Email button already carries
+              the selection count and the roster speaks for itself. */}
+          <span className="hidden text-[11px] text-ink-subtle sm:inline">
             {filtered.length} rep{filtered.length === 1 ? "" : "s"}
             {selected.size > 0 && (
-              <span className="text-gray-600"> · {selected.size} selected</span>
+              <span className="text-brand-700"> · {selected.size} selected</span>
             )}
           </span>
           {!readOnly && (
             <button
               type="button"
-              onClick={openAdd}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              onClick={() => setFormOpen(true)}
+              className="hidden min-h-9 items-center gap-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11px] font-medium text-ink-secondary transition hover:border-line-strong hover:text-ink sm:inline-flex"
             >
-              <Plus size={14} />
+              <Plus size={12} />
               Add rep
             </button>
           )}
@@ -286,45 +332,54 @@ export default function SalesTeamPage() {
             type="button"
             onClick={() => setEmailOpen(true)}
             disabled={selected.size === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-40"
+            className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1 rounded-lg bg-brand-700 px-2.5 text-[11px] font-medium text-white transition hover:bg-brand-800 disabled:opacity-40 disabled:hover:bg-brand-700 sm:px-3 sm:py-1.5"
           >
-            <Mail size={14} />
-            Email {selected.size > 0 ? `${selected.size} ` : ""}rep
-            {selected.size === 1 ? "" : "s"}
+            <Mail size={12} />
+            <span>Email{selected.size > 0 ? ` ${selected.size}` : ""}</span>
+            {/* The "rep(s)" tail is desktop-only so the mobile CTA stays compact. */}
+            <span className="hidden sm:inline">
+              rep{selected.size === 1 ? "" : "s"}
+            </span>
           </button>
         </div>
       </div>
 
-      {/* Table */}
+      {/* ─── Table ─── */}
       {loading ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-gray-400">
-          <Loader2 size={15} className="animate-spin" /> Loading reps…
+        <div className="flex items-center gap-2 py-10 text-[11px] text-ink-muted">
+          <Loader2 size={13} className="animate-spin" /> Loading reps…
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+        /* Panel chrome is desktop-only; on mobile each rep is a standalone card. */
+        <div className="md:overflow-hidden md:rounded-xl md:border md:border-line md:bg-surface md:shadow-card">
+          {/* Desktop: full table. Below md it becomes a card list — an 860px
+              table in a horizontal scroller is unusable on a phone. */}
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[860px] text-[11px]">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/60 text-left text-[11px] uppercase tracking-wider text-gray-400">
-                  <th className="w-10 px-3 py-2.5">
+                <tr className="border-b border-line bg-surface-muted text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">
+                  <th className="w-9 px-3 py-2">
                     <input
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleAll}
-                      aria-label="Select all"
-                      className="h-3.5 w-3.5 cursor-pointer rounded border-gray-300 accent-gray-900"
+                      aria-label="Select all reps"
+                      className="h-3 w-3 cursor-pointer rounded border-line-strong accent-brand-700"
                     />
                   </th>
-                  <th className="px-3 py-2.5 font-medium">Rep</th>
-                  <th className="px-3 py-2.5 font-medium">Agency</th>
-                  <th className="px-3 py-2.5 font-medium">Territory</th>
-                  <th className="px-3 py-2.5 font-medium">Location</th>
-                  <th className="px-3 py-2.5 font-medium">Contact</th>
-                  <th className="px-3 py-2.5 font-medium">Samples</th>
-                  <th className="w-24 px-3 py-2.5 text-right font-medium">Portal</th>
+                  {COLUMNS.map((col) => (
+                    <SortableTh
+                      key={col.key}
+                      label={col.label}
+                      active={sort.key === col.key}
+                      dir={sort.dir}
+                      onClick={() => toggleSort(col.key)}
+                    />
+                  ))}
+                  <th className="w-20 px-3 py-2 text-right">Portal</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-line">
                 {pageItems.map((r) => {
                   const id = r.id as string;
                   const isSel = selected.has(id);
@@ -332,114 +387,109 @@ export default function SalesTeamPage() {
                   return (
                     <tr
                       key={id}
-                      onClick={() => canSelect && toggle(id)}
+                      onClick={() => router.push(`/sales-team/${id}`)}
                       className={
-                        "group transition-colors " +
-                        (canSelect ? "cursor-pointer hover:bg-gray-50/70 " : "") +
-                        (isSel ? "bg-gray-50" : "")
+                        "group cursor-pointer transition-colors " +
+                        (isSel ? "bg-brand-50/60" : "hover:bg-surface-muted")
                       }
                     >
-                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                      {/* Selection is checkbox-only now that the row itself
+                          drills into the rep. */}
+                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSel}
                           disabled={!canSelect}
                           onChange={() => toggle(id)}
                           aria-label={`Select ${r.name}`}
-                          className="h-3.5 w-3.5 cursor-pointer rounded border-gray-300 accent-gray-900 disabled:cursor-not-allowed disabled:opacity-30"
+                          title={canSelect ? `Select ${r.name}` : "No email on file"}
+                          className="h-3 w-3 cursor-pointer rounded border-line-strong accent-brand-700 disabled:cursor-not-allowed disabled:opacity-30"
                         />
                       </td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-medium text-gray-900">{r.name}</div>
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-600">
-                        {r.agency}
-                        <span className="ml-1.5 text-[11px] text-gray-300">
-                          {r.agencyCode || ""}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-600">
-                        {r.territory || <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-500">
-                        {r.city || r.state ? (
-                          <span className="inline-flex items-center gap-1">
-                            <MapPin size={12} className="shrink-0 text-gray-300" />
-                            {[r.city, r.state].filter(Boolean).join(", ")}
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <RepAvatar rep={r} size={22} />
+                          <span className="font-medium text-ink group-hover:text-brand-700">
+                            {r.name}
                           </span>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex flex-col gap-0.5">
-                          {r.email ? (
-                            <a
-                              href={`mailto:${r.email}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-gray-700 hover:text-gray-900 hover:underline"
-                            >
-                              <Mail size={12} className="shrink-0 text-gray-300" />
-                              {r.email}
-                            </a>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-gray-300">
-                              <Mail size={12} className="shrink-0" />
-                              No email on file
-                            </span>
-                          )}
-                          {r.phone && (
-                            <span className="inline-flex items-center gap-1 text-xs text-gray-400">
-                              <Phone size={11} className="shrink-0 text-gray-300" />
-                              {r.phone}
-                            </span>
-                          )}
                         </div>
                       </td>
-                      <td className="px-3 py-2.5">
-                        {r.samples && (
-                          <span className="inline-block rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">
-                            {r.samples}
+                      <td className="px-3 py-2 text-ink-secondary">
+                        {r.agency}
+                        {!!r.agencyCode && (
+                          <span className="ml-1 text-[10px] text-ink-subtle">
+                            {r.agencyCode}
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-2 text-ink-secondary">
+                        {r.territory || <Dash />}
+                      </td>
+                      <td className="px-3 py-2 text-ink-muted">
+                        {location(r) ? (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin size={11} className="shrink-0 text-ink-subtle" />
+                            {location(r)}
+                          </span>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.email ? (
+                          <span className="inline-flex items-center gap-1 text-ink-secondary">
+                            <Mail size={11} className="shrink-0 text-ink-subtle" />
+                            {r.email}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-ink-subtle">
+                            <Mail size={11} className="shrink-0" />
+                            No email on file
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.phone ? (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap text-ink-secondary">
+                            <Phone size={10} className="shrink-0 text-ink-subtle" />
+                            {r.phone}
+                          </span>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          {!isSeed(r) && (
-                            <button
-                              type="button"
-                              onClick={() => openEdit(r)}
-                              className="rounded-md p-1 text-gray-300 opacity-0 transition hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
-                              title={`Edit ${r.name}`}
-                            >
-                              <Pencil size={13} />
-                            </button>
-                          )}
-                          {!isSeed(r) && r.email && (
+                          {!isSeed(r) && r.email ? (
                             <button
                               type="button"
                               onClick={() => invite(r)}
                               disabled={inviteState[id] === "loading"}
                               className={
-                                "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition " +
+                                "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-medium transition " +
                                 (inviteState[id] === "done"
-                                  ? "text-emerald-600"
-                                  : "text-gray-400 hover:bg-gray-100 hover:text-gray-700")
+                                  ? "text-positive"
+                                  : "text-ink-muted hover:bg-surface-sunken hover:text-ink")
                               }
                               title={`Invite ${r.name} to the rep portal`}
                             >
                               {inviteState[id] === "loading" ? (
-                                <Loader2 size={13} className="animate-spin" />
+                                <Loader2 size={11} className="animate-spin" />
                               ) : inviteState[id] === "done" ? (
                                 <>
-                                  <Check size={13} /> Sent
+                                  <Check size={11} /> Sent
                                 </>
                               ) : (
                                 <>
-                                  <UserPlus size={13} /> Invite
+                                  <UserPlus size={11} /> Invite
                                 </>
                               )}
                             </button>
+                          ) : (
+                            <ChevronRight
+                              size={13}
+                              className="text-ink-subtle opacity-0 transition group-hover:opacity-100"
+                            />
                           )}
                         </div>
                       </td>
@@ -448,9 +498,20 @@ export default function SalesTeamPage() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-12 text-center text-sm text-gray-400">
-                      <Users size={22} className="mx-auto mb-2 text-gray-300" />
-                      No reps match your search.
+                    <td colSpan={8} className="px-3 py-14 text-center">
+                      <Users size={20} className="mx-auto mb-2 text-ink-subtle" />
+                      <p className="text-[11px] font-medium text-ink-secondary">
+                        No reps match your search.
+                      </p>
+                      {isFiltered && (
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="mt-2 text-[11px] font-medium text-brand-700 hover:underline"
+                        >
+                          Clear filters
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -458,9 +519,98 @@ export default function SalesTeamPage() {
             </table>
           </div>
 
+          {/* Mobile: one tappable card per rep */}
+          <ul className="space-y-2 md:hidden">
+            {pageItems.map((r) => {
+              const id = r.id as string;
+              const isSel = selected.has(id);
+              const canSelect = !!r.email;
+              return (
+                <li
+                  key={id}
+                  className={
+                    "rounded-xl border bg-surface shadow-card transition-colors " +
+                    (isSel ? "border-brand-300 bg-brand-50/60" : "border-line")
+                  }
+                >
+                  <div className="flex items-start gap-2.5 px-3 py-3">
+                    <label
+                      className="flex min-h-11 min-w-6 items-start pt-0.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSel}
+                        disabled={!canSelect}
+                        onChange={() => toggle(id)}
+                        aria-label={`Select ${r.name}`}
+                        className="h-4 w-4 cursor-pointer rounded border-line-strong accent-brand-700 disabled:cursor-not-allowed disabled:opacity-30"
+                      />
+                    </label>
+
+                    <Link href={`/sales-team/${id}`} className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <RepAvatar rep={r} size={26} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium text-ink">
+                            {r.name}
+                          </div>
+                          <div className="truncate text-[11px] text-ink-muted">
+                            {[r.agency, r.territory].filter(Boolean).join(" · ") || "—"}
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="shrink-0 text-ink-subtle" />
+                      </div>
+
+                      <div className="mt-1.5 space-y-1 pl-[34px] text-[11px]">
+                        <div className="flex items-center gap-1.5 text-ink-secondary">
+                          <Mail size={11} className="shrink-0 text-ink-subtle" />
+                          {r.email ? (
+                            <span className="truncate">{r.email}</span>
+                          ) : (
+                            <span className="text-ink-subtle">No email on file</span>
+                          )}
+                        </div>
+                        {r.phone && (
+                          <div className="flex items-center gap-1.5 text-ink-secondary">
+                            <Phone size={11} className="shrink-0 text-ink-subtle" />
+                            {r.phone}
+                          </div>
+                        )}
+                        {location(r) && (
+                          <div className="flex items-center gap-1 text-ink-muted">
+                            <MapPin size={11} className="shrink-0 text-ink-subtle" />
+                            {location(r)}
+                          </div>
+                        )}
+                      </div>
+                    </Link>
+                  </div>
+                </li>
+              );
+            })}
+            {filtered.length === 0 && (
+              <li className="rounded-xl border border-line bg-surface px-3 py-12 text-center shadow-card">
+                <Users size={20} className="mx-auto mb-2 text-ink-subtle" />
+                <p className="text-[11px] font-medium text-ink-secondary">
+                  No reps match your search.
+                </p>
+                {isFiltered && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="mt-2 text-[11px] font-medium text-brand-700 hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </li>
+            )}
+          </ul>
+
           {/* Pagination */}
           {filtered.length > 0 && (
-            <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2.5 text-xs text-gray-500">
+            <div className="mt-2 flex items-center justify-between rounded-xl border border-line bg-surface px-3 py-2 text-[10px] text-ink-muted md:mt-0 md:rounded-none md:border-0 md:border-t md:border-line">
               <span>
                 {from}–{to} of {filtered.length}
               </span>
@@ -469,20 +619,20 @@ export default function SalesTeamPage() {
                   type="button"
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={safePage === 0}
-                  className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40"
+                  className="inline-flex items-center gap-0.5 rounded border border-line px-1.5 py-1 font-medium text-ink-secondary transition hover:bg-surface-muted disabled:opacity-40"
                 >
-                  <ChevronLeft size={13} /> Prev
+                  <ChevronLeft size={11} /> Prev
                 </button>
-                <span className="px-2 text-gray-400">
+                <span className="px-2">
                   Page {safePage + 1} of {pageCount}
                 </span>
                 <button
                   type="button"
                   onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
                   disabled={safePage >= pageCount - 1}
-                  className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40"
+                  className="inline-flex items-center gap-0.5 rounded border border-line px-1.5 py-1 font-medium text-ink-secondary transition hover:bg-surface-muted disabled:opacity-40"
                 >
-                  Next <ChevronRight size={13} />
+                  Next <ChevronRight size={11} />
                 </button>
               </div>
             </div>
@@ -491,7 +641,7 @@ export default function SalesTeamPage() {
       )}
 
       {withoutEmail > 0 && (
-        <p className="text-[11px] text-gray-400">
+        <p className="text-[10px] text-ink-subtle">
           {withoutEmail} rep{withoutEmail === 1 ? "" : "s"} in this view{" "}
           {withoutEmail === 1 ? "has" : "have"} no email on file and can&apos;t be
           selected for a send.
@@ -499,12 +649,128 @@ export default function SalesTeamPage() {
       )}
 
       <RepEmailModal open={emailOpen} onClose={() => setEmailOpen(false)} reps={selectedReps} />
+      {/* Editing happens on the rep's own page; this is create-only. */}
       <RepFormModal
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        rep={editing}
+        rep={null}
         onSaved={load}
       />
+    </div>
+  );
+}
+
+/* ─── Small building blocks ─── */
+
+function Dash() {
+  return <span className="text-ink-subtle">—</span>;
+}
+
+function SortableTh({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+}) {
+  return (
+    <th
+      className="px-3 py-2"
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        title={`Sort by ${label}`}
+        className={
+          "group inline-flex items-center gap-1 uppercase tracking-[0.1em] transition-colors " +
+          (active ? "text-brand-700" : "hover:text-ink-secondary")
+        }
+      >
+        {label}
+        {active ? (
+          dir === "asc" ? (
+            <ChevronUp size={11} className="shrink-0" />
+          ) : (
+            <ChevronDown size={11} className="shrink-0" />
+          )
+        ) : (
+          <ChevronsUpDown
+            size={11}
+            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-60"
+          />
+        )}
+      </button>
+    </th>
+  );
+}
+
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  muted,
+}: {
+  icon: typeof Users;
+  label: string;
+  value: number;
+  muted?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-2.5 shadow-card">
+      <span
+        className={
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg " +
+          (muted ? "bg-surface-sunken text-ink-muted" : "bg-brand-50 text-brand-700")
+        }
+      >
+        <Icon size={14} />
+      </span>
+      <div className="min-w-0 leading-tight">
+        <div className="text-[15px] font-semibold tabular text-ink">{value}</div>
+        <div className="text-[10px] font-medium uppercase tracking-[0.1em] text-ink-subtle">
+          {label}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Banner({
+  tone,
+  icon: Icon,
+  children,
+  onDismiss,
+}: {
+  tone: "critical" | "warning" | "positive";
+  icon: typeof AlertTriangle;
+  children: React.ReactNode;
+  onDismiss?: () => void;
+}) {
+  const tones = {
+    critical: "border-critical/20 bg-critical-soft text-critical",
+    warning: "border-warning/20 bg-warning-soft text-warning",
+    positive: "border-positive/20 bg-positive-soft text-positive",
+  } as const;
+
+  return (
+    <div className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px] ${tones[tone]}`}>
+      <Icon size={13} className="mt-px shrink-0" />
+      <span className="min-w-0 flex-1">{children}</span>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="shrink-0 opacity-60 transition hover:opacity-100"
+        >
+          <X size={12} />
+        </button>
+      )}
     </div>
   );
 }

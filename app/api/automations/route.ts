@@ -34,6 +34,8 @@ export async function GET(request: Request) {
   // server-side via the aggregate-by-relation pattern PostgREST supports.
   const stepCounts = new Map<string, number>();
   const enrolledCounts = new Map<string, number>();
+  const activeCounts = new Map<string, number>();
+  const completedCounts = new Map<string, number>();
   if (ids.length > 0) {
     const { data: stepsAll } = await supabaseServer
       .from("automation_steps")
@@ -51,15 +53,23 @@ export async function GET(request: Request) {
         e.automation_id,
         (enrolledCounts.get(e.automation_id) ?? 0) + 1,
       );
+      // Split by status too, so the card can show "in flow" vs "completed"
+      // instead of one opaque total. Same query, no extra round trip.
+      const bucket =
+        e.status === "completed" ? completedCounts : e.status === "enrolled" ? activeCounts : null;
+      if (bucket) bucket.set(e.automation_id, (bucket.get(e.automation_id) ?? 0) + 1);
     }
   }
 
   const result = (autos ?? []).map((a) => {
     const row = a as Record<string, unknown>;
+    const id = row.id as string;
     return {
       ...row,
-      step_count: stepCounts.get(row.id as string) ?? 0,
-      enrollment_count: enrolledCounts.get(row.id as string) ?? 0,
+      step_count: stepCounts.get(id) ?? 0,
+      enrollment_count: enrolledCounts.get(id) ?? 0,
+      active_count: activeCounts.get(id) ?? 0,
+      completed_count: completedCounts.get(id) ?? 0,
     };
   });
 

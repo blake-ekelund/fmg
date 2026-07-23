@@ -46,14 +46,16 @@ export default function CustomersHeader({
         onClick={() => setShowPicker((v) => !v)}
         disabled={downloading}
         title={downloading ? "Exporting…" : "Export to CSV"}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-gray-500 hover:bg-gray-50 hover:text-gray-700 hover:border-gray-300 transition disabled:opacity-50"
+        className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-gray-500 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 md:min-h-0 md:px-2.5 md:py-1.5"
       >
         <Download size={14} />
-        <span className="text-xs font-medium hidden lg:inline">Export</span>
+        {/* Label is hidden on desktop until lg (space is tight in the toolbar),
+            but on phones this button sits in its own row with room to spare. */}
+        <span className="text-xs font-medium md:hidden lg:inline">Export</span>
       </button>
 
       {showPicker && (
-        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-200 bg-white shadow-lg z-50 py-2">
+        <div className="absolute right-0 top-full z-50 mt-2 w-[min(14rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white py-2 shadow-lg">
           <div className="px-3 pb-2 border-b border-gray-100">
             <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
               Pick columns
@@ -64,7 +66,7 @@ export default function CustomersHeader({
             {Object.keys(exportColumns).map((col) => (
               <label
                 key={col}
-                className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-gray-50 md:py-1.5"
               >
                 <input
                   type="checkbox"

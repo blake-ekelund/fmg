@@ -128,3 +128,40 @@ export async function requireRep(
   if (!profile || profile.access !== "rep" || profile.rep_agency_code == null) return null;
   return { id: profile.id, agencyCode: profile.rep_agency_code };
 }
+
+/**
+ * Resolve WHICH agency's portal data to serve — the single, deliberate
+ * exception to the profile-only rule above.
+ *
+ * - A provisioned rep always gets their own agency from their profile. Any
+ *   ?agencyCode= they send is ignored outright, so the isolation boundary in
+ *   `requireRep` is unchanged for every real portal user.
+ * - An internal OWNER or ADMIN may pass ?agencyCode= to preview a rep's view
+ *   from Team → Rep Portal Preview. This grants no new data: those two roles
+ *   already read every agency's customers through the internal endpoints. It
+ *   only re-slices what they can already see, so support can answer "what does
+ *   this rep actually see?".
+ *
+ * Note the ordering — the rep branch is checked FIRST and returns before the
+ * request is ever consulted. Everyone else (viewers, sales, marketing,
+ * anonymous) gets null.
+ */
+export async function resolvePortalAgency(
+  request: Request,
+): Promise<{ agencyCode: number; preview: boolean } | null> {
+  const profile = await getAuthProfile(request);
+  if (!profile) return null;
+
+  if (profile.access === "rep") {
+    if (profile.rep_agency_code == null) return null;
+    return { agencyCode: profile.rep_agency_code, preview: false };
+  }
+
+  if (profile.access !== "owner" && profile.access !== "admin") return null;
+
+  const raw = new URL(request.url).searchParams.get("agencyCode");
+  const code = Number(raw);
+  if (!raw || !Number.isInteger(code)) return null;
+
+  return { agencyCode: code, preview: true };
+}

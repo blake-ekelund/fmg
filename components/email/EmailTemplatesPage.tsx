@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FileText,
   Plus,
@@ -9,6 +9,8 @@ import {
   Save,
   CheckCircle2,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -67,6 +69,45 @@ function applyMerge(template: string): string {
   return template.replace(MERGE_RE, (_m, k: string) => SAMPLE_VARS[k] ?? _m);
 }
 
+/**
+ * Merge fields, grouped and labelled in plain English.
+ *
+ * These used to be rendered as ~14 bare {{token}} chips in one paragraph of
+ * 10px text — you had to know what each meant and then type it by hand. Now
+ * they're grouped, described, and clicking one inserts it at the cursor.
+ */
+const MERGE_GROUPS: { group: string; fields: { key: string; label: string }[] }[] = [
+  {
+    group: "Customer",
+    fields: [
+      { key: "firstName", label: "First name" },
+      { key: "customerName", label: "Company" },
+      { key: "city", label: "City" },
+      { key: "state", label: "State" },
+      { key: "channel", label: "Channel" },
+      { key: "lifetimeRevenue", label: "Lifetime revenue" },
+      { key: "lifetimeOrders", label: "Lifetime orders" },
+      { key: "lastOrderDate", label: "Last order date" },
+      { key: "daysSinceLastOrder", label: "Days since order" },
+    ],
+  },
+  {
+    group: "Sender",
+    fields: [
+      { key: "senderName", label: "Your name" },
+      { key: "senderFirstName", label: "Your first name" },
+      { key: "senderEmail", label: "Your email" },
+    ],
+  },
+  {
+    group: "Date",
+    fields: [
+      { key: "currentYear", label: "Year" },
+      { key: "currentQuarter", label: "Quarter" },
+    ],
+  },
+];
+
 export default function EmailTemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,27 +149,38 @@ export default function EmailTemplatesPage() {
     setEditing(null);
   }
 
+  // Below lg the two panes can't sit side by side, and stacking them inside a
+  // fixed-height grid gave each ~250px of scroll box. Small screens show one
+  // pane at a time instead: the list, or the editor with a back button.
+  const showEditorOnly = editing !== null;
+
   return (
-    <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div>
+    <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-8 md:py-8">
+      <div className={clsx("mb-4 flex items-center justify-between gap-3", showEditorOnly && "hidden lg:flex")}>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Email Templates</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="mt-0.5 text-xs text-gray-500">
             Save subjects + bodies you reuse. Pick them in the compose modal with one click.
           </p>
         </div>
         <button
           onClick={startNew}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-3.5 py-2 text-xs font-medium hover:bg-gray-800 transition"
+          className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 text-xs font-medium text-white transition hover:bg-gray-800 lg:min-h-0 lg:py-2"
         >
           <Plus size={13} />
-          New template
+          <span className="hidden sm:inline">New template</span>
+          <span className="sm:hidden">New</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-220px)] min-h-[500px]">
-        {/* List */}
-        <div className="rounded-xl border border-gray-200 bg-white overflow-y-auto">
+      <div className="grid grid-cols-1 gap-4 lg:h-[calc(100vh-220px)] lg:min-h-[500px] lg:grid-cols-[320px_1fr]">
+        {/* List — hidden on small screens once a template is open */}
+        <div
+          className={clsx(
+            "rounded-xl border border-gray-200 bg-white lg:overflow-y-auto",
+            showEditorOnly && "hidden lg:block",
+          )}
+        >
           {loading ? (
             <div className="py-12 text-center text-sm text-gray-400 inline-flex items-center gap-2 justify-center w-full">
               <Loader2 size={14} className="animate-spin" />
@@ -151,21 +203,24 @@ export default function EmailTemplatesPage() {
                     <button
                       onClick={() => setEditing(t)}
                       className={clsx(
-                        "w-full text-left px-4 py-3 hover:bg-gray-50 transition",
+                        "flex w-full items-center gap-2 px-4 py-3 text-left transition hover:bg-gray-50",
                         isActive && "bg-gray-50",
                       )}
                     >
-                      <div className="text-sm font-medium text-gray-800 truncate">
-                        {t.name}
-                      </div>
-                      <div className="text-[11px] text-gray-500 truncate mt-0.5">
-                        {t.subject || "(no subject)"}
-                      </div>
-                      <div className="text-[10px] text-gray-400 mt-1">
-                        {t.last_used_at
-                          ? `Last used ${formatWhen(t.last_used_at)}`
-                          : `Updated ${formatWhen(t.updated_at)}`}
-                      </div>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-gray-800">
+                          {t.name}
+                        </span>
+                        <span className="mt-0.5 block truncate text-[11px] text-gray-500">
+                          {t.subject || "(no subject)"}
+                        </span>
+                        <span className="mt-1 block text-[10px] text-gray-400">
+                          {t.last_used_at
+                            ? `Last used ${formatWhen(t.last_used_at)}`
+                            : `Updated ${formatWhen(t.updated_at)}`}
+                        </span>
+                      </span>
+                      <ChevronRight size={15} className="shrink-0 text-gray-300 lg:hidden" />
                     </button>
                   </li>
                 );
@@ -174,8 +229,13 @@ export default function EmailTemplatesPage() {
           )}
         </div>
 
-        {/* Editor */}
-        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden flex flex-col">
+        {/* Editor — the only pane on small screens once something is open */}
+        <div
+          className={clsx(
+            "flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white",
+            editing === null && "hidden lg:flex",
+          )}
+        >
           {editing === null ? (
             <EmptyState onNew={startNew} hasAny={templates.length > 0} />
           ) : (
@@ -277,36 +337,76 @@ function TemplateEditor({
   const previewSubject = applyMerge(subject) || "(no subject)";
   const previewBody = applyMerge(body) || "(no body)";
 
+  /* Insert a merge token at the caret of whichever field was last focused,
+     defaulting to the body. Typing "{{daysSinceLastOrder}}" by hand from a
+     10px reference line was the old flow. */
+  const subjectRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const lastFocused = useRef<"subject" | "body">("body");
+
+  function insertMergeField(key: string) {
+    const token = `{{${key}}}`;
+    const el = lastFocused.current === "subject" ? subjectRef.current : bodyRef.current;
+    if (!el) return;
+
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? start;
+    const next = el.value.slice(0, start) + token + el.value.slice(end);
+
+    if (lastFocused.current === "subject") setSubject(next);
+    else setBody(next);
+
+    // Restore the caret after the inserted token rather than dumping the user
+    // at the end of the field.
+    requestAnimationFrame(() => {
+      el.focus();
+      const caret = start + token.length;
+      el.setSelectionRange(caret, caret);
+    });
+  }
+
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
-        <div className="text-sm font-semibold text-gray-900">
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Header. Sticky on small screens so Save stays reachable while the
+          body scrolls; the back arrow returns to the list. */}
+      <div className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-gray-100 bg-white px-3 py-2.5 lg:static lg:px-5 lg:py-3">
+        <button
+          onClick={onCancel}
+          aria-label="Back to templates"
+          className="-ml-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 lg:hidden"
+        >
+          <ChevronLeft size={18} />
+        </button>
+
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">
           {isNew ? "New template" : template?.name}
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex shrink-0 items-center gap-2">
           {savedAt && Date.now() - savedAt < 3000 && (
             <span className="inline-flex items-center gap-1 text-[11px] text-green-600">
-              <CheckCircle2 size={11} /> Saved
+              <CheckCircle2 size={11} />
+              <span className="hidden sm:inline">Saved</span>
             </span>
           )}
           {!isNew && (
             <button
               onClick={remove}
               disabled={deleting}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 hover:border-red-200 transition disabled:opacity-50"
+              aria-label="Delete template"
+              className="inline-flex min-h-[40px] items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-red-600 transition hover:border-red-200 hover:bg-red-50 disabled:opacity-50 lg:min-h-0 lg:py-1.5"
             >
               <Trash2 size={12} />
-              Delete
+              <span className="hidden sm:inline">Delete</span>
             </button>
           )}
           <button
             onClick={save}
             disabled={!name.trim() || saving}
-            className="inline-flex items-center gap-1 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-xs font-medium hover:bg-gray-800 transition disabled:opacity-40"
+            className="inline-flex min-h-[40px] items-center gap-1 rounded-lg bg-gray-900 px-3 text-xs font-medium text-white transition hover:bg-gray-800 disabled:opacity-40 lg:min-h-0 lg:py-1.5"
           >
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-            {isNew ? "Save template" : dirty ? "Save changes" : "Saved"}
+            {isNew ? "Save" : dirty ? "Save" : "Saved"}
           </button>
         </div>
       </div>
@@ -324,12 +424,13 @@ function TemplateEditor({
           <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5 block">
             Template name
           </label>
+          {/* No autoFocus — on a phone it opened the keyboard and scrolled the
+              header off before the user had seen the form. */}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Quarterly check-in"
-            autoFocus
-            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 lg:py-2 lg:text-sm"
           />
           <div className="text-[10px] text-gray-400 mt-1">
             Internal only — recipients never see this.
@@ -341,10 +442,12 @@ function TemplateEditor({
             Subject
           </label>
           <input
+            ref={subjectRef}
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
+            onFocus={() => (lastFocused.current = "subject")}
             placeholder="A quick question, {{firstName}}"
-            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 lg:py-2 lg:text-sm"
           />
         </div>
 
@@ -358,41 +461,24 @@ function TemplateEditor({
             </span>
           </div>
           <textarea
+            ref={bodyRef}
             value={body}
             onChange={(e) => setBody(e.target.value)}
+            onFocus={() => (lastFocused.current = "body")}
             rows={12}
             placeholder={
               "Hi {{firstName}},\n\nWanted to check in on how things are going at {{customerName}}.\n\nBest,\nYour Name"
             }
-            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 resize-y font-mono"
+            className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2.5 font-mono text-base placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 lg:py-2 lg:text-sm"
           />
-          <div className="text-[10px] text-gray-400 mt-1 leading-relaxed">
-            <span className="font-medium">Customer:</span>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{firstName}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{customerName}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{city}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{channel}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeRevenue}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeOrders}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lastOrderDate}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{daysSinceLastOrder}}"}</code>
-            <br />
-            <span className="font-medium">Sender:</span>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderName}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderFirstName}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderEmail}}"}</code>
-            {" · "}
-            <span className="font-medium">Date:</span>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentYear}}"}</code>{" "}
-            <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentQuarter}}"}</code>
-          </div>
         </div>
+
+        <MergeFieldPicker onInsert={insertMergeField} />
 
         {/* Preview */}
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
           <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2">
-            Preview · sample customer "{SAMPLE_VARS.customerName}"
+            Preview · sample customer &ldquo;{SAMPLE_VARS.customerName}&rdquo;
           </div>
           <div className="text-xs">
             <div className="text-gray-500">Subject</div>
@@ -403,8 +489,9 @@ function TemplateEditor({
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="px-5 py-3 border-t border-gray-100 shrink-0 flex items-center justify-between">
+      {/* Footer. "Close" is redundant on small screens — the header's back
+          arrow does the same job and is where a thumb already is. */}
+      <div className="flex shrink-0 items-center justify-between border-t border-gray-100 px-5 py-3">
         <div className="text-[11px] text-gray-400">
           {template?.last_used_at
             ? `Last used ${formatWhen(template.last_used_at)}`
@@ -414,10 +501,48 @@ function TemplateEditor({
         </div>
         <button
           onClick={onCancel}
-          className="text-xs text-gray-500 hover:text-gray-900 transition"
+          className="hidden text-xs text-gray-500 transition hover:text-gray-900 lg:inline"
         >
           Close
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Merge fields ────────────────────────────────────────────────────────── */
+
+function MergeFieldPicker({ onInsert }: { onInsert: (key: string) => void }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
+          Merge fields
+        </span>
+        <span className="text-[10px] text-gray-400">
+          Tap to insert at your cursor
+        </span>
+      </div>
+
+      <div className="space-y-2.5">
+        {MERGE_GROUPS.map(({ group, fields }) => (
+          <div key={group}>
+            <div className="mb-1 text-[10px] font-medium text-gray-500">{group}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {fields.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => onInsert(f.key)}
+                  title={`Inserts {{${f.key}}}`}
+                  className="inline-flex min-h-[32px] items-center rounded-md border border-gray-200 bg-gray-50 px-2 text-[11px] font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900 active:bg-gray-200"
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
