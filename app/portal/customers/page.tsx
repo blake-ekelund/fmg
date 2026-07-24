@@ -385,7 +385,7 @@ export default function PortalCustomers() {
 
 
       <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-xs">
           <thead>
             <tr className="border-b border-gray-100 text-left text-xs font-medium text-gray-500">
               <Th label="Customer" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
