@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, Users, DollarSign, TrendingUp } from "@/components/portal/icons";
 import { portalGet, portalHref, usd, shortDate, type PortalSummary } from "@/components/portal/api";
+import { properCase } from "@/lib/textCase";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_FULL = [
@@ -132,7 +133,7 @@ export default function PortalDashboard() {
           {topCustomers.map((c) => (
             <div key={c.customerid} className="flex items-center justify-between py-2.5">
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-gray-900">{c.name}</div>
+                <div className="truncate text-sm font-medium text-gray-900">{properCase(c.name)}</div>
                 <div className="text-xs text-gray-400">
                   {c.state ?? "—"} · last order {shortDate(c.last_order_date)}
                 </div>
