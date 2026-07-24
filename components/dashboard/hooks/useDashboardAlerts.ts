@@ -64,6 +64,20 @@ function fmtMoney(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-US");
 }
 
+/**
+ * A SKU label that distinguishes variants sharing a display_name (the several
+ * "Lip Butter" fragrances would otherwise all read "Lip Butter"). Appends the
+ * fragrance and size only when the display_name doesn't already carry them, so
+ * products whose name is already specific don't get it repeated.
+ */
+function skuLabel(it: DashboardInventoryItem): string {
+  const base = it.display_name || it.part;
+  const dn = base.toLowerCase();
+  const extra = [it.fragrance, it.size]
+    .filter((v): v is string => !!v && !dn.includes(v.toLowerCase()));
+  return extra.length ? `${base} · ${extra.join(" · ")}` : base;
+}
+
 export type AlertInputs = {
   brand: BrandFilter;
   customers: CustomerSummaryRow[];
@@ -229,7 +243,7 @@ export function useDashboardAlerts({
           lever: "sku",
           impact,
           basis: "Unmet demand × TTM price",
-          title: it.display_name || it.part,
+          title: skuLabel(it),
           subtitle: `${it.months_of_supply.toFixed(1)} months of supply · ${Math.round(
             shortUnits
           ).toLocaleString()} units short of ${COVERAGE_MONTHS}mo cover`,
@@ -259,7 +273,7 @@ export function useDashboardAlerts({
           lever: "promo",
           impact,
           basis: "Excess stock at TTM price",
-          title: it.display_name || it.part,
+          title: skuLabel(it),
           subtitle: `${it.months_of_supply.toFixed(0)} months of supply · ${Math.round(
             excessUnits
           ).toLocaleString()} units beyond ${OVERSTOCK_MONTHS}mo`,

@@ -9,6 +9,10 @@ export type InventoryStatus = "at_risk" | "review" | "healthy" | "no_demand";
 export type DashboardInventoryItem = {
   part: string;
   display_name: string;
+  /** Fragrance + size distinguish SKUs that share a display_name (e.g. the
+      several "Lip Butter" fragrances), so alerts don't look like duplicates. */
+  fragrance: string | null;
+  size: string | null;
   brand: "NI" | "Sassy";
   part_type: string;
   on_hand: number;
@@ -62,7 +66,7 @@ export function useDashboardInventory(brand: BrandFilter) {
       // 1. Forecasted products
       let productsQuery = supabase
         .from("inventory_products")
-        .select("part, display_name, brand, part_type, avg_monthly_demand, is_forecasted")
+        .select("part, display_name, fragrance, size, brand, part_type, avg_monthly_demand, is_forecasted")
         .eq("is_forecasted", true)
         .order("part");
 
@@ -123,6 +127,8 @@ export function useDashboardInventory(brand: BrandFilter) {
         return {
           part: p.part,
           display_name: p.display_name,
+          fragrance: p.fragrance ?? null,
+          size: p.size ?? null,
           brand: p.brand,
           part_type: p.part_type,
           on_hand: onHand,
