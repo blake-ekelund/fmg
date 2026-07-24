@@ -3,7 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, ArrowRight, Mail, MapPin, Phone } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronDown,
+  Loader2,
+  Mail,
+  MapPin,
+  Package,
+  Phone,
+} from "@/components/portal/icons";
 import {
   portalGet,
   portalHref,
@@ -13,8 +22,10 @@ import {
   type PortalContact,
   type PortalCustomer,
   type PortalOrder,
+  type PortalOrderItem,
 } from "@/components/portal/api";
 import ChannelIcon from "@/components/portal/ChannelIcon";
+import { properCase } from "@/lib/textCase";
 
 /**
  * One customer, in depth.
@@ -111,15 +122,16 @@ export default function PortalCustomerDetail() {
   );
 
   const address = [
-    contact?.billto_address,
-    [contact?.billto_city, contact?.billto_state, contact?.billto_zip]
+    properCase(contact?.billto_address),
+    [properCase(contact?.billto_city), contact?.billto_state, contact?.billto_zip]
       .filter(Boolean)
       .join(", "),
   ].filter(Boolean);
 
-  const liveOrders = orders?.filter(
+  const openOrders = orders?.filter(
     (o) => o.stage === "open" || o.stage === "estimate",
   );
+  const completedOrders = orders?.filter((o) => o.stage === "completed");
 
   return (
     <div className="space-y-6">
@@ -133,7 +145,7 @@ export default function PortalCustomerDetail() {
           </span>
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold tracking-tight text-gray-900">
-              {customer.name}
+              {properCase(customer.name)}
             </h1>
             <p className="mt-0.5 text-sm text-gray-500">
               {customer.customerid}
@@ -155,6 +167,85 @@ export default function PortalCustomerDetail() {
             </span>
           )}
         </div>
+      </div>
+
+      {/* Contact + Sales by year, side by side (each ~half width) */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
+        {/* Contact */}
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <h2 className="text-sm font-semibold text-gray-900">Contact</h2>
+          {contact ? (
+            <div className="mt-3 space-y-2 text-sm">
+              {contact.email && (
+                <a
+                  href={`mailto:${contact.email}`}
+                  className="flex items-center gap-2 text-brand-700 hover:underline"
+                >
+                  <Mail size={14} className="shrink-0 text-gray-400" />
+                  {contact.email}
+                </a>
+              )}
+              {contact.phone && (
+                <a
+                  href={`tel:${contact.phone}`}
+                  className="flex items-center gap-2 text-brand-700 hover:underline"
+                >
+                  <Phone size={14} className="shrink-0 text-gray-400" />
+                  {contact.phone}
+                </a>
+              )}
+              {address.length > 0 && (
+                <div className="flex items-start gap-2 text-gray-600">
+                  <MapPin size={14} className="mt-0.5 shrink-0 text-gray-400" />
+                  <span>
+                    {address.map((line) => (
+                      <span key={line} className="block">
+                        {line}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              )}
+              {!contact.email && !contact.phone && address.length === 0 && (
+                <p className="text-gray-400">No contact details on file.</p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-gray-400">
+              No contact details on file.
+            </p>
+          )}
+        </section>
+
+        {/* Four-year trend — a bar per year beats a sparkline for four points */}
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <h2 className="text-sm font-semibold text-gray-900">Sales by year</h2>
+          <div className="mt-4 space-y-2.5">
+            {YEARS.map((y) => {
+              const v = customer[`sales_${y}` as const] ?? 0;
+              const isCurrent = y === 2026;
+              return (
+                <div key={y} className="flex items-center gap-3">
+                  <span className="w-10 shrink-0 text-xs tabular-nums text-gray-500">
+                    {y}
+                  </span>
+                  <div className="h-6 min-w-0 flex-1 overflow-hidden rounded-md bg-gray-50">
+                    <div
+                      className={`h-full rounded-md ${isCurrent ? "bg-brand-700" : "bg-gray-300"}`}
+                      style={{ width: `${Math.max((v / peak) * 100, v > 0 ? 2 : 0)}%` }}
+                    />
+                  </div>
+                  <span className="w-20 shrink-0 text-right text-sm tabular-nums text-gray-900">
+                    {usd(v)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-xs text-gray-400">
+            2026 is year-to-date and will look short against complete years.
+          </p>
+        </section>
       </div>
 
       {/* Headline numbers */}
@@ -183,155 +274,184 @@ export default function PortalCustomerDetail() {
         />
       </div>
 
-      {/* Four-year trend — a bar per year beats a sparkline for four points */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-900">Sales by year</h2>
-        <div className="mt-4 space-y-2.5">
-          {YEARS.map((y) => {
-            const v = customer[`sales_${y}` as const] ?? 0;
-            const isCurrent = y === 2026;
-            return (
-              <div key={y} className="flex items-center gap-3">
-                <span className="w-10 shrink-0 text-xs tabular-nums text-gray-500">
-                  {y}
-                </span>
-                <div className="h-6 min-w-0 flex-1 overflow-hidden rounded-md bg-gray-50">
-                  <div
-                    className={`h-full rounded-md ${isCurrent ? "bg-brand-700" : "bg-gray-300"}`}
-                    style={{ width: `${Math.max((v / peak) * 100, v > 0 ? 2 : 0)}%` }}
-                  />
-                </div>
-                <span className="w-24 shrink-0 text-right text-sm tabular-nums text-gray-900">
-                  {usd(v)}
-                </span>
-              </div>
-            );
-          })}
+      {/* Open orders — expandable to line items */}
+      <OrdersSection
+        title="Open orders"
+        subtitle="Estimates and orders not yet completed."
+        orders={openOrders}
+        emptyText="No open orders."
+      />
+
+      {/* Completed orders — expandable to line items */}
+      <OrdersSection
+        title="Completed orders"
+        subtitle="Fulfilled and closed orders."
+        orders={completedOrders}
+        emptyText="No completed orders yet."
+        limit={15}
+        allOrdersHref={portalHref(
+          `/portal/orders?q=${encodeURIComponent(customer.name)}`,
+        )}
+      />
+    </div>
+  );
+}
+
+/**
+ * A titled section of orders whose rows expand to reveal line items.
+ * `orders === undefined` means still loading.
+ */
+function OrdersSection({
+  title,
+  subtitle,
+  orders,
+  emptyText,
+  limit,
+  allOrdersHref,
+}: {
+  title: string;
+  subtitle: string;
+  orders: PortalOrder[] | undefined;
+  emptyText: string;
+  limit?: number;
+  allOrdersHref?: string;
+}) {
+  const shown = limit ? orders?.slice(0, limit) : orders;
+  const hidden = orders && limit ? Math.max(orders.length - limit, 0) : 0;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">
+            {title}
+            {orders && orders.length > 0 && (
+              <span className="ml-1.5 text-xs font-normal text-gray-400">
+                {orders.length}
+              </span>
+            )}
+          </h2>
+          <p className="mt-0.5 text-xs text-gray-500">{subtitle}</p>
         </div>
-        <p className="mt-3 text-xs text-gray-400">
-          2026 is year-to-date and will look short against complete years.
-        </p>
-      </section>
-
-      {/* In flight */}
-      {liveOrders && liveOrders.length > 0 && (
-        <section className="rounded-2xl border border-gray-200 bg-white">
-          <div className="border-b border-gray-100 px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-gray-900">In progress</h2>
-            <p className="mt-0.5 text-xs text-gray-500">
-              Estimates and orders not yet completed.
-            </p>
-          </div>
-          <ul className="divide-y divide-gray-50">
-            {liveOrders.map((o) => (
-              <li
-                key={`${o.id}-${o.num}`}
-                className="flex items-center gap-3 px-5 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-gray-900">
-                    {o.num}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {o.status}
-                    {o.customerpo ? ` · PO ${o.customerpo}` : ""}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right text-sm tabular-nums text-gray-900">
-                  {usd(o.totalprice)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Recent orders */}
-      <section className="rounded-2xl border border-gray-200 bg-white">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-gray-900">Recent orders</h2>
+        {allOrdersHref && (
           <Link
-            href={portalHref(`/portal/orders?q=${encodeURIComponent(customer.name)}`)}
+            href={allOrdersHref}
             className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800"
           >
             All orders
             <ArrowRight size={12} />
           </Link>
+        )}
+      </div>
+
+      {orders === undefined ? (
+        <p className="px-5 py-6 text-sm text-gray-400">Loading…</p>
+      ) : shown && shown.length > 0 ? (
+        <ul className="divide-y divide-gray-50">
+          {shown.map((o) => (
+            <OrderRow key={`${o.id}-${o.num}`} order={o} />
+          ))}
+        </ul>
+      ) : (
+        <p className="px-5 py-6 text-sm text-gray-400">{emptyText}</p>
+      )}
+
+      {hidden > 0 && (
+        <div className="border-t border-gray-100 px-5 py-2.5 text-xs text-gray-400">
+          {hidden} more not shown{allOrdersHref ? " — see all orders" : ""}.
         </div>
-        {orders === null ? (
-          <p className="px-5 py-6 text-sm text-gray-400">Loading…</p>
-        ) : orders.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-gray-400">
-            No orders found in the recent window.
-          </p>
-        ) : (
-          <ul className="divide-y divide-gray-50">
-            {orders.slice(0, 10).map((o) => (
-              <li
-                key={`${o.id}-${o.num}`}
-                className="flex items-center gap-3 px-5 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-gray-900">{o.num}</div>
-                  <div className="text-xs text-gray-500">
-                    {o.status} · {shortDate(o.effective_date)}
+      )}
+    </section>
+  );
+}
+
+/** One order row that expands to fetch and show its line items on first open. */
+function OrderRow({ order }: { order: PortalOrder }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<PortalOrderItem[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    // Lazy-load items the first time the row is opened.
+    if (next && items === null && order.num) {
+      setLoading(true);
+      try {
+        const d = await portalGet<{ items: PortalOrderItem[] }>(
+          `/api/portal/orders?num=${encodeURIComponent(order.num)}`,
+        );
+        setItems(d.items ?? []);
+      } catch {
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  return (
+    <li>
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-5 py-3 text-left transition hover:bg-gray-50"
+      >
+        <ChevronDown
+          size={14}
+          className={`shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-gray-900">{order.num}</div>
+          <div className="text-xs text-gray-500">
+            {order.status} · {shortDate(order.effective_date)}
+            {order.customerpo ? ` · PO ${order.customerpo}` : ""}
+          </div>
+        </div>
+        <div className="shrink-0 text-right text-sm tabular-nums text-gray-900">
+          {usd(order.totalprice)}
+        </div>
+      </button>
+
+      {open && (
+        <div className="bg-gray-50/60 px-5 pb-4 pl-12">
+          {loading ? (
+            <div className="flex items-center gap-2 py-3 text-xs text-gray-400">
+              <Loader2 size={13} className="animate-spin" />
+              Loading items…
+            </div>
+          ) : items && items.length > 0 ? (
+            <div className="space-y-1.5 py-2">
+              {items.map((it, i) => (
+                <div
+                  key={`${it.productnum}-${it.solineitem}-${i}`}
+                  className="flex items-start gap-2.5 rounded-lg border border-gray-100 bg-white p-2.5"
+                >
+                  <Package size={14} className="mt-0.5 shrink-0 text-gray-300" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-gray-900">
+                      {it.description || it.productnum || "—"}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {(it.qtyfulfilled ?? 0).toLocaleString()} of{" "}
+                      {(it.qtyordered ?? 0).toLocaleString()} shipped
+                      {it.productnum ? ` · ${it.productnum}` : ""}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-sm tabular-nums text-gray-700">
+                    {usd(it.totalprice)}
                   </div>
                 </div>
-                <div className="shrink-0 text-right text-sm tabular-nums text-gray-900">
-                  {usd(o.totalprice)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* Contact */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-900">Contact</h2>
-        {contact ? (
-          <div className="mt-3 space-y-2 text-sm">
-            {contact.email && (
-              <a
-                href={`mailto:${contact.email}`}
-                className="flex items-center gap-2 text-brand-700 hover:underline"
-              >
-                <Mail size={14} className="shrink-0 text-gray-400" />
-                {contact.email}
-              </a>
-            )}
-            {contact.phone && (
-              <a
-                href={`tel:${contact.phone}`}
-                className="flex items-center gap-2 text-brand-700 hover:underline"
-              >
-                <Phone size={14} className="shrink-0 text-gray-400" />
-                {contact.phone}
-              </a>
-            )}
-            {address.length > 0 && (
-              <div className="flex items-start gap-2 text-gray-600">
-                <MapPin size={14} className="mt-0.5 shrink-0 text-gray-400" />
-                <span>
-                  {address.map((line) => (
-                    <span key={line} className="block">
-                      {line}
-                    </span>
-                  ))}
-                </span>
-              </div>
-            )}
-            {!contact.email && !contact.phone && address.length === 0 && (
-              <p className="text-gray-400">No contact details on file.</p>
-            )}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-gray-400">
-            No contact details on file.
-          </p>
-        )}
-      </section>
-    </div>
+              ))}
+            </div>
+          ) : (
+            <p className="py-3 text-xs text-gray-400">
+              No line items on file for this order.
+            </p>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
