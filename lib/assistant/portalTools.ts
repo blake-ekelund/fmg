@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { stageOf } from "@/lib/orderStage";
+import { resolveCarrier, carrierLabel, trackingUrl } from "@/lib/tracking";
 
 /**
  * Read-only tools for the REP PORTAL assistant, hard-scoped to one agency.
@@ -40,24 +41,118 @@ function orderLink(num: string | null | undefined): string | null {
   return num ? `/portal/orders?q=${encodeURIComponent(num)}` : null;
 }
 
+/** Lower-case, drop apostrophes, other punctuation → spaces. So "Lund's" and
+    "Lunds" match, and a search haystack is uniform. */
+function norm(s: string | null | undefined): string {
+  return (s ?? "")
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Connector words a rep drops in casually ("Lunds AT Minnetonka") — ignored so
+    they don't break token-AND matching. */
+const STOP = new Set(["at", "in", "the", "of", "on", "and", "a", "to", "for"]);
+
+/** Token-AND: every meaningful word in the query must appear in the haystack.
+    "lunds at minnetonka" → ["lunds","minnetonka"] matches the Lund's account
+    that ships to Minnetonka. */
+function tokenMatch(haystack: string, query: string): boolean {
+  const toks = norm(query)
+    .split(" ")
+    .filter((t) => t && !STOP.has(t));
+  return toks.length > 0 && toks.every((t) => haystack.includes(t));
+}
+
 export type PortalToolset = {
   defs: ToolDef[];
   run: (name: string, input: Record<string, unknown>) => Promise<unknown>;
 };
 
 export function buildPortalTools(agency: string): PortalToolset {
-  /** The agency's customers — the boundary every tool is fenced inside. */
-  async function agencyCustomers() {
-    const { data, error } = await supabaseServer
-      .from("customer_summary")
-      .select("customerid, name")
-      .eq("agency_code", agency);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as { customerid: string; name: string }[];
-    return {
-      ids: rows.map((r) => r.customerid).filter(Boolean),
-      nameById: new Map(rows.map((r) => [r.customerid, r.name])),
-    };
+  type IndexedCustomer = {
+    customerid: string;
+    name: string;
+    channel: string | null;
+    bill_to_state: string | null;
+    /** name + id + city + state + every ship-to city/state, normalized. */
+    haystack: string;
+  };
+
+  /**
+   * The agency's customers, plus a search haystack that folds in each account's
+   * ship-to locations — so a rep can find "Lunds Wayzata" even though Wayzata is
+   * a shipping city, not part of the account name. Built once per assistant turn
+   * and shared by every tool; it is also the agency boundary every tool sits
+   * inside.
+   */
+  let indexPromise: Promise<{
+    customers: IndexedCustomer[];
+    ids: string[];
+    nameById: Map<string, string>;
+  }> | null = null;
+
+  function customerIndex() {
+    if (indexPromise) return indexPromise;
+    indexPromise = (async () => {
+      const { data, error } = await supabaseServer
+        .from("customer_summary")
+        .select("customerid, name, channel, bill_to_city, bill_to_state")
+        .eq("agency_code", agency);
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as {
+        customerid: string;
+        name: string;
+        channel: string | null;
+        bill_to_city: string | null;
+        bill_to_state: string | null;
+      }[];
+      const ids = rows.map((r) => r.customerid).filter(Boolean);
+
+      // Ship-to cities/states per customer, from their orders.
+      const shipLoc = new Map<string, Set<string>>();
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: ord } = await supabaseServer
+          .from("sales_orders_raw")
+          .select("customerid, shiptocity, shiptostate")
+          .in("customerid", ids.slice(i, i + 200));
+        for (const o of (ord ?? []) as {
+          customerid: string | null;
+          shiptocity: string | null;
+          shiptostate: string | null;
+        }[]) {
+          if (!o.customerid) continue;
+          const set = shipLoc.get(o.customerid) ?? new Set<string>();
+          if (o.shiptocity?.trim()) set.add(norm(o.shiptocity));
+          if (o.shiptostate?.trim()) set.add(norm(o.shiptostate));
+          shipLoc.set(o.customerid, set);
+        }
+      }
+
+      const customers: IndexedCustomer[] = rows.map((r) => ({
+        customerid: r.customerid,
+        name: r.name,
+        channel: r.channel,
+        bill_to_state: r.bill_to_state,
+        haystack: [
+          norm(r.name),
+          norm(r.customerid),
+          norm(r.bill_to_city),
+          norm(r.bill_to_state),
+          [...(shipLoc.get(r.customerid) ?? [])].join(" "),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      }));
+
+      return {
+        customers,
+        ids,
+        nameById: new Map(rows.map((r) => [r.customerid, r.name])),
+      };
+    })();
+    return indexPromise;
   }
 
   async function salesOverview() {
@@ -121,14 +216,23 @@ export function buildPortalTools(agency: string): PortalToolset {
     const search = (input.query ?? "").trim();
     if (!search) return { error: "Provide a customer name to look up." };
 
+    // Match loosely across name + id + ship-to locations, then pull full detail
+    // for the winners. Both steps stay inside the agency (the index is scoped).
+    const { customers } = await customerIndex();
+    const matchedIds = customers
+      .filter((c) => tokenMatch(c.haystack, search))
+      .map((c) => c.customerid);
+    if (matchedIds.length === 0) {
+      return { results: [], note: "No customer in your agency matches that." };
+    }
+
     const { data, error } = await supabaseServer
       .from("customer_summary")
       .select(
         "customerid, name, channel, bill_to_state, first_order_date, last_order_date, last_order_amount, lifetime_orders, lifetime_revenue, sales_2025, sales_2026",
       )
-      // Scope AND search — the agency filter is not negotiable.
       .eq("agency_code", agency)
-      .or(`name.ilike.%${search}%,customerid.ilike.%${search}%`)
+      .in("customerid", matchedIds.slice(0, 25))
       .order("sales_2026", { ascending: false, nullsFirst: false })
       .limit(8);
     if (error) return { error: error.message };
@@ -163,12 +267,58 @@ export function buildPortalTools(agency: string): PortalToolset {
     };
   }
 
-  async function findOrders(input: { query?: string; status?: string }) {
-    const { ids, nameById } = await agencyCustomers();
+  /** Tracking (carrier + number + deep link) for a set of order ids. Shipments
+      carry a soid but no agency, so the ids MUST already be agency-scoped. */
+  async function trackingByOrder(orderIds: number[]) {
+    const out = new Map<
+      number,
+      { number: string; carrier: string | null; url: string | null; shipped: boolean }[]
+    >();
+    const ids = orderIds.filter((n) => Number.isFinite(n));
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await supabaseServer
+        .from("so_shipments_raw")
+        .select("soid, tracking_num, carrier, dateshipped")
+        .in("soid", ids.slice(i, i + 200));
+      for (const s of (data ?? []) as {
+        soid: number;
+        tracking_num: string | null;
+        carrier: string | null;
+        dateshipped: string | null;
+      }[]) {
+        const num = (s.tracking_num ?? "").trim();
+        if (!num) continue;
+        const cid = resolveCarrier(s.carrier, num);
+        const list = out.get(s.soid) ?? [];
+        list.push({
+          number: num,
+          carrier: cid ? carrierLabel(cid) : null,
+          url: trackingUrl(cid, num),
+          shipped: !!s.dateshipped,
+        });
+        out.set(s.soid, list);
+      }
+    }
+    return out;
+  }
+
+  async function findOrders(input: { query?: string; status?: string; customer?: string }) {
+    const { ids: allIds, customers, nameById } = await customerIndex();
+
+    // Optionally narrow to one customer (matched loosely, incl. ship-to city).
+    let ids = allIds;
+    const custQuery = (input.customer ?? "").trim();
+    if (custQuery) {
+      ids = customers.filter((c) => tokenMatch(c.haystack, custQuery)).map((c) => c.customerid);
+      if (ids.length === 0) {
+        return { results: [], note: "No customer in your agency matches that." };
+      }
+    }
     if (ids.length === 0) return { results: [], note: "No customers on file for your agency." };
 
     const search = (input.query ?? "").trim().replace(/[%,()]/g, "");
     const collected: {
+      id: number;
       num: string | null;
       customerid: string | null;
       status: string | null;
@@ -177,18 +327,24 @@ export function buildPortalTools(agency: string): PortalToolset {
       dateissued: string | null;
       datecreated: string | null;
       shiptoname: string | null;
+      shiptocity: string | null;
+      shiptostate: string | null;
     }[] = [];
 
     const CHUNK = 200;
     for (let i = 0; i < ids.length; i += CHUNK) {
       let q = supabaseServer
         .from("sales_orders_raw")
-        .select("num, customerid, status, totalprice, datecompleted, dateissued, datecreated, shiptoname")
+        .select(
+          "id, num, customerid, status, totalprice, datecompleted, dateissued, datecreated, shiptoname, shiptocity, shiptostate",
+        )
         .in("customerid", ids.slice(i, i + CHUNK))
         .order("id", { ascending: false, nullsFirst: false })
         .limit(50);
       if (search) {
-        q = q.or(`num.ilike.%${search}%,customerpo.ilike.%${search}%,shiptoname.ilike.%${search}%`);
+        q = q.or(
+          `num.ilike.%${search}%,customerpo.ilike.%${search}%,shiptoname.ilike.%${search}%,shiptocity.ilike.%${search}%`,
+        );
       }
       const { data, error } = await q;
       if (error) return { error: error.message };
@@ -206,8 +362,11 @@ export function buildPortalTools(agency: string): PortalToolset {
       return da < db ? 1 : da > db ? -1 : 0;
     });
 
+    const top = filtered.slice(0, 15);
+    const tracking = await trackingByOrder(top.map((o) => o.id));
+
     return {
-      results: filtered.slice(0, 15).map((o) => ({
+      results: top.map((o) => ({
         order: o.num,
         link: orderLink(o.num),
         customer: o.customerid ? (nameById.get(o.customerid) ?? o.customerid) : null,
@@ -215,7 +374,12 @@ export function buildPortalTools(agency: string): PortalToolset {
         state: portalStage(o.status) === "open" ? "Open" : portalStage(o.status),
         total: money(o.totalprice ?? 0),
         date: o.datecompleted ?? o.dateissued ?? o.datecreated,
-        ship_to: o.shiptoname,
+        ship_to:
+          o.shiptoname ||
+          [o.shiptocity, o.shiptostate].filter(Boolean).join(", ") ||
+          null,
+        // Empty array = no tracking recorded yet (say so; don't invent one).
+        tracking: tracking.get(o.id) ?? [],
       })),
     };
   }
@@ -230,11 +394,15 @@ export function buildPortalTools(agency: string): PortalToolset {
     {
       name: "find_customer",
       description:
-        "Look up one of the rep's own customers by name and return their sales history, channel, last order, and (for a single match) contact details. Use when the rep asks about a specific store or account.",
+        "Look up one of the rep's own customers and return their sales history, channel, last order, and (for a single match) contact details. Matches loosely: every word must appear in the account name, id, or its ship-to locations, so a phrase like 'Lunds Wayzata' or 'Lunds Minnetonka' finds the Lund's account that ships to that city. Use when the rep names a specific store or account.",
       input_schema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Customer name or id to search for." },
+          query: {
+            type: "string",
+            description:
+              "Store name, id, and/or a city — e.g. 'Lunds Wayzata'. Matched word-by-word against name and ship-to locations.",
+          },
         },
         required: ["query"],
       },
@@ -242,11 +410,19 @@ export function buildPortalTools(agency: string): PortalToolset {
     {
       name: "find_orders",
       description:
-        "Search the rep's own order history. Use to answer 'where's my order', to list a customer's recent orders, or to see what's still open. Optionally filter by status ('open', 'completed', or 'cancelled') and/or a search term (order number, PO, or ship-to name).",
+        "Search the rep's own order history — 'where's my order', a customer's recent orders, what's still open, or tracking. Each result includes carrier tracking numbers with a carrier link when a shipment has shipped (empty when none is recorded yet). Newest first, so the first result is the most recent order.",
       input_schema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Order number, customer PO, or ship-to name." },
+          customer: {
+            type: "string",
+            description:
+              "Restrict to one customer, matched loosely by name and ship-to city — e.g. 'Lunds Wayzata'. Use this for 'the most recent order for <customer>' or 'tracking for <customer>'.",
+          },
+          query: {
+            type: "string",
+            description: "Order number, customer PO, or ship-to name/city.",
+          },
           status: {
             type: "string",
             enum: ["open", "completed", "cancelled"],
@@ -260,7 +436,7 @@ export function buildPortalTools(agency: string): PortalToolset {
   const executors: Record<string, (i: Record<string, unknown>) => Promise<unknown>> = {
     sales_overview: () => salesOverview(),
     find_customer: (i) => findCustomer(i as { query?: string }),
-    find_orders: (i) => findOrders(i as { query?: string; status?: string }),
+    find_orders: (i) => findOrders(i as { query?: string; status?: string; customer?: string }),
   };
 
   return {
