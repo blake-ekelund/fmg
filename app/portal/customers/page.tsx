@@ -2,9 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ChevronUp, ChevronsUpDown, Download } from "@/components/portal/icons";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Download,
+  Loader2,
+  Search,
+  X,
+} from "@/components/portal/icons";
 import {
   portalGet,
+  portalDownloadPost,
   portalHref,
   usd,
   shortDate,
@@ -93,9 +103,23 @@ function salesFor(c: PortalCustomer, year: Year, mode: SalesMode): number {
   return c[`sales_${year}` as const] ?? 0;
 }
 
+/**
+ * Free-text match across name, id, city, state, and the account's ship-to
+ * locations. Token-AND, so "lunds minnetonka" surfaces the Lunds account that
+ * ships to Minnetonka even though the town is a per-order ship-to city, not the
+ * account's bill-to city. `q` is assumed already trimmed + lower-cased.
+ */
+function matchesQuery(c: PortalCustomer, q: string): boolean {
+  const hay =
+    `${c.name} ${c.customerid} ${c.bill_to_city ?? ""} ${c.bill_to_state ?? ""} ${c.ship_locations ?? ""}`.toLowerCase();
+  return q.split(/\s+/).every((t) => !t || hay.includes(t));
+}
+
 export default function PortalCustomers() {
   const [rows, setRows] = useState<PortalCustomer[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   // Multi-select account status. Empty set = all (keeps cleared and everything
   // as one state), so the desktop and mobile reads can't disagree.
@@ -137,14 +161,7 @@ export default function PortalCustomers() {
     const q = search.trim().toLowerCase();
     for (const r of rows) {
       if (channel !== "all" && (r.channel ?? "").trim() !== channel) continue;
-      if (
-        q &&
-        !r.name.toLowerCase().includes(q) &&
-        !r.customerid.toLowerCase().includes(q) &&
-        !(r.bill_to_state ?? "").toLowerCase().includes(q)
-      ) {
-        continue;
-      }
+      if (q && !matchesQuery(r, q)) continue;
       c.all++;
       c[customerStatus(r.last_order_date, r.has_open_order)]++;
     }
@@ -156,14 +173,7 @@ export default function PortalCustomers() {
     const q = search.trim().toLowerCase();
 
     const matched = rows.filter((r) => {
-      if (
-        q &&
-        !r.name.toLowerCase().includes(q) &&
-        !r.customerid.toLowerCase().includes(q) &&
-        !(r.bill_to_state ?? "").toLowerCase().includes(q)
-      ) {
-        return false;
-      }
+      if (q && !matchesQuery(r, q)) return false;
       if (channel !== "all" && (r.channel ?? "").trim() !== channel) return false;
       if (
         statusSel.size > 0 &&
@@ -224,63 +234,28 @@ export default function PortalCustomers() {
 
   const filtersOn = statusSel.size > 0 || channel !== "all" || !!search.trim();
 
-  /* Exports exactly what's on screen — same filters, same sales mode — so the
-     spreadsheet matches what the rep was looking at when they hit the button. */
-  function handleExport() {
-    const yearLabel = (y: Year) => (mode === "ytd" ? `${y} YTD` : `${y}`);
-    const headers = [
-      "Customer ID",
-      "Name",
-      "Status",
-      "Open order",
-      "Channel",
-      "State",
-      "Last order",
-      "Last order amount",
-      yearLabel(2024),
-      yearLabel(2025),
-      yearLabel(2026),
-      "Lifetime orders",
-      "Lifetime revenue",
-    ];
-
-    const cell = (v: unknown) => {
-      const s = v == null ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-
-    const lines = [headers.join(",")];
-    for (const c of filtered) {
-      lines.push(
-        [
-          c.customerid,
-          properCase(c.name),
-          STATUS_LABEL[customerStatus(c.last_order_date, c.has_open_order)],
-          c.has_open_order ? "Yes" : "No",
-          c.channel ?? "",
-          c.bill_to_state ?? "",
-          c.last_order_date ?? "",
-          c.last_order_amount ?? 0,
-          salesFor(c, 2024, mode),
-          salesFor(c, 2025, mode),
-          salesFor(c, 2026, mode),
-          c.lifetime_orders ?? 0,
-          c.lifetime_revenue ?? 0,
-        ]
-          .map(cell)
-          .join(","),
+  /* Exports exactly what's on screen — same filters, same sales mode. The rows
+     are POSTed to the server, which enriches them with contact + address and
+     returns a branded FMG workbook (so exceljs stays off the client bundle). */
+  async function handleExport() {
+    setExporting(true);
+    setExportErr(null);
+    try {
+      const parts: string[] = [];
+      if (statusSel.size) parts.push([...statusSel].map((s) => STATUS_LABEL[s]).join("/"));
+      if (channel !== "all") parts.push(channel);
+      if (search.trim()) parts.push(`“${search.trim()}”`);
+      const note = parts.length ? `Filtered: ${parts.join(", ")}` : "";
+      await portalDownloadPost(
+        "/api/portal/customers/export",
+        { rows: filtered, mode, note },
+        `FMG_customers_${new Date().toISOString().slice(0, 10)}.xlsx`,
       );
+    } catch (e) {
+      setExportErr(e instanceof Error ? e.message : "Export failed.");
+    } finally {
+      setExporting(false);
     }
-
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `my_customers_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   }
 
   if (error) {
@@ -292,30 +267,52 @@ export default function PortalCustomers() {
       {/* Header — title left, Export pinned top-right */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">My customers</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Customers</h1>
           <p className="mt-1 text-sm text-gray-500">
             {rows ? `${rows.length.toLocaleString()} accounts in your book of business` : "Loading…"}
           </p>
         </div>
         <button
           onClick={handleExport}
-          disabled={filtered.length === 0}
-          title="Download the filtered list as CSV"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={exporting || filtered.length === 0}
+          title="Download the filtered list as a branded Excel file (with contact info)"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Download size={14} />
+          {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
           Export
         </button>
       </div>
 
+      {exportErr && <p className="text-xs text-red-600">{exportErr}</p>}
+
       {/* Toolbar — search on the left, filters on the right */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, ID, or state…"
-          className="w-full shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 lg:w-[26rem]"
-        />
+        <div className="relative w-full sm:max-w-md">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+          />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, ID, city, or state…"
+            className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-9 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+          />
+          {!rows ? (
+            <Loader2
+              size={15}
+              className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400"
+            />
+          ) : search ? (
+            <button
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            >
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
 
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <StatusMultiSelect
@@ -392,7 +389,7 @@ export default function PortalCustomers() {
               <Th label="Customer" sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
               <Th label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
               <Th label="Channel" sortKey="channel" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
-              <Th label="State" sortKey="state" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+              <Th label="Location" sortKey="state" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
               <Th label="Last order" sortKey="last_order" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
               <Th label="2024" sortKey="sales_2024" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
               <Th label="2025" sortKey="sales_2025" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
@@ -447,7 +444,18 @@ export default function PortalCustomers() {
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{c.bill_to_state ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {c.bill_to_city ? (
+                      <>
+                        <div className="text-gray-700">{properCase(c.bill_to_city)}</div>
+                        {c.bill_to_state && (
+                          <div className="text-xs text-gray-400">{c.bill_to_state}</div>
+                        )}
+                      </>
+                    ) : (
+                      c.bill_to_state ?? "—"
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right text-gray-600">
                     <div>{shortDate(c.last_order_date)}</div>
                     <div className="text-xs text-gray-400">{usd(c.last_order_amount)}</div>

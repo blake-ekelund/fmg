@@ -10,6 +10,8 @@
  * reconciles regardless of how discounts/shipping are itemised.
  */
 
+import { resolveCarrier, trackingUrl } from "./tracking";
+
 /** FMG's remit-to block, taken verbatim from a real Fishbowl invoice. */
 export const INVOICE_COMPANY = {
   name: "Fragrance Marketing Group, LLC",
@@ -88,6 +90,13 @@ export type InvoiceOrderInput = {
   dateissued: string | null;
   datecreated: string | null;
   totalprice: number | null;
+  /* SO header fields for the invoice info band — null until the invoice-fields
+     migration is applied and a sync has run; the builder falls back sensibly. */
+  salesman?: string | null;
+  payment_terms?: string | null;
+  fob_point?: string | null;
+  carrier?: string | null;
+  ship_service?: string | null;
 };
 
 export type InvoiceItemInput = {
@@ -138,7 +147,8 @@ export type InvoiceModel = {
     dateScheduled: string;
   };
   lines: InvoiceLine[];
-  tracking: string[];
+  /** Tracking numbers with a carrier deep link when the carrier is detectable. */
+  tracking: { num: string; url: string | null }[];
   subtotal: string;
   tax: string;
   total: string;
@@ -186,12 +196,23 @@ export function buildInvoice(
       };
     });
 
+  // Each tracking number gets a carrier deep link when the carrier is
+  // detectable (Fishbowl's carrier is usually "RATESHOP", so this falls back to
+  // detecting the carrier from the number's format).
   const tracking = shipments
-    .map((s) => (s.tracking_num ?? "").trim())
-    .filter(Boolean);
+    .filter((s) => (s.tracking_num ?? "").trim())
+    .map((s) => {
+      const num = (s.tracking_num ?? "").trim();
+      const id = resolveCarrier(s.carrier ?? order.carrier ?? null, num);
+      return { num, url: trackingUrl(id, num) };
+    });
 
+  // SO-level carrier (matches the office print) wins; a shipment's carrier is
+  // the fallback for orders that carry no SO carrier.
   const carrier =
-    shipments.find((s) => (s.carrier ?? "").trim())?.carrier?.trim() ?? "";
+    (order.carrier ?? "").trim() ||
+    shipments.find((s) => (s.carrier ?? "").trim())?.carrier?.trim() ||
+    "";
 
   // The invoice date is when it shipped (matches Fishbowl's print); fall back to
   // the issue date for orders that haven't shipped. Date Scheduled stays the
@@ -225,11 +246,11 @@ export function buildInvoice(
     contact: order.customercontact ?? "",
     poNumber: order.customerpo ?? "",
     info: {
-      salesRep: (opts.salesRep ?? "").trim(),
-      paymentTerms: (opts.paymentTerms ?? "NET 30").trim(),
-      fobPoint: "Origin",
+      salesRep: (order.salesman ?? opts.salesRep ?? "").trim(),
+      paymentTerms: (order.payment_terms ?? opts.paymentTerms ?? "NET 30").trim(),
+      fobPoint: (order.fob_point ?? "Origin").trim(),
       carrier,
-      shipService: "",
+      shipService: (order.ship_service ?? "").trim(),
       dateScheduled: mmddyyyy(order.dateissued ?? order.datecreated),
     },
     lines,

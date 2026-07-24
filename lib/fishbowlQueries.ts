@@ -35,7 +35,12 @@ export const SALES_ORDERS_SQL = `SELECT
   SOSTATUS.name AS status,
   so.totalPrice,
   so.customFields,
-  QBCLASS.name AS Channel
+  QBCLASS.name AS Channel,
+  so.salesman,
+  PAYMENTTERMS.name AS paymentTerms,
+  FOBPOINT.name AS fobPoint,
+  CARRIER.name AS carrier,
+  CARRIERSERVICE.name AS shipService
 FROM so
 LEFT JOIN customer ON so.customerId = customer.id
 LEFT JOIN QBCLASS ON customer.qbClassId = QBCLASS.id
@@ -43,7 +48,11 @@ LEFT JOIN SOSTATUS ON so.statusId = SOSTATUS.id
 LEFT JOIN STATECONST STATECONST_Bill ON so.billToStateId = STATECONST_Bill.id
 LEFT JOIN STATECONST STATECONST_Ship ON so.shipToStateId = STATECONST_Ship.id
 LEFT JOIN COUNTRYCONST COUNTRYCONST_Bill ON so.billToCountryId = COUNTRYCONST_Bill.id
-LEFT JOIN COUNTRYCONST COUNTRYCONST_Ship ON so.shipToCountryId = COUNTRYCONST_Ship.id`;
+LEFT JOIN COUNTRYCONST COUNTRYCONST_Ship ON so.shipToCountryId = COUNTRYCONST_Ship.id
+LEFT JOIN PAYMENTTERMS ON so.paymentTermsId = PAYMENTTERMS.id
+LEFT JOIN FOBPOINT ON so.fobPointId = FOBPOINT.id
+LEFT JOIN CARRIER ON so.carrierId = CARRIER.id
+LEFT JOIN CARRIERSERVICE ON so.carrierServiceId = CARRIERSERVICE.id`;
 
 /**
  * Per-carton shipment tracking. Verified against this instance 2026-07-24.

@@ -72,8 +72,74 @@ export async function portalPost<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * Fetch a file endpoint with the session token (+ preview agency) and save it.
+ * Used for authenticated downloads the browser can't do via a plain <a href>,
+ * like the orders Excel export.
+ */
+export async function portalDownload(path: string, filename: string): Promise<void> {
+  const extra = previewParam();
+  const url = extra ? `${path}${path.includes("?") ? "&" : "?"}${extra}` : path;
+  const res = await fetch(url, { headers: await authHeader(), cache: "no-store" });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    throw new Error((msg as { error?: string }).error ?? `Request failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objUrl);
+}
+
+/** POST a JSON body to a file endpoint and save the returned file (auth + preview). */
+export async function portalDownloadPost(
+  path: string,
+  body: unknown,
+  filename: string,
+): Promise<void> {
+  const extra = previewParam();
+  const url = extra ? `${path}${path.includes("?") ? "&" : "?"}${extra}` : path;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...(await authHeader()), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    throw new Error((msg as { error?: string }).error ?? `Request failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objUrl);
+}
+
 /** One turn of the portal assistant conversation. */
 export type ChatMessage = { role: "user" | "assistant"; content: string };
+
+/** A What's New feed item. brand: 'FMG' | 'NI' | 'Sassy'. */
+export type PortalNews = {
+  id: string;
+  brand: string;
+  category: string;
+  title: string;
+  summary: string | null;
+  body: string | null;
+  image_url: string | null;
+  link_url: string | null;
+  published_at: string;
+};
 
 /* ── Shared response types ─────────────────────────────────────────────────── */
 
@@ -111,6 +177,8 @@ export type PortalCustomer = {
   customerid: string;
   name: string;
   bill_to_state: string | null;
+  /** Bill-to city, merged in from customer_contact_summary (not on customer_summary). */
+  bill_to_city: string | null;
   channel: string | null;
   first_order_date: string | null;
   last_order_date: string | null;
@@ -130,6 +198,10 @@ export type PortalCustomer = {
   ytd_2026?: number;
   /** True when an estimate or in-flight order exists — forces status to active. */
   has_open_order?: boolean;
+  /** Space-joined distinct ship-to cities/states from this account's orders.
+      Not displayed — feeds location search so a chain is findable by any store
+      city it ships to, not just its bill-to city. */
+  ship_locations?: string | null;
 };
 
 export type PortalContact = {
@@ -148,10 +220,15 @@ export type PortalContact = {
 export type PortalSalesHub = {
   kpis: {
     customers: number;
-    sales_2025: number;
-    sales_2026: number;
-    variance: number;
+    sales_2025: number; // full-year 2025
+    sales_2026: number; // 2026 YTD (headline)
+    sales_2025_ytd: number; // 2025 through today's date
+    variance: number; // vs full-year 2025
     variance_pct: number | null;
+    ytd_variance: number; // 2026 YTD − 2025 YTD
+    ytd_variance_pct: number | null;
+    pct_of_2025: number | null; // 2026 YTD as % of full-year 2025
+    ytd_through: string; // e.g. "Jul 24"
     /** Accounts 6–12 months since their last order. */
     slippingCount: number;
   };
@@ -163,6 +240,10 @@ export type PortalSalesHub = {
     sales_2026: number;
     variance: number;
     variance_pct: number | null;
+    sales_2025_ytd: number;
+    ytd_variance: number;
+    ytd_variance_pct: number | null;
+    pct_of_2025: number | null;
   }[];
   slipping: {
     customerid: string;

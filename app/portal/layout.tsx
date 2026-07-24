@@ -10,12 +10,14 @@ import { getDefaultRoute } from "@/components/navConfig";
 import { LogoMark } from "@/components/ui/Logo";
 import AssistantWidget from "@/components/portal/AssistantWidget";
 
+// Dashboard isn't a tab — the FMG logo is the way back to it (see the brand
+// Link below, which points at /portal).
 const TABS = [
-  { href: "/portal", label: "Dashboard" },
-  { href: "/portal/customers", label: "My Customers" },
+  { href: "/portal/customers", label: "Customers" },
   { href: "/portal/orders", label: "Orders" },
   { href: "/portal/sales-hub", label: "Sales Hub" },
-  { href: "/portal/assets", label: "Brand Assets" },
+  { href: "/portal/news", label: "What's New" },
+  { href: "/portal/assets", label: "Assets" },
   { href: "/portal/contact", label: "Contact" },
 ];
 

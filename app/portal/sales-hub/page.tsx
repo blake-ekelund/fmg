@@ -40,6 +40,7 @@ function pctLabel(p: number | null): string {
 export default function PortalSalesHub() {
   const [data, setData] = useState<PortalSalesHub | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [channel, setChannel] = useState<string>("all");
 
   useEffect(() => {
     portalGet<PortalSalesHub>("/api/portal/sales-hub")
@@ -70,37 +71,105 @@ export default function PortalSalesHub() {
     (c) => c.sales_2026 > 0 || c.sales_2025 > 0,
   );
 
+  /* Channel filter (top-right dropdown). "all" = the whole book; otherwise every
+     section below is scoped to the chosen channel — its numbers, its accounts to
+     call, its talking points, its movers. */
+  const activeCh =
+    channel === "all" ? null : (channels.find((c) => c.channel === channel) ?? null);
+  const slip = channel === "all" ? slipping : slipping.filter((s) => s.channel === channel);
+  const grow = channel === "all" ? growing : growing.filter((g) => g.channel === channel);
+  const decl = channel === "all" ? declining : declining.filter((d) => d.channel === channel);
+  const shownChannels =
+    channel === "all" ? soldChannels : soldChannels.filter((c) => c.channel === channel);
+
+  // KPI tiles reflect the current scope: the channel's own totals, or the book.
+  const view = activeCh
+    ? {
+        customers: activeCh.customers,
+        sales_2026: activeCh.sales_2026,
+        pct_of_2025: activeCh.pct_of_2025,
+        ytd_variance: activeCh.ytd_variance,
+        ytd_variance_pct: activeCh.ytd_variance_pct,
+        slippingCount: slip.length,
+      }
+    : {
+        customers: kpis.customers,
+        sales_2026: kpis.sales_2026,
+        pct_of_2025: kpis.pct_of_2025,
+        ytd_variance: kpis.ytd_variance,
+        ytd_variance_pct: kpis.ytd_variance_pct,
+        slippingCount: kpis.slippingCount,
+      };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          Sales Hub
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Your talking points, ranked by where your business actually is.
-        </p>
+      {/* Header — title left, channel picker pinned top-right */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+            Sales Hub
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {channel === "all"
+              ? "Your talking points, ranked by where your business actually is."
+              : `Everything from your ${channel} accounts.`}
+          </p>
+        </div>
+        {soldChannels.length > 0 && (
+          <div className="relative shrink-0">
+            <label htmlFor="channel" className="sr-only">
+              Channel
+            </label>
+            <select
+              id="channel"
+              value={channel}
+              onChange={(e) => setChannel(e.target.value)}
+              className="appearance-none rounded-lg border border-gray-200 bg-white py-2 pl-3 pr-9 text-sm font-medium text-gray-700 transition hover:border-gray-300 focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+            >
+              <option value="all">All channels</option>
+              {soldChannels.map((c) => (
+                <option key={c.channel} value={c.channel}>
+                  {c.channel}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              size={15}
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400"
+            />
+          </div>
+        )}
       </div>
 
-      {/* Your year at a glance */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Accounts" value={kpis.customers.toLocaleString()} />
-        <Kpi label="2026 sales" value={usd(kpis.sales_2026)} />
+      {/* Your year at a glance — scoped to the selected channel */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+        <Kpi label="Accounts" value={view.customers.toLocaleString()} />
+        <Kpi label="2026 sales · YTD" value={usd(view.sales_2026)} />
+        {/* Pacing: 2026 YTD as a share of last year's full total. */}
         <Kpi
-          label="vs last year"
-          value={`${kpis.variance >= 0 ? "+" : "−"}${usd(Math.abs(kpis.variance)).replace("-", "")}`}
-          tone={kpis.variance >= 0 ? "good" : "bad"}
-          sub={pctLabel(kpis.variance_pct)}
+          label="% of 2025"
+          value={
+            view.pct_of_2025 === null ? "—" : `${Math.round(view.pct_of_2025)}%`
+          }
+          sub="of full-year 2025"
+        />
+        {/* Apples-to-apples: 2026 YTD vs the same window in 2025. */}
+        <Kpi
+          label={`vs 2025 YTD · thru ${kpis.ytd_through}`}
+          value={`${view.ytd_variance >= 0 ? "+" : "−"}${usd(Math.abs(view.ytd_variance)).replace("-", "")}`}
+          tone={view.ytd_variance >= 0 ? "good" : "bad"}
+          sub={pctLabel(view.ytd_variance_pct)}
         />
         <Kpi
           label="Need a call"
-          value={String(kpis.slippingCount)}
-          tone={kpis.slippingCount > 0 ? "bad" : "good"}
+          value={String(view.slippingCount)}
+          tone={view.slippingCount > 0 ? "bad" : "good"}
           sub="no order in 6+ months"
         />
       </div>
 
       {/* ── Call these accounts ── */}
-      {slipping.length > 0 && (
+      {slip.length > 0 && (
         <section className="rounded-2xl border border-gray-200 bg-white">
           <div className="flex flex-wrap items-baseline gap-x-3 border-b border-gray-100 px-5 py-3.5">
             <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-gray-900">
@@ -112,7 +181,7 @@ export default function PortalSalesHub() {
             </span>
           </div>
           <ul className="divide-y divide-gray-50">
-            {slipping.map((s) => (
+            {slip.map((s) => (
               <li
                 key={s.customerid}
                 className="flex items-center gap-3 px-5 py-3"
@@ -151,38 +220,40 @@ export default function PortalSalesHub() {
       <section className="space-y-3">
         <div>
           <h2 className="text-base font-semibold text-gray-900">
-            What to say, by channel
+            {channel === "all" ? "What to say, by channel" : "What to say"}
           </h2>
           <p className="mt-0.5 text-sm text-gray-500">
-            Your channels first — biggest by 2026 revenue.
+            {channel === "all"
+              ? "Your channels first — biggest by 2026 revenue."
+              : `Talking points for ${channel}.`}
           </p>
         </div>
 
-        {soldChannels.length === 0 ? (
+        {shownChannels.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-gray-200 px-5 py-8 text-center text-sm text-gray-400">
             No channel revenue recorded yet.
           </p>
         ) : (
-          soldChannels.map((ch, i) => (
-            <ChannelCard key={ch.channel} channel={ch} defaultOpen={i === 0} />
+          shownChannels.map((ch, i) => (
+            <ChannelCard key={ch.channel} channel={ch} defaultOpen={channel !== "all" || i === 0} />
           ))
         )}
       </section>
 
       {/* ── Movers ── */}
-      {(growing.length > 0 || declining.length > 0) && (
+      {(grow.length > 0 || decl.length > 0) && (
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <MoverList
             title="Growing"
             icon={<TrendingUp size={15} className="text-emerald-500" />}
             hint="Thank them — and ask what else they need."
-            rows={growing}
+            rows={grow}
           />
           <MoverList
             title="Slipping"
             icon={<TrendingDown size={15} className="text-rose-500" />}
             hint="Worth a conversation before the year closes."
-            rows={declining}
+            rows={decl}
           />
         </section>
       )}
@@ -272,13 +343,14 @@ function ChannelCard({
           <div className="text-sm font-semibold tabular-nums text-gray-900">
             {usd(channel.sales_2026)}
           </div>
+          {/* Same-window: 2026 YTD vs 2025 YTD, not vs the full prior year. */}
           <div
             className={`text-[11px] tabular-nums ${
-              channel.variance >= 0 ? "text-emerald-600" : "text-rose-600"
+              channel.ytd_variance >= 0 ? "text-emerald-600" : "text-rose-600"
             }`}
           >
-            {channel.variance >= 0 ? "+" : "−"}
-            {usd(Math.abs(channel.variance))} vs LY
+            {channel.ytd_variance >= 0 ? "+" : "−"}
+            {usd(Math.abs(channel.ytd_variance))} vs LY YTD
           </div>
         </div>
         <ChevronDown

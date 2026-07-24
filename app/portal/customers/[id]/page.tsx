@@ -70,17 +70,21 @@ export default function PortalCustomerDetail() {
 
   const [customer, setCustomer] = useState<PortalCustomer | null>(null);
   const [contact, setContact] = useState<PortalContact | null>(null);
+  const [ytdThrough, setYtdThrough] = useState<string | null>(null);
   const [orders, setOrders] = useState<PortalOrder[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    portalGet<{ customer: PortalCustomer; contact: PortalContact | null }>(
-      `/api/portal/customers?id=${encodeURIComponent(id)}`,
-    )
+    portalGet<{
+      customer: PortalCustomer;
+      contact: PortalContact | null;
+      ytdThrough?: string;
+    }>(`/api/portal/customers?id=${encodeURIComponent(id)}`)
       .then((d) => {
         setCustomer(d.customer);
         setContact(d.contact);
+        setYtdThrough(d.ytdThrough ?? null);
       })
       .catch((e) => setError(e.message));
   }, [id]);
@@ -117,7 +121,18 @@ export default function PortalCustomerDetail() {
 
   const status = customerStatus(customer.last_order_date, customer.has_open_order);
   const since = daysSince(customer.last_order_date);
-  const yoy = pct(customer.sales_2026 ?? 0, customer.sales_2025 ?? 0);
+
+  /* The YTD story, like-for-like. Comparing partial 2026 against FULL-year 2025
+     makes every account look like it's collapsing, which is why the old "vs
+     2025" number read as noise. These line each year up to the same calendar
+     date (2026 YTD vs 2025 YTD) and show how far into last year's total the
+     account already is. */
+  const ytd2026 = customer.ytd_2026 ?? 0;
+  const ytd2025 = customer.ytd_2025 ?? 0;
+  const ytdYoY = pct(ytd2026, ytd2025);
+  const fullPrior = customer.sales_2025 ?? 0;
+  const pctOfPrior = fullPrior > 0 ? (ytd2026 / fullPrior) * 100 : null;
+
   const peak = Math.max(
     ...YEARS.map((y) => customer[`sales_${y}` as const] ?? 0),
     1,
@@ -250,30 +265,39 @@ export default function PortalCustomerDetail() {
         </section>
       </div>
 
-      {/* Headline numbers */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="2026 sales" value={usd(customer.sales_2026)} />
-        <Stat
-          label="vs 2025"
-          value={
-            yoy === null
-              ? "—"
-              : `${yoy >= 0 ? "+" : ""}${yoy.toFixed(0)}%`
-          }
-          tone={yoy === null ? undefined : yoy >= 0 ? "good" : "bad"}
-          sub={usd(customer.sales_2025)}
-        />
-        <Stat
-          label="Last order"
-          value={shortDate(customer.last_order_date)}
-          sub={since === null ? undefined : `${since} days ago`}
-          tone={since !== null && since > 180 ? "bad" : undefined}
-        />
-        <Stat
-          label="Lifetime"
-          value={usd(customer.lifetime_revenue)}
-          sub={`${(customer.lifetime_orders ?? 0).toLocaleString()} orders`}
-        />
+      {/* Headline numbers — the YTD story, like-for-like against last year */}
+      <div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Stat
+            label="2026 YTD"
+            value={usd(ytd2026)}
+            sub={ytdThrough ? `through ${ytdThrough}` : undefined}
+          />
+          <Stat
+            label="vs 2025 YTD"
+            value={
+              ytdYoY === null ? "—" : `${ytdYoY >= 0 ? "+" : ""}${ytdYoY.toFixed(0)}%`
+            }
+            tone={ytdYoY === null ? undefined : ytdYoY >= 0 ? "good" : "bad"}
+            sub={`${usd(ytd2025)} prior YTD`}
+          />
+          <Stat
+            label="% of 2025"
+            value={pctOfPrior === null ? "—" : `${pctOfPrior.toFixed(0)}%`}
+            sub={`of ${usd(fullPrior)} full year`}
+          />
+          <Stat
+            label="Last order"
+            value={shortDate(customer.last_order_date)}
+            sub={since === null ? undefined : `${since} days ago`}
+            tone={since !== null && since > 180 ? "bad" : undefined}
+          />
+        </div>
+        <p className="mt-2 text-xs text-gray-400">
+          YTD compares Jan 1–{ytdThrough ?? "today"} of each year. Lifetime{" "}
+          {usd(customer.lifetime_revenue)} across{" "}
+          {(customer.lifetime_orders ?? 0).toLocaleString()} orders.
+        </p>
       </div>
 
       {/* Open orders — expandable to line items */}

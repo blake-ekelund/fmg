@@ -15,8 +15,38 @@ export const runtime = "nodejs";
  * can only invoice their own accounts' orders.
  */
 
-const ORDER_COLS =
-  "id, num, customerpo, customercontact, billtoname, billtoaddress, billtocity, billtostate, billtozip, shiptoname, shiptoaddress, shiptocity, shiptostate, shiptozip, dateissued, datecreated, totalprice";
+const ORDER_COLS_BASE =
+  "id, customerid, num, customerpo, customercontact, billtoname, billtoaddress, billtocity, billtostate, billtozip, shiptoname, shiptoaddress, shiptocity, shiptostate, shiptozip, dateissued, datecreated, totalprice";
+/** SO info-band fields — present only once the invoice-fields migration lands. */
+const ORDER_COLS_INFO = "salesman, payment_terms, fob_point, carrier, ship_service";
+
+type OrderRow = Record<string, unknown> & { id: number; customerid: string | null };
+
+/**
+ * Fetch one order, preferring the invoice info-band columns but falling back to
+ * the base set if that migration hasn't been applied yet — so a deploy that
+ * lands before the migration still produces invoices (with blank info fields)
+ * instead of erroring.
+ */
+async function fetchOrder(num: string): Promise<{ data: OrderRow | null; error: string | null }> {
+  const full = await supabaseServer
+    .from("sales_orders_raw")
+    .select(`${ORDER_COLS_BASE}, ${ORDER_COLS_INFO}`)
+    .eq("num", num)
+    .limit(1)
+    .maybeSingle();
+  if (!full.error) return { data: full.data as OrderRow | null, error: null };
+  if (full.error.code !== "42703" && !/does not exist/i.test(full.error.message)) {
+    return { data: null, error: full.error.message };
+  }
+  const base = await supabaseServer
+    .from("sales_orders_raw")
+    .select(ORDER_COLS_BASE)
+    .eq("num", num)
+    .limit(1)
+    .maybeSingle();
+  return { data: base.data as OrderRow | null, error: base.error?.message ?? null };
+}
 
 export async function GET(request: Request) {
   const rep = await resolvePortalAgency(request);
@@ -37,15 +67,9 @@ export async function GET(request: Request) {
     ((custData ?? []) as { customerid: string; name: string }[]).map((r) => [r.customerid, r.name]),
   );
 
-  const { data: orderRow, error: ordErr } = await supabaseServer
-    .from("sales_orders_raw")
-    .select(`${ORDER_COLS}, customerid`)
-    .eq("num", num)
-    .limit(1)
-    .maybeSingle();
-  if (ordErr) return NextResponse.json({ error: ordErr.message }, { status: 500 });
+  const { data: order, error: ordErr } = await fetchOrder(num);
+  if (ordErr) return NextResponse.json({ error: ordErr }, { status: 500 });
 
-  const order = orderRow as (Record<string, unknown> & { id: number; customerid: string | null }) | null;
   // Re-check membership — an order number alone proves nothing.
   if (!order || !order.customerid || !nameById.has(order.customerid)) {
     return NextResponse.json({ error: "not found" }, { status: 404 });

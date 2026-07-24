@@ -200,6 +200,12 @@ export async function GET(request: Request) {
       totalprice: parseNumber(r.totalPrice),
       customfields: r.customFields ?? null,
       channel: r.Channel ?? r.channel ?? null,
+      // Invoice info-band fields (Sales Rep / Payment Terms / FOB / Carrier / Ship Service).
+      salesman: r.salesman ?? null,
+      payment_terms: r.paymentTerms ?? null,
+      fob_point: r.fobPoint ?? null,
+      carrier: r.carrier ?? null,
+      ship_service: r.shipService ?? null,
       upload_id: uploadId,
     }));
 

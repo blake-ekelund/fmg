@@ -129,7 +129,7 @@ async function trackingBySo(soIds: number[]): Promise<Map<number, PortalTracking
   return out;
 }
 
-/** The agency's customer ids, plus a name lookup for display. */
+/** The agency's customer ids, plus a name lookup for display and search. */
 async function agencyCustomers(agency: string) {
   const { data, error } = await supabaseServer
     .from("customer_summary")
@@ -222,43 +222,101 @@ export async function GET(request: Request) {
 
   /* ── List / search ── */
   const collected: OrderRow[] = [];
+  const seen = new Set<number>(); // dedupe by order id across the two search passes
   const limit = q ? SEARCH_LIMIT : RECENT_LIMIT;
   const stageFilter = params.get("stage");
 
-  for (let i = 0; i < customers.ids.length; i += ID_CHUNK) {
-    const slice = customers.ids.slice(i, i + ID_CHUNK);
-    let query = supabaseServer
-      .from("sales_orders_raw")
-      .select(ORDER_COLS)
-      // The agency boundary. Orders carry no agency of their own, so this is
-      // the only thing keeping one rep out of another's book.
-      .in("customerid", slice)
-      /* Ordered by id, not by any date: Fishbowl ids are sequential, and every
-         row has one. Dates can't be used for the fetch window — datecompleted
-         is NULL on open orders, and datecreated/dateissued stay NULL until the
-         migration is pushed and a sync has run. Sorting by date happens below,
-         once the rows are in hand. */
-      .order("id", { ascending: false, nullsFirst: false })
-      .limit(limit);
-
-    if (q) {
-      // Order number, the customer's PO, or who it shipped to.
-      const safe = q.replace(/[%,()]/g, "");
-      if (safe) {
-        query = query.or(
-          `num.ilike.%${safe}%,customerpo.ilike.%${safe}%,shiptoname.ilike.%${safe}%`,
-        );
+  function absorb(rows: OrderRow[]) {
+    for (const r of rows) {
+      if (r.id != null) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
       }
+      collected.push(r);
     }
-
-    const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    collected.push(...((data ?? []) as OrderRow[]));
   }
 
+  /**
+   * Fetch orders for a set of customers, optionally narrowing with a raw
+   * PostgREST `.or()` expression. Ordered by id (Fishbowl ids are sequential and
+   * every row has one; dates are NULL on open orders), then re-sorted by date.
+   */
+  async function fetchOrders(customerIds: string[], orExpr?: string) {
+    for (let i = 0; i < customerIds.length; i += ID_CHUNK) {
+      let query = supabaseServer
+        .from("sales_orders_raw")
+        .select(ORDER_COLS)
+        // The agency boundary. Orders carry no agency of their own, so this is
+        // the only thing keeping one rep out of another's book.
+        .in("customerid", customerIds.slice(i, i + ID_CHUNK))
+        .order("id", { ascending: false, nullsFirst: false })
+        .limit(limit);
+      if (orExpr) query = query.or(orExpr);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      absorb((data ?? []) as OrderRow[]);
+    }
+  }
+
+  /* The location a rep searches by ("Minnetonka") is the order's SHIP-TO city,
+     not the account's bill-to city — a chain like Lunds & Byerlys is one
+     customer that ships to a dozen towns. So matching happens at the order
+     level, over the customer name plus the order's own fields. */
+  const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const ORDER_MATCH_COLS = ["num", "customerpo", "shiptoname", "shiptocity", "shiptostate"];
+
+  function orderHaystack(o: OrderRow): string {
+    const name = customers.nameById.get(o.customerid ?? "") ?? "";
+    return `${name} ${o.num ?? ""} ${o.customerpo ?? ""} ${o.shiptoname ?? ""} ${o.shiptocity ?? ""} ${o.shiptostate ?? ""}`.toLowerCase();
+  }
+
+  try {
+    if (tokens.length > 0) {
+      /* 1) By customer name. The account name identifies a chain but never
+         appears on the order row, so name-matched customers have their whole
+         order history pulled — that's what brings the Minnetonka Lunds order
+         into range for a "Lunds Minnetonka" search. */
+      const nameMatchedIds = customers.ids.filter((id) => {
+        const name = (customers.nameById.get(id) ?? "").toLowerCase();
+        return tokens.some((t) => name.includes(t));
+      });
+      if (nameMatchedIds.length > 0) await fetchOrders(nameMatchedIds);
+
+      /* 2) By the order's own fields — ship-to city/state/name, order number,
+         PO. Carries the per-store location and direct order lookups. Any token
+         hitting any column is a candidate; the token-AND pass below tightens it. */
+      const safeTokens = tokens.map((t) => t.replace(/[%,()]/g, "")).filter(Boolean);
+      if (safeTokens.length > 0) {
+        const orExpr = safeTokens
+          .flatMap((t) => ORDER_MATCH_COLS.map((c) => `${c}.ilike.%${t}%`))
+          .join(",");
+        await fetchOrders(customers.ids, orExpr);
+      }
+    } else {
+      await fetchOrders(customers.ids);
+    }
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "query failed" },
+      { status: 500 },
+    );
+  }
+
+  /* Token-AND: keep only orders where EVERY search word appears somewhere in the
+     customer name + order fields. This turns the broad "any token" candidate set
+     into "Lunds AND Minnetonka" — the account whose name has Lunds and whose
+     ship-to city is Minnetonka. */
+  const searched =
+    tokens.length > 0
+      ? collected.filter((o) => {
+          const hay = orderHaystack(o);
+          return tokens.every((t) => hay.includes(t));
+        })
+      : collected;
+
   const staged = stageFilter
-    ? collected.filter((o) => portalStage(o.status) === stageFilter)
-    : collected;
+    ? searched.filter((o) => portalStage(o.status) === stageFilter)
+    : searched;
 
   /* Each chunk was limited independently, so re-sort and trim to get a true
      top-N across the whole agency rather than the first chunk's view. Falls
@@ -288,9 +346,9 @@ export async function GET(request: Request) {
     customfields: undefined,
   }));
 
-  /* Counts per stage across everything fetched, so the UI can label its
-     filters without a second round trip. */
-  const counts = collected.reduce(
+  /* Counts per stage across the matched set, so the UI can label its filters
+     without a second round trip. */
+  const counts = searched.reduce(
     (acc, o) => {
       acc[portalStage(o.status)] += 1;
       return acc;

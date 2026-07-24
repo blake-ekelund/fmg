@@ -70,9 +70,12 @@ export async function GET(request: Request) {
       activeCustomers: number;
     }
   >();
+  /** customerid → its channel key, so raw orders can be bucketed by channel. */
+  const channelOf = new Map<string, string>();
 
   for (const c of customers) {
     const key = (c.channel ?? "").trim() || "UNCLASSIFIED";
+    channelOf.set(c.customerid, key);
     const entry =
       byChannel.get(key) ??
       { channel: key, customers: 0, sales_2026: 0, sales_2025: 0, activeCustomers: 0 };
@@ -84,15 +87,68 @@ export async function GET(request: Request) {
     byChannel.set(key, entry);
   }
 
+  /* Same-window YTD (Jan 1 → today's month/day) for 2025, summed from raw orders
+     — customer_summary only stores whole-year 2025, which flatters the compare
+     because 2026 isn't finished. Keyed by month*100+day so leap years need no
+     special case. Same technique + revenue basis (datecompleted / totalprice) as
+     the dashboard, so the two pages reconcile. Bucketed per channel too. */
+  const now = new Date();
+  const cutoff = (now.getUTCMonth() + 1) * 100 + now.getUTCDate();
+  const ytdThrough = now.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  let sales_2025_ytd = 0;
+  const ytd2025ByChannel = new Map<string, number>();
+
+  const ids = customers.map((c) => c.customerid).filter(Boolean);
+  if (ids.length > 0) {
+    const CHUNK = 200;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const { data: orders, error: ordErr } = await supabaseServer
+        .from("sales_orders_raw")
+        .select("customerid, datecompleted, totalprice")
+        .in("customerid", slice)
+        .not("datecompleted", "is", null);
+      if (ordErr) return NextResponse.json({ error: ordErr.message }, { status: 500 });
+
+      for (const o of (orders ?? []) as {
+        customerid: string | null;
+        datecompleted: string | null;
+        totalprice: number | null;
+      }[]) {
+        if (!o.datecompleted) continue;
+        const d = new Date(o.datecompleted);
+        if (d.getUTCFullYear() !== 2025) continue;
+        const stamp = (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+        if (stamp > cutoff) continue;
+        const amt = o.totalprice ?? 0;
+        sales_2025_ytd += amt;
+        const ch = (o.customerid && channelOf.get(o.customerid)) || "UNCLASSIFIED";
+        ytd2025ByChannel.set(ch, (ytd2025ByChannel.get(ch) ?? 0) + amt);
+      }
+    }
+  }
+
   const channels = [...byChannel.values()]
-    .map((e) => ({
-      ...e,
-      variance: e.sales_2026 - e.sales_2025,
-      variance_pct:
-        e.sales_2025 > 0
-          ? ((e.sales_2026 - e.sales_2025) / e.sales_2025) * 100
-          : null,
-    }))
+    .map((e) => {
+      const ytd25 = ytd2025ByChannel.get(e.channel) ?? 0;
+      return {
+        ...e,
+        variance: e.sales_2026 - e.sales_2025,
+        variance_pct:
+          e.sales_2025 > 0
+            ? ((e.sales_2026 - e.sales_2025) / e.sales_2025) * 100
+            : null,
+        // 2026 YTD is the customer_summary aggregate (year isn't over).
+        sales_2025_ytd: ytd25,
+        ytd_variance: e.sales_2026 - ytd25,
+        ytd_variance_pct: ytd25 > 0 ? ((e.sales_2026 - ytd25) / ytd25) * 100 : null,
+        pct_of_2025: e.sales_2025 > 0 ? (e.sales_2026 / e.sales_2025) * 100 : null,
+      };
+    })
     .sort((a, b) => b.sales_2026 - a.sales_2026);
 
   /* ── Accounts to call ──
@@ -152,11 +208,19 @@ export async function GET(request: Request) {
   return NextResponse.json({
     kpis: {
       customers: customers.length,
-      sales_2025,
-      sales_2026,
-      variance: sales_2026 - sales_2025,
+      sales_2025, // full-year 2025
+      sales_2026, // 2026 YTD (year isn't over) — the headline figure
+      sales_2025_ytd, // 2025 through the same date as today
+      variance: sales_2026 - sales_2025, // vs full-year 2025 (pacing basis)
       variance_pct:
         sales_2025 > 0 ? ((sales_2026 - sales_2025) / sales_2025) * 100 : null,
+      // Apples-to-apples: 2026 YTD vs 2025 YTD.
+      ytd_variance: sales_2026 - sales_2025_ytd,
+      ytd_variance_pct:
+        sales_2025_ytd > 0 ? ((sales_2026 - sales_2025_ytd) / sales_2025_ytd) * 100 : null,
+      // Pacing: 2026 YTD as a share of last year's full total.
+      pct_of_2025: sales_2025 > 0 ? (sales_2026 / sales_2025) * 100 : null,
+      ytd_through: ytdThrough,
       slippingCount: customers.filter((c) => {
         const d = daysSince(c.last_order_date);
         return d !== null && d > AT_RISK_DAYS && d <= CHURN_DAYS;

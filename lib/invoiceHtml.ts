@@ -40,7 +40,11 @@ export function renderInvoiceHtml(inv: InvoiceModel): string {
 
   const trackingRow = inv.tracking.length
     ? `<tr class="tracking"><td></td><td></td><td></td><td colspan="4">Tracking: ${inv.tracking
-        .map(esc)
+        .map((t) =>
+          t.url
+            ? `<a href="${esc(t.url)}" target="_blank" rel="noreferrer">${esc(t.num)}</a>`
+            : esc(t.num),
+        )
         .join(", ")}</td></tr>`
     : "";
 
@@ -100,6 +104,7 @@ export function renderInvoiceHtml(inv: InvoiceModel): string {
   .c-qty { text-align: center; width: 52px; }
   th.c-unit, th.c-qty, th.c-total { text-align: center; }
   tr.tracking td { color: var(--muted); font-size: 9pt; border-top: 0; }
+  tr.tracking a { color: #1d4ed8; text-decoration: underline; }
 
   .totals { width: 300px; margin-left: auto; margin-top: 10px; border-collapse: collapse; }
   .totals td { padding: 3px 6px; font-size: 10pt; }
