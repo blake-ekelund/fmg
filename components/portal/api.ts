@@ -55,15 +55,46 @@ export async function portalGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** POST JSON to a portal endpoint, carrying the session token and preview agency. */
+export async function portalPost<T>(path: string, body: unknown): Promise<T> {
+  const extra = previewParam();
+  const url = extra ? `${path}${path.includes("?") ? "&" : "?"}${extra}` : path;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...(await authHeader()), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    throw new Error((msg as { error?: string }).error ?? `Request failed (${res.status})`);
+  }
+  return (await res.json()) as T;
+}
+
+/** One turn of the portal assistant conversation. */
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+
 /* ── Shared response types ─────────────────────────────────────────────────── */
 
 export type PortalSummary = {
   kpis: {
     customers: number;
-    sales_2025: number;
-    sales_2026: number;
-    variance: number;
+    /** Account-health split of `customers`. */
+    active: number;
+    at_risk: number;
+    churned: number;
+    no_orders: number;
+    sales_2025: number; // full-year 2025
+    sales_2026: number; // 2026 YTD (headline)
+    sales_2025_ytd: number; // 2025 through today's date
+    sales_2026_ytd: number; // raw-order 2026 YTD
+    variance: number; // sales_2026 − full-year 2025
     variance_pct: number;
+    ytd_variance: number; // 2026 YTD − 2025 YTD
+    ytd_variance_pct: number;
+    pct_of_2025: number | null; // 2026 YTD as % of full-year 2025
+    ytd_through: string; // e.g. "Jul 24"
   };
   monthly: { month: number; sales_2025: number; sales_2026: number }[];
   topCustomers: {
