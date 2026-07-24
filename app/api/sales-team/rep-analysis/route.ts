@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { computeBridge, type ProductAgg } from "@/lib/salesBridge";
+import { computeBridge, type ProductAgg, type SalesBridge } from "@/lib/salesBridge";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -39,6 +39,13 @@ function ytdWindows() {
 }
 
 const money = (n: number) => "$" + Math.round(n).toLocaleString("en-US");
+
+/** The five bridge amounts as a flat object (volume/mix/price/new/lost). */
+function parts5(b: SalesBridge) {
+  const g = (k: string) => b.parts.find((p) => p.key === k)?.amount ?? 0;
+  return { volume: g("volume"), mix: g("mix"), price: g("price"), new: g("new"), lost: g("lost") };
+}
+export type BridgeParts = ReturnType<typeof parts5>;
 const isExcluded = (s: string | null) => {
   const u = (s ?? "").toUpperCase();
   return u === "SUBTOTAL" || u === "SHIPPING";
@@ -134,6 +141,9 @@ export async function GET(request: Request) {
   const prodName = new Map<string, string>();
   const custCur = new Map<string, number>();
   const custPrior = new Map<string, number>();
+  // Per (customer → product) rev+units per window, so each customer's variance
+  // can be decomposed into the same volume/mix/price/new/lost bridge.
+  const custProd = new Map<string, { cur: Map<string, ProductAgg>; prior: Map<string, ProductAgg> }>();
 
   for (let i = 0; i < soids.length; i += ID_CHUNK) {
     const slice = soids.slice(i, i + ID_CHUNK);
@@ -162,6 +172,17 @@ export async function GET(request: Request) {
 
         const cMap = meta.period === "cur" ? custCur : custPrior;
         cMap.set(meta.customerid, (cMap.get(meta.customerid) ?? 0) + rev);
+
+        let cp = custProd.get(meta.customerid);
+        if (!cp) {
+          cp = { cur: new Map(), prior: new Map() };
+          custProd.set(meta.customerid, cp);
+        }
+        const cpm = meta.period === "cur" ? cp.cur : cp.prior;
+        const cpv = cpm.get(key) ?? { revenue: 0, units: 0 };
+        cpv.revenue += rev;
+        cpv.units += units;
+        cpm.set(key, cpv);
       }
       if (rows.length < PAGE) break;
     }
@@ -202,35 +223,43 @@ export async function GET(request: Request) {
   /* Flat, enriched SKU list — the page groups (by collection / title / SKU),
      filters and sorts it in one table, so no grouping is baked in here. */
   const products = productKeys.map((k) => {
-    const cur = prodCur.get(k)?.revenue ?? 0;
-    const prior = prodPrior.get(k)?.revenue ?? 0;
+    const c = prodCur.get(k) ?? { revenue: 0, units: 0 };
+    const p = prodPrior.get(k) ?? { revenue: 0, units: 0 };
     const m = meta.get(k);
     return {
       productnum: k,
       label: skuLabel(k),
       collection: m?.fragrance || "Unclassified",
       title: m?.title || prodName.get(k) || k,
-      cur,
-      prior,
-      delta: cur - prior,
-      isNew: prior === 0 && cur > 0,
-      isDropped: cur === 0 && prior > 0,
+      cur: c.revenue,
+      prior: p.revenue,
+      delta: c.revenue - p.revenue,
+      // Units let the page decompose any grouping (a group's SKUs) into the
+      // volume/mix/price/new/lost bridge client-side.
+      curUnits: c.units,
+      priorUnits: p.units,
+      isNew: p.revenue === 0 && c.revenue > 0,
+      isDropped: c.revenue === 0 && p.revenue > 0,
     };
   });
 
   // 5. Customers — the FULL list (any activity either window), biggest movers
   //    first, with new / lost flags. The page paginates.
   const custKeys = new Set([...custCur.keys(), ...custPrior.keys()]);
+  const empty = new Map<string, ProductAgg>();
   const customers = [...custKeys]
     .map((id) => {
       const cur = custCur.get(id) ?? 0;
       const prior = custPrior.get(id) ?? 0;
+      const cp = custProd.get(id);
       return {
         customerid: id,
         name: nameByCustomer.get(id) ?? id,
         cur,
         prior,
         delta: cur - prior,
+        // This account's own revenue change, decomposed the same five ways.
+        parts: parts5(computeBridge(cp?.cur ?? empty, cp?.prior ?? empty)),
         isNew: prior === 0 && cur > 0,
         isLost: cur === 0 && prior > 0,
       };

@@ -4,6 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { authHeader } from "@/components/sales-team/repShared";
+import { computeBridge, type ProductAgg, type SalesBridge } from "@/lib/salesBridge";
+
+/** The five bridge amounts as a flat object. */
+type Parts = { volume: number; mix: number; price: number; new: number; lost: number };
+function parts5(b: SalesBridge): Parts {
+  const g = (k: string) => b.parts.find((p) => p.key === k)?.amount ?? 0;
+  return { volume: g("volume"), mix: g("mix"), price: g("price"), new: g("new"), lost: g("lost") };
+}
+const PART_COLS: { key: keyof Parts; label: string }[] = [
+  { key: "volume", label: "Volume" },
+  { key: "mix", label: "Mix" },
+  { key: "price", label: "Price" },
+  { key: "new", label: "New" },
+  { key: "lost", label: "Lost" },
+];
 
 /**
  * Current-YTD vs prior-YTD analysis for one rep group, formatted to print or
@@ -20,10 +35,12 @@ type Product = {
   cur: number;
   prior: number;
   delta: number;
+  curUnits: number;
+  priorUnits: number;
   isNew: boolean;
   isDropped: boolean;
 };
-type Cust = { customerid: string; name: string; cur: number; prior: number; delta: number; isNew: boolean; isLost: boolean };
+type Cust = { customerid: string; name: string; cur: number; prior: number; delta: number; parts: Parts; isNew: boolean; isLost: boolean };
 
 type Analysis = {
   rep: string;
@@ -235,9 +252,17 @@ function Waterfall({
 
 type GroupBy = "collection" | "title" | "sku";
 type StatusFilter = "all" | "growing" | "declining" | "new" | "dropped";
-type SortKey = "name" | "prior" | "cur" | "delta";
+type SortKey = "name" | "prior" | "cur" | "delta" | keyof Parts;
 
-type Row = { name: string; cur: number; prior: number; delta: number; isNew: boolean; isDropped: boolean };
+type Row = { name: string; cur: number; prior: number; delta: number; parts: Parts; isNew: boolean; isDropped: boolean };
+
+/** Small red/green number for a bridge component. */
+function PartCell({ v }: { v: number }) {
+  if (Math.round(v) === 0) return <td className="px-2.5 py-2 text-right tabular-nums text-gray-300">·</td>;
+  return (
+    <td className={`px-2.5 py-2 text-right tabular-nums ${v >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{signed(v)}</td>
+  );
+}
 
 function ProductExplorer({ products, priorYear, curYear }: { products: Product[]; priorYear: number; curYear: number }) {
   const [groupBy, setGroupBy] = useState<GroupBy>("collection");
@@ -248,34 +273,37 @@ function ProductExplorer({ products, priorYear, curYear }: { products: Product[]
   const [page, setPage] = useState(0);
   const PAGE = 12;
 
-  // Roll the flat SKU list up to the chosen grain.
+  // Roll the flat SKU list up to the chosen grain, and decompose each group's
+  // change into the volume/mix/price/new/lost bridge over its own SKUs.
   const rows = useMemo<Row[]>(() => {
-    if (groupBy === "sku") {
-      return products.map((p) => ({
-        name: p.label,
-        cur: p.cur,
-        prior: p.prior,
-        delta: p.delta,
-        isNew: p.isNew,
-        isDropped: p.isDropped,
-      }));
-    }
-    const key = groupBy === "collection" ? "collection" : "title";
-    const m = new Map<string, { cur: number; prior: number }>();
+    const groups = new Map<string, Product[]>();
     for (const p of products) {
-      const g = m.get(p[key]) ?? { cur: 0, prior: 0 };
-      g.cur += p.cur;
-      g.prior += p.prior;
-      m.set(p[key], g);
+      const gk = groupBy === "sku" ? p.productnum : groupBy === "collection" ? p.collection : p.title;
+      const arr = groups.get(gk) ?? [];
+      arr.push(p);
+      groups.set(gk, arr);
     }
-    return [...m.entries()].map(([name, g]) => ({
-      name,
-      cur: g.cur,
-      prior: g.prior,
-      delta: g.cur - g.prior,
-      isNew: g.prior === 0 && g.cur > 0,
-      isDropped: g.cur === 0 && g.prior > 0,
-    }));
+    return [...groups.entries()].map(([gk, ps]) => {
+      const curM = new Map<string, ProductAgg>();
+      const priorM = new Map<string, ProductAgg>();
+      let cur = 0;
+      let prior = 0;
+      for (const p of ps) {
+        cur += p.cur;
+        prior += p.prior;
+        curM.set(p.productnum, { revenue: p.cur, units: p.curUnits });
+        priorM.set(p.productnum, { revenue: p.prior, units: p.priorUnits });
+      }
+      return {
+        name: groupBy === "sku" ? ps[0].label : gk,
+        cur,
+        prior,
+        delta: cur - prior,
+        parts: parts5(computeBridge(curM, priorM)),
+        isNew: prior === 0 && cur > 0,
+        isDropped: cur === 0 && prior > 0,
+      };
+    });
   }, [products, groupBy]);
 
   const filtered = useMemo(() => {
@@ -289,10 +317,12 @@ function ProductExplorer({ products, priorYear, curYear }: { products: Product[]
       return true;
     });
     const dir = sortDir === "asc" ? 1 : -1;
+    const val = (r: Row) =>
+      sortKey === "name" || sortKey === "prior" || sortKey === "cur" || sortKey === "delta"
+        ? sortKey === "name" ? 0 : r[sortKey]
+        : r.parts[sortKey];
     out.sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "name") cmp = a.name.localeCompare(b.name);
-      else cmp = a[sortKey] - b[sortKey];
+      const cmp = sortKey === "name" ? a.name.localeCompare(b.name) : val(a) - val(b);
       return cmp === 0 ? a.name.localeCompare(b.name) : cmp * dir;
     });
     return out;
@@ -306,7 +336,7 @@ function ProductExplorer({ products, priorYear, curYear }: { products: Product[]
     if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortKey(k);
-      setSortDir(k === "name" ? "asc" : "asc"); // numeric asc = most negative (declines) first
+      setSortDir("asc");
     }
     setPage(0);
   }
@@ -346,31 +376,37 @@ function ProductExplorer({ products, priorYear, curYear }: { products: Product[]
         <span className="ml-auto text-xs text-gray-400">{filtered.length} items</span>
       </div>
 
-      {/* Table */}
+      {/* Table — the change split into volume/mix/price/new/lost */}
       <div className="mt-2 overflow-x-auto rounded-xl border border-gray-200">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-xs">
           <thead>
-            <tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400">
+            <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wide text-gray-400">
               <Th label={groupBy === "sku" ? "Product" : groupBy === "collection" ? "Collection" : "Title"} k="name" sortKey={sortKey} dir={sortDir} onSort={toggleSort} />
-              <Th label={`${priorYear} YTD`} k="prior" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
-              <Th label={`${curYear} YTD`} k="cur" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
-              <Th label="Variance" k="delta" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              <Th label={`${priorYear}`} k="prior" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              <Th label={`${curYear}`} k="cur" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              {PART_COLS.map((c) => (
+                <Th key={c.key} label={c.label} k={c.key} sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              ))}
+              <Th label="Δ" k="delta" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {slice.length === 0 ? (
-              <tr><td colSpan={4} className="px-4 py-6 text-center text-xs text-gray-400">No products match.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-xs text-gray-400">No products match.</td></tr>
             ) : (
               slice.map((r, i) => (
                 <tr key={`${r.name}-${i}`}>
-                  <td className="px-4 py-2">
+                  <td className="max-w-[220px] truncate px-4 py-2">
                     <span className="text-gray-800">{r.name}</span>
                     {r.isNew && <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">New</span>}
                     {r.isDropped && <span className="ml-2 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">Dropped</span>}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-gray-500">{usd(r.prior)}</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-gray-900">{usd(r.cur)}</td>
-                  <td className={`px-4 py-2 text-right tabular-nums ${r.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{signed(r.delta)}</td>
+                  <td className="px-2.5 py-2 text-right tabular-nums text-gray-500">{usd(r.prior)}</td>
+                  <td className="px-2.5 py-2 text-right tabular-nums text-gray-900">{usd(r.cur)}</td>
+                  {PART_COLS.map((c) => (
+                    <PartCell key={c.key} v={r.parts[c.key]} />
+                  ))}
+                  <td className={`px-2.5 py-2 text-right font-medium tabular-nums ${r.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{signed(r.delta)}</td>
                 </tr>
               ))
             )}
@@ -387,6 +423,9 @@ function ProductExplorer({ products, priorYear, curYear }: { products: Product[]
           </div>
         </div>
       )}
+      <p className="mt-2 text-xs text-gray-400">
+        Each row&apos;s change split into volume, mix, price (continuing items), plus revenue from new and lost SKUs. The five sum to Δ.
+      </p>
     </div>
   );
 }
@@ -396,10 +435,10 @@ function Th({ label, k, sortKey, dir, onSort, align = "left" }: { label: string;
   return (
     <th
       onClick={() => onSort(k)}
-      className={`cursor-pointer select-none px-4 py-2 font-medium transition hover:text-gray-700 ${align === "right" ? "text-right" : "text-left"}`}
+      className={`cursor-pointer select-none px-2.5 py-2 font-medium transition hover:text-gray-700 ${align === "right" ? "text-right" : "text-left"}`}
     >
       {label}
-      {active && <span className="ml-1 text-gray-500">{dir === "asc" ? "↑" : "↓"}</span>}
+      {active && <span className="ml-0.5 text-gray-500">{dir === "asc" ? "↑" : "↓"}</span>}
     </th>
   );
 }
@@ -409,26 +448,92 @@ function Th({ label, k, sortKey, dir, onSort, align = "left" }: { label: string;
 function CustomerTable({ rows, priorYear, curYear }: { rows: Cust[]; priorYear: number; curYear: number }) {
   const PAGE = 15;
   const [page, setPage] = useState(0);
-  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  const [status, setStatus] = useState<"all" | "growing" | "declining" | "new" | "lost">("all");
+  const [q, setQ] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("delta");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc"); // biggest declines first
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    const out = rows.filter((c) => {
+      if (term && !c.name.toLowerCase().includes(term)) return false;
+      if (status === "growing") return c.delta > 0;
+      if (status === "declining") return c.delta < 0;
+      if (status === "new") return c.isNew;
+      if (status === "lost") return c.isLost;
+      return true;
+    });
+    const dir = sortDir === "asc" ? 1 : -1;
+    const val = (c: Cust) =>
+      sortKey === "prior" || sortKey === "cur" || sortKey === "delta"
+        ? c[sortKey]
+        : sortKey === "name"
+          ? 0
+          : c.parts[sortKey];
+    out.sort((a, b) => {
+      const cmp = sortKey === "name" ? a.name.localeCompare(b.name) : val(a) - val(b);
+      return cmp === 0 ? a.name.localeCompare(b.name) : cmp * dir;
+    });
+    return out;
+  }, [rows, q, status, sortKey, sortDir]);
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const clamped = Math.min(page, pages - 1);
-  const slice = useMemo(() => rows.slice(clamped * PAGE, clamped * PAGE + PAGE), [rows, clamped]);
+  const slice = filtered.slice(clamped * PAGE, clamped * PAGE + PAGE);
+
+  function toggleSort(k: SortKey) {
+    if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir("asc");
+    }
+    setPage(0);
+  }
 
   return (
     <div className="mt-3">
+      {/* Controls */}
+      <div className="mb-2 flex flex-wrap items-center gap-2 print:hidden">
+        <select
+          value={status}
+          onChange={(e) => { setStatus(e.target.value as typeof status); setPage(0); }}
+          aria-label="Filter customers"
+          className="rounded-lg border border-gray-200 bg-white py-1.5 pl-2.5 pr-7 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+        >
+          <option value="all">All</option>
+          <option value="growing">Growing</option>
+          <option value="declining">Declining</option>
+          <option value="new">New this year</option>
+          <option value="lost">Lost</option>
+        </select>
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setPage(0); }}
+          placeholder="Search…"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 sm:flex-none sm:w-48"
+        />
+        <span className="ml-auto text-xs text-gray-400">{filtered.length} accounts</span>
+      </div>
       <div className="overflow-x-auto rounded-xl border border-gray-200">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-xs">
           <thead>
-            <tr className="border-b border-gray-100 text-left text-[11px] uppercase tracking-wide text-gray-400">
-              <th className="px-4 py-2 font-medium">Customer</th>
-              <th className="px-4 py-2 text-right font-medium">{priorYear} YTD</th>
-              <th className="px-4 py-2 text-right font-medium">{curYear} YTD</th>
-              <th className="px-4 py-2 text-right font-medium">Variance</th>
+            <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wide text-gray-400">
+              <Th label="Customer" k="name" sortKey={sortKey} dir={sortDir} onSort={toggleSort} />
+              <Th label={`${priorYear}`} k="prior" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              <Th label={`${curYear}`} k="cur" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              {PART_COLS.map((c) => (
+                <Th key={c.key} label={c.label} k={c.key} sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              ))}
+              <Th label="Δ" k="delta" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
+            {slice.length === 0 && (
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-xs text-gray-400">No accounts match.</td></tr>
+            )}
             {slice.map((c) => (
               <tr key={c.customerid}>
-                <td className="px-4 py-2">
+                <td className="max-w-[220px] truncate px-4 py-2">
                   <span className="text-gray-800">{c.name}</span>
                   {c.isNew && (
                     <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">New</span>
@@ -437,9 +542,12 @@ function CustomerTable({ rows, priorYear, curYear }: { rows: Cust[]; priorYear: 
                     <span className="ml-2 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">Lost</span>
                   )}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-gray-500">{usd(c.prior)}</td>
-                <td className="px-4 py-2 text-right tabular-nums text-gray-900">{usd(c.cur)}</td>
-                <td className={`px-4 py-2 text-right tabular-nums ${c.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                <td className="px-2.5 py-2 text-right tabular-nums text-gray-500">{usd(c.prior)}</td>
+                <td className="px-2.5 py-2 text-right tabular-nums text-gray-900">{usd(c.cur)}</td>
+                {PART_COLS.map((col) => (
+                  <PartCell key={col.key} v={c.parts[col.key]} />
+                ))}
+                <td className={`px-2.5 py-2 text-right font-medium tabular-nums ${c.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
                   {signed(c.delta)}
                 </td>
               </tr>
