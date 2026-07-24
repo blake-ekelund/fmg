@@ -96,16 +96,18 @@ export function buildPortalTools(agency: string): PortalToolset {
   function customerIndex() {
     if (indexPromise) return indexPromise;
     indexPromise = (async () => {
+      // NB: customer_summary has no bill_to_city (that lives on
+      // customer_contact_summary) — selecting it 400s. The account's ship-to
+      // cities, folded into the haystack below, cover location matching anyway.
       const { data, error } = await supabaseServer
         .from("customer_summary")
-        .select("customerid, name, channel, bill_to_city, bill_to_state")
+        .select("customerid, name, channel, bill_to_state")
         .eq("agency_code", agency);
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as {
         customerid: string;
         name: string;
         channel: string | null;
-        bill_to_city: string | null;
         bill_to_state: string | null;
       }[];
       const ids = rows.map((r) => r.customerid).filter(Boolean);
@@ -138,7 +140,6 @@ export function buildPortalTools(agency: string): PortalToolset {
         haystack: [
           norm(r.name),
           norm(r.customerid),
-          norm(r.bill_to_city),
           norm(r.bill_to_state),
           [...(shipLoc.get(r.customerid) ?? [])].join(" "),
         ]
