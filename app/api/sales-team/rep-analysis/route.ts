@@ -199,35 +199,24 @@ export async function GET(request: Request) {
     return extra.length ? `${base} · ${extra.join(" · ")}` : base;
   }
 
-  // Roll SKUs up into two groupings: by collection (fragrance) and by title.
-  type Grp = { key: string; label: string; cur: number; prior: number; delta: number };
-  function groupBy(pick: (part: string) => string) {
-    const m = new Map<string, { cur: number; prior: number }>();
-    for (const part of productKeys) {
-      const k = pick(part);
-      const g = m.get(k) ?? { cur: 0, prior: 0 };
-      g.cur += prodCur.get(part)?.revenue ?? 0;
-      g.prior += prodPrior.get(part)?.revenue ?? 0;
-      m.set(k, g);
-    }
-    return [...m.entries()]
-      .map(([key, g]): Grp => ({ key, label: key, cur: g.cur, prior: g.prior, delta: g.cur - g.prior }))
-      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-  }
-
-  const productSection = {
-    byCollection: groupBy((part) => meta.get(part)?.fragrance || "Unclassified"),
-    byTitle: groupBy((part) => meta.get(part)?.title || prodName.get(part) || part),
-    // New / dropped stay at SKU granularity.
-    new: productKeys
-      .filter((k) => (prodPrior.get(k)?.revenue ?? 0) === 0 && (prodCur.get(k)?.revenue ?? 0) > 0)
-      .map((k) => ({ productnum: k, label: skuLabel(k), cur: prodCur.get(k)!.revenue }))
-      .sort((a, b) => b.cur - a.cur),
-    dropped: productKeys
-      .filter((k) => (prodCur.get(k)?.revenue ?? 0) === 0 && (prodPrior.get(k)?.revenue ?? 0) > 0)
-      .map((k) => ({ productnum: k, label: skuLabel(k), prior: prodPrior.get(k)!.revenue }))
-      .sort((a, b) => b.prior - a.prior),
-  };
+  /* Flat, enriched SKU list — the page groups (by collection / title / SKU),
+     filters and sorts it in one table, so no grouping is baked in here. */
+  const products = productKeys.map((k) => {
+    const cur = prodCur.get(k)?.revenue ?? 0;
+    const prior = prodPrior.get(k)?.revenue ?? 0;
+    const m = meta.get(k);
+    return {
+      productnum: k,
+      label: skuLabel(k),
+      collection: m?.fragrance || "Unclassified",
+      title: m?.title || prodName.get(k) || k,
+      cur,
+      prior,
+      delta: cur - prior,
+      isNew: prior === 0 && cur > 0,
+      isDropped: cur === 0 && prior > 0,
+    };
+  });
 
   // 5. Customers — the FULL list (any activity either window), biggest movers
   //    first, with new / lost flags. The page paginates.
@@ -251,6 +240,12 @@ export async function GET(request: Request) {
   // 6. Actions — rule-based, ranked by dollars so the biggest levers lead.
   const lapsed = customers.filter((c) => c.isLost);
   const declining = customers.filter((c) => !c.isLost && c.delta < 0);
+  const dropped = products.filter((p) => p.isDropped).sort((a, b) => b.prior - a.prior);
+  // Best-growing product title, for the "lean in" action.
+  const titleDelta = new Map<string, number>();
+  for (const p of products) titleDelta.set(p.title, (titleDelta.get(p.title) ?? 0) + p.delta);
+  const topTitle = [...titleDelta.entries()].sort((a, b) => b[1] - a[1])[0];
+
   const actions: string[] = [];
   if (lapsed.length > 0) {
     const total = lapsed.reduce((s, c) => s + c.prior, 0);
@@ -258,9 +253,9 @@ export async function GET(request: Request) {
       `Win back ${lapsed.length} lapsed account${lapsed.length > 1 ? "s" : ""} worth ${money(total)} last year — starting with ${lapsed[0].name} (${money(lapsed[0].prior)}).`,
     );
   }
-  if (productSection.dropped.length > 0) {
+  if (dropped.length > 0) {
     actions.push(
-      `Re-introduce ${productSection.dropped.length} dropped SKU${productSection.dropped.length > 1 ? "s" : ""} — ${productSection.dropped[0].label} led at ${money(productSection.dropped[0].prior)} last year.`,
+      `Re-introduce ${dropped.length} dropped SKU${dropped.length > 1 ? "s" : ""} — ${dropped[0].label} led at ${money(dropped[0].prior)} last year.`,
     );
   }
   if (declining.length > 0) {
@@ -270,9 +265,8 @@ export async function GET(request: Request) {
   if (pricePart && pricePart.amount < -Math.max(bridge.prior * 0.02, 500)) {
     actions.push(`Price is dragging ${money(Math.abs(pricePart.amount))} — review discounting on continuing items.`);
   }
-  const topTitle = productSection.byTitle.find((t) => t.delta > 0);
-  if (topTitle) {
-    actions.push(`Lean into what's working — ${topTitle.label} is up ${money(topTitle.delta)}; push it across more accounts.`);
+  if (topTitle && topTitle[1] > 0) {
+    actions.push(`Lean into what's working — ${topTitle[0]} is up ${money(topTitle[1])}; push it across more accounts.`);
   }
 
   const variance = bridge.delta;
@@ -291,7 +285,7 @@ export async function GET(request: Request) {
       buyers_prior: custPrior.size,
     },
     bridge,
-    products: productSection,
+    products,
     customers,
   });
 }

@@ -12,9 +12,17 @@ import { authHeader } from "@/components/sales-team/repShared";
  * dropped SKUs), and a paginated customer variance list.
  */
 
-type Grp = { key: string; label: string; cur: number; prior: number; delta: number };
-type SkuNew = { productnum: string; label: string; cur: number };
-type SkuDropped = { productnum: string; label: string; prior: number };
+type Product = {
+  productnum: string;
+  label: string;
+  collection: string;
+  title: string;
+  cur: number;
+  prior: number;
+  delta: number;
+  isNew: boolean;
+  isDropped: boolean;
+};
 type Cust = { customerid: string; name: string; cur: number; prior: number; delta: number; isNew: boolean; isLost: boolean };
 
 type Analysis = {
@@ -22,7 +30,7 @@ type Analysis = {
   window: { label: string; curYear: number; priorYear: number };
   kpis: { cur: number; prior: number; variance: number; variance_pct: number; customers: number; buyers_cur: number; buyers_prior: number };
   bridge: { cur: number; prior: number; delta: number; parts: { key: string; label: string; amount: number }[]; newCount: number; lostCount: number };
-  products: { byCollection: Grp[]; byTitle: Grp[]; new: SkuNew[]; dropped: SkuDropped[] };
+  products: Product[];
   customers: Cust[];
   actions: string[];
 };
@@ -114,23 +122,10 @@ export default function RepAnalysisPage() {
         <Waterfall bridge={bridge} priorYear={win.priorYear} curYear={win.curYear} />
       </section>
 
-      {/* 2. Products — by collection & title, plus new / dropped SKUs */}
+      {/* 2. Products — one filterable, sortable list */}
       <section className="rounded-2xl border border-gray-200 bg-white p-5">
-        <h2 className="mb-3 text-sm font-semibold text-gray-900">Products</h2>
-        <div className="space-y-2">
-          <GroupList title="By collection (fragrance)" rows={data.products.byCollection} defaultOpen />
-          <GroupList title="By product" rows={data.products.byTitle} />
-          <SkuList
-            title="New products this year"
-            rows={data.products.new.map((p) => ({ label: p.label, value: p.cur }))}
-            tone="good"
-          />
-          <SkuList
-            title="Dropped (sold last year, not this)"
-            rows={data.products.dropped.map((p) => ({ label: p.label, value: p.prior }))}
-            tone="bad"
-          />
-        </div>
+        <h2 className="text-sm font-semibold text-gray-900">Products</h2>
+        <ProductExplorer products={data.products} priorYear={win.priorYear} curYear={win.curYear} />
       </section>
 
       {/* 3. Customers — paginated variance list */}
@@ -236,94 +231,176 @@ function Waterfall({
   );
 }
 
-/* ── Collapsible grouped list (collection / title) ────────────────────────── */
+/* ── Products: one filterable, sortable, paginated list ───────────────────── */
 
-function GroupList({ title, rows, defaultOpen = false }: { title: string; rows: Grp[]; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const net = rows.reduce((s, r) => s + r.delta, 0);
+type GroupBy = "collection" | "title" | "sku";
+type StatusFilter = "all" | "growing" | "declining" | "new" | "dropped";
+type SortKey = "name" | "prior" | "cur" | "delta";
+
+type Row = { name: string; cur: number; prior: number; delta: number; isNew: boolean; isDropped: boolean };
+
+function ProductExplorer({ products, priorYear, curYear }: { products: Product[]; priorYear: number; curYear: number }) {
+  const [groupBy, setGroupBy] = useState<GroupBy>("collection");
+  const [status, setStatus] = useState<StatusFilter>("all");
+  const [q, setQ] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("delta");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc"); // biggest declines first
+  const [page, setPage] = useState(0);
+  const PAGE = 12;
+
+  // Roll the flat SKU list up to the chosen grain.
+  const rows = useMemo<Row[]>(() => {
+    if (groupBy === "sku") {
+      return products.map((p) => ({
+        name: p.label,
+        cur: p.cur,
+        prior: p.prior,
+        delta: p.delta,
+        isNew: p.isNew,
+        isDropped: p.isDropped,
+      }));
+    }
+    const key = groupBy === "collection" ? "collection" : "title";
+    const m = new Map<string, { cur: number; prior: number }>();
+    for (const p of products) {
+      const g = m.get(p[key]) ?? { cur: 0, prior: 0 };
+      g.cur += p.cur;
+      g.prior += p.prior;
+      m.set(p[key], g);
+    }
+    return [...m.entries()].map(([name, g]) => ({
+      name,
+      cur: g.cur,
+      prior: g.prior,
+      delta: g.cur - g.prior,
+      isNew: g.prior === 0 && g.cur > 0,
+      isDropped: g.cur === 0 && g.prior > 0,
+    }));
+  }, [products, groupBy]);
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    const out = rows.filter((r) => {
+      if (term && !r.name.toLowerCase().includes(term)) return false;
+      if (status === "growing") return r.delta > 0;
+      if (status === "declining") return r.delta < 0;
+      if (status === "new") return r.isNew;
+      if (status === "dropped") return r.isDropped;
+      return true;
+    });
+    const dir = sortDir === "asc" ? 1 : -1;
+    out.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "name") cmp = a.name.localeCompare(b.name);
+      else cmp = a[sortKey] - b[sortKey];
+      return cmp === 0 ? a.name.localeCompare(b.name) : cmp * dir;
+    });
+    return out;
+  }, [rows, q, status, sortKey, sortDir]);
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  const clamped = Math.min(page, pages - 1);
+  const slice = filtered.slice(clamped * PAGE, clamped * PAGE + PAGE);
+
+  function toggleSort(k: SortKey) {
+    if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir(k === "name" ? "asc" : "asc"); // numeric asc = most negative (declines) first
+    }
+    setPage(0);
+  }
+
+  const seg = (active: boolean) =>
+    `rounded-md px-2.5 py-1 text-xs font-medium transition ${active ? "bg-gray-900 text-white" : "text-gray-600 hover:text-gray-900"}`;
+
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left transition hover:bg-gray-50"
-      >
-        <span className="text-sm font-medium text-gray-900">
-          {title} <span className="text-xs font-normal text-gray-400">({rows.length})</span>
-        </span>
-        <span className="flex items-center gap-2">
-          <span className={`text-sm tabular-nums ${net >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{signed(net)}</span>
-          <span className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
-        </span>
-      </button>
-      {open && (
-        <div className="border-t border-gray-100">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-gray-400">
-                <th className="px-4 py-1.5 font-medium">Item</th>
-                <th className="px-4 py-1.5 text-right font-medium">Prior</th>
-                <th className="px-4 py-1.5 text-right font-medium">Current</th>
-                <th className="px-4 py-1.5 text-right font-medium">Δ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {rows.map((r) => (
-                <tr key={r.key}>
-                  <td className="px-4 py-1.5 text-gray-700">{r.label}</td>
-                  <td className="px-4 py-1.5 text-right tabular-nums text-gray-500">{usd(r.prior)}</td>
-                  <td className="px-4 py-1.5 text-right tabular-nums text-gray-900">{usd(r.cur)}</td>
-                  <td className={`px-4 py-1.5 text-right tabular-nums ${r.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                    {signed(r.delta)}
+    <div className="mt-3">
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
+        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
+          {(["collection", "title", "sku"] as GroupBy[]).map((g) => (
+            <button key={g} onClick={() => { setGroupBy(g); setPage(0); }} className={seg(groupBy === g)}>
+              {g === "collection" ? "Collection" : g === "title" ? "Product" : "SKU"}
+            </button>
+          ))}
+        </div>
+        <select
+          value={status}
+          onChange={(e) => { setStatus(e.target.value as StatusFilter); setPage(0); }}
+          aria-label="Filter products"
+          className="rounded-lg border border-gray-200 bg-white py-1.5 pl-2.5 pr-7 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+        >
+          <option value="all">All</option>
+          <option value="growing">Growing</option>
+          <option value="declining">Declining</option>
+          <option value="new">New this year</option>
+          <option value="dropped">Dropped</option>
+        </select>
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setPage(0); }}
+          placeholder="Search…"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 sm:flex-none sm:w-48"
+        />
+        <span className="ml-auto text-xs text-gray-400">{filtered.length} items</span>
+      </div>
+
+      {/* Table */}
+      <div className="mt-2 overflow-x-auto rounded-xl border border-gray-200">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100 text-[11px] uppercase tracking-wide text-gray-400">
+              <Th label={groupBy === "sku" ? "Product" : groupBy === "collection" ? "Collection" : "Title"} k="name" sortKey={sortKey} dir={sortDir} onSort={toggleSort} />
+              <Th label={`${priorYear} YTD`} k="prior" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              <Th label={`${curYear} YTD`} k="cur" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+              <Th label="Variance" k="delta" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {slice.length === 0 ? (
+              <tr><td colSpan={4} className="px-4 py-6 text-center text-xs text-gray-400">No products match.</td></tr>
+            ) : (
+              slice.map((r, i) => (
+                <tr key={`${r.name}-${i}`}>
+                  <td className="px-4 py-2">
+                    <span className="text-gray-800">{r.name}</span>
+                    {r.isNew && <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">New</span>}
+                    {r.isDropped && <span className="ml-2 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">Dropped</span>}
                   </td>
+                  <td className="px-4 py-2 text-right tabular-nums text-gray-500">{usd(r.prior)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-gray-900">{usd(r.cur)}</td>
+                  <td className={`px-4 py-2 text-right tabular-nums ${r.delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>{signed(r.delta)}</td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {pages > 1 && (
+        <div className="mt-2 flex items-center justify-between text-xs text-gray-500 print:hidden">
+          <span>Page {clamped + 1} of {pages}</span>
+          <div className="flex gap-1">
+            <button onClick={() => setPage(clamped - 1)} disabled={clamped === 0} className="rounded-lg border border-gray-200 px-2.5 py-1 font-medium transition hover:bg-gray-50 disabled:opacity-40">Prev</button>
+            <button onClick={() => setPage(clamped + 1)} disabled={clamped >= pages - 1} className="rounded-lg border border-gray-200 px-2.5 py-1 font-medium transition hover:bg-gray-50 disabled:opacity-40">Next</button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-/* ── Collapsible SKU list (new / dropped) ─────────────────────────────────── */
-
-function SkuList({ title, rows, tone }: { title: string; rows: { label: string; value: number }[]; tone: "good" | "bad" }) {
-  const [open, setOpen] = useState(false);
-  const total = rows.reduce((s, r) => s + r.value, 0);
+function Th({ label, k, sortKey, dir, onSort, align = "left" }: { label: string; k: SortKey; sortKey: SortKey; dir: "asc" | "desc"; onSort: (k: SortKey) => void; align?: "left" | "right" }) {
+  const active = sortKey === k;
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left transition hover:bg-gray-50"
-      >
-        <span className="text-sm font-medium text-gray-900">
-          {title} <span className="text-xs font-normal text-gray-400">({rows.length})</span>
-        </span>
-        <span className="flex items-center gap-2">
-          <span className={`text-sm tabular-nums ${tone === "good" ? "text-emerald-700" : "text-rose-700"}`}>
-            {tone === "good" ? "+" : ""}
-            {usd(total)}
-          </span>
-          <span className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
-        </span>
-      </button>
-      {open && (
-        <ul className="divide-y divide-gray-50 border-t border-gray-100">
-          {rows.length === 0 ? (
-            <li className="px-4 py-2 text-xs text-gray-400">None.</li>
-          ) : (
-            rows.map((r, i) => (
-              <li key={i} className="flex items-center justify-between gap-2 px-4 py-1.5 text-sm">
-                <span className="min-w-0 truncate text-gray-700">{r.label}</span>
-                <span className={`shrink-0 tabular-nums ${tone === "good" ? "text-emerald-700" : "text-gray-600"}`}>
-                  {usd(r.value)}
-                </span>
-              </li>
-            ))
-          )}
-        </ul>
-      )}
-    </div>
+    <th
+      onClick={() => onSort(k)}
+      className={`cursor-pointer select-none px-4 py-2 font-medium transition hover:text-gray-700 ${align === "right" ? "text-right" : "text-left"}`}
+    >
+      {label}
+      {active && <span className="ml-1 text-gray-500">{dir === "asc" ? "↑" : "↓"}</span>}
+    </th>
   );
 }
 
