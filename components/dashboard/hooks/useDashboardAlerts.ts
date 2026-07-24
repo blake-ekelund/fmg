@@ -180,19 +180,24 @@ export function useDashboardAlerts({
     }
 
     /* ── Lever: rep ──
-       Agencies whose territory is down year over year. Valued at the decline. */
+       Agencies whose territory is down year over year, measured YTD-vs-YTD (same
+       window both years) — comparing YTD 2026 against full-year 2025 would flag
+       every rep as "down" just because the year isn't over. Valued at the
+       same-window decline. */
     for (const r of repRows) {
-      if (r.variance >= 0) continue;
-      const decline = Math.abs(r.variance);
+      if (r.ytd_variance >= 0) continue;
+      const decline = Math.abs(r.ytd_variance);
       if (decline < MIN_IMPACT) continue;
 
       out.push({
         id: `rep:${r.rep_group_name}`,
         lever: "rep",
         impact: decline,
-        basis: "YoY revenue decline",
+        basis: "YoY YTD decline",
         title: r.rep_group_name,
-        subtitle: `Down ${fmtMoney(decline)} vs last year · ${r.customers} accounts${
+        subtitle: `Down ${fmtMoney(decline)} (${r.ytd_variance_pct.toFixed(
+          0,
+        )}%) vs ${fmtMoney(r.sales_2025_ytd)} YTD last year · ${r.customers} accounts${
           r.territory ? ` · ${r.territory}` : ""
         }`,
         actionLabel: "Open rep directory",
