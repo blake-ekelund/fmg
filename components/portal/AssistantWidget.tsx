@@ -117,16 +117,61 @@ export default function AssistantWidget({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A reply landed while the panel was closed — the launcher shows it.
+  const [hasUnread, setHasUnread] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Read the latest `open` inside the async send() closure without stale capture.
+  const openRef = useRef(open);
+  const audioRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, busy]);
 
+  // Opening the panel clears the "reply waiting" notification.
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    openRef.current = open;
+    if (open) {
+      setHasUnread(false);
+      inputRef.current?.focus();
+    }
   }, [open]);
+
+  /* Create/resume the audio context during a user gesture (the send click) so
+     the chime is allowed to play later, when the reply arrives — by then we're
+     outside any gesture and a fresh context would be blocked by autoplay policy. */
+  function unlockAudio() {
+    if (typeof window === "undefined") return;
+    if (!audioRef.current) {
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (Ctx) audioRef.current = new Ctx();
+    }
+    audioRef.current?.resume().catch(() => {});
+  }
+
+  /** A short two-note rising chime, synthesized (no asset). Best-effort. */
+  function playChime() {
+    const ctx = audioRef.current;
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    for (const [i, freq] of [660, 880].entries()) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      const t = now + i * 0.12;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(0.12, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.24);
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -169,6 +214,7 @@ export default function AssistantWidget({
   async function send(text: string) {
     const q = text.trim();
     if (!q || busy) return;
+    unlockAudio(); // while we still have the click gesture
     setError(null);
     setInput("");
     const next: ChatMessage[] = [...messages, { role: "user", content: q }];
@@ -179,6 +225,11 @@ export default function AssistantWidget({
         messages: next,
       });
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      // Closed the panel while it was thinking? Signal the reply is waiting.
+      if (!openRef.current) {
+        setHasUnread(true);
+        playChime();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -188,15 +239,28 @@ export default function AssistantWidget({
 
   return (
     <>
-      {/* Launcher */}
+      {/* Launcher — turns gold with a pinging dot when a reply arrived while
+          the panel was closed. */}
       {!open && showLauncher && (
         <button
           onClick={() => setOpen(true)}
-          aria-label="Open assistant"
-          className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-brand-700 px-4 py-3 text-sm font-medium text-white shadow-lg ring-1 ring-brand-900/10 transition hover:bg-brand-600"
+          aria-label={hasUnread ? "Open assistant — new reply" : "Open assistant"}
+          className={`fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full px-4 py-3 text-sm font-medium shadow-lg ring-1 transition ${
+            hasUnread
+              ? "bg-accent-500 text-brand-900 ring-accent-600/20 hover:bg-accent-400"
+              : "bg-brand-700 text-white ring-brand-900/10 hover:bg-brand-600"
+          }`}
         >
+          {hasUnread && (
+            <span className="absolute -right-1 -top-1 flex h-3 w-3">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-500 opacity-75" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-accent-600 ring-2 ring-surface" />
+            </span>
+          )}
           <Sparkles size={17} />
-          <span className="hidden sm:inline">Ask the assistant</span>
+          <span className="hidden sm:inline">
+            {hasUnread ? "New reply" : "Ask the assistant"}
+          </span>
         </button>
       )}
 
