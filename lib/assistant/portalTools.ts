@@ -29,6 +29,17 @@ function portalStage(status: string | null): "open" | "completed" | "cancelled" 
   return s === "estimate" ? "open" : s;
 }
 
+/** Relative link to a customer's detail page — handed to the model so it can
+    hyperlink a name without ever constructing (or mis-encoding) a URL itself. */
+function customerLink(customerid: string | null | undefined): string | null {
+  return customerid ? `/portal/customers/${encodeURIComponent(customerid)}` : null;
+}
+
+/** Link into the Orders page pre-filtered to one order number. */
+function orderLink(num: string | null | undefined): string | null {
+  return num ? `/portal/orders?q=${encodeURIComponent(num)}` : null;
+}
+
 export type PortalToolset = {
   defs: ToolDef[];
   run: (name: string, input: Record<string, unknown>) => Promise<unknown>;
@@ -52,10 +63,11 @@ export function buildPortalTools(agency: string): PortalToolset {
   async function salesOverview() {
     const { data, error } = await supabaseServer
       .from("customer_summary")
-      .select("name, bill_to_state, channel, sales_2025, sales_2026, last_order_date")
+      .select("customerid, name, bill_to_state, channel, sales_2025, sales_2026, last_order_date")
       .eq("agency_code", agency);
     if (error) return { error: error.message };
     const rows = (data ?? []) as {
+      customerid: string;
       name: string;
       bill_to_state: string | null;
       channel: string | null;
@@ -74,6 +86,7 @@ export function buildPortalTools(agency: string): PortalToolset {
       .slice(0, 10)
       .map((r) => ({
         customer: r.name,
+        link: customerLink(r.customerid),
         state: r.bill_to_state,
         sales_2026: money(r.sales_2026 ?? 0),
         sales_2025: money(r.sales_2025 ?? 0),
@@ -86,6 +99,7 @@ export function buildPortalTools(agency: string): PortalToolset {
       .slice(0, 10)
       .map((r) => ({
         customer: r.name,
+        link: customerLink(r.customerid),
         state: r.bill_to_state,
         last_year: money(r.sales_2025 ?? 0),
         last_order_date: r.last_order_date,
@@ -136,6 +150,7 @@ export function buildPortalTools(agency: string): PortalToolset {
     return {
       results: rows.map((r) => ({
         name: r.name,
+        link: customerLink(r.customerid as string | null),
         channel: r.channel,
         state: r.bill_to_state,
         last_order_date: r.last_order_date,
@@ -194,7 +209,9 @@ export function buildPortalTools(agency: string): PortalToolset {
     return {
       results: filtered.slice(0, 15).map((o) => ({
         order: o.num,
+        link: orderLink(o.num),
         customer: o.customerid ? (nameById.get(o.customerid) ?? o.customerid) : null,
+        customer_link: customerLink(o.customerid),
         state: portalStage(o.status) === "open" ? "Open" : portalStage(o.status),
         total: money(o.totalprice ?? 0),
         date: o.datecompleted ?? o.dateissued ?? o.datecreated,

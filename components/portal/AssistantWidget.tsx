@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bot, Send, Sparkles, X } from "@/components/portal/icons";
-import { portalPost, type ChatMessage } from "@/components/portal/api";
+import { portalPost, portalHref, type ChatMessage } from "@/components/portal/api";
 
 /**
  * A floating chat assistant, available on every portal page, that answers a
@@ -21,15 +22,45 @@ const SUGGESTIONS = [
   "Who are my top customers?",
 ];
 
-/** Minimal, safe Markdown → HTML for the assistant's replies (bold + bullets). */
+/**
+ * Minimal, safe Markdown → HTML for the assistant's replies: bold, bullets, and
+ * links. Links are allowed ONLY to in-portal paths (starting with /portal) —
+ * anything else (external URLs, javascript:) is rendered as literal text, so a
+ * stray or injected URL can never become a live off-site/hostile link. The
+ * href runs through portalHref so admin preview keeps its ?previewAgency=.
+ */
 function renderMarkdown(text: string): string {
   const esc = (s: string) =>
     s
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-  const inline = (s: string) =>
+  const escAttr = (s: string) => esc(s).replace(/"/g, "&quot;");
+  const isInternal = (href: string) => /^\/portal(?:[/?#]|$)/.test(href);
+
+  // esc + **bold** on a run of plain (non-link) text.
+  const fmt = (s: string) =>
     esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+  const inline = (s: string): string => {
+    const linkRe = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+    let out = "";
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = linkRe.exec(s)) !== null) {
+      out += fmt(s.slice(last, m.index));
+      const label = m[1];
+      const href = m[2].trim();
+      if (isInternal(href)) {
+        out += `<a href="${escAttr(portalHref(href))}" class="font-medium text-brand-700 underline underline-offset-2">${fmt(label)}</a>`;
+      } else {
+        out += fmt(m[0]); // not a safe internal link — keep it literal
+      }
+      last = linkRe.lastIndex;
+    }
+    out += fmt(s.slice(last));
+    return out;
+  };
 
   const lines = text.split("\n");
   const html: string[] = [];
@@ -68,6 +99,7 @@ export default function AssistantWidget({
   showLauncher?: boolean;
 }) {
   const setOpen = onOpenChange;
+  const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -91,6 +123,20 @@ export default function AssistantWidget({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, setOpen]);
+
+  /* Links in replies are real anchors (dangerouslySetInnerHTML). Intercept
+     clicks on the internal ones so navigation is client-side: the layout — and
+     therefore this widget and its conversation — stays mounted, so the chat is
+     still here when the rep comes back. renderMarkdown already restricted these
+     hrefs to /portal paths and stamped previewAgency. */
+  function onTranscriptClick(e: React.MouseEvent) {
+    const anchor = (e.target as HTMLElement).closest("a");
+    const href = anchor?.getAttribute("href");
+    if (!href || !href.startsWith("/portal")) return;
+    e.preventDefault();
+    setOpen(false);
+    router.push(href);
+  }
 
   async function send(text: string) {
     const q = text.trim();
@@ -151,7 +197,11 @@ export default function AssistantWidget({
             </div>
 
             {/* Transcript */}
-            <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            <div
+              ref={scrollRef}
+              onClick={onTranscriptClick}
+              className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+            >
               {messages.length === 0 && (
                 <div className="space-y-3">
                   <p className="text-sm text-ink-secondary">
