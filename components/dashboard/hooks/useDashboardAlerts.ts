@@ -214,8 +214,8 @@ export function useDashboardAlerts({
         )}%) vs ${fmtMoney(r.sales_2025_ytd)} YTD last year · ${r.customers} accounts${
           r.territory ? ` · ${r.territory}` : ""
         }`,
-        actionLabel: "Open rep directory",
-        href: "/sales-team",
+        actionLabel: "Build analysis",
+        href: `/sales-team/rep-analysis/${encodeURIComponent(r.rep_group_name)}`,
       });
     }
 
