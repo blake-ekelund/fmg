@@ -128,17 +128,35 @@ export async function portalDownloadPost(
 /** One turn of the portal assistant conversation. */
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
-/** A What's New feed item. brand: 'FMG' | 'NI' | 'Sassy'. */
-export type PortalNews = {
-  id: string;
+/** One product's availability, plus the rep's own trailing-12-month sales. */
+export type PortalInventoryItem = {
+  part: string;
+  name: string;
   brand: string;
-  category: string;
-  title: string;
-  summary: string | null;
-  body: string | null;
-  image_url: string | null;
-  link_url: string | null;
-  published_at: string;
+  fragrance: string | null;
+  form: string | null;
+  size: string | null;
+  /** Product collection (e.g. everyday, love) — a filter dimension. */
+  collection: string | null;
+  /** Base product line title (e.g. "Bougie Babe") — a filter dimension. */
+  productTitle: string | null;
+  status: "in" | "low" | "out";
+  onOrder: number;
+  /** Units the rep's agency sold over the last 12 months (best-seller rank). */
+  units12mo: number;
+  /** Dollars the rep's agency sold over the last 12 months. */
+  revenue12mo: number;
+  /** Units per month, oldest→newest (12), for the trend sparkline. */
+  monthly: number[];
+  /** Plain-language busy/quiet note, or null when history is too thin. */
+  seasonNote: string | null;
+};
+
+export type PortalInventory = {
+  asOf: string | null;
+  /** Short month labels aligned to `monthly`, oldest→newest. */
+  monthLabels: string[];
+  items: PortalInventoryItem[];
 };
 
 /* ── Shared response types ─────────────────────────────────────────────────── */

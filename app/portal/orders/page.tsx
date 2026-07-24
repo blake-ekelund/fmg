@@ -21,6 +21,7 @@ import {
   type PortalOrderItem,
 } from "@/components/portal/api";
 import { downloadInvoice } from "@/components/portal/invoiceDownload";
+import Pagination from "@/components/portal/Pagination";
 import { properCase } from "@/lib/textCase";
 
 /**
@@ -105,6 +106,8 @@ export default function PortalOrders() {
   const [selected, setSelected] = useState<PortalOrder | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(0);
 
   /* Search runs server-side so a rep can find an order from any year, not just
      whatever the recent page happened to load. */
@@ -158,6 +161,15 @@ export default function PortalOrders() {
     if (stageSel.size === 0) return orders;
     return orders.filter((o) => stageSel.has(o.stage as StageValue));
   }, [orders, stageSel]);
+
+  /* Client-side pagination over the fetched, filtered rows. */
+  useEffect(() => {
+    setPage(0);
+  }, [search, stageSel, pageSize]);
+  const paged = useMemo(
+    () => (visible ? visible.slice(page * pageSize, page * pageSize + pageSize) : visible),
+    [visible, page, pageSize],
+  );
 
   /* Export the current view (same search + stage filters) to a two-sheet
      Excel workbook — Orders summary and Line Items — built server-side. */
@@ -288,7 +300,7 @@ export default function PortalOrders() {
                 </td>
               </tr>
             )}
-            {visible?.map((o) => (
+            {paged?.map((o) => (
               <tr
                 key={`${o.id}-${o.num}`}
                 onClick={() => setSelected(o)}
@@ -354,12 +366,22 @@ export default function PortalOrders() {
         </table>
       </div>
 
-      {visible && (
-        <p className="text-center text-xs text-gray-400">
-          {truncated
-            ? `Showing the first ${visible.length.toLocaleString()} — narrow your search to see more.`
-            : `${visible.length.toLocaleString()} order${visible.length === 1 ? "" : "s"}`}
-        </p>
+      {visible && visible.length > 0 && (
+        <div className="space-y-1.5">
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={visible.length}
+            onPage={setPage}
+            onPageSize={setPageSize}
+          />
+          {truncated && (
+            <p className="text-center text-xs text-gray-400">
+              Only the first {visible.length.toLocaleString()} match — narrow your
+              search to see more.
+            </p>
+          )}
+        </div>
       )}
 
       {selected && (

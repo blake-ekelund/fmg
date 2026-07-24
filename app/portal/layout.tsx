@@ -15,8 +15,8 @@ import AssistantWidget from "@/components/portal/AssistantWidget";
 const TABS = [
   { href: "/portal/customers", label: "Customers" },
   { href: "/portal/orders", label: "Orders" },
+  { href: "/portal/inventory", label: "Availability" },
   { href: "/portal/sales-hub", label: "Sales Hub" },
-  { href: "/portal/news", label: "What's New" },
   { href: "/portal/assets", label: "Assets" },
   { href: "/portal/contact", label: "Contact" },
 ];

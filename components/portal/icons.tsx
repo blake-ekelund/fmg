@@ -88,6 +88,18 @@ export const ChevronsUpDown: PortalIcon = (p) => (
   </Svg>
 );
 
+export const ChevronLeft: PortalIcon = (p) => (
+  <Svg {...p}>
+    <path d="m15 18-6-6 6-6" />
+  </Svg>
+);
+
+export const ChevronRight: PortalIcon = (p) => (
+  <Svg {...p}>
+    <path d="m9 18 6-6-6-6" />
+  </Svg>
+);
+
 /* ── People / money ──────────────────────────────────────────────────────── */
 
 export const Users: PortalIcon = (p) => (

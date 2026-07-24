@@ -22,6 +22,7 @@ import {
   type PortalCustomer,
 } from "@/components/portal/api";
 import ChannelIcon from "@/components/portal/ChannelIcon";
+import Pagination from "@/components/portal/Pagination";
 import { properCase } from "@/lib/textCase";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -129,6 +130,8 @@ export default function PortalCustomers() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [mode, setMode] = useState<SalesMode>("full");
   const [ytdThrough, setYtdThrough] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -222,6 +225,15 @@ export default function PortalCustomers() {
       return cmp * dir;
     });
   }, [rows, search, statusSel, channel, sortKey, sortDir, mode]);
+
+  /* Client-side pagination over the filtered list. */
+  useEffect(() => {
+    setPage(0);
+  }, [search, statusSel, channel, sortKey, sortDir, mode, pageSize]);
+  const paged = useMemo(
+    () => filtered.slice(page * pageSize, page * pageSize + pageSize),
+    [filtered, page, pageSize],
+  );
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -411,7 +423,7 @@ export default function PortalCustomers() {
                 </td>
               </tr>
             )}
-            {filtered.map((c) => {
+            {paged.map((c) => {
               const status = customerStatus(c.last_order_date, c.has_open_order);
               return (
                 <tr
@@ -476,10 +488,14 @@ export default function PortalCustomers() {
         </table>
       </div>
 
-      {rows && (
-        <p className="text-center text-xs text-gray-400">
-          Showing {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} accounts
-        </p>
+      {rows && filtered.length > 0 && (
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={filtered.length}
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
       )}
 
     </div>
