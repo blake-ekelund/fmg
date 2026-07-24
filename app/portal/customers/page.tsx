@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, ChevronsUpDown, Download } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, ChevronsUpDown, Download } from "@/components/portal/icons";
 import {
   portalGet,
   portalHref,
@@ -27,9 +27,10 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 type StatusFilter = "all" | "active" | "at_risk" | "churned" | "none";
+/** The real statuses, minus the synthetic "all" — the multi-select's options. */
+type Health = Exclude<StatusFilter, "all">;
 
-const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
-  { value: "all", label: "All" },
+const STATUS_OPTIONS: { value: Health; label: string }[] = [
   { value: "active", label: "Active" },
   { value: "at_risk", label: "At risk" },
   { value: "churned", label: "Churned" },
@@ -95,7 +96,9 @@ export default function PortalCustomers() {
   const [rows, setRows] = useState<PortalCustomer[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("all");
+  // Multi-select account status. Empty set = all (keeps cleared and everything
+  // as one state), so the desktop and mobile reads can't disagree.
+  const [statusSel, setStatusSel] = useState<Set<Health>>(() => new Set());
   const [channel, setChannel] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("sales_2026");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -123,7 +126,8 @@ export default function PortalCustomers() {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
-  /** Counts for the status pills, reflecting the other active filters. */
+  /** Per-status counts for the dropdown — reflect search + channel, but ignore
+      the status selection itself so the numbers hold steady while you toggle. */
   const statusCounts = useMemo(() => {
     const c: Record<StatusFilter, number> = {
       all: 0, active: 0, at_risk: 0, churned: 0, none: 0,
@@ -161,8 +165,8 @@ export default function PortalCustomers() {
       }
       if (channel !== "all" && (r.channel ?? "").trim() !== channel) return false;
       if (
-        status !== "all" &&
-        customerStatus(r.last_order_date, r.has_open_order) !== status
+        statusSel.size > 0 &&
+        !statusSel.has(customerStatus(r.last_order_date, r.has_open_order))
       ) {
         return false;
       }
@@ -206,7 +210,7 @@ export default function PortalCustomers() {
       if (cmp === 0) return a.name.localeCompare(b.name);
       return cmp * dir;
     });
-  }, [rows, search, status, channel, sortKey, sortDir, mode]);
+  }, [rows, search, statusSel, channel, sortKey, sortDir, mode]);
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -217,7 +221,7 @@ export default function PortalCustomers() {
     }
   }
 
-  const filtersOn = status !== "all" || channel !== "all" || !!search.trim();
+  const filtersOn = statusSel.size > 0 || channel !== "all" || !!search.trim();
 
   /* Exports exactly what's on screen — same filters, same sales mode — so the
      spreadsheet matches what the rep was looking at when they hit the button. */
@@ -284,48 +288,40 @@ export default function PortalCustomers() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">My customers</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          {rows ? `${rows.length.toLocaleString()} accounts in your book of business` : "Loading…"}
-        </p>
+      {/* Header — title left, Export pinned top-right */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">My customers</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {rows ? `${rows.length.toLocaleString()} accounts in your book of business` : "Loading…"}
+          </p>
+        </div>
+        <button
+          onClick={handleExport}
+          disabled={filtered.length === 0}
+          title="Download the filtered list as CSV"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Download size={14} />
+          Export
+        </button>
       </div>
 
-      {/* Toolbar — search on the left, everything that narrows the list on the right */}
+      {/* Toolbar — search on the left, filters on the right */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, ID, state…"
-          className="w-full shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 lg:w-72"
+          placeholder="Search name, ID, or state…"
+          className="w-full shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 lg:w-[26rem]"
         />
 
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <div className="flex flex-wrap gap-1">
-            {STATUS_FILTERS.map((f) => {
-              const active = status === f.value;
-              return (
-                <button
-                  key={f.value}
-                  onClick={() => setStatus(f.value)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
-                    active
-                      ? "border-gray-900 bg-gray-900 text-white"
-                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
-                  }`}
-                >
-                  {f.label}
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums ${
-                      active ? "bg-white/20" : "bg-gray-100 text-gray-500"
-                    }`}
-                  >
-                    {statusCounts[f.value]}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <StatusMultiSelect
+            selected={statusSel}
+            counts={statusCounts}
+            onChange={setStatusSel}
+          />
 
           {channels.length > 0 && (
             <select
@@ -372,21 +368,11 @@ export default function PortalCustomers() {
             </button>
           </div>
 
-          <button
-            onClick={handleExport}
-            disabled={filtered.length === 0}
-            title="Download the filtered list as CSV"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Download size={13} />
-            Export
-          </button>
-
           {filtersOn && (
             <button
               onClick={() => {
                 setSearch("");
-                setStatus("all");
+                setStatusSel(new Set());
                 setChannel("all");
               }}
               className="text-xs font-medium text-gray-500 underline underline-offset-2 hover:text-gray-800"
@@ -487,6 +473,130 @@ export default function PortalCustomers() {
         </p>
       )}
 
+    </div>
+  );
+}
+
+/**
+ * Multi-select account-status filter. Empty selection means "all".
+ *
+ * Replaces the pill row: a rep often wants two statuses at once ("at risk plus
+ * churned — who do I need to win back"), which single-select chips can't express
+ * and five pills don't fit neatly beside the other controls.
+ */
+function StatusMultiSelect({
+  selected,
+  counts,
+  onChange,
+}: {
+  selected: Set<Health>;
+  counts: Record<StatusFilter, number>;
+  onChange: (next: Set<Health>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function toggle(v: Health) {
+    const next = new Set(selected);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    onChange(next);
+  }
+
+  const label =
+    selected.size === 0
+      ? "All statuses"
+      : selected.size === 1
+        ? STATUS_LABEL[[...selected][0]]
+        : `${selected.size} statuses`;
+  const shown =
+    selected.size === 0
+      ? counts.all
+      : STATUS_OPTIONS.reduce(
+          (s, o) => (selected.has(o.value) ? s + counts[o.value] : s),
+          0,
+        );
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        className={`inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-medium transition ${
+          selected.size > 0
+            ? "border-gray-900 text-gray-900"
+            : "border-gray-200 text-gray-600 hover:border-gray-300"
+        }`}
+      >
+        <span>{label}</span>
+        <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] leading-none tabular-nums text-gray-500">
+          {shown}
+        </span>
+        <ChevronDown
+          size={13}
+          className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-48 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => onChange(new Set())}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+          >
+            <span className="flex h-4 w-4 items-center justify-center">
+              {selected.size === 0 && <Check size={13} className="text-gray-900" />}
+            </span>
+            <span className={selected.size === 0 ? "font-medium text-gray-900" : "text-gray-600"}>
+              All statuses
+            </span>
+            <span className="ml-auto tabular-nums text-gray-400">{counts.all}</span>
+          </button>
+          <div className="border-t border-gray-100">
+            {STATUS_OPTIONS.map((o) => {
+              const on = selected.has(o.value);
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => toggle(o.value)}
+                  aria-pressed={on}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                >
+                  <span className="flex h-4 w-4 items-center justify-center">
+                    {on && <Check size={13} className="text-gray-900" />}
+                  </span>
+                  <span className={`rounded px-1.5 py-0.5 ${STATUS_CLASS[o.value]}`}>
+                    {o.label}
+                  </span>
+                  <span className="ml-auto tabular-nums text-gray-400">
+                    {counts[o.value]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
