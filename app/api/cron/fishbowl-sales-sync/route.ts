@@ -176,6 +176,10 @@ export async function GET(request: Request) {
       customercontact: r.customerContact ?? null,
       customerid: r.customerId ?? null,
       customerpo: r.customerPO ?? null,
+      /* Open orders (estimate / issued / in progress) have no dateCompleted —
+         these are the only dates they carry, and what the portal sorts them by. */
+      datecreated: parseDate(r.dateCreated),
+      dateissued: parseDate(r.dateIssued),
       datecompleted: parseDate(r.dateCompleted),
       email: r.email ?? null,
       num: r.num ?? null,

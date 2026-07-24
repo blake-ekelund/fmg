@@ -71,7 +71,14 @@ export type CustomerStatusBadge = { label: string; color: string };
  */
 export function getCustomerStatus(
   lastOrderDate: string | null | undefined,
+  hasOpenOrder = false,
 ): CustomerStatusBadge {
+  /* An estimate out or an order on the bench means the account is live,
+     whatever the last *completed* order says. Chasing these as lapsed is both
+     wrong internally and embarrassing in front of the customer. */
+  if (hasOpenOrder) {
+    return { label: "Active", color: "bg-emerald-50 text-emerald-700" };
+  }
   if (!lastOrderDate) {
     return { label: "No Orders", color: "bg-slate-100 text-slate-600" };
   }

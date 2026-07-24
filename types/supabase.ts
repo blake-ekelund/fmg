@@ -422,6 +422,11 @@ export type Database = {
           customercontact: string | null;
           customerid: string | null;
           customerpo: string | null;
+          /** Set when the order is first entered — present on estimates. */
+          datecreated: string | null;
+          /** Set when an estimate becomes a real order. */
+          dateissued: string | null;
+          /** Only set once the order completes; NULL on every open order. */
           datecompleted: string | null;
           email: string | null;
           num: string | null;

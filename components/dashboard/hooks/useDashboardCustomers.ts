@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { BrandFilter } from "@/types/brand";
+import { fetchOpenOrderCustomerIds } from "@/lib/orderStage";
 
 export type CustomerStatus = "active" | "at_risk" | "churned" | "no_orders";
 
@@ -28,7 +29,13 @@ export type CustomerKPIs = {
   avg_revenue_2026: number;
 };
 
-function classifyCustomer(lastOrderDate: string | null): CustomerStatus {
+function classifyCustomer(
+  lastOrderDate: string | null,
+  hasOpenOrder = false,
+): CustomerStatus {
+  // A live estimate or in-flight order means the account is still trading,
+  // regardless of when their last order completed.
+  if (hasOpenOrder) return "active";
   if (!lastOrderDate) return "no_orders";
   const daysSince = Math.floor(
     (Date.now() - new Date(lastOrderDate).getTime()) / (1000 * 60 * 60 * 24)
@@ -140,6 +147,16 @@ export function useDashboardCustomers(
         return;
       }
 
+      /* Wholesale only. D2C rows are keyed by person_key while `customerid` is
+         the shared storefront account, so an open-order lookup by customerid
+         would mark every D2C shopper active off one storefront order. */
+      const openIds =
+        mode === "wholesale"
+          ? await fetchOpenOrderCustomerIds(supabase)
+          : new Set<string>();
+
+      if (cancelled) return;
+
       let mapped: CustomerSummaryRow[] = (rows ?? []).map((r: any) => ({
         id: r[idField],
         name: r.name,
@@ -148,7 +165,10 @@ export function useDashboardCustomers(
         lifetime_revenue: r.lifetime_revenue,
         sales_2026: r.sales_2026,
         sales_2025: r.sales_2025,
-        status: classifyCustomer(r.last_order_date),
+        status: classifyCustomer(
+          r.last_order_date,
+          mode === "wholesale" && openIds.has(r[idField]),
+        ),
         _cid: r.customerid, // temp — for D2C brand filtering
       }));
 

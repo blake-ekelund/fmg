@@ -7,6 +7,7 @@ import {
   getStatusCutoffs,
   type CustomerStats,
 } from "./queryHelpers";
+import { fetchOpenOrderCustomerIds } from "@/lib/orderStage";
 
 /**
  * Represents a Supabase PostgREST query builder that supports
@@ -20,7 +21,12 @@ interface FilterableQuery<T> {
   lt: (column: string, value: string | number) => T;
   is: (column: string, value: null) => T;
   in: (column: string, values: string[]) => T;
+  not: (column: string, operator: string, value: string) => T;
 }
+
+/* Open-order ids ride in the request URL, so the list can't grow unbounded.
+   Well above any plausible number of simultaneously-open orders. */
+const OPEN_ID_URL_CAP = 300;
 
 export type WholesaleSpendBucket =
   | ""
@@ -58,6 +64,8 @@ export function applyFilters<T extends FilterableQuery<T>>(
   repeatOnly?: boolean,
   spendBucket?: WholesaleSpendBucket,
   states?: string[],
+  /** Customers with a live estimate/in-flight order — treated as active. */
+  openOrderIds?: string[],
 ): T {
   if (search.trim()) {
     query = query.or(
@@ -83,25 +91,38 @@ export function applyFilters<T extends FilterableQuery<T>>(
   if (status) {
     const { active, risk } = getStatusCutoffs();
 
+    /* Customers with a live estimate or in-flight order count as active
+       regardless of dates, so they're pulled INTO the active bucket and pushed
+       OUT of the lapsed ones. Filtering happens in the query (not on the
+       fetched page) so the pills, the counts and the rows all agree.
+
+       Empty list → these clauses collapse to the plain date logic. */
+    const openList = (openOrderIds ?? []).filter(Boolean);
+    const openCsv = openList.length > 0 ? `(${openList.join(",")})` : null;
+
     if (status === "active") {
-      query = query.gte(
-        "last_order_date",
-        active.toISOString()
-      );
+      query = openCsv
+        ? query.or(
+            `last_order_date.gte.${active.toISOString()},customerid.in.${openCsv}`,
+          )
+        : query.gte("last_order_date", active.toISOString());
     }
 
     if (status === "at_risk") {
       query = query
         .lt("last_order_date", active.toISOString())
         .gte("last_order_date", risk.toISOString());
+      if (openCsv) query = query.not("customerid", "in", openCsv);
     }
 
     if (status === "churned") {
       query = query.lt("last_order_date", risk.toISOString());
+      if (openCsv) query = query.not("customerid", "in", openCsv);
     }
 
     if (status === "no_orders") {
       query = query.is("last_order_date", null);
+      if (openCsv) query = query.not("customerid", "in", openCsv);
     }
   }
 
@@ -180,6 +201,22 @@ export function useCustomers({
       const from = page * pageSize;
       const to = from + pageSize - 1;
 
+      /* Customers with a live estimate or in-flight order — they read as active
+         no matter how old their last completed order is. Fetched once per load
+         and threaded through every query below so rows, pills and counts can't
+         disagree. Capped because these ids ride in the request URL; past the
+         cap we fall back to date-only status rather than send a broken query. */
+      const openIdSet = await fetchOpenOrderCustomerIds(supabase);
+      const openOrderIds =
+        openIdSet.size > 0 && openIdSet.size <= OPEN_ID_URL_CAP
+          ? [...openIdSet]
+          : undefined;
+      if (openIdSet.size > OPEN_ID_URL_CAP) {
+        console.warn(
+          `useCustomers: ${openIdSet.size} customers have open orders, above the ${OPEN_ID_URL_CAP} cap — status falls back to last-order dates.`,
+        );
+      }
+
       /* ---------------------------
          TABLE QUERY (Paginated)
       ---------------------------- */
@@ -197,6 +234,7 @@ export function useCustomers({
         repeatOnly,
         spendBucket,
         states,
+        openOrderIds,
       );
 
       if (brand !== "all") {
@@ -243,6 +281,7 @@ export function useCustomers({
           repeatOnly,
           spendBucket,
           states,
+          openOrderIds,
         );
         if (brand !== "all") {
           q = q.ilike("brands_purchased", `%${brand}%`);
@@ -266,7 +305,15 @@ export function useCustomers({
           setTotalCount(0);
           setStats({ all: 0, active: 0, atRisk: 0, churned: 0 });
         } else {
-          setCustomers((data as Customer[]) ?? []);
+          /* Stamp the flag onto each row so the badge matches the bucket the
+             row was selected into — the table shouldn't re-derive status from
+             dates and contradict the filter that produced it. */
+          setCustomers(
+            ((data as Customer[]) ?? []).map((c) => ({
+              ...c,
+              has_open_order: openIdSet.has(c.customerid),
+            })),
+          );
           setTotalCount(count ?? 0);
           setStats({
             all: allRes.count ?? 0,

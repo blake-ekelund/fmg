@@ -151,7 +151,7 @@ export default function CustomersTable({
 
         {!loading &&
           (safeCustomers as D2CCustomer[]).map((c) => {
-            const status = getCustomerStatus(c.last_order_date);
+            const status = getCustomerStatus(c.last_order_date, c.has_open_order);
             const isSelected = hasSelection && selectedIds.has(c.person_key);
             return (
               <div
@@ -233,7 +233,7 @@ export default function CustomersTable({
 
       {!loading &&
         (safeCustomers as Customer[]).map((c) => {
-          const status = getCustomerStatus(c.last_order_date);
+          const status = getCustomerStatus(c.last_order_date, c.has_open_order);
           const isSelected = hasSelection && selectedIds.has(c.customerid);
           return (
             <div

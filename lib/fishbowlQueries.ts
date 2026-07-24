@@ -20,6 +20,8 @@ export const SALES_ORDERS_SQL = `SELECT
   so.customerContact,
   so.customerId,
   so.customerPO,
+  so.dateCreated,
+  so.dateIssued,
   so.dateCompleted,
   so.email,
   so.num,
@@ -42,6 +44,40 @@ LEFT JOIN STATECONST STATECONST_Bill ON so.billToStateId = STATECONST_Bill.id
 LEFT JOIN STATECONST STATECONST_Ship ON so.shipToStateId = STATECONST_Ship.id
 LEFT JOIN COUNTRYCONST COUNTRYCONST_Bill ON so.billToCountryId = COUNTRYCONST_Bill.id
 LEFT JOIN COUNTRYCONST COUNTRYCONST_Ship ON so.shipToCountryId = COUNTRYCONST_Ship.id`;
+
+/**
+ * Shipments + tracking numbers — ⚠️ UNVERIFIED against this Fishbowl instance.
+ *
+ * Fishbowl records shipping separately from the sales order: a `ship` header
+ * (carrier, ship date) with one or more `shipcarton` rows, and the tracking
+ * number lives on the carton, not the order. That's why nothing tracking-shaped
+ * appears in SALES_ORDERS_SQL — it isn't a column on `so` at all.
+ *
+ * Table and column names vary by Fishbowl version, so run the SHIP_PROBE_*
+ * queries in /fishbowl-sandbox first and correct this before wiring it into the
+ * sync. Joining shipments to orders is the part most likely to differ: some
+ * versions expose ship.soId, others use ship.orderId + ship.orderTypeId (20=SO).
+ */
+export const SHIPMENTS_SQL = `SELECT
+  so.num AS orderNum,
+  ship.num AS shipmentNum,
+  ship.dateShipped,
+  SHIPSTATUS.name AS shipStatus,
+  CARRIER.name AS carrier,
+  CARRIERSERVICE.name AS carrierService,
+  shipcarton.trackingNum
+FROM ship
+LEFT JOIN so ON ship.soId = so.id
+LEFT JOIN shipcarton ON shipcarton.shipId = ship.id
+LEFT JOIN CARRIER ON ship.carrierId = CARRIER.id
+LEFT JOIN CARRIERSERVICE ON ship.carrierServiceId = CARRIERSERVICE.id
+LEFT JOIN SHIPSTATUS ON ship.statusId = SHIPSTATUS.id`;
+
+/* Discovery probes — run these first. Each returns a handful of rows so the
+   real column names are visible; `SELECT *` is deliberate here. */
+export const SHIP_PROBE_HEADER = `SELECT * FROM ship LIMIT 5`;
+export const SHIP_PROBE_CARTON = `SELECT * FROM shipcarton LIMIT 5`;
+export const SHIP_PROBE_CARRIER = `SELECT * FROM carrier LIMIT 25`;
 
 export const LINE_ITEMS_SQL = `SELECT
   soitem.id,

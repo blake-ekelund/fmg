@@ -69,7 +69,7 @@ export default function CustomerListCards({
         const href = isD2C
           ? `/customers/d2c/${encodeURIComponent(id)}`
           : `/customers/${encodeURIComponent(id)}`;
-        const status = getCustomerStatus(c.last_order_date);
+        const status = getCustomerStatus(c.last_order_date, c.has_open_order);
         const selected = hasSelection && selectedIds.has(id);
 
         // Secondary identifier under the name: email for D2C, the Fishbowl

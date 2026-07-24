@@ -14,9 +14,18 @@ export type Customer = {
   total_spend?: number | null;
   agency_code?: string | null;
   rep_name?: string | null;
+  /** Live estimate or in-flight order — forces the status badge to Active. */
+  has_open_order?: boolean;
 };
 
 export type D2CCustomer = {
+  /**
+   * Declared so the shared list components can read it uniformly, but D2C never
+   * sets it: these rows are keyed by person_key while `customerid` is the shared
+   * storefront account, so an open-order lookup by customerid would mark every
+   * D2C shopper active off a single storefront order.
+   */
+  has_open_order?: undefined;
   person_key: string;
   name: string;
   email: string | null;

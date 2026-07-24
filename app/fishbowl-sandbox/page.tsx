@@ -3,7 +3,14 @@
 import { useState } from "react";
 import { Loader2, Database, Play, Boxes, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { SALES_ORDERS_SQL, LINE_ITEMS_SQL } from "@/lib/fishbowlQueries";
+import {
+  SALES_ORDERS_SQL,
+  LINE_ITEMS_SQL,
+  SHIPMENTS_SQL,
+  SHIP_PROBE_HEADER,
+  SHIP_PROBE_CARTON,
+  SHIP_PROBE_CARRIER,
+} from "@/lib/fishbowlQueries";
 
 /**
  * Fishbowl sandbox — an internal scratch page for exploring what the Fishbowl
@@ -26,6 +33,16 @@ const EXAMPLES: { label: string; sql: string }[] = [
   { label: "Line items", sql: LINE_ITEMS_SQL },
   { label: "Open sales orders", sql: "SELECT id, num FROM so WHERE statusId = 1" },
   { label: "Parts (50)", sql: "SELECT id, num, description FROM part ORDER BY num LIMIT 50" },
+
+  /* Shipping/tracking discovery. Tracking numbers are not on `so` — Fishbowl
+     keeps them on shipment cartons — so these probe what this instance
+     actually exposes before we commit a query to the sync. Run the three
+     "probe" entries first; the column names they reveal are what
+     SHIPMENTS_SQL needs to be corrected against. */
+  { label: "▸ Probe: ship (headers)", sql: SHIP_PROBE_HEADER },
+  { label: "▸ Probe: shipcarton (tracking #)", sql: SHIP_PROBE_CARTON },
+  { label: "▸ Probe: carrier", sql: SHIP_PROBE_CARRIER },
+  { label: "Shipments + tracking (unverified)", sql: SHIPMENTS_SQL },
 ];
 
 export default function FishbowlSandboxPage() {
