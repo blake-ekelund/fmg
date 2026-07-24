@@ -170,57 +170,109 @@ export async function GET(request: Request) {
   // 3. Bridge.
   const bridge = computeBridge(prodCur, prodPrior);
 
-  // 4. Product analysis — change vs prior YTD.
-  const productKeys = new Set([...prodCur.keys(), ...prodPrior.keys()]);
-  const products = [...productKeys].map((k) => {
-    const cur = prodCur.get(k)?.revenue ?? 0;
-    const prior = prodPrior.get(k)?.revenue ?? 0;
-    return { productnum: k, description: prodName.get(k) ?? k, cur, prior, delta: cur - prior };
-  });
+  // 4. Enrich SKUs with product title (display_name) + collection (fragrance).
+  const productKeys = [...new Set([...prodCur.keys(), ...prodPrior.keys()])];
+  const meta = new Map<string, { title: string; fragrance: string | null; size: string | null }>();
+  for (let i = 0; i < productKeys.length; i += ID_CHUNK) {
+    const { data } = await supabaseServer
+      .from("inventory_products")
+      .select("part, display_name, fragrance, size")
+      .in("part", productKeys.slice(i, i + ID_CHUNK));
+    for (const p of (data ?? []) as {
+      part: string;
+      display_name: string | null;
+      fragrance: string | null;
+      size: string | null;
+    }[]) {
+      meta.set(p.part, { title: p.display_name || p.part, fragrance: p.fragrance, size: p.size });
+    }
+  }
+
+  /** A specific-SKU label: title + fragrance + size, deduped. */
+  function skuLabel(part: string): string {
+    const m = meta.get(part);
+    const base = m?.title || prodName.get(part) || part;
+    const dn = base.toLowerCase();
+    const extra = [m?.fragrance, m?.size].filter(
+      (v): v is string => !!v && !dn.includes(v.toLowerCase()),
+    );
+    return extra.length ? `${base} · ${extra.join(" · ")}` : base;
+  }
+
+  // Roll SKUs up into two groupings: by collection (fragrance) and by title.
+  type Grp = { key: string; label: string; cur: number; prior: number; delta: number };
+  function groupBy(pick: (part: string) => string) {
+    const m = new Map<string, { cur: number; prior: number }>();
+    for (const part of productKeys) {
+      const k = pick(part);
+      const g = m.get(k) ?? { cur: 0, prior: 0 };
+      g.cur += prodCur.get(part)?.revenue ?? 0;
+      g.prior += prodPrior.get(part)?.revenue ?? 0;
+      m.set(k, g);
+    }
+    return [...m.entries()]
+      .map(([key, g]): Grp => ({ key, label: key, cur: g.cur, prior: g.prior, delta: g.cur - g.prior }))
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  }
+
   const productSection = {
-    growing: products.filter((p) => p.prior > 0 && p.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 10),
-    declining: products.filter((p) => p.prior > 0 && p.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 10),
-    new: products.filter((p) => p.prior === 0 && p.cur > 0).sort((a, b) => b.cur - a.cur).slice(0, 10),
-    lost: products.filter((p) => p.cur === 0 && p.prior > 0).sort((a, b) => b.prior - a.prior).slice(0, 10),
+    byCollection: groupBy((part) => meta.get(part)?.fragrance || "Unclassified"),
+    byTitle: groupBy((part) => meta.get(part)?.title || prodName.get(part) || part),
+    // New / dropped stay at SKU granularity.
+    new: productKeys
+      .filter((k) => (prodPrior.get(k)?.revenue ?? 0) === 0 && (prodCur.get(k)?.revenue ?? 0) > 0)
+      .map((k) => ({ productnum: k, label: skuLabel(k), cur: prodCur.get(k)!.revenue }))
+      .sort((a, b) => b.cur - a.cur),
+    dropped: productKeys
+      .filter((k) => (prodCur.get(k)?.revenue ?? 0) === 0 && (prodPrior.get(k)?.revenue ?? 0) > 0)
+      .map((k) => ({ productnum: k, label: skuLabel(k), prior: prodPrior.get(k)!.revenue }))
+      .sort((a, b) => b.prior - a.prior),
   };
 
-  // 5. Customer analysis.
+  // 5. Customers — the FULL list (any activity either window), biggest movers
+  //    first, with new / lost flags. The page paginates.
   const custKeys = new Set([...custCur.keys(), ...custPrior.keys()]);
-  const customers = [...custKeys].map((id) => {
-    const cur = custCur.get(id) ?? 0;
-    const prior = custPrior.get(id) ?? 0;
-    return { customerid: id, name: nameByCustomer.get(id) ?? id, cur, prior, delta: cur - prior };
-  });
-  const customerSection = {
-    growing: customers.filter((c) => c.prior > 0 && c.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, 10),
-    declining: customers.filter((c) => c.prior > 0 && c.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, 10),
-    new: customers.filter((c) => c.prior === 0 && c.cur > 0).sort((a, b) => b.cur - a.cur).slice(0, 10),
-    lapsed: customers.filter((c) => c.cur === 0 && c.prior > 0).sort((a, b) => b.prior - a.prior).slice(0, 10),
-  };
+  const customers = [...custKeys]
+    .map((id) => {
+      const cur = custCur.get(id) ?? 0;
+      const prior = custPrior.get(id) ?? 0;
+      return {
+        customerid: id,
+        name: nameByCustomer.get(id) ?? id,
+        cur,
+        prior,
+        delta: cur - prior,
+        isNew: prior === 0 && cur > 0,
+        isLost: cur === 0 && prior > 0,
+      };
+    })
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
   // 6. Actions — rule-based, ranked by dollars so the biggest levers lead.
+  const lapsed = customers.filter((c) => c.isLost);
+  const declining = customers.filter((c) => !c.isLost && c.delta < 0);
   const actions: string[] = [];
-  const lapsedTotal = customerSection.lapsed.reduce((s, c) => s + c.prior, 0);
-  if (customerSection.lapsed.length > 0) {
+  if (lapsed.length > 0) {
+    const total = lapsed.reduce((s, c) => s + c.prior, 0);
     actions.push(
-      `Win back ${customerSection.lapsed.length} lapsed account${customerSection.lapsed.length > 1 ? "s" : ""} worth ${money(lapsedTotal)} last year — starting with ${customerSection.lapsed[0].name} (${money(customerSection.lapsed[0].prior)}).`,
+      `Win back ${lapsed.length} lapsed account${lapsed.length > 1 ? "s" : ""} worth ${money(total)} last year — starting with ${lapsed[0].name} (${money(lapsed[0].prior)}).`,
     );
   }
-  if (productSection.lost.length > 0) {
+  if (productSection.dropped.length > 0) {
     actions.push(
-      `Re-introduce ${productSection.lost.length} dropped product${productSection.lost.length > 1 ? "s" : ""} — ${productSection.lost[0].description} led at ${money(productSection.lost[0].prior)} last year.`,
+      `Re-introduce ${productSection.dropped.length} dropped SKU${productSection.dropped.length > 1 ? "s" : ""} — ${productSection.dropped[0].label} led at ${money(productSection.dropped[0].prior)} last year.`,
     );
   }
-  if (customerSection.declining.length > 0) {
-    const c = customerSection.declining[0];
-    actions.push(`Shore up declining accounts — ${c.name} is down ${money(Math.abs(c.delta))} vs last YTD.`);
+  if (declining.length > 0) {
+    actions.push(`Shore up declining accounts — ${declining[0].name} is down ${money(Math.abs(declining[0].delta))} vs last YTD.`);
   }
   const pricePart = bridge.parts.find((p) => p.key === "price");
   if (pricePart && pricePart.amount < -Math.max(bridge.prior * 0.02, 500)) {
     actions.push(`Price is dragging ${money(Math.abs(pricePart.amount))} — review discounting on continuing items.`);
   }
-  if (productSection.growing.length > 0) {
-    actions.push(`Lean into what's working — push ${productSection.growing[0].description} (up ${money(productSection.growing[0].delta)}) across more accounts.`);
+  const topTitle = productSection.byTitle.find((t) => t.delta > 0);
+  if (topTitle) {
+    actions.push(`Lean into what's working — ${topTitle.label} is up ${money(topTitle.delta)}; push it across more accounts.`);
   }
 
   const variance = bridge.delta;
@@ -240,7 +292,6 @@ export async function GET(request: Request) {
     },
     bridge,
     products: productSection,
-    customers: customerSection,
-    actions,
+    customers,
   });
 }
