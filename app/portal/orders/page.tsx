@@ -1,9 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Loader2, Package, Search, Truck, X } from "@/components/portal/icons";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  Download,
+  Loader2,
+  Package,
+  Search,
+  Truck,
+  X,
+} from "@/components/portal/icons";
 import {
   portalGet,
+  portalDownload,
   usd,
   shortDate,
   type OrderStage,
@@ -50,41 +60,61 @@ function dateLabel(o: Pick<PortalOrder, "datecompleted" | "dateissued" | "datecr
   return "";
 }
 
-type StageFilter = "all" | "open" | "completed" | "cancelled";
+/** The three portal stages a rep filters on ("estimate" is folded into "open"). */
+type StageValue = "open" | "completed" | "cancelled";
 
-/* "Open" leads because it's the reason a customer calls. Cancelled is last and
-   unlabelled by count — nobody browses void orders, they look one up. */
-const STAGE_FILTERS: { value: StageFilter; label: string }[] = [
-  { value: "all", label: "All" },
+/* "Open" leads because it's the reason a customer calls. Cancelled is last —
+   nobody browses void orders, they look one up. */
+const STAGE_OPTIONS: { value: StageValue; label: string }[] = [
   { value: "open", label: "Open" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
 
-type StageCounts = Record<"open" | "completed" | "cancelled", number>;
+const STAGE_LABEL: Record<StageValue, string> = {
+  open: "Open",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+type StageCounts = Record<StageValue, number>;
 
 export default function PortalOrders() {
+  /* Deep link: /portal/orders?order=<num> (the assistant links orders this way)
+     lands here, filters the list to that order, and auto-opens its drawer. ?q=
+     just prefills the search box. Read off the URL rather than useSearchParams()
+     to avoid forcing a Suspense boundary — matches the portal layout's pattern. */
+  const deepLink =
+    typeof window === "undefined"
+      ? { order: null as string | null, q: null as string | null }
+      : (() => {
+          const p = new URLSearchParams(window.location.search);
+          return { order: p.get("order"), q: p.get("q") };
+        })();
+
   const [orders, setOrders] = useState<PortalOrder[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [stage, setStage] = useState<StageFilter>("all");
+  const [search, setSearch] = useState(deepLink.order ?? deepLink.q ?? "");
+  // Multi-select stage. Empty set = all — stage filtering happens client-side
+  // over the fetched page, so toggling it never costs a round trip and the
+  // counts stay put while you pick.
+  const [stageSel, setStageSel] = useState<Set<StageValue>>(() => new Set());
   const [counts, setCounts] = useState<StageCounts | null>(null);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<PortalOrder | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   /* Search runs server-side so a rep can find an order from any year, not just
      whatever the recent page happened to load. */
   const reqId = useRef(0);
-  const load = useCallback(async (q: string, st: StageFilter) => {
+  const load = useCallback(async (q: string) => {
     const mine = ++reqId.current;
     setSearching(true);
     try {
-      const qs = new URLSearchParams();
-      if (q.trim()) qs.set("q", q.trim());
-      if (st !== "all") qs.set("stage", st);
-      const path = qs.toString()
-        ? `/api/portal/orders?${qs.toString()}`
+      const path = q.trim()
+        ? `/api/portal/orders?q=${encodeURIComponent(q.trim())}`
         : "/api/portal/orders";
       const d = await portalGet<{
         orders: PortalOrder[];
@@ -106,9 +136,49 @@ export default function PortalOrders() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(search, stage), search ? 300 : 0);
+    const t = setTimeout(() => load(search), search ? 300 : 0);
     return () => clearTimeout(t);
-  }, [search, stage, load]);
+  }, [search, load]);
+
+  /* Once the deep-linked order arrives in the list, open its drawer — one shot,
+     so the rep can freely close it afterwards. */
+  const openedDeepLink = useRef(false);
+  useEffect(() => {
+    if (openedDeepLink.current || !deepLink.order || !orders) return;
+    const match = orders.find((o) => o.num === deepLink.order);
+    if (match) {
+      setSelected(match);
+      openedDeepLink.current = true;
+    }
+  }, [orders, deepLink.order]);
+
+  /* Stage filtering is client-side over the fetched page. */
+  const visible = useMemo(() => {
+    if (!orders) return orders;
+    if (stageSel.size === 0) return orders;
+    return orders.filter((o) => stageSel.has(o.stage as StageValue));
+  }, [orders, stageSel]);
+
+  /* Export the current view (same search + stage filters) to a two-sheet
+     Excel workbook — Orders summary and Line Items — built server-side. */
+  async function handleExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const qs = new URLSearchParams();
+      if (search.trim()) qs.set("q", search.trim());
+      if (stageSel.size) qs.set("stage", [...stageSel].join(","));
+      const s = qs.toString();
+      await portalDownload(
+        `/api/portal/orders/export${s ? `?${s}` : ""}`,
+        `orders_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (error) {
     return (
@@ -120,76 +190,71 @@ export default function PortalOrders() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          Orders
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Order history for your accounts — search by order number, PO, or
-          ship-to name.
-        </p>
+      {/* Header — title left, Export pinned top-right (matches Customers) */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
+            Orders
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Order history for your accounts — search by order number, PO, or
+            ship-to name.
+          </p>
+        </div>
+        <button
+          onClick={handleExport}
+          disabled={exporting || !visible?.length}
+          title="Export the current view to Excel"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {exporting ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Download size={13} />
+          )}
+          Export
+        </button>
       </div>
 
-      <div className="flex flex-wrap gap-1">
-        {STAGE_FILTERS.map((f) => {
-          const active = stage === f.value;
-          const n =
-            f.value === "all"
-              ? counts
-                ? Object.values(counts).reduce((s, v) => s + v, 0)
-                : null
-              : (counts?.[f.value] ?? null);
-          return (
-            <button
-              key={f.value}
-              onClick={() => setStage(f.value)}
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
-                active
-                  ? "border-gray-900 bg-gray-900 text-white"
-                  : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
-              }`}
-            >
-              {f.label}
-              {n !== null && (
-                <span
-                  className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums ${
-                    active ? "bg-white/20" : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  {n}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="relative w-full sm:max-w-md">
-        <Search
-          size={15}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-        />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Order #, customer PO, ship-to…"
-          className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-9 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-        />
-        {searching ? (
-          <Loader2
+      {/* Toolbar — search on the left, the stage filter to its right */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-md">
+          <Search
             size={15}
-            className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
           />
-        ) : search ? (
-          <button
-            onClick={() => setSearch("")}
-            aria-label="Clear search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-          >
-            <X size={14} />
-          </button>
-        ) : null}
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Order #, PO, customer, or city…"
+            className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-9 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+          />
+          {searching ? (
+            <Loader2
+              size={15}
+              className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400"
+            />
+          ) : search ? (
+            <button
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            >
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
+
+        <StageMultiSelect
+          selected={stageSel}
+          counts={counts}
+          onChange={setStageSel}
+        />
       </div>
+
+      {exportError && (
+        <p className="text-xs text-red-600">{exportError}</p>
+      )}
 
       <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
         <table className="min-w-full text-xs">
@@ -205,23 +270,25 @@ export default function PortalOrders() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {!orders && (
+            {!visible && (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                   Loading…
                 </td>
               </tr>
             )}
-            {orders && orders.length === 0 && (
+            {visible && visible.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                   {search
                     ? `No orders match “${search.trim()}”.`
-                    : "No orders yet."}
+                    : stageSel.size > 0
+                      ? "No orders in that filter."
+                      : "No orders yet."}
                 </td>
               </tr>
             )}
-            {orders?.map((o) => (
+            {visible?.map((o) => (
               <tr
                 key={`${o.id}-${o.num}`}
                 onClick={() => setSelected(o)}
@@ -287,16 +354,148 @@ export default function PortalOrders() {
         </table>
       </div>
 
-      {orders && (
+      {visible && (
         <p className="text-center text-xs text-gray-400">
           {truncated
-            ? `Showing the first ${orders.length.toLocaleString()} — narrow your search to see more.`
-            : `${orders.length.toLocaleString()} order${orders.length === 1 ? "" : "s"}`}
+            ? `Showing the first ${visible.length.toLocaleString()} — narrow your search to see more.`
+            : `${visible.length.toLocaleString()} order${visible.length === 1 ? "" : "s"}`}
         </p>
       )}
 
       {selected && (
         <OrderDrawer order={selected} onClose={() => setSelected(null)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Multi-select stage filter. Empty selection means "all".
+ *
+ * A dropdown rather than a pill row: it sits neatly to the right of the search
+ * bar and lets a rep combine stages ("open plus completed") in one control.
+ */
+function StageMultiSelect({
+  selected,
+  counts,
+  onChange,
+}: {
+  selected: Set<StageValue>;
+  counts: StageCounts | null;
+  onChange: (next: Set<StageValue>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function toggle(v: StageValue) {
+    const next = new Set(selected);
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    onChange(next);
+  }
+
+  const allCount = counts ? counts.open + counts.completed + counts.cancelled : null;
+  const label =
+    selected.size === 0
+      ? "All orders"
+      : selected.size === 1
+        ? STAGE_LABEL[[...selected][0]]
+        : `${selected.size} stages`;
+  const shown =
+    counts == null
+      ? null
+      : selected.size === 0
+        ? allCount
+        : STAGE_OPTIONS.reduce(
+            (s, o) => (selected.has(o.value) ? s + counts[o.value] : s),
+            0,
+          );
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        className={`inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-medium transition ${
+          selected.size > 0
+            ? "border-gray-900 text-gray-900"
+            : "border-gray-200 text-gray-600 hover:border-gray-300"
+        }`}
+      >
+        <span>{label}</span>
+        {shown !== null && (
+          <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] leading-none tabular-nums text-gray-500">
+            {shown}
+          </span>
+        )}
+        <ChevronDown
+          size={13}
+          className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-48 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => onChange(new Set())}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+          >
+            <span className="flex h-4 w-4 items-center justify-center">
+              {selected.size === 0 && <Check size={13} className="text-gray-900" />}
+            </span>
+            <span
+              className={selected.size === 0 ? "font-medium text-gray-900" : "text-gray-600"}
+            >
+              All orders
+            </span>
+            {allCount !== null && (
+              <span className="ml-auto tabular-nums text-gray-400">{allCount}</span>
+            )}
+          </button>
+          <div className="border-t border-gray-100">
+            {STAGE_OPTIONS.map((o) => {
+              const on = selected.has(o.value);
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => toggle(o.value)}
+                  aria-pressed={on}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50"
+                >
+                  <span className="flex h-4 w-4 items-center justify-center">
+                    {on && <Check size={13} className="text-gray-900" />}
+                  </span>
+                  <span className="text-gray-700">{o.label}</span>
+                  {counts && (
+                    <span className="ml-auto tabular-nums text-gray-400">
+                      {counts[o.value]}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );

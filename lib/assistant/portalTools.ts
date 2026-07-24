@@ -36,9 +36,9 @@ function customerLink(customerid: string | null | undefined): string | null {
   return customerid ? `/portal/customers/${encodeURIComponent(customerid)}` : null;
 }
 
-/** Link into the Orders page pre-filtered to one order number. */
+/** Link that opens one order directly on the Orders page (drawer auto-opens). */
 function orderLink(num: string | null | undefined): string | null {
-  return num ? `/portal/orders?q=${encodeURIComponent(num)}` : null;
+  return num ? `/portal/orders?order=${encodeURIComponent(num)}` : null;
 }
 
 /** Lower-case, drop apostrophes, other punctuation → spaces. So "Lund's" and

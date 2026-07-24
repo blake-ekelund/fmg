@@ -39,6 +39,19 @@ const SUGGESTIONS = [
 const isPortalPage = (href: string) => /^\/portal(?:[/?#]|$)/.test(href);
 const isExport = (href: string) => /^\/api\/portal\/[\w/-]+\/export(?:[/?#]|$)/.test(href);
 
+/* Carrier tracking pages are the one off-site destination we allow — a rep
+   clicking a tracking number should land on UPS/FedEx/USPS. Whitelisted by exact
+   host so no other external URL (or a look-alike) can render as a live link. */
+const CARRIER_HOSTS = new Set(["tools.usps.com", "www.ups.com", "www.fedex.com"]);
+const isCarrierUrl = (href: string) => {
+  if (!/^https:\/\//i.test(href)) return false;
+  try {
+    return CARRIER_HOSTS.has(new URL(href).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+};
+
 function renderMarkdown(text: string): string {
   const esc = (s: string) =>
     s
@@ -66,8 +79,11 @@ function renderMarkdown(text: string): string {
       } else if (isExport(href)) {
         // Handled by the click interceptor as an authenticated download.
         out += `<a href="${escAttr(href)}" class="${cls}">⬇ ${fmt(label)}</a>`;
+      } else if (isCarrierUrl(href)) {
+        // Off-site carrier tracking — open in a new tab.
+        out += `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer nofollow" class="${cls}">${fmt(label)}</a>`;
       } else {
-        out += fmt(m[0]); // not a safe internal link — keep it literal
+        out += fmt(m[0]); // not a safe link — keep it literal
       }
       last = linkRe.lastIndex;
     }
