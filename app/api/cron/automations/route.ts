@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
+import { resolveSystemSenderUserId } from "@/lib/email/systemSender";
 import { getAuthUser } from "@/lib/email/server-auth";
 import {
   applyMergeFields,
@@ -431,13 +432,9 @@ export async function GET(request: Request) {
   for (const [senderKey, batch] of enrollmentsBySender.entries()) {
     let senderUserId = senderKey === "__fallback__" ? null : senderKey;
     if (!senderUserId) {
-      const { data: fb } = await supabaseServer
-        .from("user_email_accounts")
-        .select("user_id")
-        .eq("status", "connected")
-        .limit(1)
-        .maybeSingle();
-      senderUserId = (fb?.user_id as string | null) ?? null;
+      // The automation didn't name an owner, so fall back to the designated
+      // system sender rather than whichever mailbox the planner returned first.
+      senderUserId = await resolveSystemSenderUserId();
     }
     if (!senderUserId) continue;
 

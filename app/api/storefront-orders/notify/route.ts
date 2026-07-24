@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
+import { resolveSystemSenderUserId } from "@/lib/email/systemSender";
 import { sendEmail } from "@/lib/email/send";
 
 export const runtime = "nodejs";
@@ -43,14 +44,9 @@ export async function POST(request: Request) {
     );
   }
 
-  // Sender: first connected Outlook account (same fallback as the crons).
-  const { data: acct } = await supabaseServer
-    .from("user_email_accounts")
-    .select("user_id")
-    .eq("status", "connected")
-    .limit(1)
-    .maybeSingle();
-  const senderUserId = (acct?.user_id as string | null) ?? null;
+  // Sender: the mailbox designated in Settings → Email connection (same
+  // resolver the crons use), falling back to the oldest connected one.
+  const senderUserId = await resolveSystemSenderUserId();
   if (!senderUserId) {
     return NextResponse.json(
       { error: "No connected Outlook account to send from (Settings → Email)." },

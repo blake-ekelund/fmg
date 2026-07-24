@@ -15,6 +15,7 @@ import {
   Palette,
   Users as UsersIcon,
   KeyRound,
+  Send,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
@@ -29,6 +30,7 @@ type SectionKey =
   | "email-signature"
   | "email-connection"
   | "team"
+  | "system-sender"
   | "platforms"
   | "brands";
 
@@ -95,6 +97,13 @@ const SECTIONS: SectionDef[] = [
         <TeamSection />
       </CardShell>
     ),
+  },
+  {
+    key: "system-sender",
+    label: "Automated email",
+    group: "company",
+    icon: <Send size={14} />,
+    render: () => <SystemSenderCard />,
   },
   {
     key: "platforms",
@@ -259,6 +268,176 @@ function SectionLink({
       </span>
       <span className="truncate">{section.label}</span>
     </Link>
+  );
+}
+
+/* ─── Automated-mail sender ───────────────────────────────────────────────── */
+
+type SystemSenderState = {
+  designated_user_id: string | null;
+  effective_user_id: string | null;
+  is_fallback: boolean;
+  mailboxes: Array<{
+    user_id: string;
+    email: string;
+    display_name: string | null;
+    connected_at: string;
+  }>;
+};
+
+/**
+ * Everyone's own sends already go from their own mailbox. This only governs
+ * mail with no person behind it — automations without an owner, the Fishbowl
+ * digest, storefront order notifications — which previously went from whichever
+ * connected mailbox the database happened to return first.
+ */
+function SystemSenderCard() {
+  const [state, setState] = useState<SystemSenderState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/email/system-sender", { headers: await authHeader() });
+      const json = await res.json();
+      if (res.ok) setState(json as SystemSenderState);
+      else setError(json?.error ?? `Failed to load (${res.status})`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function choose(userId: string | null) {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/email/system-sender", {
+        method: "PUT",
+        headers: { ...(await authHeader()), "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) setError(json?.error ?? `Save failed (${res.status})`);
+      else {
+        setSavedAt(Date.now());
+        await load();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <CardShell
+      icon={<Send size={15} />}
+      title="Automated email sender"
+      subtitle="Which mailbox automations, digests, and order notifications send from"
+      iconTone="violet"
+    >
+      <Banner banner={error ? { kind: "error", text: error } : null} />
+
+      <p className="mb-4 text-xs leading-relaxed text-gray-500">
+        Emails you send yourself always go from your own connected mailbox — this
+        doesn&apos;t change that. It only covers mail the system sends on its own,
+        where there&apos;s no signed-in user to send as.
+      </p>
+
+      {loading ? (
+        <div className="py-6 text-center text-xs text-gray-400">Loading…</div>
+      ) : !state || state.mailboxes.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center">
+          <div className="text-xs font-medium text-gray-600">
+            No connected mailboxes
+          </div>
+          <p className="mt-1 text-[11px] text-gray-400">
+            Someone needs to connect Outlook under Email connection before
+            automated mail can send.
+          </p>
+        </div>
+      ) : (
+        <>
+          {state.is_fallback && (
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+              No mailbox is designated, so automated mail currently goes from the
+              oldest connected one. Pick one below to make it explicit — otherwise
+              it changes as mailboxes are connected or disconnected.
+            </div>
+          )}
+
+          <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+            {state.mailboxes.map((m) => {
+              const isDesignated = state.designated_user_id === m.user_id;
+              const isEffective = state.effective_user_id === m.user_id;
+              return (
+                <li key={m.user_id}>
+                  <button
+                    onClick={() => choose(m.user_id)}
+                    disabled={saving}
+                    className={clsx(
+                      "flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-gray-50 disabled:opacity-60",
+                      isDesignated && "bg-gray-50",
+                    )}
+                  >
+                    <span
+                      className={clsx(
+                        "h-3.5 w-3.5 shrink-0 rounded-full border",
+                        isDesignated ? "border-[5px] border-gray-900" : "border-gray-300",
+                      )}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium text-gray-800">
+                        {m.display_name || m.email}
+                      </span>
+                      {m.display_name && (
+                        <span className="block truncate text-[11px] text-gray-500">
+                          {m.email}
+                        </span>
+                      )}
+                    </span>
+                    {isEffective && !isDesignated && (
+                      <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                        in use (fallback)
+                      </span>
+                    )}
+                    {isDesignated && (
+                      <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                        in use
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-gray-400">
+              {savedAt && Date.now() - savedAt < 4000 ? "Saved." : " "}
+            </span>
+            {state.designated_user_id && (
+              <button
+                onClick={() => choose(null)}
+                disabled={saving}
+                className="text-[11px] font-medium text-gray-500 transition hover:text-gray-900 disabled:opacity-50"
+              >
+                Clear selection
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </CardShell>
   );
 }
 

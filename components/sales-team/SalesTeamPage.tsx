@@ -32,6 +32,10 @@ import RepFormModal from "./RepFormModal";
 
 const PAGE_SIZE = 25;
 
+/* Agency-filter sentinel for reps with no agency on file. Underscored so it
+   can't collide with a real agency name coming back from the table. */
+const NO_AGENCY = "__none__";
+
 /* ---------------------------
    Sorting
 --------------------------- */
@@ -140,10 +144,25 @@ export default function SalesTeamPage() {
     [reps],
   );
 
+  /* Reps with a blank agency are dropped from `agencies` above, so without a
+     dedicated option they'd only ever be reachable under "All agencies". */
+  const unassigned = useMemo(() => reps.filter((r) => !r.agency).length, [reps]);
+
+  /* If the selected agency stops existing — the last unassigned rep gets an
+     agency, or an agency's last rep is deleted — the <select> would strand on
+     a value with no matching <option> and show an empty table. Fall back. */
+  useEffect(() => {
+    if (reps.length === 0 || agency === "all") return;
+    const exists = agency === NO_AGENCY ? unassigned > 0 : agencies.includes(agency);
+    if (!exists) setAgency("all");
+  }, [reps.length, agency, agencies, unassigned]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return reps.filter((r) => {
-      if (agency !== "all" && r.agency !== agency) return false;
+      if (agency === NO_AGENCY) {
+        if (r.agency) return false;
+      } else if (agency !== "all" && r.agency !== agency) return false;
       if (q) {
         const hay = [r.name, r.agency, r.territory, r.city, r.state, r.email]
           .filter(Boolean)
@@ -291,12 +310,16 @@ export default function SalesTeamPage() {
           }}
           className={`hidden sm:block ${controlCls}`}
         >
-          <option value="all">All agencies ({reps.length})</option>
+          <option value="all">All agencies</option>
           {agencies.map((a) => (
             <option key={a} value={a}>
               {a}
             </option>
           ))}
+          {/* Only worth an option when there's actually something behind it. */}
+          {unassigned > 0 && (
+            <option value={NO_AGENCY}>No agency ({unassigned})</option>
+          )}
         </select>
 
         {isFiltered && (

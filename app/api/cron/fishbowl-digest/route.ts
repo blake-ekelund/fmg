@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
+import { resolveSystemSenderUserId } from "@/lib/email/systemSender";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { sendEmail } from "@/lib/email/send";
 import { orderRef, type StorefrontOrder } from "@/lib/storefrontOrder";
@@ -187,15 +188,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ sent: false, reason: "nothing needs Fishbowl entry", taskSync });
   }
 
-  // Sender: first connected Outlook account (same fallback as the automations
-  // cron). The digest mails from that mailbox to DIGEST_TO.
-  const { data: acct } = await supabaseServer
-    .from("user_email_accounts")
-    .select("user_id")
-    .eq("status", "connected")
-    .limit(1)
-    .maybeSingle();
-  const senderUserId = (acct?.user_id as string | null) ?? null;
+  // Sender: the mailbox designated in Settings → Email connection, falling back
+  // to the oldest connected one. The digest mails from there to DIGEST_TO.
+  const senderUserId = await resolveSystemSenderUserId();
   if (!senderUserId) {
     return NextResponse.json(
       { error: "No connected Outlook account to send from (Settings → Email)." },

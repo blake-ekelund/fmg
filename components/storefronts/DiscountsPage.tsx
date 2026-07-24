@@ -30,7 +30,8 @@ type Discount = {
   id: string;
   code: string;
   brand: "Sassy" | "NI" | "both";
-  kind: "percent" | "fixed";
+  /** 'free_item' = the matching items are free, bounded by scope_max_items. */
+  kind: "percent" | "fixed" | "free_item";
   value: number;
   min_subtotal: number | null;
   starts_at: string | null;
@@ -40,6 +41,15 @@ type Discount = {
   per_customer_limit: number | null;
   unique_codes: boolean;
   created_at: string;
+  /** 'include' = only cart lines matching `scope`; 'all' = whole order. */
+  scope_kind?: "all" | "include";
+  scope?: {
+    brands?: string[];
+    collections?: string[];
+    product_forms?: string[];
+    parts?: string[];
+  } | null;
+  scope_max_items?: number | null;
 };
 
 type Status = "active" | "scheduled" | "expired" | "paused";
@@ -64,17 +74,25 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-const BRAND_CHIP: Record<Discount["brand"], string> = {
-  Sassy: "bg-pink-50 text-pink-700 border-pink-200",
-  NI: "bg-blue-50 text-blue-700 border-blue-200",
-  both: "bg-gray-100 text-gray-600 border-gray-200",
+/** Shared input styling — the form repeated this string eight times. */
+const FIELD_CLS =
+  "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-brand-400 focus:outline-none";
+
+/* Brand reads as quiet metadata, not a status. It used to be a coloured chip
+   (pink / blue), which competed with the status chip beside it — two colour
+   systems on one row, neither winning. Status is the only thing here that is
+   genuinely a state, so it keeps the colour and everything else goes quiet. */
+const BRAND_LABEL: Record<Discount["brand"], string> = {
+  Sassy: "Sassy",
+  NI: "NI",
+  both: "Both stores",
 };
 
 const STATUS_CHIP: Record<Status, string> = {
-  active: "bg-green-50 text-green-700 border-green-200",
-  scheduled: "bg-amber-50 text-amber-700 border-amber-200",
-  expired: "bg-gray-100 text-gray-500 border-gray-200",
-  paused: "bg-gray-100 text-gray-500 border-gray-200",
+  active: "bg-positive-soft text-positive border-positive/20",
+  scheduled: "bg-warning-soft text-warning border-warning/20",
+  expired: "bg-surface-sunken text-ink-muted border-line",
+  paused: "bg-surface-sunken text-ink-muted border-line",
 };
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -85,7 +103,25 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 function discountLabel(d: Discount): string {
+  if (d.kind === "free_item") {
+    return d.scope_max_items && d.scope_max_items > 1
+      ? `${d.scope_max_items} free`
+      : "Free item";
+  }
   return d.kind === "percent" ? `${d.value}% off` : `$${d.value.toFixed(2)} off`;
+}
+
+/** Short read of what a code is limited to, for the list. */
+function scopeLabel(d: Discount): string | null {
+  if (d.scope_kind !== "include") return null;
+  const s = d.scope ?? {};
+  const all = [
+    ...(s.product_forms ?? []),
+    ...(s.collections ?? []),
+    ...(s.brands ?? []),
+  ];
+  if (all.length === 0) return null;
+  return all.length <= 2 ? all.join(", ") : `${all[0]} +${all.length - 1} more`;
 }
 
 function fmtMoney(n: number): string {
@@ -188,6 +224,148 @@ export default function DiscountsPage() {
   /* Save failures render inside the dialog — the page-level banner sits behind
      the overlay, so routing form errors there would hide them. */
   const [formError, setFormError] = useState<string | null>(null);
+  /* Five of the eight fields are optional. Showing all eight at equal weight
+     made it impossible to see what a code actually needs, so the optional ones
+     live behind a disclosure. */
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  /* Product scope — "50% off hand creme", "free travel candle". Matchers run
+     against the fields storefront_products already exposes, so checkout can
+     judge a cart line without extra lookups. */
+  const [scopeOn, setScopeOn] = useState(false);
+  const [scopeBrands, setScopeBrands] = useState<string[]>([]);
+  const [scopeCollections, setScopeCollections] = useState<string[]>([]);
+  const [scopeForms, setScopeForms] = useState<string[]>([]);
+  const [scopeMaxItems, setScopeMaxItems] = useState("");
+  /* The catalog itself, held client-side so each filter can narrow the next.
+     102 products — small enough to filter in memory, and the alternative
+     (a round trip per facet change) would feel laggy. */
+  const [catalog, setCatalog] = useState<
+    Array<{ brand: string; collection: string; form: string }>
+  >([]);
+
+  /* Read the catalog once. Scoping offers only values that exist — free text
+     like "hand creme" that matched no product_form would save happily and then
+     discount nothing.
+
+     product_type is deliberately absent: it is 'FG' on every product, so as a
+     filter it would divide nothing. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabaseBrowser()
+        .from("storefront_products")
+        .select("brand, collection, product_form")
+        .limit(5000);
+      if (cancelled || !data) return;
+      setCatalog(
+        (data as Record<string, unknown>[])
+          .map((r) => ({
+            brand: String(r.brand ?? "").trim(),
+            collection: String(r.collection ?? "").trim(),
+            form: String(r.product_form ?? "").trim(),
+          }))
+          .filter((r) => r.brand || r.collection || r.form),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* ── Cascading options ──
+     Brand narrows collections, and both narrow product titles, so you only
+     ever see choices that can actually match something. An empty selection at
+     a level means "all", not "none". */
+  const scopeOptions = useMemo(() => {
+    const count = (rows: typeof catalog, key: "brand" | "collection" | "form") => {
+      const m = new Map<string, number>();
+      for (const r of rows) {
+        const v = r[key];
+        if (v) m.set(v, (m.get(v) ?? 0) + 1);
+      }
+      return [...m.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([value, n]) => ({ value, count: n }));
+    };
+
+    const byBrand = scopeBrands.length
+      ? catalog.filter((r) => scopeBrands.includes(r.brand))
+      : catalog;
+    const byCollection = scopeCollections.length
+      ? byBrand.filter((r) => scopeCollections.includes(r.collection))
+      : byBrand;
+
+    return {
+      brands: count(catalog, "brand"),
+      collections: count(byBrand, "collection"),
+      forms: count(byCollection, "form"),
+      /** Products the current rule would actually hit. */
+      matches: scopeForms.length
+        ? byCollection.filter((r) => scopeForms.includes(r.form)).length
+        : byCollection.length,
+    };
+  }, [catalog, scopeBrands, scopeCollections, scopeForms]);
+
+  /* Drop selections a parent filter just invalidated — otherwise switching
+     brand to NI could leave a Sassy-only collection silently selected, and the
+     saved rule would match nothing. */
+  useEffect(() => {
+    const validCollections = new Set(scopeOptions.collections.map((c) => c.value));
+    setScopeCollections((prev) => {
+      const next = prev.filter((c) => validCollections.has(c));
+      return next.length === prev.length ? prev : next;
+    });
+    const validForms = new Set(scopeOptions.forms.map((f) => f.value));
+    setScopeForms((prev) => {
+      const next = prev.filter((f) => validForms.has(f));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [scopeOptions.collections, scopeOptions.forms]);
+
+  /* Why Save is unavailable, or null when the form is valid. A free-item code
+     with no product scope would make the entire cart free — that one is a
+     hard block, not a warning. */
+  const scopeHasMatchers =
+    scopeBrands.length + scopeCollections.length + scopeForms.length > 0;
+  const saveBlockedReason: string | null = !code.trim()
+    ? "Enter a code"
+    : kind === "free_item"
+      ? !scopeHasMatchers
+        ? "Choose which products are free — otherwise the whole cart would be"
+        : null
+      : !value
+        ? "Enter an amount"
+        : scopeOn && !scopeHasMatchers
+          ? "Pick at least one product rule, or turn off product scoping"
+          : null;
+
+  /* Reads the rule back as a sentence. Four separate matcher lists are easy to
+     misread as AND when they're OR, so state it plainly. */
+  /* Reads the rule back as a sentence. The levels combine with AND (Sassy AND
+     holiday AND Body Butter), which is the opposite of how a flat list of
+     chips reads — so spell it out rather than leave it to inference. */
+  const scopeSummary = (() => {
+    if (!scopeHasMatchers) return "Pick at least one filter — nothing selected matches nothing.";
+    const bits: string[] = [];
+    if (scopeBrands.length) bits.push(scopeBrands.join(" or "));
+    if (scopeCollections.length) bits.push(scopeCollections.join(" or "));
+    if (scopeForms.length) bits.push(scopeForms.join(" or "));
+    const rule = bits.join(" · ");
+    const n = scopeOptions.matches;
+    const cap = scopeMaxItems
+      ? `, up to ${scopeMaxItems} item${scopeMaxItems === "1" ? "" : "s"} per order`
+      : "";
+    return kind === "free_item"
+      ? `Free: ${rule} — ${n} product${n === 1 ? "" : "s"} qualify${cap || ", one per order"}.`
+      : `Applies to ${rule} — ${n} product${n === 1 ? "" : "s"} qualify${cap}.`;
+  })();
+
+  /** How many optional fields carry a value — surfaced on the collapsed
+      trigger so nothing set is ever hidden without a hint. */
+  const optionalSetCount = [minSubtotal, startsAt, endsAt, perCustomerLimit, note].filter(
+    (v) => v.trim() !== "",
+  ).length;
 
   const reload = useCallback(async () => {
     try {
@@ -323,6 +501,11 @@ export default function DiscountsPage() {
     setPerCustomerLimit("");
     setUniqueCodes(false);
     setGenCount("");
+    setScopeOn(false);
+    setScopeBrands([]);
+    setScopeCollections([]);
+    setScopeForms([]);
+    setScopeMaxItems("");
   }, []);
 
   const closeForm = useCallback(() => {
@@ -336,6 +519,7 @@ export default function DiscountsPage() {
       closeForm();
     } else {
       resetForm();
+      setShowAdvanced(false); // a new code needs only the three essentials
       setFormError(null);
       setShowForm(true);
     }
@@ -370,6 +554,23 @@ export default function DiscountsPage() {
     setPerCustomerLimit(d.per_customer_limit != null ? String(d.per_customer_limit) : "");
     setUniqueCodes(d.unique_codes);
     setGenCount("");
+    // Round-trip the scope, or editing a scoped code would quietly widen it
+    // back to the whole order on save.
+    const sc = d.scope ?? {};
+    setScopeOn(d.scope_kind === "include");
+    setScopeBrands(sc.brands ?? []);
+    setScopeCollections(sc.collections ?? []);
+    setScopeForms(sc.product_forms ?? []);
+    setScopeMaxItems(d.scope_max_items != null ? String(d.scope_max_items) : "");
+    /* Open the optional section when this code already uses any of it —
+       otherwise editing would silently hide values that are actually set. */
+    setShowAdvanced(
+      d.min_subtotal != null ||
+        d.per_customer_limit != null ||
+        !!d.starts_at ||
+        !!d.ends_at ||
+        !!d.note,
+    );
     setError(null);
     setFormError(null);
     setShowForm(true);
@@ -395,6 +596,15 @@ export default function DiscountsPage() {
         note: note || null,
         per_customer_limit: perCustomerLimit ? Number(perCustomerLimit) : null,
         unique_codes: uniqueCodes,
+        scope_kind: scopeOn ? "include" : "all",
+        scope: scopeOn
+          ? {
+              brands: scopeBrands,
+              collections: scopeCollections,
+              product_forms: scopeForms,
+            }
+          : {},
+        scope_max_items: scopeOn && scopeMaxItems ? Number(scopeMaxItems) : null,
       };
 
       const res = await fetch("/api/storefront-discounts", {
@@ -535,11 +745,15 @@ export default function DiscountsPage() {
     );
   }
 
+  /* One tint, not four. These are four readings of the same thing, so colouring
+     them differently implied a distinction that doesn't exist — and green vs
+     emerald were near-identical anyway. Only "Discount given" is tinted, as the
+     one figure that is money leaving rather than arriving. */
   const SUMMARY = [
-    { label: "Active codes", value: String(totals.active), icon: BadgeCheck, tint: "text-green-600 bg-green-50" },
-    { label: "Uses", value: totals.uses.toLocaleString(), icon: Hash, tint: "text-violet-600 bg-violet-50" },
-    { label: "Spent", value: fmtMoney(totals.spent), icon: DollarSign, tint: "text-emerald-600 bg-emerald-50" },
-    { label: "Discount given", value: fmtMoney(totals.discount), icon: Scissors, tint: "text-amber-600 bg-amber-50" },
+    { label: "Active codes", value: String(totals.active), icon: BadgeCheck, tint: "text-brand-700 bg-brand-50" },
+    { label: "Uses", value: totals.uses.toLocaleString(), icon: Hash, tint: "text-brand-700 bg-brand-50" },
+    { label: "Spent", value: fmtMoney(totals.spent), icon: DollarSign, tint: "text-brand-700 bg-brand-50" },
+    { label: "Discount given", value: fmtMoney(totals.discount), icon: Scissors, tint: "text-warning bg-warning-soft" },
   ];
 
   return (
@@ -592,8 +806,8 @@ export default function DiscountsPage() {
             aria-label={editingId ? "Edit discount code" : "New discount code"}
           >
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
-              <h2 className="text-sm font-semibold text-gray-900">
+            <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+              <h2 className="text-sm font-semibold text-ink">
                 {editingId ? "Edit discount code" : "New discount code"}
               </h2>
               <button
@@ -601,7 +815,7 @@ export default function DiscountsPage() {
                 onClick={closeForm}
                 disabled={saving}
                 aria-label="Close"
-                className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40"
+                className="rounded-lg p-1.5 text-ink-subtle transition hover:bg-surface-muted hover:text-ink disabled:opacity-40"
               >
                 <X size={16} />
               </button>
@@ -612,7 +826,7 @@ export default function DiscountsPage() {
             <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">
+                  <label className="text-xs font-medium text-ink-secondary">
                     {uniqueCodes ? "Batch name (prefix)" : "Code"}
                   </label>
                   <input
@@ -620,11 +834,11 @@ export default function DiscountsPage() {
                     value={code}
                     onChange={(e) => setCode(e.target.value.toUpperCase())}
                     placeholder={uniqueCodes ? "INFLUENCER" : "GLOWUP15"}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm uppercase focus:outline-none focus:ring-2 focus:ring-gray-300"
+                    className={FIELD_CLS + " font-mono uppercase"}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">Brand</label>
+                  <label className="text-xs font-medium text-ink-secondary">Store</label>
                   <div className="flex gap-1.5">
                     {(["Sassy", "NI", "both"] as const).map((b) => (
                       <button
@@ -634,8 +848,8 @@ export default function DiscountsPage() {
                         className={clsx(
                           "flex-1 rounded-lg border px-2 py-2 text-xs font-medium transition",
                           brand === b
-                            ? "border-gray-900 bg-gray-900 text-white"
-                            : "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+                            ? "border-brand-700 bg-brand-700 text-white"
+                            : "border-line bg-surface text-ink-muted hover:border-line-strong"
                         )}
                       >
                         {b === "both" ? "Both" : b}
@@ -644,103 +858,253 @@ export default function DiscountsPage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">Amount</label>
+                  <label className="text-xs font-medium text-ink-secondary">Amount</label>
                   <div className="flex gap-1.5">
                     <select
                       value={kind}
-                      onChange={(e) => setKind(e.target.value as Discount["kind"])}
-                      className="rounded-lg border border-gray-200 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                      onChange={(e) => {
+                        const next = e.target.value as Discount["kind"];
+                        setKind(next);
+                        /* "Free" with no scope would zero the whole cart, so
+                           choosing it turns scoping on and opens the picker. */
+                        if (next === "free_item") setScopeOn(true);
+                      }}
+                      className="rounded-lg border border-line bg-surface px-2 py-2 text-sm text-ink focus:border-brand-400 focus:outline-none"
                     >
                       <option value="percent">% off</option>
                       <option value="fixed">$ off</option>
+                      <option value="free_item">Free</option>
                     </select>
-                    <input
-                      value={value}
-                      onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, ""))}
-                      placeholder={kind === "percent" ? "15" : "10.00"}
-                      inputMode="decimal"
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
-                    />
+                    {kind === "free_item" ? (
+                      <div className="flex w-full items-center rounded-lg border border-line bg-surface-muted px-3 py-2 text-sm text-ink-muted">
+                        100% off the chosen items
+                      </div>
+                    ) : (
+                      <input
+                        value={value}
+                        onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, ""))}
+                        placeholder={kind === "percent" ? "15" : "10.00"}
+                        inputMode="decimal"
+                        className={FIELD_CLS + " tabular-nums"}
+                      />
+                    )}
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">
-                    Minimum subtotal (optional)
-                  </label>
+              </div>
+
+              {/* ── What it applies to ──
+                  Off by default: an order-wide code is still the common case,
+                  and this is the one setting that can quietly change how much
+                  money a code gives away. */}
+              <div
+                className={clsx(
+                  "mt-4 rounded-lg border",
+                  scopeOn ? "border-brand-300 bg-brand-50/40" : "border-line",
+                )}
+              >
+                <label className="flex cursor-pointer items-start gap-2 px-3 py-2.5">
                   <input
-                    value={minSubtotal}
-                    onChange={(e) =>
-                      setMinSubtotal(e.target.value.replace(/[^\d.]/g, ""))
-                    }
-                    placeholder="50"
-                    inputMode="decimal"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
+                    type="checkbox"
+                    checked={scopeOn}
+                    onChange={(e) => setScopeOn(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-line-strong accent-brand-700"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">
-                    Starts (optional)
-                  </label>
-                  <input
-                    type="date"
-                    value={startsAt}
-                    onChange={(e) => setStartsAt(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  <span className="min-w-0">
+                    <span className="block text-xs font-medium text-ink">
+                      Only certain products
+                    </span>
+                    <span className="block text-[11px] text-ink-muted">
+                      {kind === "free_item"
+                        ? "Which product the shopper gets free."
+                        : "Limit the discount to matching items instead of the whole order."}
+                    </span>
+                  </span>
+                </label>
+
+                {scopeOn ? (
+                  <div className="space-y-3 border-t border-brand-200 px-3 py-3">
+                    {/* Ordered widest to narrowest, and each one narrows the
+                        next: pick Sassy and only Sassy collections remain. */}
+                    <ScopeFacet
+                      step={1}
+                      label="Brand"
+                      hint="All brands"
+                      options={scopeOptions.brands}
+                      selected={scopeBrands}
+                      onChange={setScopeBrands}
+                    />
+                    <ScopeFacet
+                      step={2}
+                      label="Collection"
+                      hint="All collections"
+                      options={scopeOptions.collections}
+                      selected={scopeCollections}
+                      onChange={setScopeCollections}
+                    />
+                    <ScopeFacet
+                      step={3}
+                      label="Product title"
+                      hint="All products"
+                      options={scopeOptions.forms}
+                      selected={scopeForms}
+                      onChange={setScopeForms}
+                    />
+
+                    <div className="flex flex-wrap items-center gap-2 border-t border-brand-200 pt-3">
+                      <label className="text-[11px] font-medium text-ink-secondary">
+                        Apply to at most
+                      </label>
+                      <input
+                        value={scopeMaxItems}
+                        onChange={(e) =>
+                          setScopeMaxItems(e.target.value.replace(/[^\d]/g, ""))
+                        }
+                        placeholder={kind === "free_item" ? "1" : "All matching"}
+                        inputMode="numeric"
+                        className="w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-xs tabular-nums text-ink focus:border-brand-400 focus:outline-none"
+                      />
+                      <span className="text-[11px] text-ink-muted">
+                        matching item{scopeMaxItems === "1" ? "" : "s"} in the cart
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-ink-muted">
+                      {scopeSummary}
+                    </p>
+
+                    {/* The scope is meaningless until the storefront reads the
+                        v2 view, so say so where the decision is made. */}
+                    <div className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning-soft px-2.5 py-2 text-[11px] text-warning">
+                      <AlertTriangle size={12} className="mt-px shrink-0" />
+                      <span>
+                        Scoped codes are hidden from storefronts still reading
+                        the original discounts view — they&apos;ll report
+                        &ldquo;invalid code&rdquo; rather than discount the whole
+                        cart. Ship the checkout update before promoting this code.
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* ── Optional: limits, dates, note ──
+                  Collapsed by default so the three fields a code actually needs
+                  aren't buried among five it doesn't. The trigger reports how
+                  many are set, so a collapsed section never hides data
+                  silently. */}
+              <div className="mt-4 rounded-lg border border-line">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  aria-expanded={showAdvanced}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition hover:bg-surface-muted"
+                >
+                  <span className="text-xs font-medium text-ink-secondary">
+                    Limits, dates &amp; note
+                    {optionalSetCount > 0 ? (
+                      <span className="ml-1.5 rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">
+                        {optionalSetCount} set
+                      </span>
+                    ) : (
+                      <span className="ml-1.5 text-[11px] font-normal text-ink-subtle">
+                        optional
+                      </span>
+                    )}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={clsx(
+                      "shrink-0 text-ink-subtle transition-transform",
+                      showAdvanced && "rotate-180",
+                    )}
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">
-                    Ends (optional)
-                  </label>
-                  <input
-                    type="date"
-                    value={endsAt}
-                    min={startsAt || undefined}
-                    onChange={(e) => setEndsAt(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">
-                    Max uses per customer (optional)
-                  </label>
-                  <input
-                    value={perCustomerLimit}
-                    onChange={(e) => setPerCustomerLimit(e.target.value.replace(/[^\d]/g, ""))}
-                    placeholder="Unlimited"
-                    inputMode="numeric"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
-                  />
-                </div>
-                <div className="space-y-1.5 md:col-span-2">
-                  <label className="text-xs font-medium text-gray-500">
-                    Internal note (optional)
-                  </label>
-                  <input
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="newsletter welcome offer"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-                  />
-                </div>
+                </button>
+
+                {showAdvanced ? (
+                  <div className="grid grid-cols-1 gap-4 border-t border-line px-3 py-3 md:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-ink-muted">
+                        Minimum subtotal
+                      </label>
+                      <input
+                        value={minSubtotal}
+                        onChange={(e) =>
+                          setMinSubtotal(e.target.value.replace(/[^\d.]/g, ""))
+                        }
+                        placeholder="No minimum"
+                        inputMode="decimal"
+                        className={FIELD_CLS + " tabular-nums"}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-ink-muted">Starts</label>
+                      <input
+                        type="date"
+                        value={startsAt}
+                        onChange={(e) => setStartsAt(e.target.value)}
+                        className={FIELD_CLS}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-ink-muted">Ends</label>
+                      <input
+                        type="date"
+                        value={endsAt}
+                        min={startsAt || undefined}
+                        onChange={(e) => setEndsAt(e.target.value)}
+                        className={FIELD_CLS}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-ink-muted">
+                        Max uses per customer
+                      </label>
+                      <input
+                        value={perCustomerLimit}
+                        onChange={(e) =>
+                          setPerCustomerLimit(e.target.value.replace(/[^\d]/g, ""))
+                        }
+                        placeholder="Unlimited"
+                        inputMode="numeric"
+                        className={FIELD_CLS + " tabular-nums"}
+                      />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <label className="text-xs font-medium text-ink-muted">
+                        Internal note
+                      </label>
+                      <input
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="newsletter welcome offer"
+                        className={FIELD_CLS}
+                      />
+                    </div>
+                    <p className="text-[11px] text-ink-subtle md:col-span-3">
+                      Leave the dates blank for an always-on code. Dates follow
+                      your local day — a start applies from midnight, an end
+                      lasts through the whole day.
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               {/* Unique single-use code batch (only when creating) */}
               {!editingId ? (
-                <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50/60 p-3">
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                <div className="mt-4 rounded-lg border border-line bg-surface-muted p-3">
+                  <label className="flex items-center gap-2 text-sm text-ink-secondary">
                     <input
                       type="checkbox"
                       checked={uniqueCodes}
                       onChange={(e) => setUniqueCodes(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400"
+                      className="h-4 w-4 rounded border-line-strong accent-brand-700"
                     />
                     Unique one-time codes — generate a batch of single-use codes
                   </label>
                   {uniqueCodes ? (
                     <div className="mt-3 flex flex-wrap items-end gap-3 pl-6">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-gray-500">
+                        <label className="text-xs font-medium text-ink-muted">
                           How many to generate
                         </label>
                         <input
@@ -748,12 +1112,12 @@ export default function DiscountsPage() {
                           onChange={(e) => setGenCount(e.target.value.replace(/[^\d]/g, ""))}
                           placeholder="100"
                           inputMode="numeric"
-                          className="w-28 rounded-lg border border-gray-200 px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300"
+                          className="w-28 rounded-lg border border-line bg-surface px-3 py-2 text-sm tabular-nums text-ink focus:border-brand-400 focus:outline-none"
                         />
                       </div>
-                      <p className="max-w-md text-xs text-gray-400">
+                      <p className="max-w-md text-xs text-ink-subtle">
                         Each shopper gets a one-time code like{" "}
-                        <code className="rounded bg-gray-100 px-1 py-0.5">
+                        <code className="rounded bg-surface-sunken px-1 py-0.5">
                           {(code || "SAVE")}-7K2QX9
                         </code>
                         . The amount/dates above apply to the whole batch. You can
@@ -763,11 +1127,6 @@ export default function DiscountsPage() {
                   ) : null}
                 </div>
               ) : null}
-
-              <p className="mt-3 text-xs text-gray-400">
-                Leave the dates blank for an always-on code. Dates follow your local
-                day — a start applies from midnight, an end lasts through the whole day.
-              </p>
 
               {formError ? (
                 <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -789,7 +1148,8 @@ export default function DiscountsPage() {
               </button>
               <button
                 type="button"
-                disabled={!code.trim() || !value || saving}
+                disabled={!!saveBlockedReason || saving}
+                title={saveBlockedReason ?? undefined}
                 onClick={submitForm}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -833,14 +1193,15 @@ export default function DiscountsPage() {
             ))}
           </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-            <table className="w-full min-w-[860px] text-sm">
+          {/* Table — desktop only. Eight columns in an 860px-min scroller meant
+              a phone showed roughly a third of one row; cards below carry the
+              same data in reading order. */}
+          <div className="hidden overflow-x-auto rounded-xl border border-line bg-surface md:block">
+            <table className="w-full min-w-[820px] text-sm">
               <thead className="border-b border-gray-100 bg-gray-50/70">
                 <tr>
                   <SortHeader label="Code" sortKey="code" />
                   <SortHeader label="Discount" sortKey="value" />
-                  <SortHeader label="Brand" sortKey="brand" />
                   <SortHeader label="Status" sortKey="status" />
                   <SortHeader label="Window" sortKey="window" />
                   <SortHeader label="Uses" sortKey="uses" numeric />
@@ -852,7 +1213,7 @@ export default function DiscountsPage() {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-10 text-center text-sm text-gray-400">
+                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-ink-muted">
                       No codes for this store.
                     </td>
                   </tr>
@@ -868,23 +1229,37 @@ export default function DiscountsPage() {
                       >
                         <td className="px-3 py-3 align-top">
                           <div className="flex items-center gap-2">
-                            <code className="rounded-md bg-gray-900 px-2 py-1 font-mono text-xs font-semibold tracking-wide text-white">
+                            <code className="rounded-md bg-brand-900 px-2 py-1 font-mono text-xs font-semibold tracking-wide text-white">
                               {d.code}
                             </code>
                             {d.unique_codes ? (
-                              <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
+                              <span className="rounded-full border border-line bg-surface-sunken px-2 py-0.5 text-[10px] font-medium text-ink-muted">
                                 Unique
                               </span>
                             ) : null}
                           </div>
-                          {d.note ? (
-                            <div className="mt-1 max-w-[200px] truncate text-[11px] text-gray-400" title={d.note}>
-                              {d.note}
-                            </div>
-                          ) : null}
+                          {/* Brand lives here rather than in its own column —
+                              it's an attribute of the code, and as a column it
+                              cost a full ninth of the grid to say "NI". */}
+                          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-subtle">
+                            <span>{BRAND_LABEL[d.brand]}</span>
+                            {d.note ? (
+                              <span className="max-w-[180px] truncate" title={d.note}>
+                                · {d.note}
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-3 font-medium text-gray-900">
+                        <td className="whitespace-nowrap px-3 py-3 font-medium text-ink">
                           {discountLabel(d)}
+                          {scopeLabel(d) ? (
+                            <span
+                              className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700"
+                              title={`Only applies to ${scopeLabel(d)}`}
+                            >
+                              {scopeLabel(d)}
+                            </span>
+                          ) : null}
                           {d.min_subtotal ? (
                             <span className="ml-1 text-[11px] font-normal text-gray-400">
                               min ${d.min_subtotal}
@@ -895,16 +1270,6 @@ export default function DiscountsPage() {
                               · {d.per_customer_limit}/customer
                             </span>
                           ) : null}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span
-                            className={clsx(
-                              "rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                              BRAND_CHIP[d.brand]
-                            )}
-                          >
-                            {d.brand === "both" ? "Both" : d.brand}
-                          </span>
                         </td>
                         <td className="px-3 py-3">
                           <span
@@ -1005,7 +1370,9 @@ export default function DiscountsPage() {
               {filtered.length > 0 ? (
                 <tfoot className="border-t border-gray-200 bg-gray-50/70">
                   <tr className="text-xs font-medium text-gray-600">
-                    <td className="px-3 py-2.5" colSpan={5}>
+                    {/* Code, Discount, Status, Window — brand is no longer a
+                        column, so this spans 4 rather than 5. */}
+                    <td className="px-3 py-2.5" colSpan={4}>
                       Totals · {filtered.length} {filtered.length === 1 ? "code" : "codes"}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
@@ -1019,6 +1386,147 @@ export default function DiscountsPage() {
               ) : null}
             </table>
           </div>
+
+          {/* Mobile: one card per code */}
+          <ul className="space-y-2 md:hidden">
+            {paged.length === 0 ? (
+              <li className="rounded-xl border border-line bg-surface px-4 py-10 text-center text-[11px] text-ink-muted">
+                No codes match these filters.
+              </li>
+            ) : (
+              paged.map((d) => {
+                const status = statusOf(d);
+                const m = metricFor(d);
+                const batch = batches[d.id];
+                return (
+                  <li key={d.id} className="rounded-xl border border-line bg-surface p-3 shadow-card">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <code className="rounded-md bg-brand-900 px-2 py-1 font-mono text-xs font-semibold tracking-wide text-white">
+                            {d.code}
+                          </code>
+                          <span
+                            className={clsx(
+                              "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                              STATUS_CHIP[status]
+                            )}
+                          >
+                            {STATUS_LABEL[status]}
+                          </span>
+                          {d.unique_codes ? (
+                            <span className="rounded-full border border-line bg-surface-sunken px-2 py-0.5 text-[10px] font-medium text-ink-muted">
+                              Unique
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 text-xs font-medium text-ink">
+                          {discountLabel(d)}
+                          {scopeLabel(d) ? (
+                            <span className="ml-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
+                              {scopeLabel(d)}
+                            </span>
+                          ) : null}
+                          {d.min_subtotal ? (
+                            <span className="font-normal text-ink-subtle"> · min ${d.min_subtotal}</span>
+                          ) : null}
+                          {d.per_customer_limit ? (
+                            <span className="font-normal text-ink-subtle">
+                              {" "}
+                              · {d.per_customer_limit}/customer
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-ink-subtle">
+                          {BRAND_LABEL[d.brand]} · {dateWindowLabel(d)}
+                        </div>
+                        {d.note ? (
+                          <div className="mt-0.5 truncate text-[11px] text-ink-subtle">{d.note}</div>
+                        ) : null}
+                      </div>
+
+                      {/* Active toggle stays top-right, thumb-reachable */}
+                      {busyId === d.id ? (
+                        <Loader2 size={15} className="mt-1 shrink-0 animate-spin text-ink-subtle" />
+                      ) : (
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={d.active}
+                          onClick={() => toggleActive(d)}
+                          title={d.active ? "Active — tap to pause" : "Paused — tap to activate"}
+                          className={clsx(
+                            "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition",
+                            d.active
+                              ? "border-brand-700 bg-brand-700 text-white"
+                              : "border-line-strong bg-surface text-transparent"
+                          )}
+                        >
+                          <Check size={14} strokeWidth={3} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Performance — only the figures that mean something for
+                        this code type. A unique batch has no per-code spend, so
+                        the desktop table's permanent "—" cells are simply
+                        absent here rather than rendered as blanks. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2 text-[11px]">
+                      <span className="text-ink-secondary">
+                        <span className="tabular-nums font-medium text-ink">
+                          {d.unique_codes ? `${m.uses}/${batch?.total ?? 0}` : m.uses.toLocaleString()}
+                        </span>{" "}
+                        {d.unique_codes ? "redeemed" : "uses"}
+                      </span>
+                      {!d.unique_codes && m.uses > 0 ? (
+                        <>
+                          <span className="text-ink-secondary">
+                            <span className="tabular-nums font-medium text-ink">
+                              {fmtMoney(m.spent)}
+                            </span>{" "}
+                            spent
+                          </span>
+                          <span className="text-ink-secondary">
+                            <span className="tabular-nums font-medium text-warning">
+                              {fmtMoney(m.discount)}
+                            </span>{" "}
+                            given
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-1.5">
+                      {d.unique_codes ? (
+                        <button
+                          type="button"
+                          onClick={() => setCodesFor(d)}
+                          className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-[11px] font-medium text-ink-secondary transition active:bg-surface-muted"
+                        >
+                          <List size={12} /> Codes
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => beginEdit(d)}
+                        className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-line px-2.5 text-[11px] font-medium text-ink-secondary transition active:bg-surface-muted"
+                      >
+                        <Pencil size={12} /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => askDelete(d)}
+                        aria-label={`delete ${d.code}`}
+                        className="ml-auto inline-flex min-h-9 items-center rounded-lg border border-line px-2.5 text-ink-subtle transition active:bg-critical-soft active:text-critical"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })
+            )}
+          </ul>
 
           {/* Pagination */}
           {filtered.length > PAGE_SIZE ? (
@@ -1079,6 +1587,127 @@ export default function DiscountsPage() {
           onCancel={() => setDeleteTarget(null)}
           onConfirm={confirmDelete}
         />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * One facet of a product scope: a searchable checkbox list over real catalog
+ * values. Deliberately not free text — a typed "hand creme" that matches no
+ * product_type would save happily and then discount nothing.
+ */
+function ScopeFacet({
+  step,
+  label,
+  hint,
+  options,
+  selected,
+  onChange,
+}: {
+  step: number;
+  label: string;
+  hint?: string;
+  options: Array<{ value: string; count: number }>;
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+
+  const shown = q.trim()
+    ? options.filter((o) => o.value.toLowerCase().includes(q.trim().toLowerCase()))
+    : options;
+
+  function toggle(v: string) {
+    onChange(selected.includes(v) ? selected.filter((s) => s !== v) : [...selected, v]);
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-ink-secondary">
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-[9px] font-semibold text-ink-muted">
+            {step}
+          </span>
+          {label}
+          {selected.length > 0 ? (
+            <span className="rounded-full bg-brand-700 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+              {selected.length}
+            </span>
+          ) : hint ? (
+            <span className="font-normal text-ink-subtle">{hint}</span>
+          ) : null}
+        </span>
+        <ChevronDown
+          size={13}
+          className={clsx("shrink-0 text-ink-subtle transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {selected.length > 0 && !open ? (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {selected.map((s) => (
+            <span
+              key={s}
+              className="rounded-full border border-line bg-surface px-1.5 py-0.5 text-[10px] text-ink-secondary"
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {open ? (
+        <div className="mt-1.5 rounded-lg border border-line bg-surface">
+          {options.length > 8 ? (
+            <div className="border-b border-line p-1.5">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={`Search ${label.toLowerCase()}…`}
+                className="w-full rounded-md border border-line px-2 py-1 text-xs focus:border-brand-400 focus:outline-none"
+              />
+            </div>
+          ) : null}
+          <div className="max-h-40 overflow-y-auto p-1">
+            {shown.length === 0 ? (
+              <p className="px-2 py-3 text-center text-[11px] text-ink-subtle">
+                {options.length === 0 ? "Nothing in the catalog yet" : "No matches"}
+              </p>
+            ) : (
+              shown.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => toggle(o.value)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink-secondary hover:bg-surface-muted"
+                >
+                  <span
+                    className={clsx(
+                      "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border",
+                      selected.includes(o.value)
+                        ? "border-brand-700 bg-brand-700 text-white"
+                        : "border-line-strong",
+                    )}
+                  >
+                    {selected.includes(o.value) ? <Check size={9} strokeWidth={3} /> : null}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{o.value}</span>
+                  {/* How many products sit behind this choice, after the
+                      filters above it. */}
+                  <span className="shrink-0 tabular-nums text-[10px] text-ink-subtle">
+                    {o.count}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -1302,7 +1931,7 @@ function CodesModal({
         className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div>
             <h3 className="text-sm font-semibold text-gray-900">
               Codes · <span className="font-mono">{discount.code}</span>

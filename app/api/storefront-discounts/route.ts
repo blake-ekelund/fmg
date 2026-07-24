@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 
 const BRANDS = ["Sassy", "NI", "both"] as const;
-const KINDS = ["percent", "fixed"] as const;
+const KINDS = ["percent", "fixed", "free_item"] as const;
 
 /** Per-code usage rolled up from the storefront orders table. */
 type Metric = { uses: number; spent: number; discount: number };
@@ -121,6 +121,61 @@ function parsePerCustomerLimit(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** The scope matcher keys, in the order the UI presents them. */
+const SCOPE_KEYS = [
+  "brands",
+  "collections",
+  /* storefront_products.product_form — "Boxed Hand Creme", "Body Butter".
+     product_type is NOT a key: it is 'FG' on every product. */
+  "product_forms",
+  "parts",
+] as const;
+
+/**
+ * Normalize product-scope fields off a request body.
+ *
+ * Returns all three columns together so create and update can't drift: a code
+ * scoped to nothing must be stored as scope_kind='all' with an empty object,
+ * never as 'include' with no matchers — that would match zero cart lines and
+ * silently discount nothing while looking configured.
+ */
+function parseScope(body: Record<string, unknown> | null | undefined): {
+  scope_kind: "all" | "include";
+  scope: Record<string, string[]>;
+  scope_max_items: number | null;
+} {
+  const raw = (body?.scope ?? {}) as Record<string, unknown>;
+  const scope: Record<string, string[]> = {};
+
+  for (const key of SCOPE_KEYS) {
+    const list = raw?.[key];
+    if (!Array.isArray(list)) continue;
+    const cleaned = [
+      ...new Set(
+        list
+          .map((v) => String(v).trim())
+          .filter((v) => v.length > 0),
+      ),
+    ];
+    if (cleaned.length > 0) scope[key] = cleaned;
+  }
+
+  const wantsInclude = body?.scope_kind === "include";
+  const hasMatchers = Object.keys(scope).length > 0;
+
+  // Asking to scope without naming anything is treated as unscoped.
+  if (!wantsInclude || !hasMatchers) {
+    return { scope_kind: "all", scope: {}, scope_max_items: null };
+  }
+
+  const maxItems = Math.floor(Number(body?.scope_max_items));
+  return {
+    scope_kind: "include",
+    scope,
+    scope_max_items: Number.isFinite(maxItems) && maxItems > 0 ? maxItems : null,
+  };
+}
+
 /** Generated vs. redeemed counts per unique-code discount, for the table. */
 async function computeBatchCounts(): Promise<
   Record<string, { total: number; redeemed: number }>
@@ -180,7 +235,10 @@ export async function POST(request: Request) {
     .toUpperCase();
   const brand = String(body?.brand ?? "both");
   const kind = String(body?.kind ?? "percent");
-  const value = Number(body?.value);
+  /* A free item has no percentage or dollar amount, but the table's
+     `check (value > 0)` still has to be satisfied — store it as 100, which is
+     literally what it is: 100% off the matching lines. */
+  const value = kind === "free_item" ? 100 : Number(body?.value);
 
   if (!code) {
     return NextResponse.json({ error: "code is required" }, { status: 400 });
@@ -218,6 +276,7 @@ export async function POST(request: Request) {
     active: body?.active !== false,
     per_customer_limit: parsePerCustomerLimit(body?.per_customer_limit),
     unique_codes: body?.unique_codes === true,
+    ...parseScope(body),
   };
 
   const { data, error } = await supabaseServer
@@ -300,6 +359,9 @@ export async function PATCH(request: Request) {
     const minSubtotal = Number(body.min_subtotal);
     patch.min_subtotal =
       Number.isFinite(minSubtotal) && minSubtotal > 0 ? minSubtotal : null;
+  }
+  if (body?.scope_kind !== undefined || body?.scope !== undefined) {
+    Object.assign(patch, parseScope(body));
   }
   if (body?.per_customer_limit !== undefined) {
     patch.per_customer_limit = parsePerCustomerLimit(body.per_customer_limit);
