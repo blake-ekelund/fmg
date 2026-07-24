@@ -46,32 +46,38 @@ LEFT JOIN COUNTRYCONST COUNTRYCONST_Bill ON so.billToCountryId = COUNTRYCONST_Bi
 LEFT JOIN COUNTRYCONST COUNTRYCONST_Ship ON so.shipToCountryId = COUNTRYCONST_Ship.id`;
 
 /**
- * Shipments + tracking numbers — ⚠️ UNVERIFIED against this Fishbowl instance.
+ * Per-carton shipment tracking. Verified against this instance 2026-07-24.
  *
  * Fishbowl records shipping separately from the sales order: a `ship` header
- * (carrier, ship date) with one or more `shipcarton` rows, and the tracking
- * number lives on the carton, not the order. That's why nothing tracking-shaped
- * appears in SALES_ORDERS_SQL — it isn't a column on `so` at all.
+ * (carrier, ship date, status) joined to the SO by `ship.soId = so.id`, with one
+ * or more `shipcarton` rows — and the tracking number lives on the carton
+ * (`shipcarton.trackingNum`), which is why nothing tracking-shaped is on `so`.
  *
- * Table and column names vary by Fishbowl version, so run the SHIP_PROBE_*
- * queries in /fishbowl-sandbox first and correct this before wiring it into the
- * sync. Joining shipments to orders is the part most likely to differ: some
- * versions expose ship.soId, others use ship.orderId + ship.orderTypeId (20=SO).
+ * Coverage is effectively 100% — every carton row carries a trackingNum. One row
+ * per carton: an order can ship in several cartons / several shipments, each with
+ * its own number. `dateShipped` is NULL until the shipment actually ships — a
+ * pre-printed label already has a tracking number but no ship date.
+ *
+ * ⚠ Carrier is unreliable: ~96% of shipments book to carrier "RATESHOP" (a
+ * rate-shopper), not the real carrier, so the actual carrier is derived from the
+ * tracking-number format app-side (lib/tracking.ts `detectCarrier`). We still
+ * pull `carrier.name` for the minority booked to a real carrier directly.
  */
 export const SHIPMENTS_SQL = `SELECT
+  ship.soId AS soId,
   so.num AS orderNum,
   ship.num AS shipmentNum,
-  ship.dateShipped,
-  SHIPSTATUS.name AS shipStatus,
-  CARRIER.name AS carrier,
-  CARRIERSERVICE.name AS carrierService,
-  shipcarton.trackingNum
-FROM ship
+  ship.dateShipped AS dateShipped,
+  ship.statusId AS shipStatusId,
+  ship.carrierId AS carrierId,
+  carrier.name AS carrier,
+  shipcarton.trackingNum AS trackingNum,
+  shipcarton.cartonNum AS cartonNum
+FROM shipcarton
+JOIN ship ON shipcarton.shipId = ship.id
 LEFT JOIN so ON ship.soId = so.id
-LEFT JOIN shipcarton ON shipcarton.shipId = ship.id
-LEFT JOIN CARRIER ON ship.carrierId = CARRIER.id
-LEFT JOIN CARRIERSERVICE ON ship.carrierServiceId = CARRIERSERVICE.id
-LEFT JOIN SHIPSTATUS ON ship.statusId = SHIPSTATUS.id`;
+LEFT JOIN carrier ON ship.carrierId = carrier.id
+WHERE shipcarton.trackingNum IS NOT NULL AND shipcarton.trackingNum <> ''`;
 
 /* Discovery probes — run these first. Each returns a handful of rows so the
    real column names are visible; `SELECT *` is deliberate here. */

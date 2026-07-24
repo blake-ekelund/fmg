@@ -1,9 +1,26 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { resolvePortalAgency } from "@/lib/email/server-auth";
-import { stageOf, type OrderStage } from "@/lib/orderStage";
+import { stageOf } from "@/lib/orderStage";
+import { resolveCarrier, carrierLabel, trackingUrl } from "@/lib/tracking";
+import type { PortalTracking } from "@/components/portal/api";
 
 export const runtime = "nodejs";
+
+/**
+ * The portal groups orders more coarsely than the rest of the app: a rep thinks
+ * of anything not finished or dead as "Open", so estimates, issued and
+ * in-progress orders are shown together under that one label. Fishbowl's
+ * estimate stage is folded into "open" here. This is display grouping only —
+ * revenue logic elsewhere still keys off datecompleted and never counts an
+ * estimate as a sale.
+ */
+export type PortalStage = "open" | "completed" | "cancelled";
+
+function portalStage(status: string | null | undefined): PortalStage {
+  const s = stageOf(status);
+  return s === "estimate" ? "open" : s;
+}
 
 /**
  * GET /api/portal/orders            → recent orders for the rep's agency
@@ -57,32 +74,59 @@ function effectiveDate(o: OrderRow): string | null {
   return o.datecompleted ?? o.dateissued ?? o.datecreated ?? null;
 }
 
-/**
- * Fishbowl carries no tracking column in the data we sync (see
- * lib/fishbowlQueries.ts — the SO query selects no shipment fields), but teams
- * commonly hand-enter a tracking number into a custom field. If one is there
- * under a plausibly-named key, surface it; otherwise the UI falls back to the
- * order status. This never invents a value.
- */
-function trackingFromCustomFields(
-  raw: unknown,
-): { label: string; value: string } | null {
-  if (!raw || typeof raw !== "object") return null;
-  const entries = Array.isArray(raw)
-    ? raw.map((e) => {
-        const o = (e ?? {}) as Record<string, unknown>;
-        return [String(o.name ?? o.key ?? ""), o.value] as const;
-      })
-    : Object.entries(raw as Record<string, unknown>);
+type ShipmentRow = {
+  soid: number;
+  tracking_num: string;
+  carrier: string | null;
+  dateshipped: string | null;
+  shipmentnum: string | null;
+};
 
-  for (const [key, value] of entries) {
-    if (!key || value == null || value === "") continue;
-    const k = key.toLowerCase().replace(/[^a-z]/g, "");
-    if (k.includes("tracking") || k.includes("waybill") || k.includes("pronumber")) {
-      return { label: key, value: String(value) };
+/** Turn a synced shipment row into the client-facing tracking entry, resolving
+ *  the real carrier (Fishbowl's is usually "RATESHOP") and its deep link. */
+function toTracking(r: ShipmentRow): PortalTracking {
+  const id = resolveCarrier(r.carrier, r.tracking_num);
+  return {
+    trackingNum: r.tracking_num,
+    carrier: id ? carrierLabel(id) : null,
+    url: trackingUrl(id, r.tracking_num),
+    shipped: !!r.dateshipped,
+    dateShipped: r.dateshipped,
+    shipmentNum: r.shipmentnum,
+  };
+}
+
+/**
+ * Tracking for a set of orders, keyed by soId. Shipments carry a soid but no
+ * agency, so callers must pass ONLY ids they've already confirmed belong to the
+ * agency — this function trusts its input for scoping, exactly like the order
+ * queries above. Shipped shipments sort first, then most-recent.
+ */
+async function trackingBySo(soIds: number[]): Promise<Map<number, PortalTracking[]>> {
+  const out = new Map<number, PortalTracking[]>();
+  const ids = soIds.filter((n) => Number.isFinite(n));
+  if (ids.length === 0) return out;
+
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const { data, error } = await supabaseServer
+      .from("so_shipments_raw")
+      .select("soid, tracking_num, carrier, dateshipped, shipmentnum")
+      .in("soid", ids.slice(i, i + ID_CHUNK));
+    if (error) throw new Error(error.message);
+    for (const row of (data ?? []) as ShipmentRow[]) {
+      const list = out.get(row.soid) ?? [];
+      list.push(toTracking(row));
+      out.set(row.soid, list);
     }
   }
-  return null;
+
+  for (const list of out.values()) {
+    list.sort((a, b) => {
+      if (a.shipped !== b.shipped) return a.shipped ? -1 : 1;
+      return (b.dateShipped ?? "").localeCompare(a.dateShipped ?? "");
+    });
+  }
+  return out;
 }
 
 /** The agency's customer ids, plus a name lookup for display. */
@@ -160,13 +204,16 @@ export async function GET(request: Request) {
       return !tag.includes("SUBTOTAL") && !tag.includes("SHIPPING");
     });
 
+    const tracking =
+      order.id != null ? ((await trackingBySo([order.id])).get(order.id) ?? []) : [];
+
     return NextResponse.json({
       order: {
         ...order,
         customer_name: customers.nameById.get(order.customerid) ?? null,
-        stage: stageOf(order.status),
+        stage: portalStage(order.status),
         effective_date: effectiveDate(order),
-        tracking: trackingFromCustomFields(order.customfields),
+        tracking,
         customfields: undefined, // raw blob isn't for the client
       },
       items,
@@ -210,7 +257,7 @@ export async function GET(request: Request) {
   }
 
   const staged = stageFilter
-    ? collected.filter((o) => stageOf(o.status) === stageFilter)
+    ? collected.filter((o) => portalStage(o.status) === stageFilter)
     : collected;
 
   /* Each chunk was limited independently, so re-sort and trim to get a true
@@ -227,12 +274,17 @@ export async function GET(request: Request) {
   });
 
   const truncated = staged.length > limit;
-  const orders = staged.slice(0, limit).map((o) => ({
+  const sliced = staged.slice(0, limit);
+  // One shipments query for the whole page, then attach by soId.
+  const trackMap = await trackingBySo(
+    sliced.map((o) => o.id).filter((n): n is number => n != null),
+  );
+  const orders = sliced.map((o) => ({
     ...o,
     customer_name: o.customerid ? (customers.nameById.get(o.customerid) ?? null) : null,
-    stage: stageOf(o.status),
+    stage: portalStage(o.status),
     effective_date: effectiveDate(o),
-    tracking: trackingFromCustomFields(o.customfields),
+    tracking: (o.id != null ? trackMap.get(o.id) : undefined) ?? [],
     customfields: undefined,
   }));
 
@@ -240,10 +292,10 @@ export async function GET(request: Request) {
      filters without a second round trip. */
   const counts = collected.reduce(
     (acc, o) => {
-      acc[stageOf(o.status)] += 1;
+      acc[portalStage(o.status)] += 1;
       return acc;
     },
-    { estimate: 0, open: 0, completed: 0, cancelled: 0 } as Record<OrderStage, number>,
+    { open: 0, completed: 0, cancelled: 0 } as Record<PortalStage, number>,
   );
 
   return NextResponse.json({ orders, truncated, counts });

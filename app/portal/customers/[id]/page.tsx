@@ -7,12 +7,14 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronDown,
+  Download,
   Loader2,
   Mail,
   MapPin,
   Package,
   Phone,
 } from "@/components/portal/icons";
+import { downloadInvoice } from "@/components/portal/invoiceDownload";
 import {
   portalGet,
   portalHref,
@@ -392,26 +394,38 @@ function OrderRow({ order }: { order: PortalOrder }) {
 
   return (
     <li>
-      <button
-        onClick={toggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-5 py-3 text-left transition hover:bg-gray-50"
-      >
-        <ChevronDown
-          size={14}
-          className={`shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-gray-900">{order.num}</div>
-          <div className="text-xs text-gray-500">
-            {order.status} · {shortDate(order.effective_date)}
-            {order.customerpo ? ` · PO ${order.customerpo}` : ""}
+      <div className="flex items-center transition hover:bg-gray-50">
+        <button
+          onClick={toggle}
+          aria-expanded={open}
+          className="flex flex-1 items-center gap-3 px-5 py-3 text-left"
+        >
+          <ChevronDown
+            size={14}
+            className={`shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-gray-900">{order.num}</div>
+            <div className="text-xs text-gray-500">
+              {order.status} · {shortDate(order.effective_date)}
+              {order.customerpo ? ` · PO ${order.customerpo}` : ""}
+            </div>
           </div>
-        </div>
-        <div className="shrink-0 text-right text-sm tabular-nums text-gray-900">
-          {usd(order.totalprice)}
-        </div>
-      </button>
+          <div className="shrink-0 text-right text-sm tabular-nums text-gray-900">
+            {usd(order.totalprice)}
+          </div>
+        </button>
+        {order.num && (
+          <button
+            onClick={() => downloadInvoice(order.num!)}
+            title="Download invoice"
+            aria-label={`Download invoice for order ${order.num}`}
+            className="mr-3 shrink-0 rounded-md p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-800"
+          >
+            <Download size={15} />
+          </button>
+        )}
+      </div>
 
       {open && (
         <div className="bg-gray-50/60 px-5 pb-4 pl-12">

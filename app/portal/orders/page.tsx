@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Package, Search, Truck, X } from "lucide-react";
+import { Download, Loader2, Package, Search, Truck, X } from "@/components/portal/icons";
 import {
   portalGet,
   usd,
@@ -10,6 +10,8 @@ import {
   type PortalOrder,
   type PortalOrderItem,
 } from "@/components/portal/api";
+import { downloadInvoice } from "@/components/portal/invoiceDownload";
+import { properCase } from "@/lib/textCase";
 
 /**
  * Order history for the rep's own accounts.
@@ -20,47 +22,46 @@ import {
  * phone.
  */
 
-/* Fishbowl's SOSTATUS names, grouped by what they mean to a rep. Anything
-   unrecognised renders neutral rather than guessing. */
-const STATUS_TONE: Record<string, string> = {
-  fulfilled: "bg-emerald-50 text-emerald-700",
-  shipped: "bg-emerald-50 text-emerald-700",
-  closed: "bg-emerald-50 text-emerald-700",
-  "closed short": "bg-amber-50 text-amber-700",
-  picked: "bg-blue-50 text-blue-700",
-  packed: "bg-blue-50 text-blue-700",
-  "in progress": "bg-blue-50 text-blue-700",
-  entered: "bg-gray-100 text-gray-600",
-  issued: "bg-gray-100 text-gray-600",
-  void: "bg-rose-50 text-rose-700",
+/* Tone by stage, not raw Fishbowl status: the portal shows estimates, issued and
+   in-progress orders all as one "Open" state, so their colour matches too. */
+const STAGE_TONE: Record<OrderStage, string> = {
+  estimate: "bg-blue-50 text-blue-700",
+  open: "bg-blue-50 text-blue-700",
+  completed: "bg-emerald-50 text-emerald-700",
   cancelled: "bg-rose-50 text-rose-700",
-  expired: "bg-rose-50 text-rose-700",
 };
 
-function statusClass(status: string | null): string {
-  if (!status) return "bg-gray-100 text-gray-500";
-  return STATUS_TONE[status.trim().toLowerCase()] ?? "bg-gray-100 text-gray-600";
+/**
+ * The badge text. Anything still live reads "Open" (the whole point — a rep
+ * doesn't need "Issued" vs "In Progress" vs "Estimate"); finished and dead
+ * orders keep their real Fishbowl status ("Fulfilled", "Void") because that
+ * distinction is still useful.
+ */
+function badgeLabel(stage: OrderStage, status: string | null): string {
+  if (stage === "open" || stage === "estimate") return "Open";
+  return status ?? (stage === "completed" ? "Completed" : "Cancelled");
 }
 
-type StageFilter = "all" | OrderStage;
+/** What the shown date actually is, from whichever timestamp is set. */
+function dateLabel(o: Pick<PortalOrder, "datecompleted" | "dateissued" | "datecreated">): string {
+  if (o.datecompleted) return "Completed";
+  if (o.dateissued) return "Issued";
+  if (o.datecreated) return "Created";
+  return "";
+}
+
+type StageFilter = "all" | "open" | "completed" | "cancelled";
 
 /* "Open" leads because it's the reason a customer calls. Cancelled is last and
    unlabelled by count — nobody browses void orders, they look one up. */
 const STAGE_FILTERS: { value: StageFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "open", label: "Open" },
-  { value: "estimate", label: "Estimates" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ];
 
-/** What the date column means for an order at this stage. */
-const DATE_LABEL: Record<OrderStage, string> = {
-  estimate: "Created",
-  open: "Issued",
-  completed: "Completed",
-  cancelled: "Created",
-};
+type StageCounts = Record<"open" | "completed" | "cancelled", number>;
 
 export default function PortalOrders() {
   const [orders, setOrders] = useState<PortalOrder[] | null>(null);
@@ -68,7 +69,7 @@ export default function PortalOrders() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<StageFilter>("all");
-  const [counts, setCounts] = useState<Record<OrderStage, number> | null>(null);
+  const [counts, setCounts] = useState<StageCounts | null>(null);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<PortalOrder | null>(null);
 
@@ -88,7 +89,7 @@ export default function PortalOrders() {
       const d = await portalGet<{
         orders: PortalOrder[];
         truncated: boolean;
-        counts: Record<OrderStage, number>;
+        counts: StageCounts;
       }>(path);
       // Ignore results from a query the user has already typed past.
       if (mine !== reqId.current) return;
@@ -191,7 +192,7 @@ export default function PortalOrders() {
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-xs">
           <thead>
             <tr className="border-b border-gray-100 text-left text-xs font-medium text-gray-500">
               <th className="px-4 py-3">Order</th>
@@ -200,19 +201,20 @@ export default function PortalOrders() {
               <th className="px-4 py-3">Ship to</th>
               <th className="px-4 py-3 text-right">Date</th>
               <th className="px-4 py-3 text-right">Total</th>
+              <th className="px-4 py-3 text-right sr-only">Invoice</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {!orders && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                   Loading…
                 </td>
               </tr>
             )}
             {orders && orders.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                   {search
                     ? `No orders match “${search.trim()}”.`
                     : "No orders yet."}
@@ -232,28 +234,52 @@ export default function PortalOrders() {
                   )}
                 </td>
                 <td className="px-4 py-3 text-gray-700">
-                  {o.customer_name ?? o.customerid ?? "—"}
+                  {o.customer_name ? properCase(o.customer_name) : o.customerid ?? "—"}
                 </td>
                 <td className="px-4 py-3">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(o.status)}`}
-                  >
-                    {o.status ?? "—"}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${STAGE_TONE[o.stage]}`}
+                    >
+                      {badgeLabel(o.stage, o.status)}
+                    </span>
+                    {o.tracking.some((t) => t.shipped) && (
+                      <Truck
+                        size={14}
+                        className="shrink-0 text-gray-400"
+                        aria-label="Shipped — tracking available"
+                      />
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-gray-600">
                   {o.shiptocity || o.shiptostate
-                    ? [o.shiptocity, o.shiptostate].filter(Boolean).join(", ")
+                    ? [properCase(o.shiptocity), o.shiptostate].filter(Boolean).join(", ")
                     : "—"}
                 </td>
                 <td className="px-4 py-3 text-right text-gray-600">
                   <div>{shortDate(o.effective_date)}</div>
                   <div className="text-xs text-gray-400">
-                    {DATE_LABEL[o.stage]}
+                    {dateLabel(o)}
                   </div>
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-gray-900">
                   {usd(o.totalprice)}
+                </td>
+                <td className="px-2 py-3 text-right">
+                  {o.num && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadInvoice(o.num!);
+                      }}
+                      title="Download invoice"
+                      aria-label={`Download invoice for order ${o.num}`}
+                      className="rounded-md p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-800"
+                    >
+                      <Download size={15} />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -314,9 +340,9 @@ function OrderDrawer({
   }, [onClose]);
 
   const shipTo = [
-    detail.shiptoname,
-    detail.shiptoaddress,
-    [detail.shiptocity, detail.shiptostate, detail.shiptozip]
+    properCase(detail.shiptoname),
+    properCase(detail.shiptoaddress),
+    [properCase(detail.shiptocity), detail.shiptostate, detail.shiptozip]
       .filter(Boolean)
       .join(", "),
   ].filter(Boolean);
@@ -335,7 +361,7 @@ function OrderDrawer({
               Order {detail.num}
             </div>
             <div className="truncate text-xs text-gray-400">
-              {detail.customer_name ?? detail.customerid}
+              {detail.customer_name ? properCase(detail.customer_name) : detail.customerid}
               {detail.customerpo ? ` · PO ${detail.customerpo}` : ""}
             </div>
           </div>
@@ -349,6 +375,16 @@ function OrderDrawer({
         </div>
 
         <div className="space-y-6 px-5 py-5">
+          {detail.num && (
+            <button
+              onClick={() => downloadInvoice(detail.num!)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-700"
+            >
+              <Download size={16} />
+              Download invoice
+            </button>
+          )}
+
           {/* Where is it — the reason this page exists */}
           <section>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -356,12 +392,12 @@ function OrderDrawer({
             </h3>
             <div className="flex flex-wrap items-center gap-2">
               <span
-                className={`rounded-full px-2.5 py-1 text-sm font-medium ${statusClass(detail.status)}`}
+                className={`rounded-full px-2.5 py-1 text-sm font-medium ${STAGE_TONE[detail.stage]}`}
               >
-                {detail.status ?? "Unknown"}
+                {badgeLabel(detail.stage, detail.status)}
               </span>
               <span className="text-sm text-gray-500">
-                {DATE_LABEL[detail.stage]} {shortDate(detail.effective_date)}
+                {dateLabel(detail)} {shortDate(detail.effective_date)}
               </span>
             </div>
 
@@ -377,21 +413,45 @@ function OrderDrawer({
               </div>
             )}
 
-            {detail.tracking ? (
-              <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                <Truck size={15} className="mt-0.5 shrink-0 text-gray-500" />
-                <div className="min-w-0">
-                  <div className="text-xs text-gray-500">
-                    {detail.tracking.label}
+            {detail.tracking.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {detail.tracking.map((t, i) => (
+                  <div
+                    key={`${t.trackingNum}-${i}`}
+                    className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                  >
+                    <Truck size={15} className="mt-0.5 shrink-0 text-gray-500" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <span>{t.carrier ?? "Tracking"}</span>
+                        <span>·</span>
+                        <span>
+                          {t.shipped
+                            ? `Shipped ${shortDate(t.dateShipped)}`
+                            : "Label created"}
+                        </span>
+                      </div>
+                      {t.url ? (
+                        <a
+                          href={t.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="break-all font-mono text-sm text-brand-700 hover:underline"
+                        >
+                          {t.trackingNum}
+                        </a>
+                      ) : (
+                        <div className="break-all font-mono text-sm text-gray-900">
+                          {t.trackingNum}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="break-all font-mono text-sm text-gray-900">
-                    {detail.tracking.value}
-                  </div>
-                </div>
+                ))}
               </div>
             ) : (
               <p className="mt-3 text-xs text-gray-400">
-                No tracking number recorded for this order.
+                No tracking number recorded for this order yet.
               </p>
             )}
           </section>

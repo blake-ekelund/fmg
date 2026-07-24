@@ -28,7 +28,7 @@ export async function GET(request: Request) {
   if (!admin) return configError();
 
   const { data, error } = await admin
-    .from("profiles")
+    .from("storefront_profiles")
     .select("*")
     .eq("role", "wholesale");
   if (error) {
@@ -80,7 +80,7 @@ export async function PATCH(request: Request) {
   if (!admin) return configError();
 
   const { data, error } = await admin
-    .from("profiles")
+    .from("storefront_profiles")
     .update(update)
     .eq("id", id)
     .select()

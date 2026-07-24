@@ -24,7 +24,7 @@
  * so credentials aren't sent in the clear. Never import from client components.
  */
 
-import { SALES_ORDERS_SQL, LINE_ITEMS_SQL, INVENTORY_SQL } from "./fishbowlQueries";
+import { SALES_ORDERS_SQL, LINE_ITEMS_SQL, INVENTORY_SQL, SHIPMENTS_SQL } from "./fishbowlQueries";
 
 const APP_NAME = process.env.FISHBOWL_APP_NAME || "FMG Storefront";
 const APP_ID = Number(process.env.FISHBOWL_APP_ID || 47821);
@@ -206,17 +206,20 @@ async function dataQueryWith(call: Caller, sql: string): Promise<Record<string, 
 }
 
 /**
- * Pull the sales-orders and line-items data views in a SINGLE Fishbowl session
- * (one login / one license seat for both pulls). Used by the sales sync.
+ * Pull the sales-orders, line-items and shipment-tracking data views in a SINGLE
+ * Fishbowl session (one login / one license seat for all three). Used by the
+ * sales sync. Shipments are per-carton (soId, carrier, trackingNum, dateShipped).
  */
 export async function getSalesSnapshot(): Promise<{
   orders: Record<string, unknown>[];
   items: Record<string, unknown>[];
+  shipments: Record<string, unknown>[];
 }> {
   return withSession(async (call) => {
     const orders = await dataQueryWith(call, SALES_ORDERS_SQL);
     const items = await dataQueryWith(call, LINE_ITEMS_SQL);
-    return { orders, items };
+    const shipments = await dataQueryWith(call, SHIPMENTS_SQL);
+    return { orders, items, shipments };
   });
 }
 

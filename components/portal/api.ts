@@ -214,11 +214,23 @@ export type PortalOrder = {
   shiptostate: string | null;
   shiptozip: string | null;
   /**
-   * Only present when a tracking-shaped Fishbowl custom field exists. FMG's
-   * synced order data carries no dedicated tracking column, so this is usually
-   * null and the UI falls back to order status.
+   * Shipment tracking for this order, one entry per carton (an order can ship in
+   * several cartons / shipments). Empty when nothing has shipped or no tracking
+   * was recorded. Sourced from so_shipments_raw, joined by soId.
    */
-  tracking: { label: string; value: string } | null;
+  tracking: PortalTracking[];
+};
+
+export type PortalTracking = {
+  trackingNum: string;
+  /** Resolved carrier label ("USPS", "UPS", "FedEx"), or null if undetectable. */
+  carrier: string | null;
+  /** Deep link to the carrier's tracking page, or null when carrier unknown. */
+  url: string | null;
+  /** True once the shipment actually shipped; false = label created, not yet shipped. */
+  shipped: boolean;
+  dateShipped: string | null;
+  shipmentNum: string | null;
 };
 
 export type PortalOrderItem = {

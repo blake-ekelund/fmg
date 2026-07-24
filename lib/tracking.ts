@@ -55,3 +55,54 @@ export function trackingUrl(
   const trimmed = code?.trim();
   return c && trimmed ? c.track(trimmed) : null;
 }
+
+/**
+ * Map a Fishbowl `carrier.name` to a known carrier id — but only when it's a
+ * real carrier we can link. Most Fishbowl shipments book to "RATESHOP" (a
+ * rate-shopper) rather than the actual carrier, so this returns null for those
+ * and we fall back to detecting the carrier from the tracking number itself.
+ */
+export function fishbowlCarrierId(name?: string | null): CarrierId | null {
+  switch ((name ?? "").trim().toUpperCase()) {
+    case "UPS":
+      return "ups";
+    case "FEDX":
+    case "FEDEX":
+      return "fedex";
+    case "USPS":
+      return "usps";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Guess the carrier from a tracking number's format. Reliable for the big three
+ * FMG actually uses; anything unrecognised (Amazon, DHL, regional 3PLs) returns
+ * null, and the caller shows the bare number with no deep link.
+ *
+ *  - UPS   → starts "1Z"
+ *  - USPS  → 20–26 digits, starts 91/92/93/94/95 (IMpb), or a 420ZIP prefix
+ *  - FedEx → 12 or 15 digits (Express / Ground)
+ */
+export function detectCarrier(trackingNum?: string | null): CarrierId | null {
+  const t = (trackingNum ?? "").replace(/\s+/g, "").toUpperCase();
+  if (!t) return null;
+  if (/^1Z[0-9A-Z]{16}$/.test(t)) return "ups";
+  if (/^420\d{5}(9[1-5]\d{18,24})$/.test(t)) return "usps"; // 420 + ZIP + IMpb
+  if (/^9[1-5]\d{18,24}$/.test(t)) return "usps";
+  if (/^\d{12}$/.test(t) || /^\d{15}$/.test(t)) return "fedex";
+  return null;
+}
+
+/**
+ * The best carrier id for a shipment: a real Fishbowl carrier name wins;
+ * otherwise (RATESHOP and friends) detect it from the tracking number. Returns
+ * null when neither yields a carrier we can link.
+ */
+export function resolveCarrier(
+  fishbowlName?: string | null,
+  trackingNum?: string | null
+): CarrierId | null {
+  return fishbowlCarrierId(fishbowlName) ?? detectCarrier(trackingNum);
+}

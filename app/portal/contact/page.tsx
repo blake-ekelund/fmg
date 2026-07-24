@@ -1,6 +1,21 @@
 "use client";
 
-import { Mail, Phone, Globe, MessageSquare, Package, FileText } from "lucide-react";
+import Link from "next/link";
+import {
+  Mail,
+  Phone,
+  Globe,
+  MessageSquare,
+  Package,
+  FileText,
+  Truck,
+  Boxes,
+  Tag,
+  Megaphone,
+  Sparkles,
+  type PortalIcon,
+} from "@/components/portal/icons";
+import { portalHref } from "@/components/portal/api";
 
 /**
  * Who a rep should contact, and for what.
@@ -14,6 +29,78 @@ const COMPANY = {
   name: "Fragrance Marketing Group",
   site: "fragrancemarketinggroup.com",
 };
+
+/**
+ * The handful of things a rep most often needs from the office — the ones worth
+ * a one-tap shortcut instead of composing an email from scratch. "Track an
+ * order" jumps to the Orders page (where they can look it up themselves); the
+ * rest open a pre-addressed email with the subject already filled in, and a
+ * blank line for their agency so it routes fast.
+ */
+type QuickLink = {
+  title: string;
+  detail: string;
+  icon: PortalIcon;
+} & (
+  | { kind: "internal"; href: string }
+  | { kind: "email"; to: string; subject: string }
+);
+
+const QUICK_LINKS: QuickLink[] = [
+  {
+    kind: "internal",
+    title: "Track an order",
+    detail: "Check status, dates, and ship-to for any of your accounts.",
+    icon: Truck,
+    href: "/portal/orders",
+  },
+  {
+    kind: "email",
+    title: "Request samples",
+    detail: "Testers and samples for a customer or a pitch.",
+    icon: Package,
+    to: `marketing@${COMPANY.site}`,
+    subject: "Sample request",
+  },
+  {
+    kind: "email",
+    title: "Check stock",
+    detail: "Availability or lead time on a product before you promise it.",
+    icon: Boxes,
+    to: `orders@${COMPANY.site}`,
+    subject: "Stock / availability check",
+  },
+  {
+    kind: "email",
+    title: "Pricing & quotes",
+    detail: "Volume pricing, a custom quote, or a program question.",
+    icon: Tag,
+    to: `info@${COMPANY.site}`,
+    subject: "Pricing / quote request",
+  },
+  {
+    kind: "email",
+    title: "Marketing materials",
+    detail: "Catalogs, displays, and point-of-sale for an account.",
+    icon: Megaphone,
+    to: `marketing@${COMPANY.site}`,
+    subject: "Marketing materials request",
+  },
+  {
+    kind: "email",
+    title: "New products & launches",
+    detail: "What's new, what's coming, and when you can sell it.",
+    icon: Sparkles,
+    to: `info@${COMPANY.site}`,
+    subject: "New product / launch info",
+  },
+];
+
+function quickLinkHref(l: QuickLink): string {
+  if (l.kind === "internal") return portalHref(l.href);
+  const body = `\n\n— \nAgency: `;
+  return `mailto:${l.to}?subject=${encodeURIComponent(l.subject)}&body=${encodeURIComponent(body)}`;
+}
 
 const CONTACTS: {
   title: string;
@@ -51,6 +138,40 @@ export default function PortalContact() {
         <p className="mt-1 text-sm text-gray-500">
           We&apos;re here to help — reach the right person faster.
         </p>
+      </div>
+
+      {/* Quick links — the common asks, one tap each. */}
+      <div>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+          Quick links
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {QUICK_LINKS.map((l) => {
+            const Icon = l.icon;
+            const inner = (
+              <>
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                  <Icon size={17} />
+                </span>
+                <span className="mt-3 block text-sm font-semibold text-gray-900">
+                  {l.title}
+                </span>
+                <span className="mt-1 block text-sm text-gray-500">{l.detail}</span>
+              </>
+            );
+            const cls =
+              "group rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-gray-300 hover:shadow-sm";
+            return l.kind === "internal" ? (
+              <Link key={l.title} href={quickLinkHref(l)} className={cls}>
+                {inner}
+              </Link>
+            ) : (
+              <a key={l.title} href={quickLinkHref(l)} className={cls}>
+                {inner}
+              </a>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

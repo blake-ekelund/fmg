@@ -1,4 +1,4 @@
-import type { SVGProps } from "react";
+import { Svg, type IconProps } from "./icons";
 
 /**
  * Channel glyphs.
@@ -6,34 +6,14 @@ import type { SVGProps } from "react";
  * Hand-drawn rather than pulled from lucide because the channels are FMG's own
  * segmentation — there is no "nat/grocery" or "social seller" in a generic icon
  * set, and approximating them with the nearest stock icon reads as wrong at a
- * glance. Drawn on lucide's grid (24×24, stroke, round caps) so they sit
- * alongside the rest of the app's iconography without looking imported.
+ * glance. Drawn on the same grid as the rest of the portal set (./icons —
+ * 24×24, 1.6 stroke, round caps) so they sit alongside it without looking
+ * imported.
  *
  * Channel strings come from Fishbowl and are matched case-insensitively with
  * punctuation stripped, so "SALON/SPA", "Salon & Spa" and "salon spa" all land
  * on the same glyph. Anything unrecognised falls back to a neutral storefront.
  */
-
-type IconProps = SVGProps<SVGSVGElement> & { size?: number };
-
-function Svg({ size = 16, children, ...rest }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...rest}
-    >
-      {children}
-    </svg>
-  );
-}
 
 /* ── Per-channel glyphs ──────────────────────────────────────────────────── */
 

@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Menu, X } from "lucide-react";
+import { LogOut, Menu, Sparkles, X } from "@/components/portal/icons";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useUser } from "@/components/UserContext";
 import { getDefaultRoute } from "@/components/navConfig";
 import { LogoMark } from "@/components/ui/Logo";
+import AssistantWidget from "@/components/portal/AssistantWidget";
 
 const TABS = [
   { href: "/portal", label: "Dashboard" },
@@ -23,6 +24,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const router = useRouter();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   /* Admin preview: Team → Rep Portal Preview embeds this shell as
      /portal?previewAgency=<code>. Owners and admins are let through so they can
@@ -174,6 +176,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </Link>
             ))}
 
+            {/* Assistant — same reach on mobile as the floating launcher gives
+                on desktop. Opening it closes the menu underneath. */}
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                setAssistantOpen(true);
+              }}
+              className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-3 text-[15px] font-medium text-brand-700 transition hover:bg-surface-muted"
+            >
+              <Sparkles size={17} />
+              Ask the assistant
+            </button>
+
             <div className="mt-3 border-t border-line pt-3">
               <div className="px-3 pb-2 text-xs text-ink-muted">
                 Signed in as {profile.first_name || "there"}
@@ -195,6 +210,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
         {children}
       </main>
+
+      {/* Floating assistant — available on every portal page, scoped server-side
+          to this rep's agency. Controlled here so the mobile menu can open it
+          too, and so the launcher hides while that menu is up. */}
+      <AssistantWidget
+        open={assistantOpen}
+        onOpenChange={setAssistantOpen}
+        showLauncher={!menuOpen}
+      />
 
       <PortalFooter tabHref={tabHref} />
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, ImageIcon } from "lucide-react";
+import { Download, ImageIcon } from "@/components/portal/icons";
 import { portalGet, type PortalAsset } from "@/components/portal/api";
 
 type Filter = "all" | "photo" | "product";

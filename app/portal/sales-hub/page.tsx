@@ -10,7 +10,7 @@ import {
   Sparkles,
   TrendingDown,
   TrendingUp,
-} from "lucide-react";
+} from "@/components/portal/icons";
 import {
   portalGet,
   portalHref,
@@ -18,6 +18,7 @@ import {
   type PortalSalesHub,
 } from "@/components/portal/api";
 import { NI_BRAND, SASSY_BRAND, type BrandContent } from "@/lib/brandContent";
+import { properCase } from "@/lib/textCase";
 
 /**
  * The rep's Sales Hub.
@@ -118,7 +119,7 @@ export default function PortalSalesHub() {
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium text-gray-900">
-                    {s.name}
+                    {properCase(s.name)}
                   </div>
                   <div className="truncate text-xs text-gray-500">
                     {s.days_since_order} days since last order
@@ -351,7 +352,7 @@ function MoverList({
         {rows.map((r) => (
           <li key={r.customerid} className="flex items-center gap-3 px-5 py-2.5">
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm text-gray-900">{r.name}</div>
+              <div className="truncate text-sm text-gray-900">{properCase(r.name)}</div>
               {r.channel && (
                 <div className="truncate text-xs text-gray-400">{r.channel}</div>
               )}

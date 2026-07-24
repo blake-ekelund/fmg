@@ -1,18 +1,27 @@
 import { createClient } from "@supabase/supabase-js";
 
 /**
- * Server-only client for the WHOLESALE Supabase project — the separate
- * project that powers partner accounts on sassyandco.com and
- * naturalinspirations.com (auth + profiles + addresses). Not this app's
- * own database.
+ * Server-only, service-role client for the storefront account/commerce data
+ * (partner + customer accounts, orders, analytics for redek.io and
+ * naturalinspirations.com).
+ *
+ * As of the storefront consolidation this data lives in the FMG database
+ * itself — accounts are `storefront_profiles`, kept distinct from staff
+ * `profiles`. So this falls back to the FMG project's own service creds:
+ * once the redundant WHOLESALE_SUPABASE_* vars are removed it simply points
+ * here. The override is retained so the client can still be aimed at a
+ * separate project during the cutover if needed.
  *
  * Service role on purpose: the internal team reads every application and
  * flips wholesale_status, which storefront RLS would otherwise block.
  * Never import from client components.
  */
 export function wholesalePortalAdmin() {
-  const url = process.env.WHOLESALE_SUPABASE_URL;
-  const key = process.env.WHOLESALE_SUPABASE_SERVICE_ROLE_KEY;
+  const url =
+    process.env.WHOLESALE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.WHOLESALE_SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

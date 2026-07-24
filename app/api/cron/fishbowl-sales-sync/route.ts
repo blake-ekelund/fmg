@@ -112,11 +112,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: true, hour, tz: SYNC_TZ });
   }
 
-  // 1) Pull both views from Fishbowl (one login/seat for both).
+  // 1) Pull all three views from Fishbowl (one login/seat for all).
   let orders: Record<string, unknown>[];
   let items: Record<string, unknown>[];
+  let shipments: Record<string, unknown>[];
   try {
-    ({ orders, items } = await getSalesSnapshot());
+    ({ orders, items, shipments } = await getSalesSnapshot());
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 502 });
@@ -131,7 +132,12 @@ export async function GET(request: Request) {
   }
 
   if (dry) {
-    return NextResponse.json({ dry: true, orders: orders.length, items: items.length });
+    return NextResponse.json({
+      dry: true,
+      orders: orders.length,
+      items: items.length,
+      shipments: shipments.length,
+    });
   }
 
   // 3) Shrink guard: don't let a partial pull wipe most of the snapshot.
@@ -213,6 +219,22 @@ export async function GET(request: Request) {
       upload_id: uploadId,
     }));
 
+    // Per-carton shipment tracking. Null (not 0) for absent ids so the columns
+    // read honestly; tracking_num is guaranteed by the query's WHERE clause.
+    const nullableInt = (v: unknown) => (v == null ? null : parseNumber(v));
+    const shipmentsToInsert = shipments.map((r) => ({
+      soid: parseNumber(r.soId),
+      ordernum: r.orderNum ?? null,
+      shipmentnum: r.shipmentNum ?? null,
+      dateshipped: parseDate(r.dateShipped),
+      ship_status_id: nullableInt(r.shipStatusId),
+      carrier_id: nullableInt(r.carrierId),
+      carrier: r.carrier ?? null,
+      tracking_num: String(r.trackingNum),
+      carton_num: nullableInt(r.cartonNum),
+      upload_id: uploadId,
+    }));
+
     // 6) Insert the fresh snapshot, then drop every prior upload's rows.
     await insertInChunks("sales_orders_raw", ordersToInsert, 1000);
     await insertInChunks("so_items_raw", itemsToInsert, 1000);
@@ -228,6 +250,18 @@ export async function GET(request: Request) {
       .neq("upload_id", uploadId);
     if (delI) throw delI;
 
+    // 6b) Shipment tracking — same full-replace, but only when the pull actually
+    // returned rows. If Fishbowl hands back 0 shipments (a transient hiccup in
+    // the ship tables), keep the previous snapshot rather than wiping tracking.
+    if (shipmentsToInsert.length > 0) {
+      await insertInChunks("so_shipments_raw", shipmentsToInsert, 1000);
+      const { error: delS } = await supabaseServer
+        .from("so_shipments_raw")
+        .delete()
+        .neq("upload_id", uploadId);
+      if (delS) throw delS;
+    }
+
     // 7) Refresh commissions off the new raw data (same RPC as the upload).
     const { error: rpcErr } = await supabaseServer.rpc("sync_withheld_commissions");
     if (rpcErr) throw rpcErr;
@@ -239,6 +273,7 @@ export async function GET(request: Request) {
         status: "complete",
         orders_rows: ordersToInsert.length,
         items_rows: itemsToInsert.length,
+        shipments_rows: shipmentsToInsert.length,
         error_text: null,
       })
       .eq("id", uploadId);
@@ -247,6 +282,7 @@ export async function GET(request: Request) {
       synced: true,
       orders: ordersToInsert.length,
       items: itemsToInsert.length,
+      shipments: shipmentsToInsert.length,
       uploadId,
     });
   } catch (e) {
