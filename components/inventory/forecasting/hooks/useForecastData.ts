@@ -92,14 +92,20 @@ export function useForecastData() {
             !!p.avg_monthly_demand && p.avg_monthly_demand > 0;
           const avgFromSales = units90 / 3;
 
+          /* Rounded once, here, rather than at each display site. The
+             sales-derived figure is units÷3 and lands fractional, which showed
+             up raw on the mobile cards ("8.333333333333334") and in the CSV.
+             Rounding at the source keeps the table, the editable field, the
+             export and the projection math all quoting the same number —
+             units are whole things, so a fractional demand was never real. */
           return {
             ...p,
             snapshot_id: inv?.id ?? "",
             on_hand: inv?.on_hand ?? 0,
             on_order: inv?.on_order ?? 0,
-            avg_monthly_demand: hasManualAvg
-              ? p.avg_monthly_demand
-              : avgFromSales,
+            avg_monthly_demand: Math.round(
+              hasManualAvg ? p.avg_monthly_demand : avgFromSales,
+            ),
             is_auto_avg: !hasManualAvg,
           };
         }) ?? [];

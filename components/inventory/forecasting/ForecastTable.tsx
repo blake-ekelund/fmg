@@ -7,6 +7,7 @@ import {
   Period,
   SortKey,
   SortDir,
+  InventoryStatus,
   getInventoryStatus,
 } from "./types";
 import { project, colorFor } from "./utils/forecast";
@@ -29,6 +30,20 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
+/** Cards drawn per "show more" tap on mobile. */
+const MOBILE_PAGE = 25;
+
+/** Mirrors the toolbar's status pill colours so the two read as one system. */
+const STATUS_CHIP: Record<InventoryStatus, string> = {
+  "at risk": "bg-red-50 text-red-700 border-red-200",
+  "needs review": "bg-amber-50 text-amber-700 border-amber-200",
+  healthy: "bg-green-50 text-green-700 border-green-200",
+  "no demand": "bg-gray-100 text-gray-500 border-gray-200",
+};
+
+/** Forecast periods a card shows before you ask for the rest. */
+const CARD_PERIOD_PREVIEW = 3;
+
 export default function ForecastTable({
   rows,
   periods,
@@ -43,11 +58,28 @@ export default function ForecastTable({
 }: Props) {
   const now = useMemo(() => new Date(), []);
 
+  /* Mobile renders cards, not rows — each one is ~20× the height of a table
+     row, so drawing the whole catalogue means tens of thousands of pixels of
+     scroll. Batch it. Desktop keeps every row: a table row is cheap. */
+  const [mobileLimit, setMobileLimit] = useState(MOBILE_PAGE);
+
+  /* A new filter/sort result is a new list, so collapse back to the first page.
+     Adjusted during render rather than in an effect — an effect would paint the
+     old limit against the new rows first, then immediately re-render. */
+  const [lastRows, setLastRows] = useState(rows);
+  if (rows !== lastRows) {
+    setLastRows(rows);
+    setMobileLimit(MOBILE_PAGE);
+  }
+
+  const mobileRows = rows.slice(0, mobileLimit);
+  const mobileRemaining = rows.length - mobileRows.length;
+
   return (
     <>
       {/* ─── Mobile Cards ─── */}
       <div className="space-y-3 md:hidden">
-        {rows.map((r) => (
+        {mobileRows.map((r) => (
           <MobileCard
             key={r.part}
             row={r}
@@ -60,6 +92,18 @@ export default function ForecastTable({
             onUpdateOnOrder={onUpdateOnOrder}
           />
         ))}
+
+        {mobileRemaining > 0 && (
+          <button
+            onClick={() => setMobileLimit((n) => n + MOBILE_PAGE)}
+            className="w-full rounded-xl border border-gray-200 bg-white py-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+          >
+            Show {Math.min(MOBILE_PAGE, mobileRemaining)} more
+            <span className="ml-1 text-gray-400">
+              ({mobileRemaining} left)
+            </span>
+          </button>
+        )}
 
         {rows.length === 0 && (
           <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">
@@ -248,10 +292,15 @@ function MobileCard({
     setAvgLocal(r.avg_monthly_demand === 0 ? "" : r.avg_monthly_demand.toString());
   }, [r.avg_monthly_demand]);
 
+  const [showAllPeriods, setShowAllPeriods] = useState(false);
+
   const statusLabel = getInventoryStatus(r.on_hand, r.on_order, r.avg_monthly_demand);
   const atRisk = statusLabel === "at risk";
   const brandStyle = brandBadgeStyle(brandSettings?.primary_color);
   const stopRow = (e: React.MouseEvent) => e.stopPropagation();
+  const visiblePeriods = showAllPeriods
+    ? periods
+    : periods.slice(0, CARD_PERIOD_PREVIEW);
 
   return (
     <div
@@ -268,14 +317,26 @@ function MobileCard({
           <div className="font-mono text-xs text-gray-400">{r.part}</div>
           {r.fragrance && <div className="text-xs text-gray-500">{r.fragrance}</div>}
         </div>
-        {showBrand && (
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {/* The desktop table has a status column; the card had only a faint
+              border tint, which left the most important field invisible. */}
           <span
-            className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium shrink-0"
-            style={brandStyle}
+            className={clsx(
+              "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize",
+              STATUS_CHIP[statusLabel],
+            )}
           >
-            {r.brand}
+            {statusLabel}
           </span>
-        )}
+          {showBrand && (
+            <span
+              className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+              style={brandStyle}
+            >
+              {r.brand}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Stats + editable */}
@@ -306,12 +367,13 @@ function MobileCard({
         </div>
       </div>
 
-      {/* Forecast periods */}
-      <div className="border-t border-gray-100 pt-3 space-y-1">
+      {/* Forecast periods — the near months are what you act on, and showing
+          all twelve made the forecast list four fifths of the card. */}
+      <div className="border-t border-gray-100 pt-3 space-y-1" onClick={stopRow}>
         <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
           Forecast
         </div>
-        {periods.map((p) => {
+        {visiblePeriods.map((p) => {
           const v = project(r, p.index, now);
           return (
             <div key={p.label} className="flex items-center justify-between text-xs">
@@ -322,6 +384,25 @@ function MobileCard({
             </div>
           );
         })}
+
+        {periods.length > CARD_PERIOD_PREVIEW && (
+          <button
+            onClick={() => setShowAllPeriods((v) => !v)}
+            aria-expanded={showAllPeriods}
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-gray-500 transition hover:text-gray-800"
+          >
+            <ChevronDown
+              size={13}
+              className={clsx(
+                "transition-transform duration-150",
+                showAllPeriods && "rotate-180",
+              )}
+            />
+            {showAllPeriods
+              ? "Show less"
+              : `Show all ${periods.length} periods`}
+          </button>
+        )}
       </div>
     </div>
   );

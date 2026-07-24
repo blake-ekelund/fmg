@@ -8,7 +8,9 @@ import {
   ChevronDown,
   Loader2,
 } from "lucide-react";
+import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 import InventoryUploadModal from "@/components/inventory/current/InventoryUploadModal";
 import SalesUploadModal from "@/components/inventory/current/SalesUploadModal";
@@ -39,6 +41,7 @@ export default function IntegrationsPage() {
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showSalesModal, setShowSalesModal] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const isMobile = useIsMobile();
   const pickerRef = useRef<HTMLDivElement>(null);
 
   // Close picker on outside click
@@ -120,8 +123,10 @@ export default function IntegrationsPage() {
           </p>
         </div>
 
-        {/* Manual upload (fallback) */}
-        <div className="relative" ref={pickerRef}>
+        {/* Manual upload (fallback). Desktop only — both options mean picking a
+            spreadsheet off a machine that has one, so on a phone the whole
+            control is gone rather than an empty menu. */}
+        <div className={clsx("relative", isMobile && "hidden")} ref={pickerRef}>
           <button
             onClick={() => setPickerOpen((v) => !v)}
             className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-gray-700 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 transition"
