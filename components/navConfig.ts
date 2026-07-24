@@ -152,6 +152,14 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "sales", "marketing"],
       },
       {
+        // Pre-purchase reviews of the storefront itself, traded for a reward
+        // code in the cart. Not product reviews.
+        label: "Site Feedback",
+        href: "/storefronts/feedback",
+        icon: MessageSquare,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
         // Wholesale signup applications awaiting approval — *not* the
         // wholesale customer list under Customers.
         label: "Wholesale Applications",

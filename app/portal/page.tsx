@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, Users, DollarSign } from "lucide-react";
-import { portalGet, usd, shortDate, type PortalSummary } from "@/components/portal/api";
+import { portalGet, portalHref, usd, shortDate, type PortalSummary } from "@/components/portal/api";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -93,7 +93,7 @@ export default function PortalDashboard() {
       <div className="rounded-2xl border border-gray-200 bg-white p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900">Top customers</h2>
-          <Link href="/portal/customers" className="text-xs font-medium text-gray-500 hover:text-gray-900">
+          <Link href={portalHref("/portal/customers")} className="text-xs font-medium text-gray-500 hover:text-gray-900">
             View all →
           </Link>
         </div>
