@@ -1,6 +1,8 @@
 // Sales rep directory — seeded from the master rep roster (Book1.xlsx).
 // Reference data kept in-repo so the Sales Team page works without a DB round-trip.
-// To update: edit this list, or re-run the generator against an updated roster.
+// Reconciled against the spreadsheet 2026-07-24. To update: edit the roster and
+// re-run scripts/gen_roster (or edit here directly), then mirror the DB via a
+// migration like 20260724000000_sales_reps_reconcile.sql.
 
 export type SalesRep = {
   /** DB primary key. Absent on the built-in seed rows (read-only fallback). */
@@ -12,12 +14,8 @@ export type SalesRep = {
   /** Lowercased; empty string when none is on file. */
   email: string;
   phone: string;
-  /**
-   * Street line. Optional because the built-in roster below predates the field
-   * and has never carried one — DB-backed reps always get a string (possibly
-   * empty) from `fromRow`.
-   */
-  address?: string;
+  /** Street line; empty string when none is on file. */
+  address: string;
   city: string;
   state: string;
   zip: string;
@@ -72,7 +70,7 @@ export const SALES_REPS: SalesRep[] = [
     "agency": "Blonde Comet",
     "name": "Meg Brownson",
     "address": "1512 Linden Street West",
-    "email": "megbrownson@msnc.om",
+    "email": "megbrownson@msn.com",
     "phone": "651-324-4502",
     "city": "Stillwater",
     "state": "MN",
@@ -178,9 +176,9 @@ export const SALES_REPS: SalesRep[] = [
     "address": "405 South Olde Oneida",
     "email": "olive.opal0@gmail.com",
     "phone": "715.612.2949",
-    "city": "Menasha",
+    "city": "Appleton",
     "state": "WI",
-    "zip": "54952",
+    "zip": "54911",
     "territory": "WI",
     "samples": "A"
   },
@@ -435,6 +433,7 @@ export const SALES_REPS: SalesRep[] = [
     "agencyCode": 195,
     "agency": "Street Brands",
     "name": "Dennis Schrupp",
+    "address": "",
     "email": "dennis@thestreetbrands.com",
     "phone": "612.802.9892",
     "city": "",
@@ -785,12 +784,13 @@ export const SALES_REPS: SalesRep[] = [
     "agencyCode": 210,
     "agency": "Sales Producers",
     "name": "Marissa Chapman Kopke",
+    "address": "",
     "email": "marissak@salesproducersinc.com",
     "phone": "303-960-6901",
     "city": "",
     "state": "",
     "zip": "",
-    "territory": "",
+    "territory": "CO",
     "samples": "A"
   },
   {
@@ -905,7 +905,7 @@ export const SALES_REPS: SalesRep[] = [
     "email": "kshikle@justgot2haveit.com",
     "phone": "901-647-5220",
     "city": "Fairhope",
-    "state": "AL",
+    "state": "MS",
     "zip": "36532",
     "territory": "MS. West TN",
     "samples": "A"
@@ -1038,7 +1038,7 @@ export const SALES_REPS: SalesRep[] = [
     "state": "NY",
     "zip": "11201",
     "territory": "KEY ACCOUNT",
-    "samples": "2catalogs"
+    "samples": "2 catalogs"
   },
   {
     "agencyCode": 215,
@@ -1059,7 +1059,7 @@ export const SALES_REPS: SalesRep[] = [
     "name": "Al Hattendorf",
     "address": "3240 Carr Drive",
     "email": "al@justgot2haveit.com",
-    "phone": "703-599-7549 (P)",
+    "phone": "703-599-7549 (p)",
     "city": "Oceanside",
     "state": "CA",
     "zip": "92056",
@@ -1104,8 +1104,5 @@ export const SALES_REPS: SalesRep[] = [
     "zip": "32225",
     "territory": "SE/MINK Sales Manager",
     "samples": "catalog"
-  }
+  },
 ];
-
-/** Distinct agencies, in roster order. */
-export const REP_AGENCIES: string[] = Array.from(new Set(SALES_REPS.map((r) => r.agency)));
