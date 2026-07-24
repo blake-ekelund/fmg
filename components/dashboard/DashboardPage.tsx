@@ -184,7 +184,7 @@ export default function DashboardPage() {
      the action list are guaranteed to be reading the same rows. */
   const { kpis: salesKpis, loading: salesLoading } = useDashboardSales(brand);
   const { pace, loading: monthlyLoading } = useMonthlySales(brand);
-  const { customers, kpis: custKpis, loading: custLoading } =
+  const { kpis: custKpis, loading: custLoading } =
     useDashboardCustomers(brand, "wholesale");
   const { items, kpis: invKpis, loading: invLoading } =
     useDashboardInventory(brand);
@@ -194,13 +194,13 @@ export default function DashboardPage() {
   const pulseLoading =
     salesLoading || monthlyLoading || custLoading || invLoading;
 
-  const { alerts, totalAtStake, loading: alertsLoading } = useDashboardAlerts({
-    brand,
-    customers,
-    items,
-    repRows,
-    loading: custLoading || invLoading || repLoading,
-  });
+  const { alerts, reviews, totalAtStake, loading: alertsLoading } =
+    useDashboardAlerts({
+      brand,
+      items,
+      repRows,
+      loading: invLoading || repLoading,
+    });
 
   const greeting = getGreeting();
   const todayStr = formatToday();
@@ -219,8 +219,9 @@ export default function DashboardPage() {
   if (!monthlyLoading && pace.paceRevenue > 0) {
     summaryParts.push(`${pace.monthLabel} pacing to ${fmt(pace.paceRevenue)}`);
   }
-  if (!alertsLoading && alerts.length > 0) {
-    summaryParts.push(`${fmt(totalAtStake)} at stake across ${alerts.length} items`);
+  if (!alertsLoading && (alerts.length > 0 || reviews.length > 0)) {
+    const itemCount = alerts.length + reviews.length;
+    summaryParts.push(`${fmt(totalAtStake)} at stake across ${itemCount} items`);
   }
 
   return (
@@ -258,6 +259,7 @@ export default function DashboardPage() {
         <motion.div variants={itemVariants}>
           <TodaysMoves
             alerts={alerts}
+            reviews={reviews}
             totalAtStake={totalAtStake}
             overdueTaskCount={overdue.length}
             loading={alertsLoading}

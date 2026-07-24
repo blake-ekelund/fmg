@@ -3,84 +3,66 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { BrandFilter } from "@/types/brand";
-import type { CustomerSummaryRow } from "./useDashboardCustomers";
 import type { DashboardInventoryItem } from "./useDashboardInventory";
 import type { RepSalesRow } from "./useDashboardRepSales";
 import { computeWindows, dateKeyOf, brandParam } from "./useSalesDrivers";
+import {
+  COVERAGE_MONTHS,
+  OVERSTOCK_MIN_MONTHS,
+  isOverstock,
+  isUnderstock,
+} from "@/lib/inventoryHealth";
 
 /**
  * The founder-facing exception list.
  *
  * Every widget on the dashboard speaks a different unit — customers, SKUs,
  * reps, tasks — which makes them impossible to compare, so nothing gets
- * prioritised. This hook converts each signal into **dollars at stake** so
- * they collapse into one ranked worklist.
+ * prioritised. This hook converts each signal into a founder move.
  *
- * Each alert maps to a lever the founder actually pulls:
- *   account — email/call a lapsing wholesale account
- *   rep     — chase an agency whose territory is sliding
- *   sku     — reorder something about to stock out
- *   promo   — move overstock that's sitting on cash
+ * Two kinds of item:
+ *   • moves   — a specific, ranked-by-dollars thing to do (a sliding rep).
+ *   • reviews — a standing "go look at this list" ask that shouldn't compete
+ *               with, or be buried under, the ranked moves. Inventory is the
+ *               case: 50 individual SKU alerts drowned everything else, so
+ *               understock and overstock each collapse to a single review.
  *
- * Bases differ by necessity (revenue at risk vs. capital tied up), so every
- * alert carries the `basis` string that produced its number. The ranking is
- * meant to be auditable, not authoritative.
+ * Lapsing/churning accounts are deliberately absent: automated at-risk (180d)
+ * and churn (365d) email flows, plus rep-group outreach in between, own that
+ * recovery, so listing those accounts here would just duplicate work already
+ * in motion.
  */
 
-export type AlertLever = "account" | "rep" | "sku" | "promo";
+export type AlertKind = "move" | "review";
+export type AlertLever = "rep" | "understock" | "overstock";
 
 export type DashboardAlert = {
   id: string;
+  kind: AlertKind;
   lever: AlertLever;
-  /** Dollar magnitude used for ranking. */
+  /** Dollar magnitude used for ranking moves (and the "at stake" total). */
   impact: number;
-  /** How `impact` was derived — always shown next to the number. */
+  /** How `impact` was derived — shown next to the number on moves. */
   basis: string;
+  /** SKU count, for review asks that show a count rather than a dollar. */
+  count?: number;
   title: string;
   subtitle: string;
   actionLabel: string;
   href: string;
 };
 
-/** Below this, an alert is noise rather than a decision. */
+/** Below this, a move is noise rather than a decision. */
 const MIN_IMPACT = 500;
 
-/** Reorder horizon: demand we want covered by stock + inbound POs. */
-const COVERAGE_MONTHS = 3;
-
-/** Months of supply above which stock reads as overstock worth promoting. */
-const OVERSTOCK_MONTHS = 12;
-
 type PartEconomics = { revenue: number; units: number };
-
-function monthsSince(iso: string | null): number | null {
-  if (!iso) return null;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return null;
-  return Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24 * 30.44));
-}
 
 function fmtMoney(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-US");
 }
 
-/**
- * A SKU label that distinguishes variants sharing a display_name (the several
- * "Lip Butter" fragrances would otherwise all read "Lip Butter"). Appends the
- * fragrance and size only when the display_name doesn't already carry them, so
- * products whose name is already specific don't get it repeated.
- */
-function skuLabel(it: DashboardInventoryItem): string {
-  const base = it.display_name || it.part;
-  const dn = base.toLowerCase();
-  const extra = [it.fragrance, it.size]
-    .filter((v): v is string => !!v && !dn.includes(v.toLowerCase()));
-  return extra.length ? `${base} · ${extra.join(" · ")}` : base;
-}
-
 export type AlertInputs = {
   brand: BrandFilter;
-  customers: CustomerSummaryRow[];
   items: DashboardInventoryItem[];
   repRows: RepSalesRow[];
   /** True while any upstream source is still loading. */
@@ -94,7 +76,6 @@ export type AlertInputs = {
  */
 export function useDashboardAlerts({
   brand,
-  customers,
   items,
   repRows,
   loading: inputsLoading,
@@ -164,35 +145,6 @@ export function useDashboardAlerts({
     if (loading) return [];
     const out: DashboardAlert[] = [];
 
-    /* ── Lever: account ──
-       Wholesale accounts 6–12 months since their last order. Valued at the
-       annual revenue they used to produce, which is what walks if they go. */
-    for (const c of customers) {
-      if (c.status !== "at_risk") continue;
-      const annual =
-        (c.sales_2025 ?? 0) > 0
-          ? c.sales_2025!
-          : (c.sales_2026 ?? 0) > 0
-            ? c.sales_2026!
-            : (c.lifetime_revenue ?? 0);
-      if (annual < MIN_IMPACT) continue;
-
-      const months = monthsSince(c.last_order_date);
-      out.push({
-        id: `account:${c.id}`,
-        lever: "account",
-        impact: annual,
-        basis: (c.sales_2025 ?? 0) > 0 ? "Prior-year revenue" : "Revenue to date",
-        title: c.name,
-        subtitle:
-          months != null
-            ? `No order in ${months} months · ${fmtMoney(annual)}/yr account`
-            : `Lapsing · ${fmtMoney(annual)}/yr account`,
-        actionLabel: "Open account",
-        href: `/customers/${c.id}`,
-      });
-    }
-
     /* ── Lever: rep ──
        Agencies whose territory is down year over year, measured YTD-vs-YTD (same
        window both years) — comparing YTD 2026 against full-year 2025 would flag
@@ -205,6 +157,7 @@ export function useDashboardAlerts({
 
       out.push({
         id: `rep:${r.rep_group_name}`,
+        kind: "move",
         lever: "rep",
         impact: decline,
         basis: "YoY YTD decline",
@@ -219,80 +172,93 @@ export function useDashboardAlerts({
       });
     }
 
-    /* ── Levers: sku + promo ──
-       Priced off trailing revenue per unit where we have it, so a stock-out on
-       a fast mover outranks one on a slow mover. */
+    return out.sort((a, b) => b.impact - a.impact);
+  }, [loading, repRows]);
+
+  /* ── Reviews: understock + overstock ──
+     Inventory used to emit one alert per SKU, which meant 50 near-identical
+     lines buried the rep moves. The founder's actual ask is "show me the two
+     lists" — so each collapses to a single review, ranked by the whole list,
+     not the individual SKUs. Definitions are shared with the inventory page
+     (lib/inventoryHealth) so the counts here match what the link lands on. */
+  const reviews = useMemo<DashboardAlert[]>(() => {
+    if (loading) return [];
+    const out: DashboardAlert[] = [];
+
+    // Understock — carries a dollar (revenue we can't fill), priced off TTM
+    // revenue-per-unit where we have it.
+    let underCount = 0;
+    let underImpact = 0;
+    let underShortUnits = 0;
     for (const it of items) {
+      if (!isUnderstock(it)) continue;
+      underCount += 1;
+      const shortUnits = Math.max(
+        0,
+        COVERAGE_MONTHS * it.avg_monthly_demand - (it.on_hand + it.on_order)
+      );
+      underShortUnits += shortUnits;
       const econ = economics.get(it.part);
-      const revPerUnit =
-        econ && econ.units > 0 ? econ.revenue / econ.units : null;
-
-      if (it.status === "at_risk" && it.avg_monthly_demand > 0) {
-        const covered = it.on_hand + it.on_order;
-        const shortUnits = Math.max(
-          0,
-          COVERAGE_MONTHS * it.avg_monthly_demand - covered
-        );
-        if (shortUnits <= 0) continue;
-
-        const impact = revPerUnit != null ? shortUnits * revPerUnit : 0;
-        if (impact < MIN_IMPACT) continue;
-
-        out.push({
-          id: `sku:${it.part}`,
-          lever: "sku",
-          impact,
-          basis: "Unmet demand × TTM price",
-          title: skuLabel(it),
-          subtitle: `${it.months_of_supply.toFixed(1)} months of supply · ${Math.round(
-            shortUnits
-          ).toLocaleString()} units short of ${COVERAGE_MONTHS}mo cover`,
-          actionLabel: "Open inventory",
-          href: "/inventory",
-        });
-        continue;
-      }
-
-      /* Overstock: cash sitting in a warehouse. Different basis from the
-         revenue-at-risk alerts above, hence the explicit label. */
-      if (
-        it.avg_monthly_demand > 0 &&
-        Number.isFinite(it.months_of_supply) &&
-        it.months_of_supply > OVERSTOCK_MONTHS
-      ) {
-        const excessUnits =
-          it.on_hand - OVERSTOCK_MONTHS * it.avg_monthly_demand;
-        if (excessUnits <= 0) continue;
-
-        const impact =
-          revPerUnit != null ? excessUnits * revPerUnit : 0;
-        if (impact < MIN_IMPACT) continue;
-
-        out.push({
-          id: `promo:${it.part}`,
-          lever: "promo",
-          impact,
-          basis: "Excess stock at TTM price",
-          title: skuLabel(it),
-          subtitle: `${it.months_of_supply.toFixed(0)} months of supply · ${Math.round(
-            excessUnits
-          ).toLocaleString()} units beyond ${OVERSTOCK_MONTHS}mo`,
-          actionLabel: "Run a promo",
-          href: "/promotions",
-        });
-      }
+      const revPerUnit = econ && econ.units > 0 ? econ.revenue / econ.units : null;
+      if (revPerUnit != null) underImpact += shortUnits * revPerUnit;
+    }
+    if (underCount > 0) {
+      out.push({
+        id: "review:understock",
+        kind: "review",
+        lever: "understock",
+        impact: underImpact,
+        basis: "Unmet demand × TTM price",
+        count: underCount,
+        title: "Review understock",
+        subtitle:
+          `${underCount} SKU${underCount > 1 ? "s" : ""} under ${COVERAGE_MONTHS}-mo cover` +
+          (underImpact > 0 ? ` · ${fmtMoney(underImpact)} in unmet demand` : "") +
+          ` · ${Math.round(underShortUnits).toLocaleString()} units short`,
+        actionLabel: "Open inventory",
+        href: "/inventory?filter=understock",
+      });
     }
 
-    return out.sort((a, b) => b.impact - a.impact);
-  }, [loading, customers, repRows, items, economics]);
+    // Overstock — deliberately no dollar. Valuing slow stock at retail
+    // overstates it (you'd realise less, not more, by clearing it), so this
+    // ranks last and shows a SKU count, not a misleading number.
+    const over = items.filter(isOverstock);
+    if (over.length > 0) {
+      const maxMonths = over.reduce(
+        (m, it) => Math.max(m, it.months_of_supply),
+        0
+      );
+      out.push({
+        id: "review:overstock",
+        kind: "review",
+        lever: "overstock",
+        impact: 0,
+        basis: "Slow movers",
+        count: over.length,
+        title: "Review overstock",
+        subtitle: `${over.length} slow-moving SKU${
+          over.length > 1 ? "s" : ""
+        } over ${OVERSTOCK_MIN_MONTHS}mo supply · up to ${Math.round(
+          maxMonths
+        )}mo on hand`,
+        actionLabel: "Open inventory",
+        href: "/inventory?filter=overstock",
+      });
+    }
 
+    return out;
+  }, [loading, items, economics]);
+
+  /* At stake = the ranked moves plus understock's unmet-demand revenue.
+     Overstock is excluded — it's capital to review, not revenue slipping. */
   const totalAtStake = useMemo(
     () =>
-      alerts
-        .filter((a) => a.lever !== "promo")
+      [...alerts, ...reviews]
+        .filter((a) => a.lever !== "overstock")
         .reduce((s, a) => s + a.impact, 0),
-    [alerts]
+    [alerts, reviews]
   );
 
-  return { alerts, totalAtStake, loading };
+  return { alerts, reviews, totalAtStake, loading };
 }

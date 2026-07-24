@@ -9,11 +9,13 @@ import {
   Mail,
   Loader2,
   Check,
+  X,
 } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { isOverstock } from "@/lib/inventoryHealth";
 import { addMonths } from "./utils/date";
 import { project } from "./utils/forecast";
 import { useForecastData } from "./hooks/useForecastData";
@@ -107,7 +109,12 @@ function csvCell(v: unknown): string {
   return s;
 }
 
-export default function ForecastSection() {
+export default function ForecastSection({
+  initialFilter,
+}: {
+  /** Seeded from the dashboard's deep-links (?filter=understock|overstock). */
+  initialFilter?: string;
+}) {
   const router = useRouter();
   const { rows, setRows, snapshotDate } = useForecastData();
   const scheduleSave = useDebouncedSave();
@@ -117,9 +124,27 @@ export default function ForecastSection() {
   const isAdmin = profile?.access === "owner" || profile?.access === "admin";
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<Set<InventoryStatus>>(
-    () => new Set(),
+  /* Deep-links from the dashboard seed the initial view: understock maps to the
+     two short-of-cover statuses; overstock flips the slow-mover toggle. Seeded
+     via the initializer (from a server-derived prop) rather than an effect, so
+     there's no setState-in-effect and no hydration mismatch. */
+  const [statusFilter, setStatusFilter] = useState<Set<InventoryStatus>>(() =>
+    initialFilter === "understock"
+      ? new Set<InventoryStatus>(["at risk", "needs review"])
+      : new Set(),
   );
+  /* Slow-mover overstock isn't a status (it's a subset of "healthy" refined by
+     velocity), so it rides alongside the status filter as its own toggle. */
+  const [overstockOnly, setOverstockOnly] = useState(
+    initialFilter === "overstock",
+  );
+
+  /* Any manual status change clears the overstock toggle — otherwise the
+     synthetic filter would silently keep narrowing what the pills claim to show. */
+  function applyStatusFilter(next: Set<InventoryStatus>) {
+    setStatusFilter(next);
+    setOverstockOnly(false);
+  }
   const [sortKey, setSortKey] = useState<SortKey>("part");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [view, setView] = useState<ViewMode>("monthly");
@@ -350,9 +375,10 @@ export default function ForecastSection() {
         );
         if (!statusFilter.has(status)) return false;
       }
+      if (overstockOnly && !isOverstock(r)) return false;
       return true;
     };
-  }, [search, statusFilter]);
+  }, [search, statusFilter, overstockOnly]);
 
   /* ─── Pill counts (cross-filtered) ─── */
 
@@ -483,7 +509,7 @@ export default function ForecastSection() {
             selected={statusFilter}
             counts={counts}
             totalCount={counts.all}
-            onChange={setStatusFilter}
+            onChange={applyStatusFilter}
           />
 
           <button
@@ -520,7 +546,7 @@ export default function ForecastSection() {
               <button
                 key={opt.value}
                 onClick={() =>
-                  setStatusFilter(
+                  applyStatusFilter(
                     opt.value === "all"
                       ? new Set()
                       : new Set([opt.value as InventoryStatus]),
@@ -545,6 +571,24 @@ export default function ForecastSection() {
           })}
           </div>
         </div>
+
+        {/* Slow-mover overstock is a synthetic filter with no matching pill, so
+            when it's on we surface a dismissible chip — otherwise the narrowed
+            list looks unexplained (the pills would all read "All"). */}
+        {overstockOnly && (
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700">
+              Overstock · slow movers ({visibleRows.length})
+              <button
+                onClick={() => setOverstockOnly(false)}
+                className="rounded-full p-0.5 hover:bg-violet-100"
+                aria-label="Clear overstock filter"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* Row 3 — view, export, snapshot freshness */}
         <div className="flex flex-wrap items-center gap-2">
