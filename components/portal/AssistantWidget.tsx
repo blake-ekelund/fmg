@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Send, Sparkles, X } from "@/components/portal/icons";
-import { portalPost, portalHref, type ChatMessage } from "@/components/portal/api";
+import {
+  portalPost,
+  portalHref,
+  portalDownload,
+  type ChatMessage,
+} from "@/components/portal/api";
 
 /**
  * A floating chat assistant, available on every portal page, that answers a
@@ -24,11 +29,16 @@ const SUGGESTIONS = [
 
 /**
  * Minimal, safe Markdown → HTML for the assistant's replies: bold, bullets, and
- * links. Links are allowed ONLY to in-portal paths (starting with /portal) —
- * anything else (external URLs, javascript:) is rendered as literal text, so a
- * stray or injected URL can never become a live off-site/hostile link. The
- * href runs through portalHref so admin preview keeps its ?previewAgency=.
+ * links. Only two href shapes are allowed to become live links — an in-portal
+ * page (/portal…) or an agency-scoped Excel export (/api/portal/…/export). Both
+ * are same-origin. Anything else (external URLs, javascript:, other paths) is
+ * rendered as literal text, so a stray or injected URL can never become a live
+ * off-site/hostile link. Page hrefs run through portalHref so admin preview
+ * keeps ?previewAgency=; export hrefs stay raw (portalDownload adds the agency).
  */
+const isPortalPage = (href: string) => /^\/portal(?:[/?#]|$)/.test(href);
+const isExport = (href: string) => /^\/api\/portal\/[\w/-]+\/export(?:[/?#]|$)/.test(href);
+
 function renderMarkdown(text: string): string {
   const esc = (s: string) =>
     s
@@ -36,7 +46,6 @@ function renderMarkdown(text: string): string {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
   const escAttr = (s: string) => esc(s).replace(/"/g, "&quot;");
-  const isInternal = (href: string) => /^\/portal(?:[/?#]|$)/.test(href);
 
   // esc + **bold** on a run of plain (non-link) text.
   const fmt = (s: string) =>
@@ -51,8 +60,12 @@ function renderMarkdown(text: string): string {
       out += fmt(s.slice(last, m.index));
       const label = m[1];
       const href = m[2].trim();
-      if (isInternal(href)) {
-        out += `<a href="${escAttr(portalHref(href))}" class="font-medium text-brand-700 underline underline-offset-2">${fmt(label)}</a>`;
+      const cls = "font-medium text-brand-700 underline underline-offset-2";
+      if (isPortalPage(href)) {
+        out += `<a href="${escAttr(portalHref(href))}" class="${cls}">${fmt(label)}</a>`;
+      } else if (isExport(href)) {
+        // Handled by the click interceptor as an authenticated download.
+        out += `<a href="${escAttr(href)}" class="${cls}">⬇ ${fmt(label)}</a>`;
       } else {
         out += fmt(m[0]); // not a safe internal link — keep it literal
       }
@@ -124,18 +137,33 @@ export default function AssistantWidget({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, setOpen]);
 
-  /* Links in replies are real anchors (dangerouslySetInnerHTML). Intercept
-     clicks on the internal ones so navigation is client-side: the layout — and
-     therefore this widget and its conversation — stays mounted, so the chat is
-     still here when the rep comes back. renderMarkdown already restricted these
-     hrefs to /portal paths and stamped previewAgency. */
+  /* Links in replies are real anchors (dangerouslySetInnerHTML). Intercept the
+     two safe shapes renderMarkdown allows:
+     - export links (/api/portal/…/export) → authenticated blob download; a plain
+       anchor GET wouldn't carry the Bearer token, so portalDownload does it.
+     - page links (/portal…) → client-side nav, so the layout (and this widget +
+       its conversation) stays mounted and the chat is still here on return. */
   function onTranscriptClick(e: React.MouseEvent) {
     const anchor = (e.target as HTMLElement).closest("a");
     const href = anchor?.getAttribute("href");
-    if (!href || !href.startsWith("/portal")) return;
-    e.preventDefault();
-    setOpen(false);
-    router.push(href);
+    if (!href) return;
+
+    if (href.startsWith("/api/portal/")) {
+      e.preventDefault();
+      const report = new URLSearchParams(href.split("?")[1] ?? "").get("report");
+      const base = report ?? href.split("?")[0].split("/").filter(Boolean).slice(-2, -1)[0] ?? "export";
+      const date = new Date().toISOString().slice(0, 10);
+      portalDownload(href, `${base}_${date}.xlsx`).catch((err) =>
+        setError(err instanceof Error ? err.message : "Couldn't download that."),
+      );
+      return;
+    }
+
+    if (href.startsWith("/portal")) {
+      e.preventDefault();
+      setOpen(false);
+      router.push(href);
+    }
   }
 
   async function send(text: string) {
