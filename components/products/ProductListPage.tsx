@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -8,6 +8,7 @@ import {
   Plus,
   Archive,
   PackageCheck,
+  Check,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
@@ -33,6 +34,9 @@ type SalesLookup = Record<
 
 type StatusFilter = "current" | "archived" | "all";
 type TrendFilter = "all" | Trend;
+
+/* Trends offered in the multiselect, ordered by TREND_CONFIG.rank. */
+const TREND_OPTIONS: Trend[] = ["growing", "new", "stable", "declining"];
 
 /* ─── Sort types ─── */
 
@@ -63,7 +67,8 @@ export default function ProductListPage() {
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("current");
-  const [trendFilter, setTrendFilter] = useState<TrendFilter>("all");
+  // Multiselect: empty set == all trends (keeps "cleared" and "everything" as one state).
+  const [trendSel, setTrendSel] = useState<Set<Trend>>(new Set());
   const [needsMediaOnly, setNeedsMediaOnly] = useState(false);
 
   const [sortKey, setSortKey] = useState<SortKey>("part");
@@ -239,8 +244,8 @@ export default function ProductListPage() {
         if (status === "current" && !p.is_forecasted) return false;
         if (status === "archived" && p.is_forecasted) return false;
       }
-      if (except !== "trend" && trendFilter !== "all") {
-        if (getTrend(p.part) !== trendFilter) return false;
+      if (except !== "trend" && trendSel.size > 0) {
+        if (!trendSel.has(getTrend(p.part))) return false;
       }
       if (except !== "needsMedia" && needsMediaOnly) {
         if (!needsMedia(mediaLookup[p.part])) return false;
@@ -248,7 +253,7 @@ export default function ProductListPage() {
       return true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, status, trendFilter, needsMediaOnly, salesLookup, mediaLookup]);
+  }, [query, status, trendSel, needsMediaOnly, salesLookup, mediaLookup]);
 
   /* ─── Pill counts (cross-filtered) ───────────────────────────────────
      Each pill's count = how many rows would show if you clicked it,
@@ -341,7 +346,7 @@ export default function ProductListPage() {
 
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brandScoped, query, status, trendFilter, needsMediaOnly, salesLookup, sortKey, sortDir, mediaLookup]);
+  }, [brandScoped, query, status, trendSel, needsMediaOnly, salesLookup, sortKey, sortDir, mediaLookup]);
 
   /* ─── Column definitions ─── */
 
@@ -365,10 +370,10 @@ export default function ProductListPage() {
 
   return (
     <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
-      {/* Single-row toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Single-row toolbar — filters + import/export/new product all on one line */}
+      <div className="flex items-center gap-2">
         {/* Search */}
-        <div className="relative flex-1 min-w-[180px] max-w-[280px]">
+        <div className="relative min-w-[240px] max-w-[460px] flex-1">
           <Search
             size={13}
             className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
@@ -381,59 +386,31 @@ export default function ProductListPage() {
           />
         </div>
 
-        {/* Status segmented control */}
-        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
-          <PillButton
-            label={`Current (${counts.current})`}
-            active={status === "current"}
-            onClick={() => setStatus("current")}
-          />
-          <PillButton
-            label={`Archived (${counts.archived})`}
-            active={status === "archived"}
-            onClick={() => setStatus("archived")}
-          />
-          <PillButton
-            label={`All (${counts.all})`}
-            active={status === "all"}
-            onClick={() => setStatus("all")}
-          />
-        </div>
+        {/* Status dropdown */}
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value as StatusFilter)}
+          className="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300"
+          title="Filter by product status"
+        >
+          <option value="current">Current ({counts.current})</option>
+          <option value="archived">Archived ({counts.archived})</option>
+          <option value="all">All ({counts.all})</option>
+        </select>
 
-        {/* Trend filter */}
-        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
-          <PillButton
-            label="All trends"
-            active={trendFilter === "all"}
-            onClick={() => setTrendFilter("all")}
-          />
-          <PillButton
-            label={`Growing (${counts.trend.growing})`}
-            active={trendFilter === "growing"}
-            onClick={() => setTrendFilter("growing")}
-          />
-          <PillButton
-            label={`Declining (${counts.trend.declining})`}
-            active={trendFilter === "declining"}
-            onClick={() => setTrendFilter("declining")}
-          />
-          <PillButton
-            label={`Stable (${counts.trend.stable})`}
-            active={trendFilter === "stable"}
-            onClick={() => setTrendFilter("stable")}
-          />
-          <PillButton
-            label={`New (${counts.trend.new})`}
-            active={trendFilter === "new"}
-            onClick={() => setTrendFilter("new")}
-          />
-        </div>
+        {/* Trend multiselect */}
+        <TrendMultiSelect
+          selected={trendSel}
+          counts={counts.trend}
+          totalCount={counts.trend.all}
+          onChange={setTrendSel}
+        />
 
         {/* Needs media toggle */}
         <button
           onClick={() => setNeedsMediaOnly((v) => !v)}
           className={clsx(
-            "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
+            "shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
             needsMediaOnly
               ? "bg-amber-50 text-amber-700 border-amber-200"
               : "bg-white text-gray-500 border-gray-200 hover:border-gray-300",
@@ -448,7 +425,7 @@ export default function ProductListPage() {
         </button>
 
         {/* Copy export/import + add product (pushed right) */}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <CopyImportExport onImported={load} />
           <button
             onClick={() => setCreateOpen(true)}
@@ -597,7 +574,7 @@ export default function ProductListPage() {
               No products found
             </p>
             <p className="mt-1 text-sm text-gray-500 max-w-sm">
-              {query || trendFilter !== "all" || needsMediaOnly
+              {query || trendSel.size > 0 || needsMediaOnly
                 ? "Try adjusting your search or filters."
                 : "Add your first product to get started."}
             </p>
@@ -627,29 +604,135 @@ export default function ProductListPage() {
   );
 }
 
-/* ─── Pill button (used across toolbar segments) ─── */
+/* ─── Trend multiselect dropdown ───────────────────────────────────────
+   Empty selection == all trends. Counts reflect every other active filter
+   (search/status/needs-media), matching the cross-filtered pill behavior. */
 
-function PillButton({
-  label,
-  active,
-  onClick,
+function TrendMultiSelect({
+  selected,
+  counts,
+  totalCount,
+  onChange,
 }: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
+  selected: Set<Trend>;
+  counts: Record<TrendFilter, number>;
+  totalCount: number;
+  onChange: (next: Set<Trend>) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function toggle(t: Trend) {
+    const next = new Set(selected);
+    if (next.has(t)) next.delete(t);
+    else next.add(t);
+    onChange(next);
+  }
+
+  const label =
+    selected.size === 0
+      ? "All trends"
+      : selected.size === 1
+        ? TREND_CONFIG[[...selected][0]].label
+        : `${selected.size} trends`;
+
   return (
-    <button
-      onClick={onClick}
-      className={clsx(
-        "rounded-md px-2.5 py-1 text-xs font-medium transition",
-        active
-          ? "bg-gray-900 text-white"
-          : "text-gray-600 hover:text-gray-900",
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        className={clsx(
+          "inline-flex min-w-[130px] items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1.5 text-xs font-medium transition",
+          selected.size > 0
+            ? "border-gray-900 text-gray-900"
+            : "border-gray-200 text-gray-600",
+        )}
+        title="Filter by trend"
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown
+          size={12}
+          className={clsx(
+            "ml-auto shrink-0 transition-transform duration-150",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 z-30 mt-1 min-w-[190px] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => onChange(new Set())}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-gray-50"
+          >
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {selected.size === 0 && <Check size={14} className="text-gray-900" />}
+            </span>
+            <span
+              className={clsx(
+                "flex-1",
+                selected.size === 0 ? "font-medium text-gray-900" : "text-gray-600",
+              )}
+            >
+              All trends
+            </span>
+            <span className="text-xs tabular-nums text-gray-400">{totalCount}</span>
+          </button>
+
+          <div className="border-t border-gray-100">
+            {TREND_OPTIONS.map((t) => {
+              const cfg = TREND_CONFIG[t];
+              const TrendIcon = cfg.icon;
+              const on = selected.has(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => toggle(t)}
+                  aria-pressed={on}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-gray-50"
+                >
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {on && <Check size={14} className="text-gray-900" />}
+                  </span>
+                  <TrendIcon size={13} className={clsx("shrink-0", cfg.color)} />
+                  <span
+                    className={clsx(
+                      "flex-1",
+                      on ? "font-medium text-gray-900" : "text-gray-600",
+                    )}
+                  >
+                    {cfg.label}
+                  </span>
+                  <span className="text-xs tabular-nums text-gray-400">
+                    {counts[t]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
-    >
-      {label}
-    </button>
+    </div>
   );
 }
 

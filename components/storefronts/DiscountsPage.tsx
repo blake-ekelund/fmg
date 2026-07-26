@@ -30,9 +30,13 @@ type Discount = {
   id: string;
   code: string;
   brand: "Sassy" | "NI" | "both";
-  /** 'free_item' = the matching items are free, bounded by scope_max_items. */
-  kind: "percent" | "fixed" | "free_item";
+  /** 'free_item' = the matching items are free, bounded by scope_max_items.
+   *  'free_shipping' = the code's only effect is waiving shipping. */
+  kind: "percent" | "fixed" | "free_item" | "free_shipping";
   value: number;
+  /** When true the code waives shipping ($0 shipping line), on top of any
+   *  product discount. Always true for kind='free_shipping'. */
+  free_shipping: boolean;
   min_subtotal: number | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -103,12 +107,17 @@ const STATUS_LABEL: Record<Status, string> = {
 };
 
 function discountLabel(d: Discount): string {
-  if (d.kind === "free_item") {
-    return d.scope_max_items && d.scope_max_items > 1
-      ? `${d.scope_max_items} free`
-      : "Free item";
-  }
-  return d.kind === "percent" ? `${d.value}% off` : `$${d.value.toFixed(2)} off`;
+  if (d.kind === "free_shipping") return "Free shipping";
+  const base =
+    d.kind === "free_item"
+      ? d.scope_max_items && d.scope_max_items > 1
+        ? `${d.scope_max_items} free`
+        : "Free item"
+      : d.kind === "percent"
+        ? `${d.value}% off`
+        : `$${d.value.toFixed(2)} off`;
+  // Add-on free shipping rides alongside the product discount.
+  return d.free_shipping ? `${base} + free ship` : base;
 }
 
 /** Short read of what a code is limited to, for the list. */
@@ -213,6 +222,7 @@ export default function DiscountsPage() {
   const [brand, setBrand] = useState<Discount["brand"]>("both");
   const [kind, setKind] = useState<Discount["kind"]>("percent");
   const [value, setValue] = useState("");
+  const [freeShipping, setFreeShipping] = useState(false);
   const [minSubtotal, setMinSubtotal] = useState("");
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
@@ -330,15 +340,17 @@ export default function DiscountsPage() {
     scopeBrands.length + scopeCollections.length + scopeForms.length > 0;
   const saveBlockedReason: string | null = !code.trim()
     ? "Enter a code"
-    : kind === "free_item"
-      ? !scopeHasMatchers
-        ? "Choose which products are free — otherwise the whole cart would be"
-        : null
-      : !value
-        ? "Enter an amount"
-        : scopeOn && !scopeHasMatchers
-          ? "Pick at least one product rule, or turn off product scoping"
-          : null;
+    : kind === "free_shipping"
+      ? null // shipping-only: no amount or product scope needed
+      : kind === "free_item"
+        ? !scopeHasMatchers
+          ? "Choose which products are free — otherwise the whole cart would be"
+          : null
+        : !value
+          ? "Enter an amount"
+          : scopeOn && !scopeHasMatchers
+            ? "Pick at least one product rule, or turn off product scoping"
+            : null;
 
   /* Reads the rule back as a sentence. Four separate matcher lists are easy to
      misread as AND when they're OR, so state it plainly. */
@@ -494,6 +506,7 @@ export default function DiscountsPage() {
     setBrand("both");
     setKind("percent");
     setValue("");
+    setFreeShipping(false);
     setMinSubtotal("");
     setStartsAt("");
     setEndsAt("");
@@ -547,6 +560,7 @@ export default function DiscountsPage() {
     setBrand(d.brand);
     setKind(d.kind);
     setValue(String(d.value));
+    setFreeShipping(d.free_shipping === true);
     setMinSubtotal(d.min_subtotal != null ? String(d.min_subtotal) : "");
     setStartsAt(isoToDateInput(d.starts_at));
     setEndsAt(isoToDateInput(d.ends_at));
@@ -590,6 +604,7 @@ export default function DiscountsPage() {
         brand,
         kind,
         value: Number(value),
+        free_shipping: kind === "free_shipping" ? true : freeShipping,
         min_subtotal: minSubtotal ? Number(minSubtotal) : null,
         starts_at: startOfDayIso(startsAt),
         ends_at: endOfDayIso(endsAt),
@@ -858,26 +873,38 @@ export default function DiscountsPage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-ink-secondary">Amount</label>
+                  <label className="text-xs font-medium text-ink-secondary">
+                    Product discount
+                  </label>
                   <div className="flex gap-1.5">
                     <select
-                      value={kind}
+                      /* kind='free_shipping' means "no product discount" — the
+                         code's only effect is the free-shipping toggle below. */
+                      value={kind === "free_shipping" ? "none" : kind}
                       onChange={(e) => {
-                        const next = e.target.value as Discount["kind"];
+                        const sel = e.target.value;
+                        const next = (sel === "none" ? "free_shipping" : sel) as Discount["kind"];
                         setKind(next);
-                        /* "Free" with no scope would zero the whole cart, so
-                           choosing it turns scoping on and opens the picker. */
+                        /* "Free item" with no scope would zero the whole cart,
+                           so choosing it turns scoping on and opens the picker. */
                         if (next === "free_item") setScopeOn(true);
+                        /* No product discount → product scope is moot. */
+                        if (next === "free_shipping") setScopeOn(false);
                       }}
                       className="rounded-lg border border-line bg-surface px-2 py-2 text-sm text-ink focus:border-brand-400 focus:outline-none"
                     >
+                      <option value="none">None</option>
                       <option value="percent">% off</option>
                       <option value="fixed">$ off</option>
-                      <option value="free_item">Free</option>
+                      <option value="free_item">Free item</option>
                     </select>
                     {kind === "free_item" ? (
                       <div className="flex w-full items-center rounded-lg border border-line bg-surface-muted px-3 py-2 text-sm text-ink-muted">
                         100% off the chosen items
+                      </div>
+                    ) : kind === "free_shipping" ? (
+                      <div className="flex w-full items-center rounded-lg border border-line bg-surface-muted px-3 py-2 text-sm text-ink-muted">
+                        Shipping only — tick Free shipping below
                       </div>
                     ) : (
                       <input
@@ -892,10 +919,43 @@ export default function DiscountsPage() {
                 </div>
               </div>
 
+              {/* Free shipping — an independent toggle that composes with any
+                  product discount above ($15 off AND free ship), or stands alone
+                  when the product discount is "None". Forced on + locked in the
+                  standalone case, since otherwise the code would do nothing. */}
+              <label
+                className={clsx(
+                  "mt-4 flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5",
+                  kind === "free_shipping" || freeShipping
+                    ? "border-brand-300 bg-brand-50/40"
+                    : "border-line",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={kind === "free_shipping" || freeShipping}
+                  disabled={kind === "free_shipping"}
+                  onChange={(e) => setFreeShipping(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-line-strong accent-brand-700 disabled:opacity-60"
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium text-ink">
+                    Free shipping
+                  </span>
+                  <span className="block text-[11px] text-ink-muted">
+                    {kind === "free_shipping"
+                      ? "Included — this code is shipping-only (product discount is None)."
+                      : "Also waive shipping — sets the storefront Shipping line to $0 on top of this discount, for the selected store."}
+                  </span>
+                </span>
+              </label>
+
               {/* ── What it applies to ──
                   Off by default: an order-wide code is still the common case,
                   and this is the one setting that can quietly change how much
-                  money a code gives away. */}
+                  money a code gives away. Not shown for shipping-only codes —
+                  free shipping is order-level, so product scope is moot. */}
+              {kind !== "free_shipping" ? (
               <div
                 className={clsx(
                   "mt-4 rounded-lg border",
@@ -986,6 +1046,7 @@ export default function DiscountsPage() {
                   </div>
                 ) : null}
               </div>
+              ) : null}
 
               {/* ── Optional: limits, dates, note ──
                   Collapsed by default so the three fields a code actually needs

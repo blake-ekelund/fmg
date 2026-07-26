@@ -9,11 +9,11 @@ import {
   Loader2,
   RotateCcw,
   Search,
+  ShoppingBag,
   X,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { useTeamOwners } from "@/lib/team-owners";
 import type { PartnerProfile, PartnerStatus } from "@/lib/wholesalePortal";
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -44,14 +44,34 @@ const STATUS_META: Record<
   },
 };
 
+type PartnerPatch = {
+  status?: PartnerStatus;
+  sales_rep?: string | null;
+  rep_group?: string | null;
+  account_number?: string | null;
+};
+
+type TypeFilter = "all" | "wholesale" | "retail";
 type StatusFilter = "all" | PartnerStatus;
 type RepFilter = "all" | "unassigned" | string;
 
-const STATUS_RANK: Record<PartnerStatus, number> = {
-  pending: 0,
-  approved: 1,
-  denied: 2,
-};
+const isWholesale = (p: PartnerProfile) => p.role === "wholesale";
+const isRetail = (p: PartnerProfile) => p.role === "retail";
+
+// D2C accounts all route to the NI house rep and a single Fishbowl D2C
+// customer, so these fields carry fixed defaults for retail accounts. The
+// defaults are shown (and are searchable / filterable) but only persisted if a
+// staff member edits the field — an explicit stored value always wins.
+const D2C_DEFAULT_REP = "admin";
+const D2C_DEFAULT_REP_GROUP = "NI House";
+const D2C_DEFAULT_ACCOUNT_NUMBER = ""; // TODO: set the D2C Fishbowl account number
+
+const effectiveRep = (p: PartnerProfile) =>
+  p.sales_rep?.trim() || (isRetail(p) ? D2C_DEFAULT_REP : "");
+const effectiveRepGroup = (p: PartnerProfile) =>
+  p.rep_group?.trim() || (isRetail(p) ? D2C_DEFAULT_REP_GROUP : "");
+const effectiveAccountNumber = (p: PartnerProfile) =>
+  p.account_number?.trim() || (isRetail(p) ? D2C_DEFAULT_ACCOUNT_NUMBER : "");
 
 export default function PartnersPage() {
   const [partners, setPartners] = useState<PartnerProfile[]>([]);
@@ -60,11 +80,10 @@ export default function PartnersPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [repFilter, setRepFilter] = useState<RepFilter>("all");
   const [storeFilter, setStoreFilter] = useState<"all" | "sassy" | "ni">("all");
-
-  const { owners } = useTeamOwners();
 
   const reload = useCallback(async () => {
     try {
@@ -89,10 +108,7 @@ export default function PartnersPage() {
     })();
   }, [reload]);
 
-  async function patchPartner(
-    id: string,
-    patch: { status?: PartnerStatus; sales_rep?: string | null }
-  ) {
+  async function patchPartner(id: string, patch: PartnerPatch) {
     setBusyId(id);
     try {
       const res = await fetch("/api/partners", {
@@ -117,20 +133,43 @@ export default function PartnersPage() {
     }
   }
 
-  /* Rep options: the FMG team roster plus any rep value already stored
-     (so legacy/renamed assignments stay selectable). */
+  /* Autocomplete suggestions for the manual rep / rep-group fields: every
+     distinct value in play (stored values plus the D2C defaults), so staff can
+     reuse prior entries. */
   const repOptions = useMemo(() => {
-    const assigned = partners
-      .map((p) => p.sales_rep?.trim())
-      .filter((r): r is string => !!r);
-    return Array.from(new Set([...owners, ...assigned])).sort((a, b) =>
-      a.localeCompare(b)
-    );
-  }, [owners, partners]);
+    const set = new Set<string>([D2C_DEFAULT_REP]);
+    for (const p of partners) {
+      const r = effectiveRep(p);
+      if (r) set.add(r);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [partners]);
+  const repGroupOptions = useMemo(() => {
+    const set = new Set<string>([D2C_DEFAULT_REP_GROUP]);
+    for (const p of partners) {
+      const r = effectiveRepGroup(p);
+      if (r) set.add(r);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [partners]);
 
-  const counts = useMemo(() => {
-    const c = { all: partners.length, pending: 0, approved: 0, denied: 0 };
-    for (const p of partners) c[p.wholesale_status]++;
+  const typeCounts = useMemo(() => {
+    let wholesale = 0;
+    let retail = 0;
+    for (const p of partners) {
+      if (isWholesale(p)) wholesale++;
+      else if (isRetail(p)) retail++;
+    }
+    return { all: partners.length, wholesale, retail };
+  }, [partners]);
+
+  const statusCounts = useMemo(() => {
+    const c = { all: 0, pending: 0, approved: 0, denied: 0 };
+    for (const p of partners) {
+      if (!isWholesale(p)) continue;
+      c.all++;
+      c[p.wholesale_status]++;
+    }
     return c;
   }, [partners]);
 
@@ -138,15 +177,21 @@ export default function PartnersPage() {
     const q = query.trim().toLowerCase();
     return partners
       .filter((p) => {
-        if (statusFilter !== "all" && p.wholesale_status !== statusFilter)
-          return false;
+        if (typeFilter === "wholesale" && !isWholesale(p)) return false;
+        if (typeFilter === "retail" && !isRetail(p)) return false;
+        // Wholesale status is only meaningful for wholesale accounts — a status
+        // filter therefore implicitly narrows to wholesale.
+        if (statusFilter !== "all") {
+          if (!isWholesale(p)) return false;
+          if (p.wholesale_status !== statusFilter) return false;
+        }
         if (storeFilter !== "all" && p.signup_store !== storeFilter)
           return false;
-        if (repFilter === "unassigned" && p.sales_rep?.trim()) return false;
+        if (repFilter === "unassigned" && effectiveRep(p)) return false;
         if (
           repFilter !== "all" &&
           repFilter !== "unassigned" &&
-          (p.sales_rep ?? "").trim().toLowerCase() !== repFilter.toLowerCase()
+          effectiveRep(p).toLowerCase() !== repFilter.toLowerCase()
         )
           return false;
         if (q) {
@@ -157,7 +202,9 @@ export default function PartnersPage() {
             p.phone,
             p.website,
             p.business_type,
-            p.sales_rep,
+            effectiveRep(p),
+            effectiveRepGroup(p),
+            effectiveAccountNumber(p),
             p.signup_store,
           ]
             .filter(Boolean)
@@ -167,26 +214,37 @@ export default function PartnersPage() {
         }
         return true;
       })
-      .sort(
-        // Review queue first, newest within each status.
-        (a, b) =>
-          STATUS_RANK[a.wholesale_status] - STATUS_RANK[b.wholesale_status] ||
-          (b.created_at ?? "").localeCompare(a.created_at ?? "")
-      );
-  }, [partners, query, statusFilter, repFilter, storeFilter]);
+      .sort((a, b) => {
+        // Pending wholesale applications float to the top (the review queue),
+        // then newest first across everything else.
+        const aPending = isWholesale(a) && a.wholesale_status === "pending";
+        const bPending = isWholesale(b) && b.wholesale_status === "pending";
+        if (aPending !== bPending) return aPending ? -1 : 1;
+        return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      });
+  }, [partners, query, typeFilter, statusFilter, repFilter, storeFilter]);
+
+  const typePills: { value: TypeFilter; label: string; count: number }[] = [
+    { value: "all", label: "All", count: typeCounts.all },
+    { value: "wholesale", label: "Wholesale", count: typeCounts.wholesale },
+    { value: "retail", label: "D2C", count: typeCounts.retail },
+  ];
 
   const statusPills: { value: StatusFilter; label: string; count: number }[] = [
-    { value: "all", label: "All", count: counts.all },
-    { value: "pending", label: "Pending", count: counts.pending },
-    { value: "approved", label: "Approved", count: counts.approved },
-    { value: "denied", label: "Denied", count: counts.denied },
+    { value: "all", label: "All", count: statusCounts.all },
+    { value: "pending", label: "Pending", count: statusCounts.pending },
+    { value: "approved", label: "Approved", count: statusCounts.approved },
+    { value: "denied", label: "Denied", count: statusCounts.denied },
   ];
+
+  const showStatusPills = typeFilter !== "retail";
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
       <p className="max-w-6xl text-sm text-gray-500">
-        Wholesale signups from the Sassy and Natural Inspirations storefronts —
-        approve to confirm an account, deny to pause its access.
+        Every account from the Sassy and Natural Inspirations storefronts — D2C
+        and wholesale. Assign a rep and rep group to any account; for wholesale,
+        approve or deny access and record their Fishbowl account number.
       </p>
 
       {error ? (
@@ -206,27 +264,47 @@ export default function PartnersPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search business, contact, email…"
+            placeholder="Search business, contact, email, account #…"
             className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
           />
         </div>
 
         <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
-          {statusPills.map((s) => (
+          {typePills.map((t) => (
             <button
-              key={s.value}
-              onClick={() => setStatusFilter(s.value)}
+              key={t.value}
+              onClick={() => setTypeFilter(t.value)}
               className={clsx(
                 "rounded-md px-2.5 py-1.5 font-medium transition",
-                statusFilter === s.value
+                typeFilter === t.value
                   ? "bg-gray-900 text-white"
                   : "text-gray-500 hover:text-gray-900"
               )}
             >
-              {s.label} ({s.count})
+              {t.label} ({t.count})
             </button>
           ))}
         </div>
+
+        {showStatusPills ? (
+          <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
+            {statusPills.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => setStatusFilter(s.value)}
+                className={clsx(
+                  "rounded-md px-2.5 py-1.5 font-medium transition",
+                  statusFilter === s.value
+                    ? "bg-gray-900 text-white"
+                    : "text-gray-500 hover:text-gray-900"
+                )}
+                title="Wholesale approval status"
+              >
+                {s.label} ({s.count})
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <select
           value={storeFilter}
@@ -261,22 +339,35 @@ export default function PartnersPage() {
         </span>
       </div>
 
+      {/* Datalists shared by every row's rep / rep-group inputs. */}
+      <datalist id="partner-rep-options">
+        {repOptions.map((r) => (
+          <option key={r} value={r} />
+        ))}
+      </datalist>
+      <datalist id="partner-rep-group-options">
+        {repGroupOptions.map((r) => (
+          <option key={r} value={r} />
+        ))}
+      </datalist>
+
       {/* Table */}
       {loading ? (
         <div className="flex items-center gap-2 py-10 text-sm text-gray-400">
-          <Loader2 size={15} className="animate-spin" /> Loading partners…
+          <Loader2 size={15} className="animate-spin" /> Loading accounts…
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-gray-100 text-[10px] uppercase tracking-wider text-gray-400">
-                <th className="px-3 py-2 text-left font-medium">Business</th>
+                <th className="px-3 py-2 text-left font-medium">Account</th>
+                <th className="px-3 py-2 text-left font-medium">Type</th>
                 <th className="px-3 py-2 text-left font-medium">Store</th>
                 <th className="px-3 py-2 text-left font-medium">Contact</th>
-                <th className="px-3 py-2 text-left font-medium">Details</th>
-                <th className="px-3 py-2 text-left font-medium">Sales rep</th>
-                <th className="px-3 py-2 text-left font-medium">Applied</th>
+                <th className="px-3 py-2 text-left font-medium">Rep &amp; group</th>
+                <th className="px-3 py-2 text-left font-medium">Account #</th>
+                <th className="px-3 py-2 text-left font-medium">Joined</th>
                 <th className="px-3 py-2 text-left font-medium">Status</th>
                 <th className="px-3 py-2 text-right font-medium">Actions</th>
               </tr>
@@ -285,11 +376,11 @@ export default function PartnersPage() {
               {filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4 py-10 text-center text-sm text-gray-400"
                   >
                     {partners.length === 0
-                      ? "No partner accounts yet — new signups show up here automatically."
+                      ? "No storefront accounts yet — new signups show up here automatically."
                       : "Nothing matches the current filters."}
                   </td>
                 </tr>
@@ -300,7 +391,6 @@ export default function PartnersPage() {
                     partner={p}
                     last={idx === filtered.length - 1}
                     busy={busyId === p.id}
-                    repOptions={repOptions}
                     onPatch={patchPartner}
                   />
                 ))
@@ -313,24 +403,68 @@ export default function PartnersPage() {
   );
 }
 
+/**
+ * A text input that commits (patches) on blur or Enter, not per keystroke.
+ * Reset to the latest server value via a `key` on the committed value at the
+ * call site (React's recommended pattern), so no state-syncing effect is needed.
+ */
+function EditableText({
+  value,
+  placeholder,
+  listId,
+  disabled,
+  onCommit,
+}: {
+  value: string | null | undefined;
+  placeholder: string;
+  listId?: string;
+  disabled?: boolean;
+  onCommit: (next: string | null) => void;
+}) {
+  const initial = value ?? "";
+  const [draft, setDraft] = useState(initial);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== initial.trim()) onCommit(next || null);
+  };
+
+  return (
+    <input
+      value={draft}
+      list={listId}
+      disabled={disabled}
+      placeholder={placeholder}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") setDraft(initial);
+      }}
+      className={clsx(
+        "w-full max-w-[150px] rounded-lg border bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-300",
+        draft.trim()
+          ? "border-gray-200 font-medium text-gray-900"
+          : "border-dashed border-gray-300 text-gray-500"
+      )}
+    />
+  );
+}
+
 function PartnerRow({
   partner: p,
   last,
   busy,
-  repOptions,
   onPatch,
 }: {
   partner: PartnerProfile;
   last: boolean;
   busy: boolean;
-  repOptions: string[];
-  onPatch: (
-    id: string,
-    patch: { status?: PartnerStatus; sales_rep?: string | null }
-  ) => void;
+  onPatch: (id: string, patch: PartnerPatch) => void;
 }) {
+  const wholesale = isWholesale(p);
   const meta = STATUS_META[p.wholesale_status];
-  const applied = p.created_at
+  const joined = p.created_at
     ? new Date(p.created_at).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -340,7 +474,6 @@ function PartnerRow({
   const details = [p.business_type, p.expected_monthly_volume]
     .filter(Boolean)
     .join(" · ");
-  const rep = p.sales_rep?.trim() ?? "";
 
   return (
     <tr
@@ -350,14 +483,36 @@ function PartnerRow({
         busy && "opacity-60"
       )}
     >
+      {/* Account: business + (for wholesale) vetting details */}
       <td className="px-3 py-2.5">
         <div className="font-semibold text-gray-900">{p.business_name}</div>
         {p.website ? (
-          <div className="mt-0.5 max-w-[160px] truncate text-gray-400">
+          <div className="mt-0.5 max-w-[180px] truncate text-gray-400">
             {p.website}
           </div>
         ) : null}
+        {wholesale && (details || p.tax_id) ? (
+          <div className="mt-1 max-w-[200px] text-[11px] leading-tight text-gray-400">
+            {details ? <div>{details}</div> : null}
+            <div>{p.tax_id ? `Tax ID ${p.tax_id}` : "No tax ID yet"}</div>
+          </div>
+        ) : null}
       </td>
+
+      {/* Type */}
+      <td className="px-3 py-2.5">
+        {wholesale ? (
+          <span className="inline-flex rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+            Wholesale
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
+            <ShoppingBag size={10} /> D2C
+          </span>
+        )}
+      </td>
+
+      {/* Store */}
       <td className="px-3 py-2.5">
         {p.signup_store === "sassy" ? (
           <span className="inline-flex rounded-full bg-pink-50 px-2 py-0.5 text-[11px] font-medium text-pink-700">
@@ -371,6 +526,8 @@ function PartnerRow({
           <span className="text-gray-300">—</span>
         )}
       </td>
+
+      {/* Contact */}
       <td className="px-3 py-2.5">
         <div className="text-gray-900">{p.contact_name}</div>
         <a
@@ -381,50 +538,69 @@ function PartnerRow({
         </a>
         {p.phone ? <div className="mt-0.5 text-gray-400">{p.phone}</div> : null}
       </td>
-      <td className="px-3 py-2.5 text-gray-500">
-        <div className="max-w-[180px]">{details || "—"}</div>
-        <div className="mt-0.5 text-gray-400">
-          {p.tax_id ? `Tax ID ${p.tax_id}` : "No tax ID yet"}
+
+      {/* Rep & group — manual free-text, autocompleted from prior entries */}
+      <td className="px-3 py-2.5">
+        <div className="space-y-1">
+          <EditableText
+            key={`rep-${effectiveRep(p)}`}
+            value={effectiveRep(p)}
+            placeholder="Rep"
+            listId="partner-rep-options"
+            disabled={busy}
+            onCommit={(next) => onPatch(p.id, { sales_rep: next })}
+          />
+          <EditableText
+            key={`group-${effectiveRepGroup(p)}`}
+            value={effectiveRepGroup(p)}
+            placeholder="Rep group"
+            listId="partner-rep-group-options"
+            disabled={busy}
+            onCommit={(next) => onPatch(p.id, { rep_group: next })}
+          />
         </div>
       </td>
+
+      {/* Account # — Fishbowl customer number; D2C defaults to the house account */}
       <td className="px-3 py-2.5">
-        <select
-          value={rep}
+        <EditableText
+          key={`acct-${effectiveAccountNumber(p)}`}
+          value={effectiveAccountNumber(p)}
+          placeholder={wholesale ? "Fishbowl #" : "Account #"}
           disabled={busy}
-          onChange={(e) => onPatch(p.id, { sales_rep: e.target.value || null })}
-          className={clsx(
-            "w-full max-w-[140px] rounded-lg border bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-300",
-            rep
-              ? "border-gray-200 font-medium text-gray-900"
-              : "border-dashed border-gray-300 text-gray-400"
-          )}
-        >
-          <option value="">Unassigned</option>
-          {repOptions.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
+          onCommit={(next) => onPatch(p.id, { account_number: next })}
+        />
       </td>
+
+      {/* Joined */}
       <td className="whitespace-nowrap px-3 py-2.5 text-gray-500 tabular-nums">
-        {applied}
+        {joined}
       </td>
+
+      {/* Status — wholesale approval, or a neutral marker for D2C */}
       <td className="px-3 py-2.5">
-        <span
-          className={clsx(
-            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-            meta.chip
-          )}
-        >
-          <meta.Icon size={11} />
-          {meta.label}
-        </span>
+        {wholesale ? (
+          <span
+            className={clsx(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+              meta.chip
+            )}
+          >
+            <meta.Icon size={11} />
+            {meta.label}
+          </span>
+        ) : (
+          <span className="text-[11px] text-gray-400">Customer</span>
+        )}
       </td>
+
+      {/* Actions — approve / deny / revoke, wholesale only */}
       <td className="px-3 py-2.5">
         <div className="flex items-center justify-end gap-1.5">
           {busy ? (
             <Loader2 size={14} className="animate-spin text-gray-400" />
+          ) : !wholesale ? (
+            <span className="text-gray-300">—</span>
           ) : p.wholesale_status === "pending" ? (
             <>
               <button

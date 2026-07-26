@@ -132,7 +132,7 @@ export async function GET(request: Request) {
   const admin = wholesalePortalAdmin();
   if (!admin) {
     return NextResponse.json(
-      { error: "Wholesale portal not connected (WHOLESALE_SUPABASE_URL / SERVICE_ROLE_KEY)." },
+      { error: "Supabase not connected (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)." },
       { status: 500 },
     );
   }

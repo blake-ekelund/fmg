@@ -54,20 +54,21 @@ export default function Sidebar({
     return section.items.some((item) => isActive(item.href));
   }
 
-  /* Sections are open by default — we track the ones the user collapsed, so a
-     first load shows the whole tree instead of a stack of shut accordions. */
-  const [closedSections, setClosedSections] = useState<Set<string>>(new Set());
+  /* Sections start collapsed on load — we track the ones the user opened, so a
+     first load shows a clean stack of section headers instead of the whole tree. */
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
 
-  // Never leave the section containing the active page collapsed
+  // Always open the section containing the active page, so the user can see
+  // where they are even though everything else starts collapsed.
   useEffect(() => {
     for (const section of sections) {
       if (!section.label) continue;
       const hasActive = section.items.some((item) => isActive(item.href));
       if (hasActive) {
-        setClosedSections((prev) => {
-          if (!prev.has(section.label)) return prev;
+        setOpenSections((prev) => {
+          if (prev.has(section.label)) return prev;
           const next = new Set(prev);
-          next.delete(section.label);
+          next.add(section.label);
           return next;
         });
       }
@@ -75,7 +76,7 @@ export default function Sidebar({
   }, [pathname, sections.length]);
 
   function toggleSection(label: string) {
-    setClosedSections((prev) => {
+    setOpenSections((prev) => {
       const next = new Set(prev);
       if (next.has(label)) next.delete(label);
       else next.add(label);
@@ -161,7 +162,7 @@ export default function Sidebar({
       >
         {sections.map((section) => {
           const isRoot = !section.label;
-          const isOpen = !closedSections.has(section.label);
+          const isOpen = openSections.has(section.label);
           const hasActive = sectionHasActive(section);
 
           /* ─── Root items (Overview) — no dropdown ─── */

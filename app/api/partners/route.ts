@@ -11,13 +11,13 @@ function configError() {
   return NextResponse.json(
     {
       error:
-        "Wholesale portal isn't connected — add WHOLESALE_SUPABASE_URL + WHOLESALE_SUPABASE_SERVICE_ROLE_KEY to .env.local.",
+        "Supabase isn't connected — set NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local.",
     },
     { status: 500 }
   );
 }
 
-/** List every wholesale partner account from the storefront project. */
+/** List every storefront account — D2C (retail) and wholesale alike. */
 export async function GET(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) {
@@ -30,14 +30,17 @@ export async function GET(request: Request) {
   const { data, error } = await admin
     .from("storefront_profiles")
     .select("*")
-    .eq("role", "wholesale");
+    .order("created_at", { ascending: false });
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   return NextResponse.json({ partners: data ?? [] });
 }
 
-/** Update a partner: flip wholesale_status and/or assign a sales rep. */
+/**
+ * Update an account: flip wholesale_status, assign a rep / rep group, and/or
+ * set the Fishbowl account number. Any subset of fields may be provided.
+ */
 export async function PATCH(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) {
@@ -48,16 +51,20 @@ export async function PATCH(request: Request) {
     id?: string;
     status?: string;
     sales_rep?: string | null;
+    rep_group?: string | null;
+    account_number?: string | null;
   } | null;
   const id = body?.id;
   const status = body?.status as PartnerStatus | undefined;
   const hasRep = body != null && "sales_rep" in body;
+  const hasRepGroup = body != null && "rep_group" in body;
+  const hasAccountNumber = body != null && "account_number" in body;
 
-  if (!id || (!status && !hasRep)) {
+  if (!id || (!status && !hasRep && !hasRepGroup && !hasAccountNumber)) {
     return NextResponse.json(
       {
         error:
-          "expected { id, status?: pending | approved | denied, sales_rep?: string | null } with at least one field",
+          "expected { id, status?: pending | approved | denied, sales_rep?, rep_group?, account_number? } with at least one field",
       },
       { status: 400 }
     );
@@ -69,12 +76,15 @@ export async function PATCH(request: Request) {
     );
   }
 
+  // Free-text field → trimmed string, or null when blank.
+  const text = (v: unknown) =>
+    typeof v === "string" && v.trim() ? v.trim() : null;
+
   const update: Record<string, unknown> = {};
   if (status) update.wholesale_status = status;
-  if (hasRep) {
-    const rep = typeof body!.sales_rep === "string" ? body!.sales_rep.trim() : null;
-    update.sales_rep = rep || null;
-  }
+  if (hasRep) update.sales_rep = text(body!.sales_rep);
+  if (hasRepGroup) update.rep_group = text(body!.rep_group);
+  if (hasAccountNumber) update.account_number = text(body!.account_number);
 
   const admin = wholesalePortalAdmin();
   if (!admin) return configError();

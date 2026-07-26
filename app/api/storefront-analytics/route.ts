@@ -67,7 +67,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Wholesale project isn't connected — add WHOLESALE_SUPABASE_URL + WHOLESALE_SUPABASE_SERVICE_ROLE_KEY to .env.local.",
+          "Supabase isn't connected — set NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local.",
       },
       { status: 500 },
     );

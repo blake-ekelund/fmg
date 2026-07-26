@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 
 const BRANDS = ["Sassy", "NI", "both"] as const;
-const KINDS = ["percent", "fixed", "free_item"] as const;
+const KINDS = ["percent", "fixed", "free_item", "free_shipping"] as const;
 
 /** Per-code usage rolled up from the storefront orders table. */
 type Metric = { uses: number; spent: number; discount: number };
@@ -236,9 +236,13 @@ export async function POST(request: Request) {
   const brand = String(body?.brand ?? "both");
   const kind = String(body?.kind ?? "percent");
   /* A free item has no percentage or dollar amount, but the table's
-     `check (value > 0)` still has to be satisfied — store it as 100, which is
-     literally what it is: 100% off the matching lines. */
-  const value = kind === "free_item" ? 100 : Number(body?.value);
+     `check (value > 0 …)` still has to be satisfied — store it as 100, which is
+     literally what it is: 100% off the matching lines. A free-shipping-only
+     code carries no product discount at all, so it stores value 0. */
+  const value =
+    kind === "free_item" ? 100 : kind === "free_shipping" ? 0 : Number(body?.value);
+  // kind='free_shipping' implies the flag; otherwise it's an opt-in add-on.
+  const freeShipping = kind === "free_shipping" || body?.free_shipping === true;
 
   if (!code) {
     return NextResponse.json({ error: "code is required" }, { status: 400 });
@@ -249,17 +253,20 @@ export async function POST(request: Request) {
   if (!KINDS.includes(kind as (typeof KINDS)[number])) {
     return NextResponse.json({ error: "invalid kind" }, { status: 400 });
   }
-  if (!Number.isFinite(value) || value <= 0) {
-    return NextResponse.json(
-      { error: "value must be a positive number" },
-      { status: 400 }
-    );
-  }
-  if (kind === "percent" && value > 100) {
-    return NextResponse.json(
-      { error: "percent discounts can't exceed 100" },
-      { status: 400 }
-    );
+  // A shipping-only code has no product amount to validate.
+  if (kind !== "free_shipping") {
+    if (!Number.isFinite(value) || value <= 0) {
+      return NextResponse.json(
+        { error: "value must be a positive number" },
+        { status: 400 }
+      );
+    }
+    if (kind === "percent" && value > 100) {
+      return NextResponse.json(
+        { error: "percent discounts can't exceed 100" },
+        { status: 400 }
+      );
+    }
   }
 
   const minSubtotal = Number(body?.min_subtotal);
@@ -268,6 +275,7 @@ export async function POST(request: Request) {
     brand,
     kind,
     value,
+    free_shipping: freeShipping,
     min_subtotal:
       Number.isFinite(minSubtotal) && minSubtotal > 0 ? minSubtotal : null,
     starts_at: body?.starts_at ? String(body.starts_at) : null,
@@ -339,21 +347,31 @@ export async function PATCH(request: Request) {
     patch.kind = String(body.kind);
   }
   if (body?.value !== undefined) {
-    const value = Number(body.value);
-    if (!Number.isFinite(value) || value <= 0) {
-      return NextResponse.json(
-        { error: "value must be a positive number" },
-        { status: 400 }
-      );
+    // A shipping-only code carries no product amount — store 0, skip the guard.
+    if (patch.kind === "free_shipping") {
+      patch.value = 0;
+    } else {
+      const value = Number(body.value);
+      if (!Number.isFinite(value) || value <= 0) {
+        return NextResponse.json(
+          { error: "value must be a positive number" },
+          { status: 400 }
+        );
+      }
+      // The edit form always sends kind alongside value, so we can enforce the cap.
+      if (patch.kind === "percent" && value > 100) {
+        return NextResponse.json(
+          { error: "percent discounts can't exceed 100" },
+          { status: 400 }
+        );
+      }
+      patch.value = value;
     }
-    // The edit form always sends kind alongside value, so we can enforce the cap.
-    if (patch.kind === "percent" && value > 100) {
-      return NextResponse.json(
-        { error: "percent discounts can't exceed 100" },
-        { status: 400 }
-      );
-    }
-    patch.value = value;
+  }
+  // free_shipping is either an explicit boolean, or implied by the kind.
+  if (body?.free_shipping !== undefined || patch.kind === "free_shipping") {
+    patch.free_shipping =
+      patch.kind === "free_shipping" || body?.free_shipping === true;
   }
   if (body?.min_subtotal !== undefined) {
     const minSubtotal = Number(body.min_subtotal);

@@ -40,39 +40,12 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 
 /* Status filtering is a *set* of statuses, with the empty set meaning "all".
    Collapsing cleared and everything into one value keeps them from disagreeing.
-   Desktop pills still write single-element sets, so their behaviour is
-   unchanged; only the mobile dropdown writes more than one. */
+   A single multiselect dropdown (all breakpoints) writes this set. The "all"
+   member below is only used as a key for the total in the counts record. */
 type StatusFilter = "all" | InventoryStatus;
 
-const STATUS_PILLS: { value: StatusFilter; label: string; activeClass: string }[] = [
-  {
-    value: "all",
-    label: "All",
-    activeClass: "bg-gray-900 text-white border-gray-900",
-  },
-  {
-    value: "at risk",
-    label: "At risk",
-    activeClass: "bg-red-50 text-red-700 border-red-200",
-  },
-  {
-    value: "needs review",
-    label: "Review",
-    activeClass: "bg-amber-50 text-amber-700 border-amber-200",
-  },
-  {
-    value: "healthy",
-    label: "Healthy",
-    activeClass: "bg-green-50 text-green-700 border-green-200",
-  },
-  {
-    value: "no demand",
-    label: "No demand",
-    activeClass: "bg-gray-100 text-gray-700 border-gray-300",
-  },
-];
-
-/** The same statuses for the mobile dropdown, minus the synthetic "all" row. */
+/** Status options for the multiselect dropdown (no synthetic "all" row —
+    an empty selection already means "all"). */
 const STATUS_OPTIONS: {
   value: InventoryStatus;
   label: string;
@@ -83,9 +56,6 @@ const STATUS_OPTIONS: {
   { value: "healthy", label: "Healthy", dotClass: "bg-green-500" },
   { value: "no demand", label: "No demand", dotClass: "bg-gray-400" },
 ];
-
-const IDLE_CLASS =
-  "bg-white text-gray-500 border-gray-200 hover:border-gray-300";
 
 function shortMonth(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "short" });
@@ -474,18 +444,12 @@ export default function ForecastSection({
 
   return (
     <div className="space-y-3">
-      {/* Toolbar.
-
-          Laid out as stacked rows rather than one wrapping line: on a phone a
-          single row put the search box, five pills, a segmented toggle, Export
-          and the snapshot chip into an unpredictable stack, and the pill group
-          itself couldn't wrap — five pills need ~490px against ~343px of usable
-          width, so the whole page scrolled sideways. */}
+      {/* Toolbar — search, status multiselect, view, and export all on one
+          row (wraps only when the viewport is too narrow to hold it). */}
       <div className="space-y-2">
-        {/* Row 1 — search. Mobile has no sort control by design: cards are
-            always part-ascending, which is the order people scan for a SKU. */}
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1 md:max-w-[260px]">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Search */}
+          <div className="relative min-w-[200px] max-w-[320px] flex-1">
             <Search
               size={13}
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
@@ -498,13 +462,10 @@ export default function ForecastSection({
               className="w-full rounded-lg border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
             />
           </div>
-        </div>
 
-        {/* Row 2 — status filter, with "Email to me" to its right.
-            Mobile gets one multi-select dropdown; desktop keeps the pill row. */}
-        <div className="flex items-start gap-2">
+          {/* Status — multiselect dropdown on every breakpoint */}
           <StatusFilterDropdown
-            className="min-w-0 flex-1 md:hidden"
+            className="w-[190px] shrink-0"
             options={STATUS_OPTIONS}
             selected={statusFilter}
             counts={counts}
@@ -512,11 +473,51 @@ export default function ForecastSection({
             onChange={applyStatusFilter}
           />
 
+          {/* View toggle: monthly / quarterly. Desktop only — a phone shows the
+              monthly view and nothing else, so there's no choice to offer. */}
+          <div className="hidden shrink-0 rounded-lg border border-gray-200 bg-white p-0.5 text-xs md:inline-flex">
+            <button
+              onClick={() => setView("monthly")}
+              className={clsx(
+                "rounded-md px-2.5 py-1 transition font-medium",
+                view === "monthly"
+                  ? "bg-gray-900 text-white"
+                  : "text-gray-600 hover:text-gray-900",
+              )}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setView("quarterly")}
+              className={clsx(
+                "rounded-md px-2.5 py-1 transition font-medium",
+                view === "quarterly"
+                  ? "bg-gray-900 text-white"
+                  : "text-gray-600 hover:text-gray-900",
+              )}
+            >
+              Quarterly
+            </button>
+          </div>
+
+          {/* Export. Desktop downloads the CSV; a download on a phone lands
+              somewhere the user can't get at, so mobile mails it instead. */}
+          <button
+            onClick={handleDownload}
+            disabled={visibleRows.length === 0}
+            title="Download visible rows as CSV with 12-month forecast"
+            className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed md:inline-flex"
+          >
+            <Download size={13} />
+            Export
+          </button>
+
+          {/* Email to me — mobile only (desktop downloads via Export instead). */}
           <button
             onClick={handleEmailReport}
             disabled={visibleRows.length === 0 || emailState === "sending"}
             title="Email this report to yourself as a CSV attachment"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 md:hidden"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed md:hidden"
           >
             {emailState === "sending" ? (
               <Loader2 size={13} className="animate-spin" />
@@ -532,49 +533,34 @@ export default function ForecastSection({
                 : "Email to me"}
           </button>
 
-          <div className="hidden flex-wrap gap-1 md:flex">
-          {STATUS_PILLS.map((opt) => {
-            /* Pills stay single-select: clicking one replaces the selection.
-               Only the mobile dropdown builds multi-status sets. */
-            const active =
-              statusFilter.size === 0
-                ? opt.value === "all"
-                : opt.value !== "all" &&
-                  statusFilter.has(opt.value as InventoryStatus);
-            const count = counts[opt.value];
-            return (
-              <button
-                key={opt.value}
-                onClick={() =>
-                  applyStatusFilter(
-                    opt.value === "all"
-                      ? new Set()
-                      : new Set([opt.value as InventoryStatus]),
-                  )
-                }
-                className={clsx(
-                  "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium border transition",
-                  active ? opt.activeClass : IDLE_CLASS,
-                )}
+          {/* Snapshot freshness — pinned to the far right of the row. */}
+          <div
+            className={clsx(
+              "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs",
+              snapshotMeta.stale
+                ? "border-amber-200 bg-amber-50 text-amber-700"
+                : "border-gray-200 bg-white text-gray-500",
+            )}
+          >
+            <CalendarClock size={12} />
+            <span>{snapshotMeta.label}</span>
+            {/* Uploading a snapshot is a desktop job — it means picking a file
+                off a machine that has one. Hidden on mobile entirely. */}
+            {isAdmin && !isMobile && (
+              <Link
+                href="/integrations"
+                className="ml-1 inline-flex items-center gap-0.5 underline hover:text-gray-900"
               >
-                {opt.label}
-                <span
-                  className={clsx(
-                    "rounded-full px-1.5 py-0.5 text-[10px] leading-none font-medium tabular-nums",
-                    active ? "bg-black/10" : "bg-gray-100 text-gray-500",
-                  )}
-                >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+                Upload
+                <ExternalLink size={11} />
+              </Link>
+            )}
           </div>
         </div>
 
-        {/* Slow-mover overstock is a synthetic filter with no matching pill, so
-            when it's on we surface a dismissible chip — otherwise the narrowed
-            list looks unexplained (the pills would all read "All"). */}
+        {/* Slow-mover overstock is a synthetic filter with no matching status,
+            so when it's on we surface a dismissible chip — otherwise the
+            narrowed list looks unexplained. */}
         {overstockOnly && (
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700">
@@ -589,93 +575,6 @@ export default function ForecastSection({
             </span>
           </div>
         )}
-
-        {/* Row 3 — view, export, snapshot freshness */}
-        <div className="flex flex-wrap items-center gap-2">
-        {/* View toggle: monthly / quarterly. Desktop only — a phone shows the
-            monthly view and nothing else, so there's no choice to offer. */}
-        <div className="hidden md:inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
-          <button
-            onClick={() => setView("monthly")}
-            className={clsx(
-              "rounded-md px-2.5 py-1 transition font-medium",
-              view === "monthly"
-                ? "bg-gray-900 text-white"
-                : "text-gray-600 hover:text-gray-900",
-            )}
-          >
-            Monthly
-          </button>
-          <button
-            onClick={() => setView("quarterly")}
-            className={clsx(
-              "rounded-md px-2.5 py-1 transition font-medium",
-              view === "quarterly"
-                ? "bg-gray-900 text-white"
-                : "text-gray-600 hover:text-gray-900",
-            )}
-          >
-            Quarterly
-          </button>
-        </div>
-
-        {/* Export. Desktop downloads the CSV; a download on a phone lands
-            somewhere the user can't get at, so mobile mails it instead. */}
-        <button
-          onClick={handleDownload}
-          disabled={visibleRows.length === 0}
-          title="Download visible rows as CSV with 12-month forecast"
-          className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Download size={13} />
-          Export
-        </button>
-
-        <button
-          onClick={handleEmailReport}
-          disabled={visibleRows.length === 0 || emailState === "sending"}
-          title="Email this report to yourself as a CSV attachment"
-          className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {emailState === "sending" ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : emailState === "sent" ? (
-            <Check size={13} className="text-green-600" />
-          ) : (
-            <Mail size={13} />
-          )}
-          {emailState === "sending"
-            ? "Sending…"
-            : emailState === "sent"
-              ? "Emailed"
-              : "Email to me"}
-        </button>
-
-        {/* Snapshot freshness — pinned to the far right of its own row. On a
-            phone it's the only thing on that row, sitting under the filter. */}
-        <div
-          className={clsx(
-            "ml-auto inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs",
-            snapshotMeta.stale
-              ? "border-amber-200 bg-amber-50 text-amber-700"
-              : "border-gray-200 bg-white text-gray-500",
-          )}
-        >
-          <CalendarClock size={12} />
-          <span>{snapshotMeta.label}</span>
-          {/* Uploading a snapshot is a desktop job — it means picking a file
-              off a machine that has one. Hidden on mobile entirely. */}
-          {isAdmin && !isMobile && (
-            <Link
-              href="/integrations"
-              className="ml-1 inline-flex items-center gap-0.5 underline hover:text-gray-900"
-            >
-              Upload
-              <ExternalLink size={11} />
-            </Link>
-          )}
-        </div>
-        </div>
 
         {emailNote && (
           <p

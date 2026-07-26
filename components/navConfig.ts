@@ -140,13 +140,13 @@ export const navSections: readonly NavSection[] = [
     icon: Globe,
     items: [
       {
-        label: "Storefront Orders",
+        label: "Orders",
         href: "/storefronts/purchases",
         icon: Receipt,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
-        label: "Discount Codes",
+        label: "Discounts",
         href: "/storefronts/discounts",
         icon: TicketPercent,
         roles: [...FULL_ACCESS, "sales", "marketing"],
@@ -154,21 +154,21 @@ export const navSections: readonly NavSection[] = [
       {
         // Pre-purchase reviews of the storefront itself, traded for a reward
         // code in the cart. Not product reviews.
-        label: "Site Feedback",
+        label: "Feedback & Testimonials",
         href: "/storefronts/feedback",
         icon: MessageSquare,
         roles: [...FULL_ACCESS, "sales", "marketing"],
       },
       {
-        // Wholesale signup applications awaiting approval — *not* the
-        // wholesale customer list under Customers.
-        label: "Wholesale Applications",
-        href: "/storefronts/partners",
+        // Every storefront account — D2C and wholesale — with rep assignment
+        // and wholesale approval. Distinct from the Customers section.
+        label: "Accounts",
+        href: "/storefronts/accounts",
         icon: UserCheck,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
-        label: "Web Analytics",
+        label: "Analytics",
         href: "/storefronts/analytics",
         icon: Activity,
         roles: [...FULL_ACCESS, "sales", "marketing"],
@@ -381,7 +381,8 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   { href: "/settings" }, // every signed-in user
   { href: "/integrations", roles: ["owner", "admin"] }, // admin-only integrations + upload history
   { href: "/data", roles: ["owner", "admin"] }, // legacy alias → redirects to /integrations
-  { href: "/partners", roles: [...FULL_ACCESS, "sales"] }, // legacy alias → redirects to /storefronts/partners
+  { href: "/partners", roles: [...FULL_ACCESS, "sales"] }, // legacy alias → redirects to /storefronts/accounts
+  { href: "/storefronts/partners", roles: [...FULL_ACCESS, "sales"] }, // legacy alias → redirects to /storefronts/accounts
   { href: "/fishbowl-sandbox", roles: ["owner", "admin"] }, // internal Fishbowl API scratch page
   // Retired from the nav (prototype, not a live sender) but still reachable so
   // existing links and the manual enrollment tracker don't 404.
