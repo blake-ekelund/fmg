@@ -1,0 +1,28 @@
+-- Phase C, step 3 of 3 — RETIRE THE OLD TABLE. Held OUTSIDE supabase/migrations/
+-- on purpose so `supabase db push` cannot apply it early. Move this file into
+-- supabase/migrations/ ONLY after:
+--
+--   1. Step 1 + step 2 migrations are applied.
+--   2. The code cutover is deployed AND verified in production — the app no
+--      longer reads or writes `user_email_templates` anywhere (grep the repo:
+--      it should return zero references outside this file), and automations run
+--      against email_templates.
+--   3. You've confirmed no plain-text template was created via the OLD path
+--      after step 2 ran (those would live only in user_email_templates and be
+--      lost on drop). Reconcile query below.
+--
+-- ── Pre-drop reconciliation (run manually, expect 0 rows) ────────────────────
+-- Any user_email_templates row NOT already copied into email_templates — i.e.
+-- created via the old path after step 2. If this returns rows, copy them first
+-- (re-run step 2's INSERT) before dropping.
+--
+--   select u.id, u.name, u.updated_at
+--   from user_email_templates u
+--   where not exists (select 1 from email_templates e where e.id = u.id);
+--
+-- ── The drop ─────────────────────────────────────────────────────────────────
+-- Safe because step 2 repointed automation_steps.template_id to
+-- email_templates, so nothing references user_email_templates anymore. The
+-- table's own policies/trigger/index go with it.
+
+drop table if exists user_email_templates;

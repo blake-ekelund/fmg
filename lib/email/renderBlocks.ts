@@ -22,7 +22,7 @@
  * do, since we never escape braces.
  */
 
-import type { EmailBlock, TextAlign, FontFamily } from "@/components/templates/types";
+import type { EmailBlock, SectionBlock, TextAlign, FontFamily, VAlign } from "@/components/templates/types";
 
 const DEFAULT_WIDTH = 600;
 
@@ -141,7 +141,7 @@ function renderBlock(block: EmailBlock, width: number): string {
     case "header": {
       const inner = block.logoUrl
         ? `<img src="${safeUrl(block.logoUrl)}" alt="${escapeHtml(block.companyName)}" height="40" style="display:block;margin:0 auto;border:0;height:40px;max-height:40px;width:auto;">`
-        : `<div style="font-size:20px;font-weight:bold;letter-spacing:0.5px;color:${escapeHtml(block.textColor)};">${escapeHtml(block.companyName)}</div>`;
+        : `<div style="font-size:${px(block.fontSize ?? 20)};font-weight:bold;letter-spacing:0.5px;color:${escapeHtml(block.textColor)};">${escapeHtml(block.companyName)}</div>`;
       return row(`<div align="center" style="text-align:center;color:${escapeHtml(block.textColor)};">${inner}</div>`, {
         padding: block.padding,
         bg: block.bgColor,
@@ -162,7 +162,14 @@ function renderBlock(block: EmailBlock, width: number): string {
     case "image": {
       if (!block.src) return ""; // the editor's "drop image here" placeholder is preview-only
       const inner = Math.max(1, width - block.padding * 2);
-      const w = block.width === "full" ? inner : block.width === "half" ? Math.round(inner / 2) : Math.round(inner / 3);
+      const w =
+        typeof block.width === "number"
+          ? Math.max(1, Math.round((inner * Math.min(100, Math.max(1, block.width))) / 100))
+          : block.width === "full"
+            ? inner
+            : block.width === "half"
+              ? Math.round(inner / 2)
+              : Math.round(inner / 3);
       const img =
         `<img src="${safeUrl(block.src)}" alt="${escapeHtml(block.alt)}" width="${w}" ` +
         `style="display:block;border:0;width:${px(w)};max-width:100%;height:auto;border-radius:${px(block.borderRadius)};">`;
@@ -232,7 +239,7 @@ function renderBlock(block: EmailBlock, width: number): string {
         `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>` +
           imgCell +
           `<td valign="top" style="font-family:${fontStack("sans")};">` +
-          `<div style="font-size:16px;font-weight:600;color:#1f2937;">${escapeHtml(block.name)}</div>` +
+          `<div style="font-size:${px(block.fontSize ?? 16)};font-weight:600;color:#1f2937;">${escapeHtml(block.name)}</div>` +
           `<div style="font-size:13px;color:#6b7280;margin-top:2px;">${escapeHtml(block.description)}</div>` +
           `<div style="font-size:16px;font-weight:700;color:#111827;margin-top:8px;">${escapeHtml(block.price)}</div>` +
           (block.buttonText
@@ -280,7 +287,7 @@ function renderBlock(block: EmailBlock, width: number): string {
       const panel =
         `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="${escapeHtml(panelBg)}">` +
         `<tr><td align="center" style="padding:24px;text-align:center;background-color:${escapeHtml(panelBg)};font-family:${fontStack("sans")};">` +
-        `<div style="font-size:24px;font-weight:700;color:${escapeHtml(textColor)};">${escapeHtml(block.heading)}</div>` +
+        `<div style="font-size:${px(block.fontSize ?? 24)};font-weight:700;color:${escapeHtml(textColor)};">${escapeHtml(block.heading)}</div>` +
         (block.subheading
           ? `<div style="font-size:14px;margin-top:8px;color:${escapeHtml(textColor)};opacity:0.9;">${escapeHtml(block.subheading)}</div>`
           : "") +
@@ -320,9 +327,108 @@ function renderBlock(block: EmailBlock, width: number): string {
       );
     }
 
+    case "section":
+      return renderSection(block, width);
+
     default:
       return "";
   }
+}
+
+/* ─── Sections (multi-column containers with backgrounds) ─────────────────── */
+
+function valignAttr(v: VAlign): string {
+  return v === "middle" ? "middle" : v === "bottom" ? "bottom" : "top";
+}
+
+/**
+ * A section's columns use the "fluid-hybrid" pattern: each column is an
+ * inline-block div (which wraps to full width on a narrow screen, giving free
+ * mobile stacking) wrapped in an MSO-only ghost table cell so Outlook — which
+ * ignores inline-block — still lays them side by side. `font-size:0` on the
+ * container removes the whitespace gaps between inline-block elements.
+ */
+function renderSection(block: SectionBlock, width: number): string {
+  const pad = Math.max(0, Math.round(block.padding));
+  const innerW = Math.max(1, width - pad * 2);
+  const cols = Array.isArray(block.columns) ? block.columns : [];
+  if (cols.length === 0) return "";
+
+  const gap = Math.max(0, Math.round(block.gap));
+  const gapTotal = gap * (cols.length - 1);
+  const avail = Math.max(1, innerW - gapTotal);
+  const totalWeight = cols.reduce((s, c) => s + (c.weight || 1), 0) || 1;
+
+  const parts: string[] = [];
+  cols.forEach((c, i) => {
+    const w = Math.max(1, Math.floor((avail * (c.weight || 1)) / totalWeight));
+    const cpad = Math.max(0, Math.round(c.padding));
+    const contentW = Math.max(1, w - cpad * 2);
+    const va = valignAttr(c.verticalAlign);
+    const colBg = c.bgColor ? `background-color:${escapeHtml(c.bgColor)};` : "";
+    const inner =
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;">` +
+      (c.blocks.map((b) => renderBlock(b, contentW)).join("") || `<tr><td>&nbsp;</td></tr>`) +
+      `</table>`;
+
+    parts.push(`<!--[if mso]><td valign="${va}" width="${w}" style="width:${w}px;${colBg}padding:${cpad}px;"><![endif]-->`);
+    parts.push(
+      `<div style="display:inline-block;vertical-align:${va};width:100%;max-width:${w}px;${colBg}` +
+        `padding:${cpad}px;box-sizing:border-box;">${inner}</div>`,
+    );
+    parts.push(`<!--[if mso]></td><![endif]-->`);
+
+    if (i < cols.length - 1) {
+      parts.push(`<div style="display:inline-block;width:${gap}px;font-size:0;line-height:0;">&nbsp;</div>`);
+      parts.push(`<!--[if mso]><td width="${gap}" style="width:${gap}px;font-size:0;line-height:0;">&nbsp;</td><![endif]-->`);
+    }
+  });
+
+  const columnsWrap =
+    `<div style="font-size:0;text-align:center;">` +
+    `<!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${innerW}" align="center" style="width:${innerW}px;"><tr><![endif]-->` +
+    parts.join("") +
+    `<!--[if mso]></tr></table><![endif]-->` +
+    `</div>`;
+
+  return sectionRow(columnsWrap, { padding: pad, bg: block.bgColor, bgImage: block.bgImage, width });
+}
+
+/**
+ * Wrap a section's content in its background row. Colour is a plain bgcolor;
+ * a background image gets the "bulletproof" treatment — a VML rect fills the
+ * cell in Outlook while everyone else uses the CSS background shorthand.
+ */
+function sectionRow(
+  inner: string,
+  opts: { padding: number; bg: string; bgImage: string; width: number },
+): string {
+  const pad = px(opts.padding);
+  const bg = opts.bg ? escapeHtml(opts.bg) : "";
+  const bgAttr = bg ? ` bgcolor="${bg}"` : "";
+  const img = opts.bgImage ? safeUrl(opts.bgImage) : "";
+  const cssBg =
+    (bg ? `background-color:${bg};` : "") +
+    (img ? `background-image:url('${img}');background-position:center;background-size:cover;background-repeat:no-repeat;` : "");
+
+  if (!img || img === "#") {
+    return `<tr><td${bgAttr} style="padding:${pad};${cssBg}">${inner}</td></tr>`;
+  }
+
+  const fillColor = bg || "#ffffff";
+  const vmlOpen =
+    `<!--[if gte mso 9]>` +
+    `<v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:${Math.round(opts.width)}px;">` +
+    `<v:fill type="frame" src="${img}" color="${fillColor}" />` +
+    `<v:textbox inset="0,0,0,0"><![endif]-->`;
+  const vmlClose = `<!--[if gte mso 9]></v:textbox></v:rect><![endif]-->`;
+  return (
+    `<tr><td${bgAttr} background="${img}" style="padding:${pad};${cssBg}">` +
+    vmlOpen +
+    inner +
+    vmlClose +
+    `</td></tr>`
+  );
 }
 
 /** Table-wrapped anchor — the padding lands on a td so Word honours it. */

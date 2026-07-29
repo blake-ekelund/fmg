@@ -5,7 +5,38 @@ import { X, Sparkles, Check, Mail, MessageSquare, Newspaper, Tag } from "lucide-
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import type { TemplateType, Brand, Channel } from "./types";
-import type { Promotion } from "@/components/promotions/types";
+
+/** A storefront discount (subset of the /api/storefront-discounts row). */
+type Discount = {
+  id: string;
+  code: string;
+  brand: "Sassy" | "NI" | "both";
+  kind: "percent" | "fixed" | "free_item" | "free_shipping";
+  value: number;
+  free_shipping: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  active: boolean;
+  unique_codes: boolean;
+  min_subtotal: number | null;
+};
+
+async function authHeader(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Lowercase human label for a discount, for AI context + the banner. */
+function discountLabel(d: Discount): string {
+  const parts: string[] = [];
+  if (d.kind === "percent") parts.push(`${d.value}% off`);
+  else if (d.kind === "fixed") parts.push(`$${d.value} off`);
+  else if (d.kind === "free_item") parts.push("free item");
+  else if (d.kind === "free_shipping") parts.push("free shipping");
+  if (d.free_shipping && d.kind !== "free_shipping") parts.push("free shipping");
+  return parts.join(" + ");
+}
 
 type Props = {
   open: boolean;
@@ -59,7 +90,7 @@ export default function GenerateTemplateModal({ open, onClose, onGenerated }: Pr
   const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
   const [productsOpen, setProductsOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [emailPromos, setEmailPromos] = useState<Promotion[]>([]);
+  const [emailPromos, setEmailPromos] = useState<Discount[]>([]);
 
   // Load products + active email promotions
   useEffect(() => {
@@ -77,18 +108,27 @@ export default function GenerateTemplateModal({ open, onClose, onGenerated }: Pr
       if (data) setProductOptions(data as ProductOption[]);
     }
     async function loadEmailPromos() {
-      const { data } = await supabase
-        .from("promotions")
-        .select("*")
-        .eq("status", "active")
-        .contains("press_channels", ["email"]);
-      if (data) setEmailPromos(data as Promotion[]);
+      try {
+        const res = await fetch("/api/storefront-discounts", { headers: await authHeader() });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const now = Date.now();
+        // Only active, shareable (non-unique-batch), not-yet-expired discounts.
+        const usable = ((json.discounts ?? []) as Discount[]).filter(
+          (d) => d.active && !d.unique_codes && (!d.ends_at || new Date(d.ends_at).getTime() > now),
+        );
+        setEmailPromos(usable);
+      } catch {
+        /* leave empty — generation still works without a promo */
+      }
     }
     loadProducts();
     loadEmailPromos();
   }, [open]);
 
   const filteredProducts = productOptions.filter((p) => p.brand === brand);
+  // Discounts relevant to the brand being generated (brand-specific or "both").
+  const brandPromos = emailPromos.filter((d) => d.brand === "both" || d.brand === brand);
 
   useEffect(() => {
     setSelectedProducts([]);
@@ -109,15 +149,12 @@ export default function GenerateTemplateModal({ open, onClose, onGenerated }: Pr
   if (!open) return null;
 
   function buildPromotionContext(): string | undefined {
-    if (emailPromos.length === 0) return undefined;
-    return emailPromos.map((p) => {
-      const parts: string[] = [`Promotion: "${p.name}"`];
-      if (p.code) parts.push(`Code: ${p.code}`);
-      if (p.discount_type === "percentage" && p.discount_value) parts.push(`${p.discount_value}% off`);
-      if (p.discount_type === "free_shipping") parts.push("Free shipping");
-      if (p.starts_at) parts.push(`Starts: ${new Date(p.starts_at).toLocaleDateString()}`);
-      if (p.ends_at) parts.push(`Ends: ${new Date(p.ends_at).toLocaleDateString()}`);
-      if (p.minimum_purchase) parts.push(`Min purchase: $${p.minimum_purchase}`);
+    if (brandPromos.length === 0) return undefined;
+    return brandPromos.map((d) => {
+      const parts: string[] = [`Code: ${d.code}`, discountLabel(d)];
+      if (d.min_subtotal) parts.push(`Min purchase: $${d.min_subtotal}`);
+      if (d.starts_at) parts.push(`Starts: ${new Date(d.starts_at).toLocaleDateString()}`);
+      if (d.ends_at) parts.push(`Ends: ${new Date(d.ends_at).toLocaleDateString()}`);
       return parts.join(" | ");
     }).join("\n");
   }
@@ -308,31 +345,24 @@ export default function GenerateTemplateModal({ open, onClose, onGenerated }: Pr
             </div>
           </div>
 
-          {/* Active email promotion banner */}
-          {emailPromos.length > 0 && (
+          {/* Active discount banner */}
+          {brandPromos.length > 0 && (
             <div className="rounded-lg border border-violet-200 bg-violet-50 px-3.5 py-2.5">
               <div className="flex items-center gap-2 mb-1">
                 <Tag size={13} className="text-violet-600" />
                 <span className="text-[11px] font-semibold text-violet-700 uppercase tracking-wider">
-                  Active Promotion{emailPromos.length > 1 ? "s" : ""} — will be included
+                  Active Discount{brandPromos.length > 1 ? "s" : ""} — will be included
                 </span>
               </div>
-              {emailPromos.map((p) => (
-                <div key={p.id} className="flex items-center gap-2 text-sm text-violet-800 mt-1">
-                  <span className="font-semibold">{p.name}</span>
-                  {p.code && (
-                    <span className="px-1.5 py-0.5 rounded bg-violet-200 text-[11px] font-mono font-semibold">
-                      {p.code}
-                    </span>
-                  )}
+              {brandPromos.map((d) => (
+                <div key={d.id} className="flex items-center gap-2 text-sm text-violet-800 mt-1">
+                  <span className="px-1.5 py-0.5 rounded bg-violet-200 text-[11px] font-mono font-semibold">
+                    {d.code}
+                  </span>
                   <span className="text-violet-500 text-xs">
-                    {p.discount_type === "percentage" && p.discount_value
-                      ? `${p.discount_value}% off`
-                      : p.discount_type === "free_shipping"
-                        ? "Free shipping"
-                        : ""}
-                    {p.ends_at &&
-                      ` · ends ${new Date(p.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                    {discountLabel(d)}
+                    {d.ends_at &&
+                      ` · ends ${new Date(d.ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
                   </span>
                 </div>
               ))}

@@ -4,7 +4,7 @@ import {
   sanitizeInlineHtml,
   safeUrl,
 } from "../renderBlocks";
-import { createDefaultBlock } from "@/components/templates/types";
+import { createDefaultBlock, createSectionPreset } from "@/components/templates/types";
 import type {
   ButtonBlock,
   EmailBlock,
@@ -14,10 +14,58 @@ import type {
   HeroBlock,
   SocialBlock,
   PromotionBlock,
+  SectionBlock,
 } from "@/components/templates/types";
 
 const block = <T extends EmailBlock>(type: T["type"], patch: Partial<T> = {}): T =>
   ({ ...createDefaultBlock(type), ...patch }) as T;
+
+describe("section rendering", () => {
+  it("lays columns out as fluid inline-block divs with MSO ghost cells", () => {
+    const html = renderBlocksToEmailHtml([createSectionPreset("twoCol")]);
+    // Two column divs (inline-block) + the MSO ghost table for Outlook.
+    const colDivs = html.match(/display:inline-block;vertical-align:/g) ?? [];
+    expect(colDivs.length).toBe(2);
+    expect(html).toContain("<!--[if mso]><table");
+    expect(html).toMatch(/<!--\[if mso\]><td valign=/);
+  });
+
+  it("renders nested content blocks inside a column", () => {
+    // imageText preset's right column has a heading, text and a button.
+    const html = renderBlocksToEmailHtml([createSectionPreset("imageText")]);
+    expect(html).toContain("Your Headline");
+    expect(html).toContain("Supporting copy");
+    // The button block renders its bulletproof anchor.
+    expect(html).toContain("Shop Now");
+  });
+
+  it("emits a plain bgcolor for a colour-only section", () => {
+    const s = { ...createSectionPreset("band") } as SectionBlock;
+    s.bgColor = "#1a5632";
+    s.bgImage = "";
+    const html = renderBlocksToEmailHtml([s]);
+    expect(html).toContain('bgcolor="#1a5632"');
+    expect(html).not.toContain("v:rect");
+  });
+
+  it("uses a VML rect fallback for a background image", () => {
+    const s = { ...createSectionPreset("band") } as SectionBlock;
+    s.bgImage = "https://cdn.example.com/bg.jpg";
+    const html = renderBlocksToEmailHtml([s]);
+    expect(html).toContain("v:rect");
+    expect(html).toContain('v:fill type="frame" src="https://cdn.example.com/bg.jpg"');
+    expect(html).toContain('background="https://cdn.example.com/bg.jpg"'); // non-Outlook attr
+    expect(html).toContain("background-image:url('https://cdn.example.com/bg.jpg')");
+  });
+
+  it("splits width by column weight (image+text = 40/60-ish)", () => {
+    const html = renderBlocksToEmailHtml([createSectionPreset("imageText")], { contentWidth: 600 });
+    // innerW 552 after 24px padding, gap 20 → avail 532, weights 2:3 → ~212 / ~319
+    const maxWidths = [...html.matchAll(/max-width:(\d+)px/g)].map((m) => Number(m[1]));
+    expect(maxWidths.some((w) => w >= 200 && w <= 224)).toBe(true);
+    expect(maxWidths.some((w) => w >= 300 && w <= 330)).toBe(true);
+  });
+});
 
 describe("safeUrl", () => {
   it("passes http, https and mailto through", () => {

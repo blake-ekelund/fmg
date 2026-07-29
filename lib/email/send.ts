@@ -6,6 +6,8 @@
  * in our DB and to thread replies later.
  */
 
+import { MERGE_KEYS, type MergeKey } from "./mergeFields";
+
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
 export type EmailRecipient = { address: string; name?: string };
@@ -142,13 +144,14 @@ export async function sendEmail(
 
 /**
  * Merge-field variables passed to applyMergeFields. All optional — missing
- * values render as an empty string. The list of supported tokens is intentionally
- * mirrored in the UI hints (ComposeEmailModal, EmailTemplatesPage) — if you
- * add a token here, surface it there too.
+ * values render as an empty string. The token *keys* come from ./mergeFields
+ * (the single source of truth the editor UIs also read); this type is the
+ * runtime contract for the values the send route supplies for each key.
  */
 export type MergeVars = {
   // Customer
   firstName?: string | null;
+  lastName?: string | null;
   customerName?: string | null;
   city?: string | null;
   state?: string | null;
@@ -173,25 +176,9 @@ export type MergeVars = {
   unsubscribeUrl?: string | null;
 };
 
-const SUPPORTED_KEYS = [
-  "firstName",
-  "customerName",
-  "city",
-  "state",
-  "channel",
-  "lifetimeRevenue",
-  "lifetimeOrders",
-  "lastOrderDate",
-  "daysSinceLastOrder",
-  "senderName",
-  "senderFirstName",
-  "senderEmail",
-  "currentYear",
-  "currentQuarter",
-  "unsubscribeUrl",
-] as const;
-
-const MERGE_RE = new RegExp(`\\{\\{\\s*(${SUPPORTED_KEYS.join("|")})\\s*\\}\\}`, "g");
+// The supported token list lives in ./mergeFields (MERGE_KEYS / MergeKey) so the
+// send pipeline, the editor pickers, and the sample previews can't drift apart.
+const MERGE_RE = new RegExp(`\\{\\{\\s*(${MERGE_KEYS.join("|")})\\s*\\}\\}`, "g");
 
 function formatCurrency(n: number | null | undefined): string {
   if (n == null || !isFinite(n)) return "";
@@ -211,9 +198,11 @@ function formatDate(iso: string | null | undefined): string {
  */
 export function applyMergeFields(template: string, vars: MergeVars): string {
   return template.replace(MERGE_RE, (_m, key) => {
-    switch (key as (typeof SUPPORTED_KEYS)[number]) {
+    switch (key as MergeKey) {
       case "firstName":
         return vars.firstName ?? "";
+      case "lastName":
+        return vars.lastName ?? "";
       case "customerName":
         return vars.customerName ?? "";
       case "city":

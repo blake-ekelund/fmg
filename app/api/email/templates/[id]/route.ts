@@ -21,10 +21,13 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
+  // Scoped to source='text' so this endpoint only ever removes plain-text
+  // templates, never a designed one that happens to share the id space.
   const { data, error } = await supabaseServer
-    .from("user_email_templates")
+    .from("email_templates")
     .delete()
     .eq("id", id)
+    .eq("source", "text")
     .select("id")
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -51,9 +54,10 @@ export async function POST(
   }
 
   await supabaseServer
-    .from("user_email_templates")
+    .from("email_templates")
     .update({ last_used_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("source", "text");
 
   return NextResponse.json({ ok: true });
 }

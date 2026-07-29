@@ -13,6 +13,7 @@ import {
   type MergeVars,
 } from "@/lib/email/send";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
+import { splitContactName } from "@/lib/email/mergeFields";
 import { parseEmailAddresses } from "@/lib/email/addresses";
 import {
   findSuppressed,
@@ -399,8 +400,8 @@ export async function GET(request: Request) {
     }
   }
   const { data: tplRows } = await supabaseServer
-    .from("user_email_templates")
-    .select("id, subject, body")
+    .from("email_templates")
+    .select("id, subject, body:text_body")
     .in("id", Array.from(templateIds));
   const templates = new Map<string, Template>();
   for (const t of (tplRows as Template[] | null) ?? []) {
@@ -564,8 +565,13 @@ export async function GET(request: Request) {
         return;
       }
 
+      const { firstName, lastName } = splitContactName(
+        contact?.customer_name ?? e.customer_name,
+        e.customer_type,
+      );
       const vars: MergeVars = {
-        firstName: firstNameOf(contact?.customer_name ?? e.customer_name),
+        firstName,
+        lastName,
         customerName: contact?.customer_name ?? e.customer_name,
         city: contact?.city ?? null,
         state: contact?.state ?? null,

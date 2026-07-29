@@ -7,9 +7,10 @@ export const runtime = "nodejs";
 /**
  * GET /api/email/block-templates
  *
- * The designed, block-based templates from /templates — the ones the compose
- * modal can send via `block_template_id`. Distinct from /api/email/templates,
- * which serves the per-user plain-text snippets.
+ * The designed, block-based and uploaded-HTML templates from /templates — the
+ * ones the compose modal can send via `block_template_id`. Distinct from
+ * /api/email/templates, which serves the plain-text snippets (source='text');
+ * those are excluded here so they show in exactly one picker, not both.
  *
  * Blocks themselves are deliberately not returned: the picker only needs
  * enough to label a row, and the send route re-reads and renders them
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
     .select("id, name, subject, preview_text, brand, channel, status, updated_at, source, blocks")
     .eq("type", "email")
     .neq("status", "archived")
+    .neq("source", "text")
     .order("updated_at", { ascending: false })
     .limit(100);
 

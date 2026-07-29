@@ -1,8 +1,46 @@
 "use client";
 
-import { Tag } from "lucide-react";
-import type { EmailBlock, BlockType } from "./types";
+import { createContext, useContext, useRef, useState } from "react";
+import { Tag, Upload, Loader2, Images } from "lucide-react";
+import type { EmailBlock, BlockType, SectionColumn, VAlign, Brand, Channel } from "./types";
+import { newBlockId, BRAND_PRESETS } from "./types";
+import { uploadEmailImage } from "./uploadEmailImage";
+import MediaLibraryModal from "./MediaLibraryModal";
+import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 import clsx from "clsx";
+
+/* ─── Brand color swatches ─── */
+type Swatch = { label: string; color: string };
+/** Swatches offered by every ColorInput, provided by BlockEditor per template
+ * brand. Empty = no quick-picks (just the custom color input). */
+const SwatchContext = createContext<Swatch[]>([]);
+
+/**
+ * The quick-pick palette for color fields: the selected brand's colors first,
+ * then black/white. "both" shows each brand's key colors. Custom colors stay
+ * available via the color input beneath the swatches.
+ */
+function brandSwatches(brand: Brand): Swatch[] {
+  const neutrals: Swatch[] = [
+    { label: "White", color: "#ffffff" },
+    { label: "Black", color: "#1a1a1a" },
+  ];
+  const cols = (b: (typeof BRAND_PRESETS)["ni"]): Swatch[] => [
+    { label: "Primary", color: b.primaryColor },
+    { label: "Secondary", color: b.secondaryColor },
+    { label: "Background", color: b.bgColor },
+    { label: "Text", color: b.textColor },
+  ];
+  if (brand === "ni") return [...cols(BRAND_PRESETS.ni), ...neutrals];
+  if (brand === "sassy") return [...cols(BRAND_PRESETS.sassy), ...neutrals];
+  return [
+    { label: "NI Primary", color: BRAND_PRESETS.ni.primaryColor },
+    { label: "NI Secondary", color: BRAND_PRESETS.ni.secondaryColor },
+    { label: "Sassy Primary", color: BRAND_PRESETS.sassy.primaryColor },
+    { label: "Sassy Secondary", color: BRAND_PRESETS.sassy.secondaryColor },
+    ...neutrals,
+  ];
+}
 
 /* ─── Generic input helpers ─── */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -43,15 +81,39 @@ function NumberInput({ value, onChange, min, max, suffix }: { value: number; onC
 }
 
 function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const swatches = useContext(SwatchContext);
   return (
-    <div className="flex items-center gap-2">
-      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="w-8 h-8 rounded border border-gray-200 cursor-pointer" />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-24 px-2 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-      />
+    <div className="space-y-1.5">
+      {swatches.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {swatches.map((s) => {
+            const active = (value ?? "").toLowerCase() === s.color.toLowerCase();
+            return (
+              <button
+                key={s.color}
+                type="button"
+                title={`${s.label} · ${s.color}`}
+                onClick={() => onChange(s.color)}
+                className={clsx(
+                  "h-6 w-6 rounded-md border transition",
+                  active ? "border-gray-900 ring-2 ring-gray-900/20" : "border-gray-200 hover:border-gray-400",
+                )}
+                style={{ backgroundColor: s.color }}
+              />
+            );
+          })}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="w-8 h-8 rounded border border-gray-200 cursor-pointer" />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-24 px-2 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        />
+        <span className="text-[10px] text-gray-400">Custom</span>
+      </div>
     </div>
   );
 }
@@ -67,6 +129,76 @@ function SelectInput({ value, onChange, options }: { value: string; onChange: (v
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
     </select>
+  );
+}
+
+/** URL input + "Upload" button that hosts a resized image and fills the URL. */
+function ImageField({ value, onChange, prefix }: { value: string; onChange: (v: string) => void; prefix?: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [libOpen, setLibOpen] = useState(false);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="https://…"
+          className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
+        />
+        <button
+          type="button"
+          onClick={() => setLibOpen(true)}
+          title="Browse the image library"
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          <Images size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={() => ref.current?.click()}
+          disabled={busy}
+          title="Upload a new image"
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+        </button>
+        {value && (
+          <button type="button" onClick={() => onChange("")} className="text-[11px] text-gray-400 hover:text-rose-500">
+            clear
+          </button>
+        )}
+      </div>
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          setErr(null);
+          setBusy(true);
+          const res = await uploadEmailImage(file, prefix);
+          setBusy(false);
+          if ("error" in res) setErr(res.error);
+          else onChange(res.url);
+        }}
+      />
+      {err && <p className="text-[11px] text-rose-600">{err}</p>}
+      <MediaLibraryModal
+        open={libOpen}
+        onClose={() => setLibOpen(false)}
+        onSelect={(url) => {
+          onChange(url);
+          setLibOpen(false);
+        }}
+        prefix={prefix ?? "images"}
+      />
+    </div>
   );
 }
 
@@ -86,15 +218,20 @@ function TextArea({ value, onChange, rows, placeholder }: { value: string; onCha
 export default function BlockEditor({
   block,
   onUpdate,
+  brand = "both",
+  channel = "both",
 }: {
   block: EmailBlock;
   onUpdate: (b: EmailBlock) => void;
+  brand?: Brand;
+  channel?: Channel;
 }) {
   function set<K extends keyof typeof block>(key: K, value: (typeof block)[K]) {
     onUpdate({ ...block, [key]: value } as EmailBlock);
   }
 
   return (
+    <SwatchContext.Provider value={brandSwatches(brand)}>
     <div className="space-y-3">
       <div className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-2">
         <span className={clsx(
@@ -110,6 +247,7 @@ export default function BlockEditor({
           block.type === "social" && "bg-cyan-500",
           block.type === "hero" && "bg-rose-500",
           block.type === "promotion" && "bg-violet-500",
+          block.type === "section" && "bg-indigo-500",
         )} />
         {block.type} Block
       </div>
@@ -120,6 +258,7 @@ export default function BlockEditor({
           <Field label="Logo URL"><TextInput value={block.logoUrl} onChange={(v) => set("logoUrl" as any, v)} placeholder="https://..." /></Field>
           <Field label="Background Color"><ColorInput value={block.bgColor} onChange={(v) => set("bgColor" as any, v)} /></Field>
           <Field label="Text Color"><ColorInput value={block.textColor} onChange={(v) => set("textColor" as any, v)} /></Field>
+          <Field label="Font Size (no-logo text)"><NumberInput value={block.fontSize ?? 20} onChange={(v) => set("fontSize" as any, v)} min={12} max={48} suffix="px" /></Field>
           <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
         </>
       )}
@@ -127,7 +266,14 @@ export default function BlockEditor({
       {block.type === "text" && (
         <>
           <Field label="Content">
-            <TextArea value={block.html} onChange={(v) => set("html" as any, v)} rows={6} placeholder="HTML or plain text..." />
+            <MergeFieldTextarea
+              value={block.html}
+              onValueChange={(v) => set("html" as any, v)}
+              channel={channel}
+              rows={6}
+              placeholder="HTML or plain text… type / for merge fields"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-y font-mono"
+            />
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Font Size"><NumberInput value={block.fontSize} onChange={(v) => set("fontSize" as any, v)} min={10} max={48} suffix="px" /></Field>
@@ -154,15 +300,25 @@ export default function BlockEditor({
 
       {block.type === "image" && (
         <>
-          <Field label="Image URL"><TextInput value={block.src} onChange={(v) => set("src" as any, v)} placeholder="https://..." /></Field>
+          <Field label="Image"><ImageField value={block.src} onChange={(v) => set("src" as any, v)} prefix="images" /></Field>
           <Field label="Alt Text"><TextInput value={block.alt} onChange={(v) => set("alt" as any, v)} /></Field>
           <Field label="Width">
-            <SelectInput value={block.width} onChange={(v) => set("width" as any, v)} options={[
-              { label: "Full Width", value: "full" },
-              { label: "Half Width", value: "half" },
-              { label: "Third Width", value: "third" },
-            ]} />
+            <SelectInput
+              value={typeof block.width === "number" ? "custom" : block.width}
+              onChange={(v) => set("width" as any, v === "custom" ? 50 : v)}
+              options={[
+                { label: "Full Width", value: "full" },
+                { label: "Half Width", value: "half" },
+                { label: "Third Width", value: "third" },
+                { label: "Custom %", value: "custom" },
+              ]}
+            />
           </Field>
+          {typeof block.width === "number" && (
+            <Field label="Custom Width">
+              <NumberInput value={block.width} onChange={(v) => set("width" as any, Math.min(100, Math.max(5, v)))} min={5} max={100} suffix="%" />
+            </Field>
+          )}
           <Field label="Alignment">
             <SelectInput value={block.align} onChange={(v) => set("align" as any, v)} options={[
               { label: "Left", value: "left" },
@@ -253,6 +409,7 @@ export default function BlockEditor({
         <>
           <Field label="Image URL"><TextInput value={block.imageUrl} onChange={(v) => set("imageUrl" as any, v)} placeholder="https://..." /></Field>
           <Field label="Product Name"><TextInput value={block.name} onChange={(v) => set("name" as any, v)} /></Field>
+          <Field label="Name Size"><NumberInput value={block.fontSize ?? 16} onChange={(v) => set("fontSize" as any, v)} min={12} max={36} suffix="px" /></Field>
           <Field label="Description"><TextArea value={block.description} onChange={(v) => set("description" as any, v)} rows={2} /></Field>
           <Field label="Price"><TextInput value={block.price} onChange={(v) => set("price" as any, v)} /></Field>
           <Field label="Button Text"><TextInput value={block.buttonText} onChange={(v) => set("buttonText" as any, v)} /></Field>
@@ -283,6 +440,7 @@ export default function BlockEditor({
         <>
           <Field label="Background Image"><TextInput value={block.imageUrl} onChange={(v) => set("imageUrl" as any, v)} placeholder="https://..." /></Field>
           <Field label="Heading"><TextInput value={block.heading} onChange={(v) => set("heading" as any, v)} /></Field>
+          <Field label="Heading Size"><NumberInput value={block.fontSize ?? 24} onChange={(v) => set("fontSize" as any, v)} min={14} max={56} suffix="px" /></Field>
           <Field label="Subheading"><TextInput value={block.subheading} onChange={(v) => set("subheading" as any, v)} /></Field>
           <Field label="Button Text"><TextInput value={block.buttonText} onChange={(v) => set("buttonText" as any, v)} /></Field>
           <Field label="Button URL"><TextInput value={block.buttonUrl} onChange={(v) => set("buttonUrl" as any, v)} /></Field>
@@ -328,6 +486,100 @@ export default function BlockEditor({
           <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
         </>
       )}
+
+      {block.type === "section" && (
+        <>
+          <Field label="Background Color">
+            <div className="flex items-center gap-2">
+              <ColorInput value={block.bgColor || "#ffffff"} onChange={(v) => set("bgColor" as any, v)} />
+              {block.bgColor && (
+                <button type="button" onClick={() => set("bgColor" as any, "")} className="text-[11px] text-gray-400 hover:text-rose-500">none</button>
+              )}
+            </div>
+          </Field>
+          <Field label="Background Image"><ImageField value={block.bgImage} onChange={(v) => set("bgImage" as any, v)} prefix="section-bg" /></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
+            <Field label="Column Gap"><NumberInput value={block.gap} onChange={(v) => set("gap" as any, v)} min={0} max={48} suffix="px" /></Field>
+          </div>
+          <Field label="Vertical Align">
+            <SelectInput value={block.verticalAlign} onChange={(v) => {
+              const va = v as VAlign;
+              onUpdate({ ...block, verticalAlign: va, columns: block.columns.map((c) => ({ ...c, verticalAlign: va })) });
+            }} options={[
+              { label: "Top", value: "top" },
+              { label: "Middle", value: "middle" },
+              { label: "Bottom", value: "bottom" },
+            ]} />
+          </Field>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={block.stackOnMobile} onChange={(e) => set("stackOnMobile" as any, e.target.checked)} className="rounded" />
+            <span className="text-xs text-gray-600">Stack columns on mobile</span>
+          </label>
+
+          <div className="pt-1 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Columns ({block.columns.length})</span>
+              {block.columns.length < 3 && (
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ ...block, columns: [...block.columns, { id: newBlockId(), blocks: [], weight: 1, bgColor: "", verticalAlign: block.verticalAlign, padding: 12 } as SectionColumn] })}
+                  className="text-[11px] font-medium text-blue-600 hover:text-blue-700"
+                >
+                  + Add column
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">
+              {block.columns.map((c, i) => (
+                <div key={c.id} className="rounded-lg border border-gray-200 p-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">Column {i + 1}</span>
+                    {block.columns.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ ...block, columns: block.columns.filter((_, j) => j !== i) })}
+                        className="text-[11px] text-gray-400 hover:text-rose-500"
+                      >
+                        remove
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Width weight">
+                      <NumberInput value={c.weight} onChange={(v) => {
+                        const columns = [...block.columns]; columns[i] = { ...columns[i], weight: Math.max(1, v) };
+                        onUpdate({ ...block, columns });
+                      }} min={1} max={6} />
+                    </Field>
+                    <Field label="Padding">
+                      <NumberInput value={c.padding} onChange={(v) => {
+                        const columns = [...block.columns]; columns[i] = { ...columns[i], padding: v };
+                        onUpdate({ ...block, columns });
+                      }} min={0} max={40} suffix="px" />
+                    </Field>
+                  </div>
+                  <Field label="Column Background">
+                    <div className="flex items-center gap-2">
+                      <ColorInput value={c.bgColor || "#ffffff"} onChange={(v) => {
+                        const columns = [...block.columns]; columns[i] = { ...columns[i], bgColor: v };
+                        onUpdate({ ...block, columns });
+                      }} />
+                      {c.bgColor && (
+                        <button type="button" onClick={() => {
+                          const columns = [...block.columns]; columns[i] = { ...columns[i], bgColor: "" };
+                          onUpdate({ ...block, columns });
+                        }} className="text-[11px] text-gray-400 hover:text-rose-500">none</button>
+                      )}
+                    </div>
+                  </Field>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
+    </SwatchContext.Provider>
   );
 }

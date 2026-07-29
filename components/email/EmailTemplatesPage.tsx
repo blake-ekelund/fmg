@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 import {
   FileText,
   Plus,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { MERGE_GROUPS, SAMPLE_VARS, applyMergeSample } from "@/lib/email/mergeFields";
 
 type Template = {
   id: string;
@@ -33,80 +35,6 @@ async function authHeader(): Promise<Record<string, string>> {
   const token = data.session?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
-
-/* Sample values used in the preview so merge fields aren't blank. The server
-   substitutes real values at send time — this is just a "what would it look
-   like" approximation. */
-const NOW = new Date();
-const SAMPLE_VARS: Record<string, string> = {
-  // Customer
-  firstName: "Alex",
-  customerName: "Acme Goods Co.",
-  city: "Sacramento",
-  state: "California",
-  channel: "GIFT",
-  lifetimeRevenue: "$12,450",
-  lifetimeOrders: "5",
-  lastOrderDate: NOW.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }),
-  daysSinceLastOrder: "124",
-  // Sender
-  senderName: "Your Name",
-  senderFirstName: "Your",
-  senderEmail: "you@fragrance-marketing-group.com",
-  // Date
-  currentYear: String(NOW.getFullYear()),
-  currentQuarter: `Q${Math.floor(NOW.getMonth() / 3) + 1} ${NOW.getFullYear()}`,
-};
-
-const MERGE_KEYS = Object.keys(SAMPLE_VARS);
-const MERGE_RE = new RegExp(`\\{\\{\\s*(${MERGE_KEYS.join("|")})\\s*\\}\\}`, "g");
-
-function applyMerge(template: string): string {
-  return template.replace(MERGE_RE, (_m, k: string) => SAMPLE_VARS[k] ?? _m);
-}
-
-/**
- * Merge fields, grouped and labelled in plain English.
- *
- * These used to be rendered as ~14 bare {{token}} chips in one paragraph of
- * 10px text — you had to know what each meant and then type it by hand. Now
- * they're grouped, described, and clicking one inserts it at the cursor.
- */
-const MERGE_GROUPS: { group: string; fields: { key: string; label: string }[] }[] = [
-  {
-    group: "Customer",
-    fields: [
-      { key: "firstName", label: "First name" },
-      { key: "customerName", label: "Company" },
-      { key: "city", label: "City" },
-      { key: "state", label: "State" },
-      { key: "channel", label: "Channel" },
-      { key: "lifetimeRevenue", label: "Lifetime revenue" },
-      { key: "lifetimeOrders", label: "Lifetime orders" },
-      { key: "lastOrderDate", label: "Last order date" },
-      { key: "daysSinceLastOrder", label: "Days since order" },
-    ],
-  },
-  {
-    group: "Sender",
-    fields: [
-      { key: "senderName", label: "Your name" },
-      { key: "senderFirstName", label: "Your first name" },
-      { key: "senderEmail", label: "Your email" },
-    ],
-  },
-  {
-    group: "Date",
-    fields: [
-      { key: "currentYear", label: "Year" },
-      { key: "currentQuarter", label: "Quarter" },
-    ],
-  },
-];
 
 export default function EmailTemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -334,8 +262,8 @@ function TemplateEditor({
     }
   }
 
-  const previewSubject = applyMerge(subject) || "(no subject)";
-  const previewBody = applyMerge(body) || "(no body)";
+  const previewSubject = applyMergeSample(subject) || "(no subject)";
+  const previewBody = applyMergeSample(body) || "(no body)";
 
   /* Insert a merge token at the caret of whichever field was last focused,
      defaulting to the body. Typing "{{daysSinceLastOrder}}" by hand from a
@@ -457,13 +385,14 @@ function TemplateEditor({
               Body
             </label>
             <span className="text-[10px] text-gray-400">
-              Plain text. Line breaks preserved.
+              Plain text · type “/” for merge fields
             </span>
           </div>
-          <textarea
+          <MergeFieldTextarea
             ref={bodyRef}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onValueChange={setBody}
+            channel="both"
             onFocus={() => (lastFocused.current = "body")}
             rows={12}
             placeholder={

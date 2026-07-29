@@ -13,6 +13,8 @@ import {
   Ban,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { mergeGroupsFor } from "@/lib/email/mergeFields";
+import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 import type { Brand, Channel, EmailTemplate } from "./types";
 import { formatHtml } from "./formatHtml";
 import { resizeImageForEmail } from "./resizeImage";
@@ -22,39 +24,6 @@ function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-/* Merge tokens mirror lib/email/send.ts (MergeVars) and the other editors. */
-const MERGE_GROUPS: { group: string; fields: { key: string; label: string }[] }[] = [
-  {
-    group: "Customer",
-    fields: [
-      { key: "firstName", label: "First name" },
-      { key: "customerName", label: "Company" },
-      { key: "city", label: "City" },
-      { key: "state", label: "State" },
-      { key: "channel", label: "Channel" },
-      { key: "lifetimeRevenue", label: "Lifetime revenue" },
-      { key: "lifetimeOrders", label: "Lifetime orders" },
-      { key: "lastOrderDate", label: "Last order date" },
-      { key: "daysSinceLastOrder", label: "Days since order" },
-    ],
-  },
-  {
-    group: "Sender",
-    fields: [
-      { key: "senderName", label: "Your name" },
-      { key: "senderFirstName", label: "Your first name" },
-      { key: "senderEmail", label: "Your email" },
-    ],
-  },
-  {
-    group: "Date",
-    fields: [
-      { key: "currentYear", label: "Year" },
-      { key: "currentQuarter", label: "Quarter" },
-    ],
-  },
-];
 
 type UploadedAsset = { name: string; url: string; width: number; size: number };
 
@@ -315,14 +284,21 @@ export default function HtmlTemplateEditor({
           )}
         </div>
 
-        {/* Merge fields */}
+        {/* Merge fields — filtered to the template's audience */}
         <div className="p-3 border-b border-gray-100">
           <div className="flex items-baseline justify-between mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Merge Fields</span>
-            <span className="text-[9px] text-gray-400">click to insert</span>
+            <span className="text-[9px] text-gray-400">click, or type “/”</span>
           </div>
+          <p className="mb-2 text-[10px] leading-relaxed text-gray-400">
+            {channel === "wholesale"
+              ? "Wholesale: use Company name — no first/last name for businesses."
+              : channel === "d2c"
+                ? "D2C: first and last name available for individuals."
+                : "Both audiences — first/last name only fill in for D2C recipients."}
+          </p>
           <div className="space-y-2">
-            {MERGE_GROUPS.map(({ group, fields }) => (
+            {mergeGroupsFor(channel).map(({ group, fields }) => (
               <div key={group}>
                 <div className="mb-1 text-[10px] font-medium text-gray-500">{group}</div>
                 <div className="flex flex-wrap gap-1">
@@ -486,11 +462,13 @@ export default function HtmlTemplateEditor({
               <Wand2 size={12} />
               Format
             </button>
-            <textarea
+            <MergeFieldTextarea
               ref={codeRef}
               value={rawHtml}
-              onChange={(e) => setRawHtml(e.target.value)}
+              onValueChange={setRawHtml}
+              channel={channel}
               spellCheck={false}
+              wrapperClassName="relative h-full"
               className="w-full h-full resize-none rounded-lg border border-gray-200 bg-white p-4 pt-11 font-mono text-xs leading-relaxed text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </div>

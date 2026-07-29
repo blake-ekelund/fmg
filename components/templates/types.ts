@@ -10,10 +10,12 @@ export type BlockType =
   | "product"
   | "social"
   | "hero"
-  | "promotion";
+  | "promotion"
+  | "section";
 
 export type TextAlign = "left" | "center" | "right";
 export type FontFamily = "sans" | "serif" | "mono";
+export type VAlign = "top" | "middle" | "bottom";
 
 export interface BlockBase {
   id: string;
@@ -26,6 +28,8 @@ export interface HeaderBlock extends BlockBase {
   companyName: string;
   bgColor: string;
   textColor: string;
+  /** Company-name text size when there's no logo (px). Defaults to 20. */
+  fontSize?: number;
   padding: number;
 }
 
@@ -44,7 +48,8 @@ export interface ImageBlock extends BlockBase {
   type: "image";
   src: string;
   alt: string;
-  width: "full" | "half" | "third";
+  /** Preset keyword, or a custom percentage of the content column (1–100). */
+  width: "full" | "half" | "third" | number;
   align: TextAlign;
   linkUrl: string;
   borderRadius: number;
@@ -88,6 +93,8 @@ export interface ProductBlock extends BlockBase {
   type: "product";
   imageUrl: string;
   name: string;
+  /** Product-name text size (px). Defaults to 16. */
+  fontSize?: number;
   description: string;
   price: string;
   buttonText: string;
@@ -110,6 +117,8 @@ export interface HeroBlock extends BlockBase {
   type: "hero";
   imageUrl: string;
   heading: string;
+  /** Heading text size (px). Defaults to 24. */
+  fontSize?: number;
   subheading: string;
   buttonText: string;
   buttonUrl: string;
@@ -134,6 +143,35 @@ export interface PromotionBlock extends BlockBase {
   padding: number;
 }
 
+/**
+ * A section is a styled container with 1–3 columns; each column holds a stack
+ * of ordinary content blocks. This is what makes Klaviyo-style layouts possible
+ * — e.g. an image in the left column with a heading, paragraph, and button
+ * stacked in the right. Sections carry their own background (colour or hosted
+ * image) and each column can too. Sections never nest inside sections (the
+ * editor doesn't offer it), so the recursion here is one level deep in practice.
+ */
+export interface SectionColumn {
+  id: string;
+  blocks: EmailBlock[];
+  /** Relative width weight across the row (e.g. 2 vs 3 for a 40/60 split). */
+  weight: number;
+  bgColor: string; // "" = transparent
+  verticalAlign: VAlign;
+  padding: number;
+}
+
+export interface SectionBlock extends BlockBase {
+  type: "section";
+  columns: SectionColumn[];
+  bgColor: string; // "" = none
+  bgImage: string; // hosted URL, "" = none
+  padding: number;
+  gap: number;
+  stackOnMobile: boolean;
+  verticalAlign: VAlign;
+}
+
 export type EmailBlock =
   | HeaderBlock
   | TextBlock
@@ -145,7 +183,13 @@ export type EmailBlock =
   | ProductBlock
   | SocialBlock
   | HeroBlock
-  | PromotionBlock;
+  | PromotionBlock
+  | SectionBlock;
+
+/** Content blocks that may live inside a section column (everything but section). */
+export const SECTION_CONTENT_TYPES: BlockType[] = [
+  "image", "text", "button", "header", "divider", "spacer", "social", "product",
+];
 
 /* ─── Template Types ─── */
 export type TemplateType = "email" | "sms" | "newsletter";
@@ -154,11 +198,46 @@ export type Brand = "ni" | "sassy" | "both";
 export type Channel = "wholesale" | "d2c" | "both";
 
 /**
+ * Why a template exists — collected in the creation wizard and stored as a
+ * slug. The allowed set lives here (not a DB check) so it can grow freely.
+ */
+export type TemplatePurpose =
+  | "newsletter"
+  | "winback"
+  | "promotion"
+  | "product_launch"
+  | "welcome"
+  | "announcement"
+  | "other";
+
+/**
+ * Normalize a stored purpose value to an array. Tolerates the legacy `text`
+ * column (a single slug string) and null, so the UI is safe whether or not the
+ * text→text[] migration has been applied yet.
+ */
+export function toPurposeArray(p: unknown): TemplatePurpose[] {
+  if (Array.isArray(p)) return p.filter((x): x is TemplatePurpose => typeof x === "string");
+  if (typeof p === "string" && p.trim()) return [p as TemplatePurpose];
+  return [];
+}
+
+export const TEMPLATE_PURPOSES: { value: TemplatePurpose; label: string; hint: string }[] = [
+  { value: "newsletter", label: "Newsletter", hint: "Regular roundup — products, tips, behind the scenes" },
+  { value: "winback", label: "Win-back / Recapture", hint: "Re-engage a lapsed or at-risk customer" },
+  { value: "promotion", label: "Promotion / Sale", hint: "Discount, offer, or seasonal sale" },
+  { value: "product_launch", label: "Product launch", hint: "Announce a new product or collection" },
+  { value: "welcome", label: "Welcome / Onboarding", hint: "Greet a new customer or wholesale account" },
+  { value: "announcement", label: "Announcement", hint: "News, updates, or a general announcement" },
+  { value: "other", label: "Other", hint: "Anything else" },
+];
+
+/**
  * What drives a template's rendered output:
  *   "blocks" — the drag-and-drop builder (`blocks` → lib/email/renderBlocks).
  *   "html"   — an uploaded HTML file (`raw_html` → lib/email/rawHtml).
+ *   "text"   — a plain-text body (`text_body` → lib/email/renderText).
  */
-export type TemplateSource = "blocks" | "html";
+export type TemplateSource = "blocks" | "html" | "text";
 
 export interface EmailTemplate {
   id: string;
@@ -171,17 +250,31 @@ export interface EmailTemplate {
   source: TemplateSource;
   blocks: EmailBlock[];
   raw_html: string | null;
+  /** Plain-text body for source='text' (with {{merge_fields}}). */
+  text_body: string | null;
   sms_body: string | null;
   preview_text: string | null;
   from_name: string | null;
   reply_to: string | null;
+  /** Bumped when loaded into the compose modal; drives "last used" ordering. */
+  last_used_at: string | null;
+  /** Profile id of the creator, for attribution. */
+  created_by: string | null;
+  /** Marketing intent(s), captured in the creation wizard (multi-select). */
+  purpose: TemplatePurpose[] | null;
+  /** Free-text note shown in the library. */
+  description: string | null;
   created_at: string;
   updated_at: string;
 }
 
 /* ─── Default Blocks ─── */
+export function newBlockId(): string {
+  return `block-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export function createDefaultBlock(type: BlockType): EmailBlock {
-  const id = `block-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const id = newBlockId();
 
   switch (type) {
     case "header":
@@ -206,6 +299,58 @@ export function createDefaultBlock(type: BlockType): EmailBlock {
       return { id, type, imageUrl: "", heading: "Your Headline Here", subheading: "Supporting text goes here", buttonText: "Learn More", buttonUrl: "https://", overlay: true, textColor: "#ffffff", padding: 0 };
     case "promotion":
       return { id, type, promotionId: "", headline: "Special Offer", description: "Don't miss out on this limited-time deal.", promoCode: "", discountLabel: "", expiresLabel: "", buttonText: "Shop Now", buttonUrl: "https://", bgColor: "#f5f3ff", accentColor: "#7c3aed", textColor: "#1f2937", padding: 24 };
+    case "section":
+      return createSectionPreset("imageText");
+  }
+}
+
+/* ─── Section presets ─── */
+export type SectionPreset =
+  | "imageText"
+  | "textImage"
+  | "twoCol"
+  | "threeCol"
+  | "band";
+
+export const SECTION_PRESETS: { preset: SectionPreset; label: string }[] = [
+  { preset: "imageText", label: "Image + Text" },
+  { preset: "textImage", label: "Text + Image" },
+  { preset: "twoCol", label: "Two Columns" },
+  { preset: "threeCol", label: "Three Columns" },
+  { preset: "band", label: "Full-width Band" },
+];
+
+function col(weight: number, blocks: EmailBlock[]): SectionColumn {
+  return { id: newBlockId(), blocks, weight, bgColor: "", verticalAlign: "middle", padding: 12 };
+}
+
+/** A heading + paragraph + button stack — the typical "content" column. */
+function contentStack(): EmailBlock[] {
+  return [
+    { ...(createDefaultBlock("header") as HeaderBlock), companyName: "Your Headline", logoUrl: "", bgColor: "", textColor: "#111827", padding: 0 },
+    { ...(createDefaultBlock("text") as TextBlock), html: "<p>Supporting copy goes here. Keep it short and punchy.</p>", bgColor: "", padding: 0 },
+    { ...(createDefaultBlock("button") as ButtonBlock), align: "left", padding: 0 },
+  ];
+}
+
+export function createSectionPreset(preset: SectionPreset): SectionBlock {
+  const base = { id: newBlockId(), type: "section" as const, bgColor: "", bgImage: "", padding: 24, gap: 20, stackOnMobile: true, verticalAlign: "middle" as VAlign };
+  const image = () => [createDefaultBlock("image")];
+
+  switch (preset) {
+    case "imageText":
+      return { ...base, columns: [col(2, image()), col(3, contentStack())] };
+    case "textImage":
+      return { ...base, columns: [col(3, contentStack()), col(2, image())] };
+    case "twoCol":
+      return { ...base, columns: [col(1, [createDefaultBlock("text")]), col(1, [createDefaultBlock("text")])] };
+    case "threeCol":
+      return { ...base, columns: [col(1, [createDefaultBlock("text")]), col(1, [createDefaultBlock("text")]), col(1, [createDefaultBlock("text")])] };
+    case "band":
+      return { ...base, bgColor: "#1a5632", columns: [col(1, [
+        { ...(createDefaultBlock("header") as HeaderBlock), companyName: "Section Heading", logoUrl: "", bgColor: "", textColor: "#ffffff", padding: 0 },
+        { ...(createDefaultBlock("text") as TextBlock), html: "<p style=\"text-align:center\">A full-width band — set a background colour or image.</p>", textColor: "#ffffff", bgColor: "", textAlign: "center", padding: 0 },
+      ])] };
   }
 }
 

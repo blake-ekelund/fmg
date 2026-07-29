@@ -13,15 +13,19 @@ type UpsertBody = {
 
 /**
  * GET /api/email/templates
- * Returns ALL templates (shared org-wide), most-recently-updated first.
+ * The plain-text template library, shared org-wide, most-recently-updated
+ * first. These now live in the unified `email_templates` table as source='text'
+ * rows; `text_body` is aliased back to `body` so callers (compose modal,
+ * automation editor) keep their existing { id, name, subject, body } contract.
  */
 export async function GET(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const { data, error } = await supabaseServer
-    .from("user_email_templates")
-    .select("id, name, subject, body, last_used_at, updated_at")
+    .from("email_templates")
+    .select("id, name, subject, body:text_body, last_used_at, updated_at")
+    .eq("source", "text")
     .order("updated_at", { ascending: false })
     .limit(200);
 
@@ -58,24 +62,37 @@ export async function POST(request: Request) {
     );
   }
 
-  // Update path: templates are shared, so any authenticated user can edit
-  // any template. user_id (created-by) is intentionally not touched.
+  // Update path: templates are shared, so any authenticated user can edit any
+  // template. Scoped to source='text' so this text-template endpoint can never
+  // overwrite a designed (blocks/html) template by id. created_by is untouched.
   if (body.id) {
     const { data, error } = await supabaseServer
-      .from("user_email_templates")
-      .update({ name, subject, body: tplBody })
+      .from("email_templates")
+      .update({ name, subject, text_body: tplBody, updated_at: new Date().toISOString() })
       .eq("id", body.id)
-      .select("id, name, subject, body, last_used_at, updated_at")
+      .eq("source", "text")
+      .select("id, name, subject, body:text_body, last_used_at, updated_at")
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ template: data });
   }
 
-  // Insert.
+  // Insert a new plain-text template into the unified table.
   const { data, error } = await supabaseServer
-    .from("user_email_templates")
-    .insert({ user_id: user.id, name, subject, body: tplBody })
-    .select("id, name, subject, body, last_used_at, updated_at")
+    .from("email_templates")
+    .insert({
+      name,
+      subject,
+      type: "email",
+      brand: "both",
+      channel: "both",
+      status: "active",
+      source: "text",
+      blocks: [],
+      text_body: tplBody,
+      created_by: user.id,
+    })
+    .select("id, name, subject, body:text_body, last_used_at, updated_at")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ template: data });

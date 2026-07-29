@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
+import { renderTextEmail } from "@/lib/email/renderText";
 import { applyMergeFields, currentQuarterLabel } from "@/lib/email/send";
 import type { EmailBlock } from "@/components/templates/types";
 
@@ -11,6 +12,7 @@ export const runtime = "nodejs";
 /** Stand-ins so the preview doesn't show raw {{tokens}}. */
 const SAMPLE = {
   firstName: "Alex",
+  lastName: "Rivera",
   customerName: "Acme Goods Co.",
   city: "Sacramento",
   state: "California",
@@ -47,7 +49,7 @@ export async function GET(
 
   const { data, error } = await supabaseServer
     .from("email_templates")
-    .select("name, preview_text, source, blocks, raw_html")
+    .select("name, preview_text, source, blocks, raw_html, text_body")
     .eq("id", id)
     .maybeSingle();
 
@@ -58,10 +60,12 @@ export async function GET(
   const html =
     data.source === "html"
       ? renderRawHtmlEmail((data.raw_html as string | null) ?? "", { previewText })
-      : renderBlocksToEmailHtml(
-          Array.isArray(data.blocks) ? (data.blocks as EmailBlock[]) : [],
-          { previewText },
-        );
+      : data.source === "text"
+        ? renderTextEmail((data.text_body as string | null) ?? "", { previewText })
+        : renderBlocksToEmailHtml(
+            Array.isArray(data.blocks) ? (data.blocks as EmailBlock[]) : [],
+            { previewText },
+          );
 
   return new NextResponse(applyMergeFields(html, SAMPLE), {
     status: 200,

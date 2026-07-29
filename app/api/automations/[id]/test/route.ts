@@ -11,6 +11,7 @@ import {
   type MergeVars,
 } from "@/lib/email/send";
 import { buildTrackedHtmlBody } from "@/lib/email/tracking";
+import { splitContactName } from "@/lib/email/mergeFields";
 import { publicOriginFromRequest } from "@/lib/email/origin";
 import {
   isSuppressed,
@@ -30,6 +31,7 @@ type TestBody = {
 /** Fallback when no customer is chosen — every merge field still populated. */
 const SAMPLE = {
   firstName: "Alex",
+  lastName: "Rivera",
   customerName: "Sample Customer Co.",
   city: "Minneapolis",
   state: "MN",
@@ -81,10 +83,12 @@ async function loadCustomerVars(
   const name = (r.customer_name as string | null) ?? null;
   const lastOrder = (r.last_order_date as string | null) ?? null;
 
+  const { firstName, lastName } = splitContactName(name, customerType);
   return {
     name,
     vars: {
-      firstName: firstNameOf(name),
+      firstName,
+      lastName,
       customerName: name,
       city: (r.billto_city as string | null) ?? null,
       state: (r.billto_state as string | null) ?? null,
@@ -205,8 +209,8 @@ export async function POST(
   }
 
   const { data: tplRows, error: tplErr } = await supabaseServer
-    .from("user_email_templates")
-    .select("id, name, subject, body")
+    .from("email_templates")
+    .select("id, name, subject, body:text_body")
     .in("id", sendable.map((s) => s.template_id as string));
   if (tplErr) return NextResponse.json({ error: tplErr.message }, { status: 500 });
 

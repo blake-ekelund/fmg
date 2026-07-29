@@ -7,7 +7,6 @@ import {
   Megaphone,
   KanbanSquare,
   PackageSearch,
-  FileText,
   ImageIcon,
   BarChart3,
   Zap,
@@ -174,18 +173,13 @@ export const navSections: readonly NavSection[] = [
     icon: Mail,
     items: [
       {
+        /* One unified library: plain-text, uploaded-HTML, and the block-based
+           builder all live in `email_templates` (source = text|html|blocks) and
+           are created/edited on this one page. This replaced the old split
+           between a plain-text "Email Templates" page and a "Designed Templates"
+           page (two tables, two send paths); /email-templates now redirects
+           here. */
         label: "Email Templates",
-        href: "/email-templates",
-        icon: FileText,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
-      },
-      {
-        /* The block-based builder — header/hero/product/button layouts that
-           render to real email HTML. Labelled "Designed" to separate it from
-           "Email Templates" above, which is the plain-text snippet library;
-           the two are different tables and different send paths, and the
-           compose modal uses the same word for this mode. */
-        label: "Designed Templates",
         href: "/templates",
         icon: LayoutTemplate,
         roles: [...FULL_ACCESS, "sales", "marketing"],

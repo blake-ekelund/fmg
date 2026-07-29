@@ -68,7 +68,7 @@ export async function GET(
   let templates: Array<{ id: string; name: string; subject: string }> = [];
   if (tplIds.length > 0) {
     const { data } = await supabaseServer
-      .from("user_email_templates")
+      .from("email_templates")
       .select("id, name, subject")
       .in("id", tplIds);
     templates = (data as typeof templates | null) ?? [];

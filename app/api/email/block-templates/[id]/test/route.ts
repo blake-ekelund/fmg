@@ -4,6 +4,7 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
+import { renderTextEmail } from "@/lib/email/renderText";
 import { sendEmail } from "@/lib/email/send";
 import { applyMergeFields, currentQuarterLabel } from "@/lib/email/send";
 import type { EmailBlock } from "@/components/templates/types";
@@ -17,6 +18,7 @@ export const runtime = "nodejs";
  */
 const SAMPLE = {
   firstName: "Alex",
+  lastName: "Rivera",
   customerName: "Acme Goods Co.",
   city: "Sacramento",
   state: "California",
@@ -69,7 +71,7 @@ export async function POST(
 
   const { data, error } = await supabaseServer
     .from("email_templates")
-    .select("name, subject, preview_text, source, blocks, raw_html")
+    .select("name, subject, preview_text, source, blocks, raw_html, text_body")
     .eq("id", id)
     .maybeSingle();
 
@@ -85,6 +87,12 @@ export async function POST(
       return NextResponse.json({ error: `Template "${data.name}" has no HTML content yet.` }, { status: 400 });
     }
     html = renderRawHtmlEmail(rawHtml, { previewText });
+  } else if (data.source === "text") {
+    const textBody = (data.text_body as string | null) ?? "";
+    if (!textBody.trim()) {
+      return NextResponse.json({ error: `Template "${data.name}" has no content yet.` }, { status: 400 });
+    }
+    html = renderTextEmail(textBody, { previewText });
   } else {
     const blocks = (data.blocks ?? []) as EmailBlock[];
     if (!Array.isArray(blocks) || blocks.length === 0) {

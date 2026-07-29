@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import {
   Plus,
   Trash2,
@@ -25,9 +25,10 @@ import {
   Rows3,
   PanelTop,
   Tag,
-  Upload,
   Code2,
   FileCode,
+  MonitorSmartphone,
+  SlidersHorizontal,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -39,16 +40,21 @@ import type {
   TemplateSource,
   Brand,
   Channel,
-  PromotionBlock,
+  TemplatePurpose,
 } from "./types";
-import { createDefaultBlock, BRAND_PRESETS } from "./types";
+import { createDefaultBlock, createSectionPreset, SECTION_PRESETS, TEMPLATE_PURPOSES, toPurposeArray } from "./types";
+import type { SectionPreset } from "./types";
 import { useTemplates } from "./useTemplates";
+import { findBlock, updateBlockInTree, removeBlockFromTree, addBlockToColumn, moveBlockInColumn } from "./blockTree";
 import BlockRenderer from "./BlockRenderer";
+import SectionCanvas from "./SectionCanvas";
 import BlockEditor from "./BlockEditor";
 import PromotionPickerModal from "./PromotionPickerModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import HtmlTemplateEditor from "./HtmlTemplateEditor";
-import { formatHtml } from "./formatHtml";
+import ClientPreviewMatrix from "./ClientPreviewMatrix";
+import NewTemplateWizard, { type NewTemplateResult } from "./NewTemplateWizard";
+import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 
 /* ─── Block Palette ─── */
 const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
@@ -64,6 +70,23 @@ const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
   { type: "spacer", label: "Spacer", icon: Rows3 },
   { type: "social", label: "Social Links", icon: Share2 },
 ];
+
+/* Mini glyph illustrating a section layout in the palette. */
+function PresetGlyph({ preset }: { preset: SectionPreset }) {
+  const cols =
+    preset === "imageText" ? [{ w: 2, dark: true }, { w: 3, dark: false }]
+    : preset === "textImage" ? [{ w: 3, dark: false }, { w: 2, dark: true }]
+    : preset === "twoCol" ? [{ w: 1, dark: false }, { w: 1, dark: false }]
+    : preset === "threeCol" ? [{ w: 1, dark: false }, { w: 1, dark: false }, { w: 1, dark: false }]
+    : [{ w: 1, dark: true }];
+  return (
+    <span className="flex h-4 w-6 shrink-0 items-stretch gap-0.5 rounded-sm border border-gray-300 p-0.5">
+      {cols.map((c, i) => (
+        <span key={i} className={`rounded-[1px] ${c.dark ? "bg-indigo-400" : "bg-gray-300"}`} style={{ flex: `${c.w} 1 0%` }} />
+      ))}
+    </span>
+  );
+}
 
 /* ─── SMS Editor ─── */
 function SmsEditor({
@@ -139,22 +162,26 @@ export default function TemplateEditorPage() {
   const [smsBody, setSmsBody] = useState("");
   const [previewText, setPreviewText] = useState("");
   const [fromName, setFromName] = useState("");
+  const [purpose, setPurpose] = useState<TemplatePurpose[]>([]);
+  const [description, setDescription] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showMatrix, setShowMatrix] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Uploaded-HTML templates: `source` decides which editor the row uses, and
   // `rawHtml` holds the document. `htmlView` toggles code vs rendered preview.
   const [source, setSource] = useState<TemplateSource>("blocks");
   const [rawHtml, setRawHtml] = useState("");
+  const [textBody, setTextBody] = useState("");
   const [htmlView, setHtmlView] = useState<"preview" | "code">("preview");
 
-  // Hidden file input for creating a template from an upload in the list view.
-  // (Replacing the HTML of an open template is handled inside HtmlTemplateEditor.)
-  const newUploadRef = useRef<HTMLInputElement>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  // The creation wizard (brand → audience → purpose → title → description →
+  // start method). Replaces the old inline "new / upload / plain-text" buttons.
+  const [showWizard, setShowWizard] = useState(false);
 
-  const selectedBlock = blocks.find((b) => b.id === selectedBlockId);
+  const selectedBlock = selectedBlockId ? findBlock(blocks, selectedBlockId) : undefined;
 
   // Promotion picker modal
   const [showPromoPicker, setShowPromoPicker] = useState(false);
@@ -162,8 +189,9 @@ export default function TemplateEditorPage() {
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<EmailTemplate | null>(null);
 
-  // Load template into editor
-  function openEditor(template?: EmailTemplate) {
+  // Load template into editor. For a brand-new template, `blankSource` picks
+  // which editor opens (blocks builder by default, or a plain-text body).
+  function openEditor(template?: EmailTemplate, blankSource: TemplateSource = "blocks") {
     if (template) {
       setEditingId(template.id);
       setIsNew(false);
@@ -175,9 +203,12 @@ export default function TemplateEditorPage() {
       setSource(template.source ?? "blocks");
       setBlocks(template.blocks ?? []);
       setRawHtml(template.raw_html ?? "");
+      setTextBody(template.text_body ?? "");
       setSmsBody(template.sms_body ?? "");
       setPreviewText(template.preview_text ?? "");
       setFromName(template.from_name ?? "");
+      setPurpose(toPurposeArray(template.purpose));
+      setDescription(template.description ?? "");
     } else {
       setEditingId(null);
       setIsNew(true);
@@ -186,62 +217,48 @@ export default function TemplateEditorPage() {
       setTemplateType("email");
       setBrand("both");
       setChannel("both");
-      setSource("blocks");
+      setSource(blankSource);
       setBlocks([]);
       setRawHtml("");
+      setTextBody("");
       setSmsBody("");
       setPreviewText("");
       setFromName("");
+      setPurpose([]);
+      setDescription("");
     }
     setSelectedBlockId(null);
     setShowPreview(false);
     setHtmlView("preview");
-    setUploadError(null);
   }
 
   /**
-   * Read an uploaded .html file from the list view, create a fresh HTML-source
-   * template from it, and open it in the editor.
+   * The creation wizard collected brand / audience / purpose / title /
+   * description and a starting point — a seeded text block, an empty builder, or
+   * blocks imported from an uploaded HTML file. Everything is source='blocks'
+   * now. Open it as an unsaved draft; the user saves when ready.
    */
-  async function handleHtmlFile(file: File | undefined | null) {
-    setUploadError(null);
-    if (!file) return;
-
-    const isHtml = /\.html?$/i.test(file.name) || file.type === "text/html";
-    if (!isHtml) {
-      setUploadError("Please choose an .html file.");
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      setUploadError("That file is over 2 MB — email HTML should be well under that.");
-      return;
-    }
-
-    let text = "";
-    try {
-      text = await file.text();
-    } catch {
-      setUploadError("Couldn't read that file. Try re-saving it and uploading again.");
-      return;
-    }
-    if (!text.trim()) {
-      setUploadError("That file is empty.");
-      return;
-    }
-
-    // Persist the (beautified) upload, then open it in the editor.
-    const created = await save({
-      name: file.name.replace(/\.html?$/i, "").trim() || "Uploaded HTML",
-      subject: "",
-      type: "email",
-      brand: "both",
-      channel: "both",
-      source: "html",
-      blocks: [],
-      raw_html: formatHtml(text),
-      status: "draft",
-    });
-    if (created) openEditor(created);
+  function startFromWizard(r: NewTemplateResult) {
+    setShowWizard(false);
+    setEditingId(null);
+    setIsNew(true);
+    setName(r.name);
+    setSubject(r.subject);
+    setTemplateType("email");
+    setBrand(r.brand);
+    setChannel(r.channel);
+    setPurpose(r.purpose);
+    setDescription(r.description);
+    setSource("blocks");
+    setBlocks(r.blocks);
+    setRawHtml("");
+    setTextBody("");
+    setSmsBody("");
+    setPreviewText(r.previewText);
+    setFromName("");
+    setSelectedBlockId(null);
+    setShowPreview(false);
+    setHtmlView("preview");
   }
 
   function closeEditor() {
@@ -261,19 +278,36 @@ export default function TemplateEditorPage() {
     setSelectedBlockId(b.id);
   }
 
-  function addPromotionBlock(promoBlock: PromotionBlock) {
+  function addPromotionBlock(promoBlock: EmailBlock) {
     setBlocks((prev) => [...prev, promoBlock]);
     setSelectedBlockId(promoBlock.id);
     setShowPromoPicker(false);
   }
 
   function updateBlock(updated: EmailBlock) {
-    setBlocks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+    setBlocks((prev) => updateBlockInTree(prev, updated));
   }
 
   function removeBlock(id: string) {
-    setBlocks((prev) => prev.filter((b) => b.id !== id));
+    setBlocks((prev) => removeBlockFromTree(prev, id));
     if (selectedBlockId === id) setSelectedBlockId(null);
+  }
+
+  // Section helpers — add a preset section, and edit blocks inside its columns.
+  function addSection(preset: SectionPreset) {
+    const s = createSectionPreset(preset);
+    setBlocks((prev) => [...prev, s]);
+    setSelectedBlockId(s.id);
+  }
+
+  function addToColumn(sectionId: string, colIndex: number, type: BlockType) {
+    const nb = createDefaultBlock(type);
+    setBlocks((prev) => addBlockToColumn(prev, sectionId, colIndex, nb));
+    setSelectedBlockId(nb.id);
+  }
+
+  function moveInColumn(sectionId: string, colIndex: number, blockId: string, dir: -1 | 1) {
+    setBlocks((prev) => moveBlockInColumn(prev, sectionId, colIndex, blockId, dir));
   }
 
   function moveBlock(id: string, dir: -1 | 1) {
@@ -300,9 +334,12 @@ export default function TemplateEditorPage() {
       source,
       blocks,
       raw_html: source === "html" ? rawHtml : null,
+      text_body: source === "text" ? textBody : null,
       sms_body: smsBody,
       preview_text: previewText,
       from_name: fromName,
+      purpose,
+      description,
       status: "draft",
     };
     if (editingId) payload.id = editingId;
@@ -314,20 +351,6 @@ export default function TemplateEditorPage() {
     }
     setSaving(false);
     return result ?? null;
-  }
-
-  // Apply brand preset
-  function applyBrandPreset(preset: "ni" | "sassy") {
-    const p = BRAND_PRESETS[preset];
-    // Update all blocks' colors to match brand
-    setBlocks((prev) =>
-      prev.map((b) => {
-        if (b.type === "header") return { ...b, bgColor: p.primaryColor, textColor: "#ffffff", companyName: p.name };
-        if (b.type === "button") return { ...b, bgColor: p.primaryColor, textColor: "#ffffff" };
-        if (b.type === "text") return { ...b, fontFamily: p.fontFamily, textColor: p.textColor };
-        return b;
-      })
-    );
   }
 
   /* ─── LIST VIEW ─── */
@@ -342,40 +365,14 @@ export default function TemplateEditorPage() {
               Create and manage email templates.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => newUploadRef.current?.click()}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition shadow-sm"
-            >
-              <Upload size={16} />
-              Upload HTML
-            </button>
-            <button
-              onClick={() => openEditor()}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm"
-            >
-              <Plus size={16} />
-              Blank Template
-            </button>
-          </div>
+          <button
+            onClick={() => setShowWizard(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm"
+          >
+            <Plus size={16} />
+            New template
+          </button>
         </div>
-
-        {/* Hidden input for "Upload HTML" — creates an HTML-source template. */}
-        <input
-          ref={newUploadRef}
-          type="file"
-          accept=".html,.htm,text/html"
-          className="hidden"
-          onChange={(e) => {
-            handleHtmlFile(e.target.files?.[0]);
-            e.target.value = "";
-          }}
-        />
-        {uploadError && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700">
-            {uploadError}
-          </div>
-        )}
 
         {/* Count */}
         <div className="flex items-center gap-4 text-xs">
@@ -389,21 +386,14 @@ export default function TemplateEditorPage() {
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Mail size={48} className="text-gray-200 mb-4" />
             <h3 className="text-lg font-semibold text-gray-700">No templates yet</h3>
-            <p className="text-sm text-gray-500 mt-1">Upload an HTML file or start from a blank email template.</p>
+            <p className="text-sm text-gray-500 mt-1">Start a plain-text email, a blank builder, or import an HTML file — the wizard walks you through it.</p>
             <div className="flex items-center gap-2 mt-4">
               <button
-                onClick={() => newUploadRef.current?.click()}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
-              >
-                <Upload size={16} />
-                Upload HTML
-              </button>
-              <button
-                onClick={() => openEditor()}
+                onClick={() => setShowWizard(true)}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition"
               >
                 <Plus size={16} />
-                Blank Template
+                New template
               </button>
             </div>
           </div>
@@ -418,7 +408,7 @@ export default function TemplateEditorPage() {
                   >
                     {/* Icon */}
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400">
-                      {t.source === "html" ? <FileCode size={18} /> : <Mail size={18} />}
+                      {t.source === "html" ? <FileCode size={18} /> : t.source === "text" ? <Type size={18} /> : <Mail size={18} />}
                     </div>
 
                     {/* Name + subject */}
@@ -432,14 +422,27 @@ export default function TemplateEditorPage() {
                             HTML
                           </span>
                         )}
+                        {t.source === "text" && (
+                          <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-600">
+                            Text
+                          </span>
+                        )}
                       </div>
                       <div className="mt-0.5 truncate text-[11px] text-gray-500">
                         {t.subject || "(no subject)"}
                       </div>
+                      {t.description && (
+                        <div className="mt-0.5 truncate text-[11px] text-gray-400">{t.description}</div>
+                      )}
                     </div>
 
                     {/* Badges */}
                     <div className="hidden items-center gap-1.5 sm:flex">
+                      {toPurposeArray(t.purpose).slice(0, 2).map((pv) => (
+                        <span key={pv} className="rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-indigo-600">
+                          {TEMPLATE_PURPOSES.find((p) => p.value === pv)?.label ?? pv}
+                        </span>
+                      ))}
                       {t.brand && t.brand !== "both" && (
                         <span className={clsx("rounded px-1.5 py-0.5 text-[9px] font-bold uppercase", t.brand === "ni" ? "bg-emerald-100 text-emerald-700" : "bg-pink-100 text-pink-700")}>
                           {t.brand === "ni" ? "NI" : "Sassy"}
@@ -511,6 +514,13 @@ export default function TemplateEditorPage() {
             }
           }}
         />
+
+        {/* New-template creation wizard */}
+        <NewTemplateWizard
+          open={showWizard}
+          onClose={() => setShowWizard(false)}
+          onComplete={startFromWizard}
+        />
       </div>
     );
   }
@@ -576,6 +586,24 @@ export default function TemplateEditorPage() {
               {showPreview ? "Edit" : "Preview"}
             </button>
           )}
+          {source === "blocks" && isEmailType && (
+            <button
+              onClick={() => setShowSettings(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition"
+            >
+              <SlidersHorizontal size={13} />
+              Settings
+            </button>
+          )}
+          {isEmailType && (
+            <button
+              onClick={() => setShowMatrix(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition"
+            >
+              <MonitorSmartphone size={13} />
+              Test across clients
+            </button>
+          )}
           <button
             onClick={handleSave}
             disabled={saving}
@@ -637,79 +665,23 @@ export default function TemplateEditorPage() {
                     </button>
                   ))}
                 </div>
-              </div>
 
-              {/* Brand presets */}
-              <div className="p-3 border-t border-gray-100">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Brand Preset</div>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => applyBrandPreset("ni")}
-                    className="flex-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition"
-                  >
-                    NI
-                  </button>
-                  <button
-                    onClick={() => applyBrandPreset("sassy")}
-                    className="flex-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100 transition"
-                  >
-                    Sassy
-                  </button>
+                {/* Section layouts — multi-column containers with backgrounds */}
+                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-4 mb-2">Section Layouts</div>
+                <div className="space-y-1.5">
+                  {SECTION_PRESETS.map((p) => (
+                    <button
+                      key={p.preset}
+                      onClick={() => addSection(p.preset)}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition text-[11px] font-medium"
+                    >
+                      <PresetGlyph preset={p.preset} />
+                      {p.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Meta fields */}
-              <div className="p-3 border-t border-gray-100 space-y-2.5">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Settings</div>
-                <label className="block">
-                  <span className="text-[10px] font-semibold text-gray-500">Subject Line</span>
-                  <input
-                    type="text"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Your subject..."
-                    className="mt-1 w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[10px] font-semibold text-gray-500">Preview Text</span>
-                  <input
-                    type="text"
-                    value={previewText}
-                    onChange={(e) => setPreviewText(e.target.value)}
-                    placeholder="Shown in inbox..."
-                    className="mt-1 w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[10px] font-semibold text-gray-500">From Name</span>
-                  <input
-                    type="text"
-                    value={fromName}
-                    onChange={(e) => setFromName(e.target.value)}
-                    placeholder="Natural Inspirations"
-                    className="mt-1 w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="block">
-                    <span className="text-[10px] font-semibold text-gray-500">Brand</span>
-                    <select value={brand} onChange={(e) => setBrand(e.target.value as Brand)} className="mt-1 w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white">
-                      <option value="both">Both</option>
-                      <option value="ni">NI</option>
-                      <option value="sassy">Sassy</option>
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="text-[10px] font-semibold text-gray-500">Channel</span>
-                    <select value={channel} onChange={(e) => setChannel(e.target.value as Channel)} className="mt-1 w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white">
-                      <option value="both">Both</option>
-                      <option value="wholesale">Wholesale</option>
-                      <option value="d2c">D2C</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
             </div>
           )}
 
@@ -724,17 +696,29 @@ export default function TemplateEditorPage() {
                   <Mail size={40} className="text-gray-200 mb-3" />
                   <h3 className="text-sm font-semibold text-gray-600">Start building your email</h3>
                   <p className="text-xs text-gray-400 mt-1 max-w-xs">
-                    Click blocks from the left panel to add them, or use a brand preset to get started quickly.
+                    Click blocks from the left panel to add them and build your email.
                   </p>
                 </div>
               )}
               {blocks.map((block, i) => (
                 <div key={block.id} className="relative group">
-                  <BlockRenderer
-                    block={block}
-                    selected={selectedBlockId === block.id}
-                    onSelect={() => setSelectedBlockId(block.id)}
-                  />
+                  {block.type === "section" ? (
+                    <SectionCanvas
+                      section={block}
+                      selectedId={selectedBlockId}
+                      onSelectSection={() => setSelectedBlockId(block.id)}
+                      onSelectBlock={(id) => setSelectedBlockId(id)}
+                      onAddToColumn={(ci, type) => addToColumn(block.id, ci, type)}
+                      onMoveInColumn={(ci, id, dir) => moveInColumn(block.id, ci, id, dir)}
+                      onRemoveBlock={removeBlock}
+                    />
+                  ) : (
+                    <BlockRenderer
+                      block={block}
+                      selected={selectedBlockId === block.id}
+                      onSelect={() => setSelectedBlockId(block.id)}
+                    />
+                  )}
                   {/* Hover actions */}
                   <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 rounded-lg shadow-sm border border-gray-200 p-0.5">
                     <button
@@ -765,7 +749,7 @@ export default function TemplateEditorPage() {
 
           {/* Right: Block Properties */}
           {!showPreview && selectedBlock && (
-            <div className="w-72 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto p-4">
+            <div className="w-96 flex-shrink-0 bg-white border-l border-gray-200 overflow-y-auto p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Properties</span>
                 <button
@@ -775,7 +759,7 @@ export default function TemplateEditorPage() {
                   <X size={14} />
                 </button>
               </div>
-              <BlockEditor block={selectedBlock} onUpdate={updateBlock} />
+              <BlockEditor block={selectedBlock} onUpdate={updateBlock} brand={brand} channel={channel} />
             </div>
           )}
 
@@ -816,12 +800,196 @@ export default function TemplateEditorPage() {
         />
       )}
 
+      {/* Plain-text Editor */}
+      {source === "text" && (
+        <div className="flex-1 overflow-auto bg-gray-50">
+          <div className="max-w-2xl mx-auto py-6 px-4 space-y-4">
+            {/* Subject + audience */}
+            <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Subject</span>
+                <input
+                  type="text"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="A quick note, {{firstName}}"
+                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Audience</span>
+                <select
+                  value={channel}
+                  onChange={(e) => setChannel(e.target.value as Channel)}
+                  className="mt-1 w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg bg-white"
+                >
+                  <option value="both">Both audiences</option>
+                  <option value="wholesale">Wholesale</option>
+                  <option value="d2c">D2C</option>
+                </select>
+              </label>
+            </div>
+
+            {/* Body */}
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Message</span>
+                <span className="text-[10px] text-gray-400">Type “/” to insert a merge field</span>
+              </div>
+              <MergeFieldTextarea
+                value={textBody}
+                onValueChange={setTextBody}
+                channel={channel}
+                rows={14}
+                placeholder={"Hi {{firstName}},\n\n…\n\nBest,\n{{senderName}}"}
+                className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+              />
+            </div>
+
+            {/* Preview text */}
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Preview text <span className="font-normal text-gray-400">(inbox preview line, optional)</span>
+                </span>
+                <input
+                  type="text"
+                  value={previewText}
+                  onChange={(e) => setPreviewText(e.target.value)}
+                  placeholder="The short line inboxes show after the subject"
+                  className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Promotion Picker Modal (available in editor view) */}
       <PromotionPickerModal
         open={showPromoPicker}
         onClose={() => setShowPromoPicker(false)}
         onSelect={addPromotionBlock}
       />
+
+      {/* Cross-client preview matrix */}
+      <ClientPreviewMatrix
+        open={showMatrix}
+        onClose={() => setShowMatrix(false)}
+        templateId={editingId}
+        onRequestSave={handleSave}
+      />
+
+      {/* Settings modal — subject, preview, sender, targeting, purpose, notes */}
+      {showSettings && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm"
+          onClick={() => setShowSettings(false)}
+        >
+          <div
+            className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-5 py-3">
+              <h2 className="text-sm font-semibold text-gray-800">Template settings</h2>
+              <button onClick={() => setShowSettings(false)} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-3.5 overflow-y-auto px-5 py-4">
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Subject line</span>
+                <input
+                  type="text"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="Your subject…"
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Preview text</span>
+                <input
+                  type="text"
+                  value={previewText}
+                  onChange={(e) => setPreviewText(e.target.value)}
+                  placeholder="Shown in the inbox after the subject…"
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">From name</span>
+                <input
+                  type="text"
+                  value={fromName}
+                  onChange={(e) => setFromName(e.target.value)}
+                  placeholder="Natural Inspirations"
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Brand</span>
+                  <select value={brand} onChange={(e) => setBrand(e.target.value as Brand)} className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-sm">
+                    <option value="both">Both</option>
+                    <option value="ni">NI</option>
+                    <option value="sassy">Sassy</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Audience</span>
+                  <select value={channel} onChange={(e) => setChannel(e.target.value as Channel)} className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-sm">
+                    <option value="both">Both</option>
+                    <option value="wholesale">Wholesale</option>
+                    <option value="d2c">D2C</option>
+                  </select>
+                </label>
+              </div>
+              <div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Purpose</span>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {TEMPLATE_PURPOSES.map((p) => {
+                    const on = purpose.includes(p.value);
+                    return (
+                      <button
+                        key={p.value}
+                        type="button"
+                        onClick={() => setPurpose((cur) => (cur.includes(p.value) ? cur.filter((x) => x !== p.value) : [...cur, p.value]))}
+                        className={clsx(
+                          "rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
+                          on ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50",
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Description</span>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  placeholder="A note for the team, shown in the library."
+                  className="mt-1 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-shrink-0 justify-end border-t border-gray-100 px-5 py-2.5">
+              <button
+                onClick={() => setShowSettings(false)}
+                className="rounded-lg bg-gray-900 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-gray-800"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -19,6 +19,8 @@ import {
 import { primaryEmail, parseEmailAddresses } from "@/lib/email/addresses";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
+import { renderTextEmail } from "@/lib/email/renderText";
+import { splitContactName } from "@/lib/email/mergeFields";
 import type { EmailBlock } from "@/components/templates/types";
 import {
   findSuppressed,
@@ -151,7 +153,7 @@ async function renderBlockTemplate(
 ): Promise<{ html: string; subject: string | null } | { error: string }> {
   const { data, error } = await supabaseServer
     .from("email_templates")
-    .select("name, subject, preview_text, source, blocks, raw_html, status")
+    .select("name, subject, preview_text, source, blocks, raw_html, text_body, status")
     .eq("id", id)
     .maybeSingle();
 
@@ -168,6 +170,15 @@ async function renderBlockTemplate(
       return { error: `Template "${data.name}" has no HTML content yet.` };
     }
     return { html: renderRawHtmlEmail(rawHtml, { previewText }), subject };
+  }
+
+  // Plain-text templates: escape + wrap the stored body.
+  if (data.source === "text") {
+    const textBody = (data.text_body as string | null) ?? "";
+    if (!textBody.trim()) {
+      return { error: `Template "${data.name}" has no content yet.` };
+    }
+    return { html: renderTextEmail(textBody, { previewText }), subject };
   }
 
   const blocks = (data.blocks ?? []) as EmailBlock[];
@@ -384,8 +395,12 @@ export async function POST(request: Request) {
     };
     const unsubLink = unsubscribeUrl(origin, unsubPayload);
 
+    // Wholesale = company (whole name via customerName, no first/last);
+    // D2C = person (first + last split out).
+    const { firstName, lastName } = splitContactName(contact.name, r.customer_type);
     const vars: MergeVars = {
-      firstName: firstNameOf(contact.name),
+      firstName,
+      lastName,
       customerName: contact.name,
       city: contact.city,
       state: contact.state,

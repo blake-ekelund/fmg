@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { mergeGroupsFor } from "@/lib/email/mergeFields";
+import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 
 type Props = {
   open: boolean;
@@ -551,12 +553,13 @@ export default function ComposeEmailModal({
                     Message
                   </label>
                   <span className="text-[10px] text-gray-400">
-                    Plain text. Line breaks preserved.
+                    Plain text · type “/” for merge fields
                   </span>
                 </div>
-                <textarea
+                <MergeFieldTextarea
                   value={body}
-                  onChange={(e) => setBody(e.target.value)}
+                  onValueChange={setBody}
+                  channel={customerType}
                   rows={10}
                   placeholder={
                     "Hi {{firstName}},\n\nWanted to check in on how things are going with {{customerName}}.\n\nBest,\nYour Name"
@@ -565,25 +568,17 @@ export default function ComposeEmailModal({
                 />
                 <div className="flex items-start justify-between mt-1 gap-3">
                   <div className="text-[10px] text-gray-400 leading-relaxed">
-                    <span className="font-medium">Customer:</span>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{firstName}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{customerName}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{city}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{state}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{channel}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeRevenue}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lifetimeOrders}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{lastOrderDate}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{daysSinceLastOrder}}"}</code>
-                    <br />
-                    <span className="font-medium">Sender:</span>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderName}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderFirstName}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{senderEmail}}"}</code>
-                    {" · "}
-                    <span className="font-medium">Date:</span>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentYear}}"}</code>{" "}
-                    <code className="px-1 py-0.5 bg-gray-100 rounded">{"{{currentQuarter}}"}</code>
+                    {mergeGroupsFor(customerType).map(({ group, fields }, i) => (
+                      <span key={group}>
+                        {i > 0 && <br />}
+                        <span className="font-medium">{group}:</span>{" "}
+                        {fields.map((f) => (
+                          <span key={f.key}>
+                            <code className="px-1 py-0.5 bg-gray-100 rounded">{`{{${f.key}}}`}</code>{" "}
+                          </span>
+                        ))}
+                      </span>
+                    ))}
                   </div>
                   {!saveOpen ? (
                     <button

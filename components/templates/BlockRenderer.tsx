@@ -42,7 +42,7 @@ export default function BlockRenderer({
           {block.logoUrl ? (
             <img src={block.logoUrl} alt={block.companyName} className="h-10 mx-auto mb-1" />
           ) : (
-            <div className="text-lg font-bold tracking-wide">{block.companyName}</div>
+            <div className="font-bold tracking-wide" style={{ fontSize: block.fontSize ?? 20 }}>{block.companyName}</div>
           )}
         </div>
       );
@@ -71,7 +71,7 @@ export default function BlockRenderer({
               alt={block.alt}
               style={{
                 borderRadius: block.borderRadius,
-                width: block.width === "full" ? "100%" : block.width === "half" ? "50%" : "33%",
+                width: typeof block.width === "number" ? `${block.width}%` : block.width === "full" ? "100%" : block.width === "half" ? "50%" : "33%",
                 display: "inline-block",
               }}
             />
@@ -81,7 +81,7 @@ export default function BlockRenderer({
               style={{
                 height: 160,
                 borderRadius: block.borderRadius,
-                width: block.width === "full" ? "100%" : block.width === "half" ? "50%" : "33%",
+                width: typeof block.width === "number" ? `${block.width}%` : block.width === "full" ? "100%" : block.width === "half" ? "50%" : "33%",
                 display: "inline-flex",
               }}
             >
@@ -158,7 +158,7 @@ export default function BlockRenderer({
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-gray-800">{block.name}</div>
+            <div className="font-semibold text-gray-800" style={{ fontSize: block.fontSize ?? 16 }}>{block.name}</div>
             <div className="text-sm text-gray-500 mt-0.5">{block.description}</div>
             <div className="flex items-center gap-3 mt-2">
               <span className="font-bold text-gray-900">{block.price}</span>
@@ -199,7 +199,7 @@ export default function BlockRenderer({
             <div className="absolute inset-0 bg-black/40" style={{ margin: block.padding }} />
           )}
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8" style={{ color: block.textColor, margin: block.padding }}>
-            <h2 className="text-2xl font-bold">{block.heading}</h2>
+            <h2 className="font-bold" style={{ fontSize: block.fontSize ?? 24 }}>{block.heading}</h2>
             <p className="text-sm mt-2 opacity-90">{block.subheading}</p>
             {block.buttonText && (
               <a
