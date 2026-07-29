@@ -153,6 +153,13 @@ export type TemplateStatus = "draft" | "active" | "archived";
 export type Brand = "ni" | "sassy" | "both";
 export type Channel = "wholesale" | "d2c" | "both";
 
+/**
+ * What drives a template's rendered output:
+ *   "blocks" — the drag-and-drop builder (`blocks` → lib/email/renderBlocks).
+ *   "html"   — an uploaded HTML file (`raw_html` → lib/email/rawHtml).
+ */
+export type TemplateSource = "blocks" | "html";
+
 export interface EmailTemplate {
   id: string;
   name: string;
@@ -161,7 +168,9 @@ export interface EmailTemplate {
   brand: Brand | null;
   channel: Channel | null;
   status: TemplateStatus;
+  source: TemplateSource;
   blocks: EmailBlock[];
+  raw_html: string | null;
   sms_body: string | null;
   preview_text: string | null;
   from_name: string | null;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
+import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import { applyMergeFields, currentQuarterLabel } from "@/lib/email/send";
 import type { EmailBlock } from "@/components/templates/types";
 
@@ -23,6 +24,7 @@ const SAMPLE = {
   senderEmail: "you@fragrance-marketing-group.com",
   currentYear: String(new Date().getFullYear()),
   currentQuarter: currentQuarterLabel(),
+  unsubscribeUrl: "#",
 };
 
 /**
@@ -45,17 +47,21 @@ export async function GET(
 
   const { data, error } = await supabaseServer
     .from("email_templates")
-    .select("name, preview_text, blocks")
+    .select("name, preview_text, source, blocks, raw_html")
     .eq("id", id)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Template not found" }, { status: 404 });
 
-  const blocks = (data.blocks ?? []) as EmailBlock[];
-  const html = renderBlocksToEmailHtml(Array.isArray(blocks) ? blocks : [], {
-    previewText: (data.preview_text as string | null) ?? undefined,
-  });
+  const previewText = (data.preview_text as string | null) ?? undefined;
+  const html =
+    data.source === "html"
+      ? renderRawHtmlEmail((data.raw_html as string | null) ?? "", { previewText })
+      : renderBlocksToEmailHtml(
+          Array.isArray(data.blocks) ? (data.blocks as EmailBlock[]) : [],
+          { previewText },
+        );
 
   return new NextResponse(applyMergeFields(html, SAMPLE), {
     status: 200,

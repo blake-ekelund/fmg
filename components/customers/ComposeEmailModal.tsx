@@ -46,7 +46,8 @@ type Template = {
   updated_at: string;
 };
 
-/** A designed, block-based template from /templates (rendered server-side). */
+/** A designed template from /templates (rendered server-side): either the
+    block builder or an uploaded HTML file. */
 type BlockTemplate = {
   id: string;
   name: string;
@@ -56,6 +57,7 @@ type BlockTemplate = {
   channel: string | null;
   status: string | null;
   updated_at: string;
+  source: "blocks" | "html";
   block_count: number;
 };
 
@@ -510,7 +512,9 @@ export default function ComposeEmailModal({
                                 </span>
                               </span>
                               <span className="shrink-0 text-[10px] tabular-nums text-gray-400">
-                                {t.block_count} block{t.block_count === 1 ? "" : "s"}
+                                {t.source === "html"
+                                  ? "HTML"
+                                  : `${t.block_count} block${t.block_count === 1 ? "" : "s"}`}
                                 {t.status && t.status !== "active" ? ` · ${t.status}` : ""}
                               </span>
                             </button>

@@ -166,6 +166,11 @@ export type MergeVars = {
   // Date / time (server-derived at send time)
   currentYear?: string | null;
   currentQuarter?: string | null;
+
+  // Per-recipient unsubscribe URL. Only bulk/list sends set this; a one-to-one
+  // reply has no list to leave. When a template places {{unsubscribeUrl}}
+  // itself, the send route skips the auto-appended footer.
+  unsubscribeUrl?: string | null;
 };
 
 const SUPPORTED_KEYS = [
@@ -183,6 +188,7 @@ const SUPPORTED_KEYS = [
   "senderEmail",
   "currentYear",
   "currentQuarter",
+  "unsubscribeUrl",
 ] as const;
 
 const MERGE_RE = new RegExp(`\\{\\{\\s*(${SUPPORTED_KEYS.join("|")})\\s*\\}\\}`, "g");
@@ -234,6 +240,8 @@ export function applyMergeFields(template: string, vars: MergeVars): string {
         return vars.currentYear ?? "";
       case "currentQuarter":
         return vars.currentQuarter ?? "";
+      case "unsubscribeUrl":
+        return vars.unsubscribeUrl ?? "";
       default:
         return _m;
     }

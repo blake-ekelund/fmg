@@ -18,6 +18,7 @@ import {
 } from "@/lib/email/tracking";
 import { primaryEmail, parseEmailAddresses } from "@/lib/email/addresses";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
+import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import type { EmailBlock } from "@/components/templates/types";
 import {
   findSuppressed,
@@ -150,12 +151,24 @@ async function renderBlockTemplate(
 ): Promise<{ html: string; subject: string | null } | { error: string }> {
   const { data, error } = await supabaseServer
     .from("email_templates")
-    .select("name, subject, preview_text, blocks, status")
+    .select("name, subject, preview_text, source, blocks, raw_html, status")
     .eq("id", id)
     .maybeSingle();
 
   if (error) return { error: `Could not load template: ${error.message}` };
   if (!data) return { error: "Template not found" };
+
+  const previewText = (data.preview_text as string | null) ?? undefined;
+  const subject = (data.subject as string | null) ?? null;
+
+  // Uploaded-HTML templates ship the stored document (sanitised) as-is.
+  if (data.source === "html") {
+    const rawHtml = (data.raw_html as string | null) ?? "";
+    if (!rawHtml.trim()) {
+      return { error: `Template "${data.name}" has no HTML content yet.` };
+    }
+    return { html: renderRawHtmlEmail(rawHtml, { previewText }), subject };
+  }
 
   const blocks = (data.blocks ?? []) as EmailBlock[];
   if (!Array.isArray(blocks) || blocks.length === 0) {
@@ -163,10 +176,8 @@ async function renderBlockTemplate(
   }
 
   return {
-    html: renderBlocksToEmailHtml(blocks, {
-      previewText: (data.preview_text as string | null) ?? undefined,
-    }),
-    subject: (data.subject as string | null) ?? null,
+    html: renderBlocksToEmailHtml(blocks, { previewText }),
+    subject,
   };
 }
 
@@ -215,6 +226,12 @@ export async function POST(request: Request) {
     bodyTemplate = body.body_template ?? "";
     bodyFormat = body.body_format === "html" ? "html" : "text";
   }
+
+  // If the body places its own {{unsubscribeUrl}}, the designer controls where
+  // the opt-out link sits, so we must not also tack on the default footer —
+  // that would show two "Unsubscribe" links. Computed once; body is constant
+  // across recipients.
+  const bodyHasOwnUnsubscribe = /\{\{\s*unsubscribeUrl\s*\}\}/.test(bodyTemplate);
 
   if (!subjectTemplate) {
     return NextResponse.json({ error: "Subject is required" }, { status: 400 });
@@ -358,6 +375,15 @@ export async function POST(request: Request) {
       return;
     }
 
+    // Every recipient gets their own token, so the link opts out the person who
+    // clicked it and nobody else.
+    const unsubPayload = {
+      email: contact.email,
+      customerType: r.customer_type,
+      customerRef: r.customer_ref,
+    };
+    const unsubLink = unsubscribeUrl(origin, unsubPayload);
+
     const vars: MergeVars = {
       firstName: firstNameOf(contact.name),
       customerName: contact.name,
@@ -368,6 +394,7 @@ export async function POST(request: Request) {
       lifetimeOrders: contact.lifetime_orders,
       lastOrderDate: contact.last_order_date,
       daysSinceLastOrder: daysSince(contact.last_order_date),
+      unsubscribeUrl: unsubLink,
       ...senderVars,
     };
     const subject = applyMergeFields(subjectTemplate, vars);
@@ -381,14 +408,8 @@ export async function POST(request: Request) {
     // body_format was declared on this endpoint from the start but never read,
     // so every send went through the plain-text escaper. Block templates
     // arrive as finished HTML from lib/email/renderBlocks and must skip it.
-    // Every recipient gets their own token, so the link opts out the person who
-    // clicked it and nobody else.
-    const unsubPayload = {
-      email: contact.email,
-      customerType: r.customer_type,
-      customerRef: r.customer_ref,
-    };
-    const footerHtml = unsubscribeFooterHtml(unsubscribeUrl(origin, unsubPayload));
+    // Omit the auto footer when the template already carries its own opt-out.
+    const footerHtml = bodyHasOwnUnsubscribe ? undefined : unsubscribeFooterHtml(unsubLink);
     const unsubHeaders = listUnsubscribeHeaders(origin, unsubPayload);
 
     const tracked =

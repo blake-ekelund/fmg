@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useRef } from "react";
 import {
   Plus,
   Trash2,
@@ -10,12 +10,10 @@ import {
   X,
   Mail,
   MessageSquare,
-  Newspaper,
   ChevronLeft,
   Copy,
   Eye,
   Pencil,
-  GripVertical,
   Type,
   Image as ImageIcon,
   MousePointerClick,
@@ -27,6 +25,9 @@ import {
   Rows3,
   PanelTop,
   Tag,
+  Upload,
+  Code2,
+  FileCode,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -35,6 +36,7 @@ import type {
   EmailTemplate,
   BlockType,
   TemplateType,
+  TemplateSource,
   Brand,
   Channel,
   PromotionBlock,
@@ -43,9 +45,10 @@ import { createDefaultBlock, BRAND_PRESETS } from "./types";
 import { useTemplates } from "./useTemplates";
 import BlockRenderer from "./BlockRenderer";
 import BlockEditor from "./BlockEditor";
-import GenerateTemplateModal from "./GenerateTemplateModal";
 import PromotionPickerModal from "./PromotionPickerModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import HtmlTemplateEditor from "./HtmlTemplateEditor";
+import { formatHtml } from "./formatHtml";
 
 /* ─── Block Palette ─── */
 const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
@@ -120,10 +123,7 @@ function SmsEditor({
 
 /* ─── Main Template Editor ─── */
 export default function TemplateEditorPage() {
-  const { templates, loading, save, remove, duplicate, refresh } = useTemplates();
-
-  // AI generation modal
-  const [showAiModal, setShowAiModal] = useState(false);
+  const { templates, loading, save, remove, duplicate } = useTemplates();
 
   // List vs editor mode
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -143,6 +143,17 @@ export default function TemplateEditorPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Uploaded-HTML templates: `source` decides which editor the row uses, and
+  // `rawHtml` holds the document. `htmlView` toggles code vs rendered preview.
+  const [source, setSource] = useState<TemplateSource>("blocks");
+  const [rawHtml, setRawHtml] = useState("");
+  const [htmlView, setHtmlView] = useState<"preview" | "code">("preview");
+
+  // Hidden file input for creating a template from an upload in the list view.
+  // (Replacing the HTML of an open template is handled inside HtmlTemplateEditor.)
+  const newUploadRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const selectedBlock = blocks.find((b) => b.id === selectedBlockId);
 
   // Promotion picker modal
@@ -161,7 +172,9 @@ export default function TemplateEditorPage() {
       setTemplateType(template.type);
       setBrand(template.brand ?? "both");
       setChannel(template.channel ?? "both");
+      setSource(template.source ?? "blocks");
       setBlocks(template.blocks ?? []);
+      setRawHtml(template.raw_html ?? "");
       setSmsBody(template.sms_body ?? "");
       setPreviewText(template.preview_text ?? "");
       setFromName(template.from_name ?? "");
@@ -173,13 +186,62 @@ export default function TemplateEditorPage() {
       setTemplateType("email");
       setBrand("both");
       setChannel("both");
+      setSource("blocks");
       setBlocks([]);
+      setRawHtml("");
       setSmsBody("");
       setPreviewText("");
       setFromName("");
     }
     setSelectedBlockId(null);
     setShowPreview(false);
+    setHtmlView("preview");
+    setUploadError(null);
+  }
+
+  /**
+   * Read an uploaded .html file from the list view, create a fresh HTML-source
+   * template from it, and open it in the editor.
+   */
+  async function handleHtmlFile(file: File | undefined | null) {
+    setUploadError(null);
+    if (!file) return;
+
+    const isHtml = /\.html?$/i.test(file.name) || file.type === "text/html";
+    if (!isHtml) {
+      setUploadError("Please choose an .html file.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError("That file is over 2 MB — email HTML should be well under that.");
+      return;
+    }
+
+    let text = "";
+    try {
+      text = await file.text();
+    } catch {
+      setUploadError("Couldn't read that file. Try re-saving it and uploading again.");
+      return;
+    }
+    if (!text.trim()) {
+      setUploadError("That file is empty.");
+      return;
+    }
+
+    // Persist the (beautified) upload, then open it in the editor.
+    const created = await save({
+      name: file.name.replace(/\.html?$/i, "").trim() || "Uploaded HTML",
+      subject: "",
+      type: "email",
+      brand: "both",
+      channel: "both",
+      source: "html",
+      blocks: [],
+      raw_html: formatHtml(text),
+      status: "draft",
+    });
+    if (created) openEditor(created);
   }
 
   function closeEditor() {
@@ -227,7 +289,7 @@ export default function TemplateEditorPage() {
   }
 
   // Save
-  async function handleSave() {
+  async function handleSave(): Promise<EmailTemplate | null> {
     setSaving(true);
     const payload: Partial<EmailTemplate> = {
       name: name || "Untitled Template",
@@ -235,7 +297,9 @@ export default function TemplateEditorPage() {
       type: templateType,
       brand,
       channel,
+      source,
       blocks,
+      raw_html: source === "html" ? rawHtml : null,
       sms_body: smsBody,
       preview_text: previewText,
       from_name: fromName,
@@ -249,6 +313,7 @@ export default function TemplateEditorPage() {
       setIsNew(false);
     }
     setSaving(false);
+    return result ?? null;
   }
 
   // Apply brand preset
@@ -274,16 +339,16 @@ export default function TemplateEditorPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Templates</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              Create and manage email, SMS, and newsletter templates.
+              Create and manage email templates.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowAiModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 transition shadow-sm"
+              onClick={() => newUploadRef.current?.click()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition shadow-sm"
             >
-              <Sparkles size={16} />
-              Create with AI
+              <Upload size={16} />
+              Upload HTML
             </button>
             <button
               onClick={() => openEditor()}
@@ -295,21 +360,26 @@ export default function TemplateEditorPage() {
           </div>
         </div>
 
-        {/* Type quick filters */}
+        {/* Hidden input for "Upload HTML" — creates an HTML-source template. */}
+        <input
+          ref={newUploadRef}
+          type="file"
+          accept=".html,.htm,text/html"
+          className="hidden"
+          onChange={(e) => {
+            handleHtmlFile(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        {uploadError && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700">
+            {uploadError}
+          </div>
+        )}
+
+        {/* Count */}
         <div className="flex items-center gap-4 text-xs">
           <span className="text-gray-500">{templates.length} templates</span>
-          <div className="flex items-center gap-2">
-            {[
-              { count: templates.filter((t) => t.type === "email").length, label: "Email", icon: Mail, color: "text-blue-600 bg-blue-50" },
-              { count: templates.filter((t) => t.type === "sms").length, label: "SMS", icon: MessageSquare, color: "text-violet-600 bg-violet-50" },
-              { count: templates.filter((t) => t.type === "newsletter").length, label: "Newsletter", icon: Newspaper, color: "text-amber-600 bg-amber-50" },
-            ].map((f) => (
-              <span key={f.label} className={clsx("inline-flex items-center gap-1 px-2 py-1 rounded-full font-medium", f.color)}>
-                <f.icon size={12} />
-                {f.count} {f.label}
-              </span>
-            ))}
-          </div>
         </div>
 
         {/* Template cards */}
@@ -319,14 +389,14 @@ export default function TemplateEditorPage() {
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Mail size={48} className="text-gray-200 mb-4" />
             <h3 className="text-lg font-semibold text-gray-700">No templates yet</h3>
-            <p className="text-sm text-gray-500 mt-1">Create your first email, SMS, or newsletter template.</p>
+            <p className="text-sm text-gray-500 mt-1">Upload an HTML file or start from a blank email template.</p>
             <div className="flex items-center gap-2 mt-4">
               <button
-                onClick={() => setShowAiModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 transition"
+                onClick={() => newUploadRef.current?.click()}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
               >
-                <Sparkles size={16} />
-                Create with AI
+                <Upload size={16} />
+                Upload HTML
               </button>
               <button
                 onClick={() => openEditor()}
@@ -338,109 +408,88 @@ export default function TemplateEditorPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {templates.map((t) => (
-              <div
-                key={t.id}
-                className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer group"
-                onClick={() => openEditor(t)}
-              >
-                {/* Preview strip */}
-                <div className="h-32 bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center overflow-hidden relative">
-                  {t.type === "sms" ? (
-                    <MessageSquare size={32} className="text-violet-200" />
-                  ) : t.blocks.length > 0 ? (
-                    <div className="w-full scale-[0.4] origin-top pointer-events-none px-4">
-                      {t.blocks.slice(0, 3).map((b) => (
-                        <BlockRenderer key={b.id} block={b} selected={false} onSelect={() => {}} />
-                      ))}
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <ul className="divide-y divide-gray-100">
+              {templates.map((t) => (
+                <li key={t.id} className="group">
+                  <div
+                    onClick={() => openEditor(t)}
+                    className="flex items-center gap-3 px-4 py-3 cursor-pointer transition hover:bg-gray-50"
+                  >
+                    {/* Icon */}
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400">
+                      {t.source === "html" ? <FileCode size={18} /> : <Mail size={18} />}
                     </div>
-                  ) : (
-                    <Mail size={32} className="text-gray-200" />
-                  )}
-                  <div className="absolute top-2 right-2 flex items-center gap-1">
-                    <span
-                      className={clsx(
-                        "px-2 py-0.5 rounded-full text-[10px] font-semibold",
-                        t.type === "email" && "bg-blue-100 text-blue-700",
-                        t.type === "sms" && "bg-violet-100 text-violet-700",
-                        t.type === "newsletter" && "bg-amber-100 text-amber-700"
-                      )}
-                    >
-                      {t.type.toUpperCase()}
-                    </span>
-                    <span
-                      className={clsx(
-                        "px-2 py-0.5 rounded-full text-[10px] font-semibold",
-                        t.status === "draft" && "bg-gray-100 text-gray-500",
-                        t.status === "active" && "bg-emerald-100 text-emerald-700",
-                        t.status === "archived" && "bg-red-100 text-red-600"
-                      )}
-                    >
-                      {t.status}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="px-4 py-3">
-                  <h3 className="text-sm font-semibold text-gray-800 truncate">{t.name || "Untitled"}</h3>
-                  {t.subject && <p className="text-xs text-gray-500 truncate mt-0.5">{t.subject}</p>}
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-1.5">
+                    {/* Name + subject */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-gray-800">
+                          {t.name || "Untitled"}
+                        </span>
+                        {t.source === "html" && (
+                          <span className="shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                            HTML
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-gray-500">
+                        {t.subject || "(no subject)"}
+                      </div>
+                    </div>
+
+                    {/* Badges */}
+                    <div className="hidden items-center gap-1.5 sm:flex">
                       {t.brand && t.brand !== "both" && (
-                        <span className={clsx("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase", t.brand === "ni" ? "bg-emerald-100 text-emerald-700" : "bg-pink-100 text-pink-700")}>
+                        <span className={clsx("rounded px-1.5 py-0.5 text-[9px] font-bold uppercase", t.brand === "ni" ? "bg-emerald-100 text-emerald-700" : "bg-pink-100 text-pink-700")}>
                           {t.brand === "ni" ? "NI" : "Sassy"}
                         </span>
                       )}
                       {t.channel && t.channel !== "both" && (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-gray-100 text-gray-600">
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-gray-600">
                           {t.channel === "wholesale" ? "Wholesale" : "D2C"}
                         </span>
                       )}
+                      <span
+                        className={clsx(
+                          "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                          t.status === "draft" && "bg-gray-100 text-gray-500",
+                          t.status === "active" && "bg-emerald-100 text-emerald-700",
+                          t.status === "archived" && "bg-red-100 text-red-600"
+                        )}
+                      >
+                        {t.status}
+                      </span>
                     </div>
-                    <span className="text-[10px] text-gray-400">
+
+                    {/* Updated */}
+                    <span className="hidden shrink-0 text-[10px] text-gray-400 md:block">
                       {new Date(t.updated_at).toLocaleDateString()}
                     </span>
-                  </div>
-                </div>
 
-                {/* Actions row */}
-                <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); duplicate(t); }}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
-                    title="Duplicate"
-                  >
-                    <Copy size={14} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteTarget(t);
-                    }}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                    title="Delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-            ))}
+                    {/* Actions */}
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); duplicate(t); }}
+                        className="rounded-lg p-1.5 text-gray-400 transition hover:bg-blue-50 hover:text-blue-600"
+                        title="Duplicate"
+                      >
+                        <Copy size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(t); }}
+                        className="rounded-lg p-1.5 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
-
-        {/* AI Generation Modal */}
-        <GenerateTemplateModal
-          open={showAiModal}
-          onClose={() => setShowAiModal(false)}
-          onGenerated={() => {
-            setShowAiModal(false);
-            // Poll for the generated template to appear
-            setTimeout(() => refresh(), 2000);
-            setTimeout(() => refresh(), 5000);
-            setTimeout(() => refresh(), 10000);
-          }}
-        />
 
         {/* Promotion Picker Modal */}
         <PromotionPickerModal
@@ -487,25 +536,35 @@ export default function TemplateEditorPage() {
             placeholder="Template name..."
             className="text-sm font-semibold text-gray-800 bg-transparent border-0 border-b border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none px-1 py-0.5 w-56"
           />
-          <div className="flex items-center gap-1 ml-2">
-            {(["email", "sms", "newsletter"] as TemplateType[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTemplateType(t)}
-                className={clsx(
-                  "px-2.5 py-1 rounded-lg text-xs font-medium transition",
-                  templateType === t
-                    ? t === "email" ? "bg-blue-100 text-blue-700" : t === "sms" ? "bg-violet-100 text-violet-700" : "bg-amber-100 text-amber-700"
-                    : "text-gray-400 hover:bg-gray-100"
-                )}
-              >
-                {t === "email" ? "Email" : t === "sms" ? "SMS" : "Newsletter"}
-              </button>
-            ))}
-          </div>
+          <span
+            className={clsx(
+              "ml-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium",
+              source === "html" ? "bg-gray-900 text-white" : "bg-blue-100 text-blue-700"
+            )}
+          >
+            {source === "html" ? <FileCode size={12} /> : <Mail size={12} />}
+            {source === "html" ? "Custom HTML" : "Email"}
+          </span>
         </div>
         <div className="flex items-center gap-2">
-          {isEmailType && (
+          {source === "html" && (
+            <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-0.5">
+              {(["preview", "code"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setHtmlView(v)}
+                  className={clsx(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition",
+                    htmlView === v ? "bg-gray-900 text-white" : "text-gray-500 hover:bg-gray-100"
+                  )}
+                >
+                  {v === "preview" ? <Eye size={12} /> : <Code2 size={12} />}
+                  {v === "preview" ? "Preview" : "Code"}
+                </button>
+              ))}
+            </div>
+          )}
+          {source === "blocks" && isEmailType && (
             <button
               onClick={() => setShowPreview(!showPreview)}
               className={clsx(
@@ -529,7 +588,7 @@ export default function TemplateEditorPage() {
       </div>
 
       {/* SMS Editor */}
-      {templateType === "sms" && (
+      {source === "blocks" && templateType === "sms" && (
         <div className="flex-1 overflow-auto bg-gray-50">
           <div className="max-w-2xl mx-auto py-6 px-4 space-y-4">
             {/* Meta fields */}
@@ -559,7 +618,7 @@ export default function TemplateEditorPage() {
       )}
 
       {/* Email / Newsletter Editor */}
-      {isEmailType && (
+      {source === "blocks" && isEmailType && (
         <div className="flex-1 flex overflow-hidden">
           {/* Left: Block Palette */}
           {!showPreview && (
@@ -734,6 +793,27 @@ export default function TemplateEditorPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Uploaded-HTML Editor */}
+      {source === "html" && (
+        <HtmlTemplateEditor
+          templateId={editingId}
+          htmlView={htmlView}
+          rawHtml={rawHtml}
+          setRawHtml={setRawHtml}
+          subject={subject}
+          setSubject={setSubject}
+          previewText={previewText}
+          setPreviewText={setPreviewText}
+          fromName={fromName}
+          setFromName={setFromName}
+          brand={brand}
+          setBrand={setBrand}
+          channel={channel}
+          setChannel={setChannel}
+          onRequestSave={handleSave}
+        />
       )}
 
       {/* Promotion Picker Modal (available in editor view) */}

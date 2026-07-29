@@ -23,7 +23,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabaseServer
     .from("email_templates")
-    .select("id, name, subject, preview_text, brand, channel, status, updated_at, blocks")
+    .select("id, name, subject, preview_text, brand, channel, status, updated_at, source, blocks")
     .eq("type", "email")
     .neq("status", "archived")
     .order("updated_at", { ascending: false })
@@ -35,6 +35,7 @@ export async function GET(request: Request) {
 
   const templates = (data ?? []).map((t) => {
     const blocks = Array.isArray(t.blocks) ? t.blocks : [];
+    const source = (t.source as string | null) === "html" ? "html" : "blocks";
     return {
       id: t.id as string,
       name: (t.name as string) ?? "Untitled",
@@ -44,7 +45,10 @@ export async function GET(request: Request) {
       channel: (t.channel as string | null) ?? null,
       status: (t.status as string | null) ?? null,
       updated_at: t.updated_at as string,
-      block_count: blocks.length,
+      source,
+      // Builder templates are labelled by block count; uploaded-HTML ones
+      // have no blocks, so the picker shows a source badge instead.
+      block_count: source === "html" ? 0 : blocks.length,
     };
   });
 

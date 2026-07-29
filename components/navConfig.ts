@@ -7,16 +7,11 @@ import {
   Megaphone,
   KanbanSquare,
   PackageSearch,
-  Hash,
   FileText,
-  CalendarDays,
   ImageIcon,
-  Tag,
-  Archive,
   BarChart3,
   Zap,
   Mail,
-  Filter,
   MessageSquare,
   UserCheck,
   Globe,
@@ -25,7 +20,6 @@ import {
   Receipt,
   Contact,
   BookOpen,
-  Target,
   Eye,
   Layers,
   LayoutTemplate,
@@ -69,7 +63,7 @@ export const navSections: readonly NavSection[] = [
         label: "Dashboard",
         href: "/dashboard",
         icon: LayoutDashboard,
-        roles: FULL_ACCESS,
+        roles: [...FULL_ACCESS, "marketing"],
       },
       {
         label: "Task List",
@@ -222,57 +216,9 @@ export const navSections: readonly NavSection[] = [
     icon: Megaphone,
     items: [
       {
-        label: "Funnel",
-        href: "/marketing/funnel",
-        icon: Filter,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
-      },
-      {
-        label: "Social Media",
-        href: "/social-media",
-        icon: Hash,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Blog Posts",
-        href: "/blog-posts",
-        icon: FileText,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Promotions",
-        href: "/promotions",
-        icon: Tag,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Content Calendar",
-        href: "/content-calendar",
-        icon: CalendarDays,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Competitors",
-        href: "/marketing/competitors",
-        icon: Target,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Customer Feedback",
-        href: "/marketing/customer-feedback",
-        icon: MessageSquare,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
         label: "Asset Library",
         href: "/assets",
         icon: ImageIcon,
-        roles: [...FULL_ACCESS, "marketing"],
-      },
-      {
-        label: "Archives",
-        href: "/archives",
-        icon: Archive,
         roles: [...FULL_ACCESS, "marketing"],
       },
     ],
@@ -368,7 +314,7 @@ export function activeSectionLabel(
 export function getDefaultRoute(role: UserRole | null): string {
   if (role === "rep") return "/portal";
   if (role === "sales") return "/customers";
-  if (role === "marketing") return "/social-media";
+  if (role === "marketing") return "/dashboard";
   return "/dashboard";
 }
 

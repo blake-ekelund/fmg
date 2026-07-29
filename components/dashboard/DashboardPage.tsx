@@ -17,17 +17,11 @@ import TodaysMoves from "./TodaysMoves";
 import {
   Plus,
   ListTodo,
-  Sparkles,
-  CalendarPlus,
   X,
   ChevronDown,
 } from "lucide-react";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
-import GeneratePostModal from "@/components/blog-posts/GeneratePostModal";
-import GenerateSocialPostModal from "@/components/social-media/GenerateSocialPostModal";
-import ContentCategory from "./categories/ContentCategory";
 import InventoryCategory from "./categories/InventoryCategory";
-import PromotionsCategory from "./categories/PromotionsCategory";
 import AssetLibraryCategory from "./categories/AssetLibraryCategory";
 import WorkflowCategory from "./categories/WorkflowCategory";
 import WholesaleCategory from "./categories/WholesaleCategory";
@@ -67,11 +61,7 @@ const itemVariants = {
 };
 
 /* ─── Quick-create action types ─── */
-type ActionModal =
-  | null
-  | "task"
-  | "blog-ai"
-  | "social-ai";
+type ActionModal = null | "task";
 
 /* ─── Floating Action Button ─── */
 function FloatingActionButton({
@@ -96,8 +86,6 @@ function FloatingActionButton({
 
   const items = [
     { key: "task" as const, icon: <ListTodo size={15} />, label: "New Task", color: "text-blue-600 bg-blue-50" },
-    { key: "blog-ai" as const, icon: <Sparkles size={15} />, label: "AI Blog Post", color: "text-violet-600 bg-violet-50" },
-    { key: "social-ai" as const, icon: <Sparkles size={15} />, label: "AI Social Post", color: "text-rose-600 bg-rose-50" },
   ];
 
   return (
@@ -136,15 +124,6 @@ function FloatingActionButton({
                 <ListTodo size={15} />
               </span>
               Task Board
-            </a>
-            <a
-              href="/content-calendar"
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
-            >
-              <span className="p-1.5 rounded-lg bg-gray-50 text-gray-400">
-                <CalendarPlus size={15} />
-              </span>
-              Content Calendar
             </a>
           </div>
         </motion.div>
@@ -299,11 +278,6 @@ export default function DashboardPage() {
                 <D2CCategory />
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                <ContentCategory />
-                <PromotionsCategory />
-              </div>
-
               <div className="space-y-4">
                 <InventoryCategory />
                 <AssetLibraryCategory />
@@ -322,18 +296,6 @@ export default function DashboardPage() {
         open={activeModal === "task"}
         onClose={closeModal}
         onSaved={closeModal}
-      />
-
-      <GeneratePostModal
-        open={activeModal === "blog-ai"}
-        onClose={closeModal}
-        onGenerated={closeModal}
-      />
-
-      <GenerateSocialPostModal
-        open={activeModal === "social-ai"}
-        onClose={closeModal}
-        onGenerated={closeModal}
       />
     </>
   );
