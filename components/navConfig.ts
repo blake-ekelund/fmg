@@ -23,6 +23,7 @@ import {
   Eye,
   Layers,
   LayoutTemplate,
+  MailX,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -203,6 +204,15 @@ export const navSections: readonly NavSection[] = [
         label: "Cohort Results",
         href: "/automations/cohorts",
         icon: Layers,
+        roles: ["owner", "admin", "marketing"],
+      },
+      {
+        /* Suppression analytics over email_unsubscribes: who opted out, who
+           bounced (fed by the Resend webhook), who complained, and why —
+           plus the bounced-customer list resolved back to real accounts. */
+        label: "Deliverability",
+        href: "/email/deliverability",
+        icon: MailX,
         roles: ["owner", "admin", "marketing"],
       },
       /* "Workflows" used to sit here, but it was a design prototype: its flow
