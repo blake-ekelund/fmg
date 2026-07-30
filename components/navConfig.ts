@@ -201,7 +201,9 @@ export const navSections: readonly NavSection[] = [
         roles: ["owner", "admin", "marketing"],
       },
       {
-        label: "Cohort Results",
+        /* Combined results: one-off campaign blasts (email_send_jobs) and
+           automation cohort batches, one chronological table. */
+        label: "Campaign Results",
         href: "/automations/cohorts",
         icon: Layers,
         roles: ["owner", "admin", "marketing"],
