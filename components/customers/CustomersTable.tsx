@@ -8,6 +8,26 @@ import {
   formatDate,
   getCustomerStatus,
 } from "./customerDisplay";
+import {
+  useSuppressionFlags,
+  customerEmailFlag,
+  flagChip,
+  type CustomerEmailFlag,
+} from "./hooks/useSuppressionFlags";
+
+/** Tiny inline chip flagging a customer's email suppression state. */
+function EmailFlagChip({ flag }: { flag: CustomerEmailFlag | null }) {
+  if (!flag) return null;
+  const chip = flagChip(flag);
+  return (
+    <span
+      className={`inline-block shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${chip.className}`}
+      title={chip.title}
+    >
+      {chip.label}
+    </span>
+  );
+}
 
 type SortColumn =
   | "name"
@@ -40,6 +60,7 @@ export default function CustomersTable({
   onToggleAll?: () => void;
 }) {
   const router = useRouter();
+  const suppression = useSuppressionFlags();
   const safeCustomers = customers ?? [];
   const isD2C = viewMode === "d2c";
   const hasSelection = !!selectedIds && !!onToggleSelect && !!onToggleAll;
@@ -168,7 +189,10 @@ export default function CustomersTable({
                 {hasSelection && <CheckboxCell id={c.person_key} />}
                 <div className="col-span-3">
                   <div className="font-medium text-slate-800 truncate">{c.name}</div>
-                  <div className="text-[11px] text-slate-400 truncate">{c.email ?? "—"}</div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-[11px] text-slate-400 truncate">{c.email ?? "—"}</span>
+                    <EmailFlagChip flag={customerEmailFlag(suppression, "d2c", c.person_key, c.email)} />
+                  </div>
                 </div>
                 <div>
                   <span className={`px-2 py-1 rounded-full text-[11px] font-medium ${status.color}`}>
@@ -251,7 +275,10 @@ export default function CustomersTable({
               {hasSelection && <CheckboxCell id={c.customerid} />}
               <div className="col-span-3">
                 <div className="text-xs text-slate-400">{c.customerid}</div>
-                <div className="font-medium text-slate-800">{c.name}</div>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="font-medium text-slate-800 truncate">{c.name}</span>
+                  <EmailFlagChip flag={customerEmailFlag(suppression, "wholesale", c.customerid)} />
+                </div>
               </div>
               <div className="col-span-2">
                 {c.agency_code ? (

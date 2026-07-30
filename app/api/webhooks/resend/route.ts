@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { recordUnsubscribe } from "@/lib/email/unsubscribe";
+import { resolveCustomerByEmail } from "@/lib/email/attribution";
 
 export const runtime = "nodejs";
 
@@ -99,14 +100,26 @@ export async function POST(request: Request) {
     const reason = [bounce.subType, bounce.message].filter(Boolean).join(": ").slice(0, 400)
       || "Permanent bounce";
     for (const address of recipients) {
-      await recordUnsubscribe({ email: address }, "bounce", reason);
+      // Attribute the dead address to the customer we mailed it for, so the
+      // customer pages can flag the account, not just the address.
+      const customer = await resolveCustomerByEmail(address);
+      await recordUnsubscribe(
+        { email: address, customerType: customer?.customerType, customerRef: customer?.customerRef },
+        "bounce",
+        reason,
+      );
     }
     return NextResponse.json({ ok: true, suppressed: recipients.length });
   }
 
   if (event.type === "email.complained") {
     for (const address of recipients) {
-      await recordUnsubscribe({ email: address }, "complaint", "Marked email as spam");
+      const customer = await resolveCustomerByEmail(address);
+      await recordUnsubscribe(
+        { email: address, customerType: customer?.customerType, customerRef: customer?.customerRef },
+        "complaint",
+        "Marked email as spam",
+      );
     }
     return NextResponse.json({ ok: true, suppressed: recipients.length });
   }

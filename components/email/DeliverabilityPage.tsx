@@ -24,6 +24,9 @@ type Suppression = {
   customer_type: string | null;
   customer_ref: string | null;
   customer_name: string | null;
+  /** The customer record now carries a DIFFERENT address than the suppressed
+      one (fixed in Fishbowl) — sends to the new address work normally. */
+  address_changed?: boolean;
 };
 
 const SOURCE_META: Record<string, { label: string; chip: string; bar: string }> = {
@@ -318,9 +321,19 @@ export default function DeliverabilityPage() {
                       </td>
                       <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{r.email}</td>
                       <td className="px-4 py-2.5">
-                        <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", meta.chip)}>
-                          {meta.label}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", meta.chip)}>
+                            {meta.label}
+                          </span>
+                          {r.address_changed && (
+                            <span
+                              className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
+                              title="The customer record now carries a different address than this one — emails to the new address send normally."
+                            >
+                              New email on file
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 text-gray-500 max-w-[320px]">
                         <span className="line-clamp-2">{r.reason || "—"}</span>
