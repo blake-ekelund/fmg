@@ -26,6 +26,9 @@ type Params = {
   sortColumn: string;
   sortDir: "asc" | "desc";
   enabled: boolean;
+  /** When set, only these person_keys are eligible (email-status filter).
+      An empty-match sentinel like ["__none__"] yields zero rows. */
+  restrictIds?: string[];
 };
 
 /**
@@ -106,6 +109,7 @@ export function useD2CCustomers({
   sortColumn,
   sortDir,
   enabled,
+  restrictIds,
 }: Params) {
   const [customers, setCustomers] = useState<D2CCustomer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -142,6 +146,9 @@ export function useD2CCustomers({
         spendBucket,
         states,
       });
+      if (restrictIds) {
+        baseQuery = baseQuery.in("person_key", restrictIds);
+      }
       const tableQuery = baseQuery
         .order(sortColumn, { ascending: sortDir === "asc", nullsFirst: false })
         .order("person_key", { ascending: false })
@@ -155,16 +162,20 @@ export function useD2CCustomers({
       // is exact at any table size — the old version capped at 10,000 matching
       // rows and silently under-counted past that.
       function countFor(bucket: "" | "active" | "at_risk" | "churned") {
-        const q = supabase
+        let q = supabase
           .from("d2c_customer_summary")
           .select("person_key", { count: "exact", head: true });
-        return applyD2CFilters(q, {
+        q = applyD2CFilters(q, {
           search,
           status: bucket,
           repeatOnly,
           spendBucket,
           states,
         });
+        if (restrictIds) {
+          q = q.in("person_key", restrictIds);
+        }
+        return q;
       }
 
       const [allRes, activeRes, atRiskRes, churnedRes] = await Promise.all([
@@ -198,7 +209,7 @@ export function useD2CCustomers({
 
     load();
     return () => { cancelled = true; };
-  }, [page, pageSize, search, status, states, repeatOnly, spendBucket, sortColumn, sortDir, enabled]);
+  }, [page, pageSize, search, status, states, repeatOnly, spendBucket, sortColumn, sortDir, enabled, restrictIds]);
 
   /* Distinct billing states for the filter dropdown (only when this view is
      active, so the wholesale page doesn't query the D2C summary needlessly). */

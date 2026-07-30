@@ -22,6 +22,14 @@ import type { CustomerViewMode } from "./constants";
 import type { Customer, D2CCustomer } from "./types";
 import AssignWorkflowModal from "./AssignWorkflowModal";
 import ComposeEmailModal from "./ComposeEmailModal";
+import { useSuppressionFlags } from "./hooks/useSuppressionFlags";
+
+/** Email-status filter values map onto the suppression list's sources. */
+const EMAIL_FLAG_OPTIONS = [
+  { label: "Email bounced", value: "bounced" },
+  { label: "Unsubscribed / complained", value: "unsubscribed" },
+  { label: "New email on file", value: "changed" },
+];
 
 type SortDir = "asc" | "desc";
 type SortColumn =
@@ -77,6 +85,32 @@ export default function CustomersPage({
   const [repeatOnly, setRepeatOnly] = useState(false);
   const [spendBucket, setSpendBucket] = useState<string>("");
 
+  /* Email-status filter: bounced / unsubscribed / address-changed. The
+     matching customer ids come from the suppression list (small), and ride
+     into the server query as an .in() restriction so pagination, counts and
+     select-all stay exact. */
+  const [emailFlag, setEmailFlag] = useState("");
+  const suppression = useSuppressionFlags();
+  const emailFlagIds = useMemo(() => {
+    if (!emailFlag || !suppression.loaded) return undefined;
+    const prefix = `${viewMode === "d2c" ? "d2c" : "wholesale"}:`;
+    const ids: string[] = [];
+    for (const [key, info] of suppression.byCustomer) {
+      if (!key.startsWith(prefix)) continue;
+      const matches =
+        emailFlag === "changed"
+          ? info.addressChanged
+          : emailFlag === "bounced"
+            ? info.source === "bounce" && !info.addressChanged
+            : (info.source === "link" || info.source === "manual" || info.source === "complaint") &&
+              !info.addressChanged;
+      if (matches) ids.push(key.slice(prefix.length));
+    }
+    // Filter active but nothing matches → impossible id so the query returns
+    // zero rows instead of silently dropping the restriction.
+    return ids.length > 0 ? ids : ["__none__"];
+  }, [emailFlag, suppression, viewMode]);
+
   const [sortColumn, setSortColumn] =
     useState<SortColumn>("last_order_date");
   const [sortDir, setSortDir] =
@@ -103,7 +137,7 @@ export default function CustomersPage({
   // Clear selection on page / filter / view change
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, status, channel, agency, states, repeatOnly, spendBucket, viewMode]);
+  }, [page, search, status, channel, agency, states, repeatOnly, spendBucket, emailFlag, viewMode]);
 
   /* Export column picker state */
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
@@ -162,6 +196,7 @@ export default function CustomersPage({
     sortColumn,
     sortDir,
     enabled: viewMode === "wholesale",
+    restrictIds: emailFlagIds,
   });
 
   /* ─── D2C hook ─── */
@@ -182,6 +217,7 @@ export default function CustomersPage({
     sortColumn,
     sortDir,
     enabled: viewMode === "d2c",
+    restrictIds: emailFlagIds,
   });
 
   /* ─── Active data based on view mode ─── */
@@ -222,7 +258,11 @@ export default function CustomersPage({
           states,
         });
         const { data } = await q.range(0, 4999);
-        const ids = (data ?? []).map((r: { person_key: string }) => r.person_key);
+        let ids = (data ?? []).map((r: { person_key: string }) => r.person_key);
+        if (emailFlagIds) {
+          const allowed = new Set(emailFlagIds);
+          ids = ids.filter((id: string) => allowed.has(id));
+        }
         setSelectedIds(new Set(ids));
       } else {
         let q = supabase
@@ -243,13 +283,17 @@ export default function CustomersPage({
           q = q.ilike("brands_purchased", `%${brand}%`);
         }
         const { data } = await q;
-        const ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
+        let ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
+        if (emailFlagIds) {
+          const allowed = new Set(emailFlagIds);
+          ids = ids.filter((id: string) => allowed.has(id));
+        }
         setSelectedIds(new Set(ids));
       }
     } finally {
       setSelectAllLoading(false);
     }
-  }, [isD2C, search, status, channel, agency, states, repeatOnly, spendBucket, brand]);
+  }, [isD2C, search, status, channel, agency, states, repeatOnly, spendBucket, brand, emailFlagIds]);
 
   /* ─── Customer name map for workflow modal ─── */
   const customerNames = useMemo(() => {
@@ -271,7 +315,7 @@ export default function CustomersPage({
   /* Reset page when filters/sort/view change */
   useEffect(() => {
     setPage(0);
-  }, [search, status, channel, agency, states, repeatOnly, spendBucket, sortColumn, sortDir]);
+  }, [search, status, channel, agency, states, repeatOnly, spendBucket, emailFlag, sortColumn, sortDir]);
 
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : 1;
   const canGoNext = page + 1 < totalPages;
@@ -491,6 +535,9 @@ export default function CustomersPage({
         spendBucket={spendBucket}
         setSpendBucket={setSpendBucket}
         spendBucketOptions={isD2C ? D2C_SPEND_OPTIONS : WHOLESALE_SPEND_OPTIONS}
+        emailFlag={emailFlag}
+        setEmailFlag={setEmailFlag}
+        emailFlagOptions={EMAIL_FLAG_OPTIONS}
         stats={stats}
         onDownload={handleDownload}
         downloading={downloading}
@@ -509,6 +556,7 @@ export default function CustomersPage({
         selectedIds={selectedIds}
         onToggleSelect={handleToggleSelect}
         onToggleAll={handleToggleAll}
+        suppression={suppression}
       />
 
       {/* Cards (phones) */}

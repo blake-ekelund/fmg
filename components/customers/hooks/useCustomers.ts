@@ -49,6 +49,9 @@ type Params = {
   sortColumn: string;
   sortDir: "asc" | "desc";
   enabled?: boolean;
+  /** When set, only these customerids are eligible (email-status filter).
+      An empty-match sentinel like ["__none__"] yields zero rows. */
+  restrictIds?: string[];
 };
 
 /* -------------------------------------------------- */
@@ -168,6 +171,7 @@ export function useCustomers({
   sortColumn,
   sortDir,
   enabled = true,
+  restrictIds,
 }: Params) {
   const { brand } = useBrand();
 
@@ -241,6 +245,10 @@ export function useCustomers({
         tableQuery = tableQuery.ilike("brands_purchased", `%${brand}%`);
       }
 
+      if (restrictIds) {
+        tableQuery = tableQuery.in("customerid", restrictIds);
+      }
+
       tableQuery = tableQuery
         .order(sortColumn, {
           ascending: sortDir === "asc",
@@ -285,6 +293,9 @@ export function useCustomers({
         );
         if (brand !== "all") {
           q = q.ilike("brands_purchased", `%${brand}%`);
+        }
+        if (restrictIds) {
+          q = q.in("customerid", restrictIds);
         }
         return q;
       }
@@ -346,6 +357,7 @@ export function useCustomers({
     sortDir,
     brand,
     enabled,
+    restrictIds,
   ]);
 
   /* ---------------------------

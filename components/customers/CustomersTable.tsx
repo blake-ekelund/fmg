@@ -9,10 +9,10 @@ import {
   getCustomerStatus,
 } from "./customerDisplay";
 import {
-  useSuppressionFlags,
   customerEmailFlag,
   flagChip,
   type CustomerEmailFlag,
+  type SuppressionMaps,
 } from "./hooks/useSuppressionFlags";
 
 /** Tiny inline chip flagging a customer's email suppression state. */
@@ -48,6 +48,7 @@ export default function CustomersTable({
   selectedIds,
   onToggleSelect,
   onToggleAll,
+  suppression,
 }: {
   customers?: (Customer | D2CCustomer)[];
   loading: boolean;
@@ -58,9 +59,10 @@ export default function CustomersTable({
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onToggleAll?: () => void;
+  /** Email-suppression maps from the page (shared with its filter). */
+  suppression: SuppressionMaps;
 }) {
   const router = useRouter();
-  const suppression = useSuppressionFlags();
   const safeCustomers = customers ?? [];
   const isD2C = viewMode === "d2c";
   const hasSelection = !!selectedIds && !!onToggleSelect && !!onToggleAll;

@@ -35,6 +35,9 @@ export default function CustomersFilters({
   spendBucket = "",
   setSpendBucket,
   spendBucketOptions,
+  emailFlag = "",
+  setEmailFlag,
+  emailFlagOptions = [],
   stats,
   onDownload,
   downloading,
@@ -60,6 +63,10 @@ export default function CustomersFilters({
   spendBucket?: string;
   setSpendBucket?: (v: string) => void;
   spendBucketOptions?: SpendOption[];
+  /** Email deliverability filter: bounced / unsubscribed / address changed. */
+  emailFlag?: string;
+  setEmailFlag?: (v: string) => void;
+  emailFlagOptions?: Option[];
   stats: CustomersStats;
   onDownload: () => void;
   downloading?: boolean;
@@ -82,13 +89,15 @@ export default function CustomersFilters({
     (agency ? 1 : 0) +
     (states.length > 0 ? 1 : 0) +
     (spendBucket ? 1 : 0) +
-    (repeatOnly ? 1 : 0);
+    (repeatOnly ? 1 : 0) +
+    (emailFlag ? 1 : 0);
 
   const hasAdvanced =
     (viewMode === "wholesale" && channelOptions.length > 0) ||
     (viewMode === "wholesale" && agencyOptions.length > 0 && !!setAgency) ||
     (stateOptions.length > 0 && !!setStates) ||
     (!!setSpendBucket && !!spendBucketOptions && spendBucketOptions.length > 0) ||
+    (!!setEmailFlag && emailFlagOptions.length > 0) ||
     !!setRepeatOnly;
 
   function clearAdvanced() {
@@ -97,6 +106,7 @@ export default function CustomersFilters({
     setStates?.([]);
     setSpendBucket?.("");
     setRepeatOnly?.(false);
+    setEmailFlag?.("");
   }
 
   return (
@@ -241,6 +251,15 @@ export default function CustomersFilters({
                 options={spendBucketOptions}
               />
             )}
+
+          {setEmailFlag && emailFlagOptions.length > 0 && (
+            <FilterSelect
+              value={emailFlag}
+              onChange={setEmailFlag}
+              placeholder="Any email status"
+              options={emailFlagOptions}
+            />
+          )}
 
           {setRepeatOnly && (
             <button
