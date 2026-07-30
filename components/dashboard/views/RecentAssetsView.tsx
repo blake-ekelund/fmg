@@ -78,10 +78,10 @@ export default function RecentAssetsView({
 
       <div className="pt-2 border-t border-gray-100">
         <Link
-          href="/assets"
+          href="/marketing/assets"
           className="text-xs text-blue-600 hover:text-blue-800 font-medium"
         >
-          View all assets
+          View image library
         </Link>
       </div>
     </div>

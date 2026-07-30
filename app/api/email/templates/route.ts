@@ -14,21 +14,32 @@ type UpsertBody = {
 /**
  * GET /api/email/templates
  * The plain-text template library, shared org-wide, most-recently-updated
- * first. These now live in the unified `email_templates` table as source='text'
+ * first. These live in the unified `email_templates` table as source='text'
  * rows; `text_body` is aliased back to `body` so callers (compose modal,
  * automation editor) keep their existing { id, name, subject, body } contract.
+ *
+ * Pass `?include=designed` to also return the designed templates (block builder
+ * + uploaded HTML). Automations use this so a sequence step can send a designed
+ * email — the cron runner renders by `source`. The compose modal omits the param
+ * so its plain-text picker stays text-only (designed live in its "block" mode).
  */
 export async function GET(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const { data, error } = await supabaseServer
+  const includeDesigned = new URL(request.url).searchParams.get("include") === "designed";
+
+  let query = supabaseServer
     .from("email_templates")
-    .select("id, name, subject, body:text_body, last_used_at, updated_at")
-    .eq("source", "text")
+    .select("id, name, subject, body:text_body, source, last_used_at, updated_at")
     .order("updated_at", { ascending: false })
     .limit(200);
 
+  query = includeDesigned
+    ? query.in("source", ["text", "blocks", "html"]).eq("type", "email").neq("status", "archived")
+    : query.eq("source", "text");
+
+  const { data, error } = await query;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

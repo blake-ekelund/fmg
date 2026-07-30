@@ -115,7 +115,7 @@ export default function CohortsPage() {
   }, [shown]);
 
   return (
-    <div className="w-full space-y-4 p-5 md:px-7 max-w-[1200px] mx-auto">
+    <div className="px-4 md:px-8 py-6 md:py-8 space-y-4">
       <Link
         href="/automations"
         className="inline-flex items-center gap-1 text-[11px] font-medium text-ink-muted transition hover:text-brand-700"
@@ -125,8 +125,8 @@ export default function CohortsPage() {
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Cohort results</h1>
-          <p className="text-[11px] text-ink-muted mt-0.5">
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Cohort results</h1>
+          <p className="text-sm text-ink-muted mt-0.5">
             Every released batch and what came of it. Each customer counts once,
             in their most-committed outcome.
           </p>

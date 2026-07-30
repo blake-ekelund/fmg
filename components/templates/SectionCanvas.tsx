@@ -15,6 +15,7 @@ const CONTENT_META: Record<string, { label: string; icon: typeof Type }> = {
   spacer: { label: "Spacer", icon: Rows3 },
   social: { label: "Social", icon: Share2 },
   product: { label: "Product", icon: ShoppingBag },
+  caption: { label: "Caption", icon: ImageIcon },
 };
 
 type Props = {

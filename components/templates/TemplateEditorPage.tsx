@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import {
   Plus,
   Trash2,
-  ArrowUp,
-  ArrowDown,
   Save,
   X,
   Mail,
@@ -22,6 +21,7 @@ import {
   ShoppingBag,
   Share2,
   Sparkles,
+  Captions,
   Rows3,
   PanelTop,
   Tag,
@@ -29,6 +29,7 @@ import {
   FileCode,
   MonitorSmartphone,
   SlidersHorizontal,
+  Send,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -45,14 +46,14 @@ import type {
 import { createDefaultBlock, createSectionPreset, SECTION_PRESETS, TEMPLATE_PURPOSES, toPurposeArray } from "./types";
 import type { SectionPreset } from "./types";
 import { useTemplates } from "./useTemplates";
-import { findBlock, updateBlockInTree, removeBlockFromTree, addBlockToColumn, moveBlockInColumn } from "./blockTree";
-import BlockRenderer from "./BlockRenderer";
-import SectionCanvas from "./SectionCanvas";
+import { findBlock, updateBlockInTree, removeBlockFromTree, moveBlockAnywhere, addBlockToColumn, reorderBlocks, insertNewBlock } from "./blockTree";
+import EmailCanvas, { NEW_BLOCK_MIME } from "./EmailCanvas";
 import BlockEditor from "./BlockEditor";
 import PromotionPickerModal from "./PromotionPickerModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import HtmlTemplateEditor from "./HtmlTemplateEditor";
 import ClientPreviewMatrix from "./ClientPreviewMatrix";
+import SendTestModal from "./SendTestModal";
 import NewTemplateWizard, { type NewTemplateResult } from "./NewTemplateWizard";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 
@@ -62,6 +63,7 @@ const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
   { type: "hero", label: "Hero Banner", icon: Sparkles },
   { type: "text", label: "Text", icon: Type },
   { type: "image", label: "Image", icon: ImageIcon },
+  { type: "caption", label: "Image + Caption", icon: Captions },
   { type: "button", label: "Button", icon: MousePointerClick },
   { type: "columns", label: "Columns", icon: LayoutGrid },
   { type: "product", label: "Product Card", icon: ShoppingBag },
@@ -168,6 +170,7 @@ export default function TemplateEditorPage() {
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showMatrix, setShowMatrix] = useState(false);
+  const [showSendTest, setShowSendTest] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Uploaded-HTML templates: `source` decides which editor the row uses, and
@@ -188,6 +191,58 @@ export default function TemplateEditorPage() {
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<EmailTemplate | null>(null);
+  // When a template is used by automations, the first delete surfaces them here
+  // so we can ask the user to confirm detaching before a forced delete.
+  const [deleteUsedBy, setDeleteUsedBy] = useState<string[] | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  function closeDelete() {
+    setDeleteTarget(null);
+    setDeleteUsedBy(null);
+    setDeleteError(null);
+    setDeleting(false);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    // Force only after the user has seen (and accepted) the in-use warning.
+    const res = await remove(deleteTarget.id, deleteUsedBy !== null);
+    setDeleting(false);
+    if (res.ok) {
+      closeDelete();
+      return;
+    }
+    if (res.inUse) {
+      setDeleteUsedBy(res.automations ?? []);
+      return;
+    }
+    setDeleteError(res.error);
+  }
+
+  // Per-template send counts for the library table (sends made since tracking
+  // shipped). Fetched once; keyed by template id.
+  const [sendCounts, setSendCounts] = useState<Record<string, { sends: number; campaigns: number }>>({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        const res = await fetch("/api/email/template-send-counts", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setSendCounts(json.counts ?? {});
+      } catch {
+        /* non-critical — the column just shows 0 */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Load template into editor. For a brand-new template, `blankSource` picks
   // which editor opens (blocks builder by default, or a plain-text body).
@@ -293,33 +348,44 @@ export default function TemplateEditorPage() {
     if (selectedBlockId === id) setSelectedBlockId(null);
   }
 
-  // Section helpers — add a preset section, and edit blocks inside its columns.
+  // Add a preset section (pre-populated with placeholder content blocks).
   function addSection(preset: SectionPreset) {
     const s = createSectionPreset(preset);
     setBlocks((prev) => [...prev, s]);
     setSelectedBlockId(s.id);
   }
 
+  // Add a content block into a specific section column (from the section panel).
   function addToColumn(sectionId: string, colIndex: number, type: BlockType) {
-    const nb = createDefaultBlock(type);
+    const nb = blockFromDragSpec(type);
+    if (nb.type === "section") return; // a section layout can't nest inside a column
     setBlocks((prev) => addBlockToColumn(prev, sectionId, colIndex, nb));
     setSelectedBlockId(nb.id);
   }
 
-  function moveInColumn(sectionId: string, colIndex: number, blockId: string, dir: -1 | 1) {
-    setBlocks((prev) => moveBlockInColumn(prev, sectionId, colIndex, blockId, dir));
+  // A palette drag carries either a block type, or "section:<preset>" for a
+  // whole section layout. Build the right block from that spec.
+  function blockFromDragSpec(spec: string): EmailBlock {
+    if (spec.startsWith("section:")) {
+      return createSectionPreset(spec.slice("section:".length) as SectionPreset);
+    }
+    return createDefaultBlock(spec as BlockType);
   }
 
-  function moveBlock(id: string, dir: -1 | 1) {
-    setBlocks((prev) => {
-      const idx = prev.findIndex((b) => b.id === id);
-      if (idx < 0) return prev;
-      const newIdx = idx + dir;
-      if (newIdx < 0 || newIdx >= prev.length) return prev;
-      const arr = [...prev];
-      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
-      return arr;
-    });
+  // Drag from the palette → drop a new block (or section layout) at a precise
+  // spot in the canvas. insertNewBlock rejects a section dropped into a column,
+  // so a layout only lands at the top level (above/below existing sections).
+  function insertNewAt(type: BlockType, targetId: string, pos: "before" | "after") {
+    const nb = blockFromDragSpec(type);
+    setBlocks((prev) => insertNewBlock(prev, nb, targetId, pos));
+    setSelectedBlockId(nb.id);
+  }
+
+  // Drop a palette item on empty canvas → append at the end.
+  function appendNew(type: BlockType) {
+    const nb = blockFromDragSpec(type);
+    setBlocks((prev) => [...prev, nb]);
+    setSelectedBlockId(nb.id);
   }
 
   // Save
@@ -399,98 +465,125 @@ export default function TemplateEditorPage() {
           </div>
         ) : (
           <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-            <ul className="divide-y divide-gray-100">
-              {templates.map((t) => (
-                <li key={t.id} className="group">
-                  <div
-                    onClick={() => openEditor(t)}
-                    className="flex items-center gap-3 px-4 py-3 cursor-pointer transition hover:bg-gray-50"
-                  >
-                    {/* Icon */}
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400">
-                      {t.source === "html" ? <FileCode size={18} /> : t.source === "text" ? <Type size={18} /> : <Mail size={18} />}
-                    </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    <th className="px-4 py-2.5 font-semibold">Template</th>
+                    <th className="px-3 py-2.5 font-semibold">Type</th>
+                    <th className="px-3 py-2.5 font-semibold hidden md:table-cell">Audience</th>
+                    <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">Status</th>
+                    <th className="px-3 py-2.5 font-semibold text-right">Sends</th>
+                    <th className="px-3 py-2.5 font-semibold hidden lg:table-cell">Updated</th>
+                    <th className="px-3 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {templates.map((t) => {
+                    const count = sendCounts[t.id];
+                    return (
+                      <tr
+                        key={t.id}
+                        onClick={() => openEditor(t)}
+                        className="group cursor-pointer transition hover:bg-gray-50"
+                      >
+                        {/* Template — icon + name + subject */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400">
+                              {t.source === "html" ? <FileCode size={16} /> : t.source === "text" ? <Type size={16} /> : <Mail size={16} />}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-gray-800 max-w-[240px]">{t.name || "Untitled"}</div>
+                              <div className="truncate text-[11px] text-gray-500 max-w-[240px]">{t.subject || "(no subject)"}</div>
+                            </div>
+                          </div>
+                        </td>
 
-                    {/* Name + subject */}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-gray-800">
-                          {t.name || "Untitled"}
-                        </span>
-                        {t.source === "html" && (
-                          <span className="shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                            HTML
+                        {/* Type */}
+                        <td className="px-3 py-3">
+                          <span className={clsx(
+                            "inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                            t.source === "html" && "bg-gray-800 text-white",
+                            t.source === "text" && "bg-gray-200 text-gray-600",
+                            t.source === "blocks" && "bg-indigo-100 text-indigo-700",
+                          )}>
+                            {t.source === "html" ? "HTML" : t.source === "text" ? "Text" : "Designed"}
                           </span>
-                        )}
-                        {t.source === "text" && (
-                          <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-600">
-                            Text
+                        </td>
+
+                        {/* Audience — brand + channel */}
+                        <td className="px-3 py-3 hidden md:table-cell">
+                          <div className="flex items-center gap-1.5">
+                            {t.brand && t.brand !== "both" && (
+                              <span className={clsx("rounded px-1.5 py-0.5 text-[9px] font-bold uppercase", t.brand === "ni" ? "bg-emerald-100 text-emerald-700" : "bg-pink-100 text-pink-700")}>
+                                {t.brand === "ni" ? "NI" : "Sassy"}
+                              </span>
+                            )}
+                            {t.channel && t.channel !== "both" && (
+                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-gray-600">
+                                {t.channel === "wholesale" ? "Wholesale" : "D2C"}
+                              </span>
+                            )}
+                            {(!t.brand || t.brand === "both") && (!t.channel || t.channel === "both") && (
+                              <span className="text-[11px] text-gray-300">—</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-3 py-3 hidden sm:table-cell">
+                          <span className={clsx(
+                            "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                            t.status === "draft" && "bg-gray-100 text-gray-500",
+                            t.status === "active" && "bg-emerald-100 text-emerald-700",
+                            t.status === "archived" && "bg-red-100 text-red-600",
+                          )}>
+                            {t.status}
                           </span>
-                        )}
-                      </div>
-                      <div className="mt-0.5 truncate text-[11px] text-gray-500">
-                        {t.subject || "(no subject)"}
-                      </div>
-                      {t.description && (
-                        <div className="mt-0.5 truncate text-[11px] text-gray-400">{t.description}</div>
-                      )}
-                    </div>
+                        </td>
 
-                    {/* Badges */}
-                    <div className="hidden items-center gap-1.5 sm:flex">
-                      {toPurposeArray(t.purpose).slice(0, 2).map((pv) => (
-                        <span key={pv} className="rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-indigo-600">
-                          {TEMPLATE_PURPOSES.find((p) => p.value === pv)?.label ?? pv}
-                        </span>
-                      ))}
-                      {t.brand && t.brand !== "both" && (
-                        <span className={clsx("rounded px-1.5 py-0.5 text-[9px] font-bold uppercase", t.brand === "ni" ? "bg-emerald-100 text-emerald-700" : "bg-pink-100 text-pink-700")}>
-                          {t.brand === "ni" ? "NI" : "Sassy"}
-                        </span>
-                      )}
-                      {t.channel && t.channel !== "both" && (
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-gray-600">
-                          {t.channel === "wholesale" ? "Wholesale" : "D2C"}
-                        </span>
-                      )}
-                      <span
-                        className={clsx(
-                          "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                          t.status === "draft" && "bg-gray-100 text-gray-500",
-                          t.status === "active" && "bg-emerald-100 text-emerald-700",
-                          t.status === "archived" && "bg-red-100 text-red-600"
-                        )}
-                      >
-                        {t.status}
-                      </span>
-                    </div>
+                        {/* Sends */}
+                        <td className="px-3 py-3 text-right">
+                          {count && count.sends > 0 ? (
+                            <span className="tabular-nums font-medium text-gray-700" title={`${count.campaigns} send${count.campaigns === 1 ? "" : "s"} · ${count.sends} recipients`}>
+                              {count.sends.toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-gray-300">0</span>
+                          )}
+                        </td>
 
-                    {/* Updated */}
-                    <span className="hidden shrink-0 text-[10px] text-gray-400 md:block">
-                      {new Date(t.updated_at).toLocaleDateString()}
-                    </span>
+                        {/* Updated */}
+                        <td className="px-3 py-3 hidden lg:table-cell text-[11px] text-gray-400 whitespace-nowrap">
+                          {new Date(t.updated_at).toLocaleDateString()}
+                        </td>
 
-                    {/* Actions */}
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); duplicate(t); }}
-                        className="rounded-lg p-1.5 text-gray-400 transition hover:bg-blue-50 hover:text-blue-600"
-                        title="Duplicate"
-                      >
-                        <Copy size={14} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(t); }}
-                        className="rounded-lg p-1.5 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                        {/* Actions */}
+                        <td className="px-3 py-3">
+                          <div className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); duplicate(t); }}
+                              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-blue-50 hover:text-blue-600"
+                              title="Duplicate"
+                            >
+                              <Copy size={14} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteTarget(t); }}
+                              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600"
+                              title="Delete"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -505,14 +598,18 @@ export default function TemplateEditorPage() {
         <ConfirmDeleteModal
           open={!!deleteTarget}
           title={`Delete "${deleteTarget?.name || "Untitled"}"?`}
-          description={`This will permanently delete this ${deleteTarget?.type || "template"} template.`}
-          onCancel={() => setDeleteTarget(null)}
-          onConfirm={() => {
-            if (deleteTarget) {
-              remove(deleteTarget.id);
-              setDeleteTarget(null);
-            }
-          }}
+          description={
+            deleteError
+              ? deleteError
+              : deleteUsedBy !== null
+                ? `Used by automation${deleteUsedBy.length === 1 ? "" : "s"}: ${
+                    deleteUsedBy.length ? deleteUsedBy.join(", ") : "an active sequence"
+                  }. Deleting removes this email from those steps — they'll need a new email before running.`
+                : "This will permanently delete this template."
+          }
+          confirmLabel={deleting ? "Deleting…" : deleteUsedBy !== null ? "Delete anyway" : "Delete"}
+          onCancel={closeDelete}
+          onConfirm={confirmDelete}
         />
 
         {/* New-template creation wizard */}
@@ -604,6 +701,15 @@ export default function TemplateEditorPage() {
               Test across clients
             </button>
           )}
+          {isEmailType && (
+            <button
+              onClick={() => setShowSendTest(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition"
+            >
+              <Send size={13} />
+              Send test
+            </button>
+          )}
           <button
             onClick={handleSave}
             disabled={saving}
@@ -654,16 +760,28 @@ export default function TemplateEditorPage() {
               <div className="p-3">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-3">Add Block</div>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {BLOCK_PALETTE.map((b) => (
-                    <button
-                      key={b.type}
-                      onClick={() => addBlock(b.type)}
-                      className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition text-[10px] font-medium"
-                    >
-                      <b.icon size={16} />
-                      {b.label}
-                    </button>
-                  ))}
+                  {BLOCK_PALETTE.map((b) => {
+                    // Promotion needs the picker, so it stays click-only. The rest
+                    // can be dragged onto any spot in the canvas.
+                    const draggable = b.type !== "promotion";
+                    return (
+                      <button
+                        key={b.type}
+                        draggable={draggable}
+                        onDragStart={(e) => {
+                          if (!draggable) return;
+                          e.dataTransfer.setData(NEW_BLOCK_MIME, b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type)}
+                        title={draggable ? "Click to add, or drag onto the canvas" : undefined}
+                        className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition text-[10px] font-medium cursor-grab active:cursor-grabbing"
+                      >
+                        <b.icon size={16} />
+                        {b.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Section layouts — multi-column containers with backgrounds */}
@@ -672,8 +790,14 @@ export default function TemplateEditorPage() {
                   {SECTION_PRESETS.map((p) => (
                     <button
                       key={p.preset}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData(NEW_BLOCK_MIME, `section:${p.preset}`);
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
                       onClick={() => addSection(p.preset)}
-                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition text-[11px] font-medium"
+                      title="Click to add, or drag above/below a section"
+                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition text-[11px] font-medium cursor-grab active:cursor-grabbing"
                     >
                       <PresetGlyph preset={p.preset} />
                       {p.label}
@@ -690,61 +814,32 @@ export default function TemplateEditorPage() {
             className="flex-1 overflow-y-auto bg-gray-100"
             onClick={() => setSelectedBlockId(null)}
           >
-            <div className="max-w-[620px] mx-auto my-6 bg-white shadow-lg rounded-lg overflow-hidden min-h-[400px]">
-              {blocks.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 text-center px-8">
-                  <Mail size={40} className="text-gray-200 mb-3" />
-                  <h3 className="text-sm font-semibold text-gray-600">Start building your email</h3>
-                  <p className="text-xs text-gray-400 mt-1 max-w-xs">
-                    Click blocks from the left panel to add them and build your email.
-                  </p>
-                </div>
-              )}
-              {blocks.map((block, i) => (
-                <div key={block.id} className="relative group">
-                  {block.type === "section" ? (
-                    <SectionCanvas
-                      section={block}
-                      selectedId={selectedBlockId}
-                      onSelectSection={() => setSelectedBlockId(block.id)}
-                      onSelectBlock={(id) => setSelectedBlockId(id)}
-                      onAddToColumn={(ci, type) => addToColumn(block.id, ci, type)}
-                      onMoveInColumn={(ci, id, dir) => moveInColumn(block.id, ci, id, dir)}
-                      onRemoveBlock={removeBlock}
-                    />
-                  ) : (
-                    <BlockRenderer
-                      block={block}
-                      selected={selectedBlockId === block.id}
-                      onSelect={() => setSelectedBlockId(block.id)}
-                    />
-                  )}
-                  {/* Hover actions */}
-                  <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 rounded-lg shadow-sm border border-gray-200 p-0.5">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); moveBlock(block.id, -1); }}
-                      disabled={i === 0}
-                      className="p-1 rounded text-gray-400 hover:text-gray-600 disabled:opacity-20"
-                    >
-                      <ArrowUp size={12} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); moveBlock(block.id, 1); }}
-                      disabled={i === blocks.length - 1}
-                      className="p-1 rounded text-gray-400 hover:text-gray-600 disabled:opacity-20"
-                    >
-                      <ArrowDown size={12} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeBlock(block.id); }}
-                      className="p-1 rounded text-gray-400 hover:text-rose-500"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {blocks.length === 0 ? (
+              <div className="max-w-[620px] mx-auto my-6 bg-white shadow-lg rounded-lg min-h-[400px] flex flex-col items-center justify-center py-20 text-center px-8">
+                <Mail size={40} className="text-gray-200 mb-3" />
+                <h3 className="text-sm font-semibold text-gray-600">Start building your email</h3>
+                <p className="text-xs text-gray-400 mt-1 max-w-xs">
+                  Click blocks from the left panel to add them and build your email.
+                </p>
+              </div>
+            ) : (
+              /* True WYSIWYG: the canvas is the exact email HTML the send produces. */
+              <div className="my-6" onClick={(e) => e.stopPropagation()}>
+                <EmailCanvas
+                  blocks={blocks}
+                  selectedId={selectedBlockId}
+                  onSelect={setSelectedBlockId}
+                  onMove={(id, dir) => setBlocks((prev) => moveBlockAnywhere(prev, id, dir))}
+                  onDelete={removeBlock}
+                  onReorder={(draggedId, targetId, pos) =>
+                    setBlocks((prev) => reorderBlocks(prev, draggedId, targetId, pos))
+                  }
+                  onAddToColumn={(sectionId, colIndex, type) => addToColumn(sectionId, colIndex, type)}
+                  onInsertNew={insertNewAt}
+                  onAppendNew={appendNew}
+                />
+              </div>
+            )}
           </div>
 
           {/* Right: Block Properties */}
@@ -759,7 +854,7 @@ export default function TemplateEditorPage() {
                   <X size={14} />
                 </button>
               </div>
-              <BlockEditor block={selectedBlock} onUpdate={updateBlock} brand={brand} channel={channel} />
+              <BlockEditor block={selectedBlock} onUpdate={updateBlock} brand={brand} channel={channel} onAddToColumn={addToColumn} />
             </div>
           )}
 
@@ -876,6 +971,14 @@ export default function TemplateEditorPage() {
       <ClientPreviewMatrix
         open={showMatrix}
         onClose={() => setShowMatrix(false)}
+        templateId={editingId}
+        onRequestSave={handleSave}
+      />
+
+      {/* Send a real test email */}
+      <SendTestModal
+        open={showSendTest}
+        onClose={() => setShowSendTest(false)}
         templateId={editingId}
         onRequestSave={handleSave}
       />

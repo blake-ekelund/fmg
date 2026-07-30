@@ -6,11 +6,12 @@ type Props = {
   open: boolean;
   title: string;
   description?: string;
+  confirmLabel?: string;
   onCancel: () => void;
   onConfirm: () => void;
 };
 
-export default function ConfirmDeleteModal({ open, title, description, onCancel, onConfirm }: Props) {
+export default function ConfirmDeleteModal({ open, title, description, confirmLabel, onCancel, onConfirm }: Props) {
   if (!open) return null;
 
   return (
@@ -61,7 +62,7 @@ export default function ConfirmDeleteModal({ open, title, description, onCancel,
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition"
           >
             <Trash2 size={13} />
-            Delete
+            {confirmLabel ?? "Delete"}
           </button>
         </div>
       </div>

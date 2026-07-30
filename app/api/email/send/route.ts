@@ -325,6 +325,8 @@ export async function POST(request: Request) {
       subject_template: subjectTemplate,
       body_template: bodyTemplate,
       target_count: body.recipients.length,
+      // Attribute the send to its designed template so /templates can count sends.
+      block_template_id: body.block_template_id ?? null,
       status: "in_progress",
       started_at: new Date().toISOString(),
     })

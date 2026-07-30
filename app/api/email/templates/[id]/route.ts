@@ -5,9 +5,17 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 export const runtime = "nodejs";
 
 /**
- * DELETE /api/email/templates/<id>
- * Templates are shared org-wide, so any authenticated user can delete any
- * row. 204 on success; 404 if the row doesn't exist.
+ * DELETE /api/email/templates/<id>[?force=true]
+ *
+ * Templates are shared org-wide, so any authenticated user can delete any row.
+ * A template used by an automation step is protected by an ON DELETE RESTRICT
+ * foreign key, so a plain delete fails. Instead of a raw DB error we:
+ *   - without force: return 409 with the automations that use it, so the UI can
+ *     warn the user before they break a live sequence;
+ *   - with force=true: detach it from those steps (template_id → null, i.e.
+ *     "add later") and then delete.
+ *
+ * 204 on success; 404 if the row doesn't exist; 409 when in use and not forced.
  */
 export async function DELETE(
   request: Request,
@@ -21,13 +29,48 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  // Scoped to source='text' so this endpoint only ever removes plain-text
-  // templates, never a designed one that happens to share the id space.
+  const force = new URL(request.url).searchParams.get("force") === "true";
+
+  // Which automation steps (and their automations) reference this template?
+  const { data: steps } = await supabaseServer
+    .from("automation_steps")
+    .select("id, automations(name)")
+    .eq("template_id", id);
+
+  const usedBy = Array.from(
+    new Set(
+      ((steps ?? []) as Array<{ automations: { name: string | null } | { name: string | null }[] | null }>)
+        .flatMap((s) => (Array.isArray(s.automations) ? s.automations : s.automations ? [s.automations] : []))
+        .map((a) => a?.name)
+        .filter((n): n is string => !!n),
+    ),
+  );
+
+  if (steps && steps.length > 0) {
+    if (!force) {
+      return NextResponse.json(
+        {
+          error: "This email is used by an automation.",
+          in_use: true,
+          automations: usedBy,
+          step_count: steps.length,
+        },
+        { status: 409 },
+      );
+    }
+    // Detach from every step so the RESTRICT constraint releases; those steps
+    // become "add later" until the user picks a new email.
+    const { error: detachErr } = await supabaseServer
+      .from("automation_steps")
+      .update({ template_id: null })
+      .eq("template_id", id);
+    if (detachErr) return NextResponse.json({ error: detachErr.message }, { status: 500 });
+  }
+
   const { data, error } = await supabaseServer
     .from("email_templates")
     .delete()
     .eq("id", id)
-    .eq("source", "text")
     .select("id")
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

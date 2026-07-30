@@ -1,12 +1,12 @@
 "use client";
 
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Tag, Upload, Loader2, Images } from "lucide-react";
 import type { EmailBlock, BlockType, SectionColumn, VAlign, Brand, Channel } from "./types";
-import { newBlockId, BRAND_PRESETS } from "./types";
+import { newBlockId, BRAND_PRESETS, SECTION_CONTENT_TYPES } from "./types";
 import { uploadEmailImage } from "./uploadEmailImage";
 import MediaLibraryModal from "./MediaLibraryModal";
-import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
+import RichTextEditor from "./RichTextEditor";
 import clsx from "clsx";
 
 /* ─── Brand color swatches ─── */
@@ -65,14 +65,41 @@ function TextInput({ value, onChange, placeholder }: { value: string; onChange: 
 }
 
 function NumberInput({ value, onChange, min, max, suffix }: { value: number; onChange: (v: number) => void; min?: number; max?: number; suffix?: string }) {
+  // A plain text input (no spinners) that lets you type freely. The key to
+  // smooth typing: while the field is focused we NEVER overwrite what you typed
+  // from the incoming value, and we DON'T clamp mid-keystroke — clamping "2"
+  // (on the way to "24") up to a min of 10 would fight you. Live-preview the raw
+  // number as you type; clamp + tidy only on blur.
+  const [text, setText] = useState(String(value));
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(String(value));
+  }, [value]);
+
+  function handle(raw: string) {
+    setText(raw);
+    const n = Number(raw);
+    if (raw.trim() !== "" && Number.isFinite(n)) onChange(n); // unclamped preview
+  }
+
+  function commit() {
+    focused.current = false;
+    let n = Number(text);
+    if (text.trim() === "" || !Number.isFinite(n)) n = value;
+    const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
+    onChange(clamped);
+    setText(String(clamped));
+  }
+
   return (
     <div className="flex items-center gap-2">
       <input
-        type="number"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        min={min}
-        max={max}
+        type="text"
+        inputMode="numeric"
+        value={text}
+        onFocus={() => { focused.current = true; }}
+        onChange={(e) => handle(e.target.value)}
+        onBlur={commit}
         className="w-20 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
       />
       {suffix && <span className="text-xs text-gray-400">{suffix}</span>}
@@ -220,11 +247,13 @@ export default function BlockEditor({
   onUpdate,
   brand = "both",
   channel = "both",
+  onAddToColumn,
 }: {
   block: EmailBlock;
   onUpdate: (b: EmailBlock) => void;
   brand?: Brand;
   channel?: Channel;
+  onAddToColumn?: (sectionId: string, colIndex: number, type: BlockType) => void;
 }) {
   function set<K extends keyof typeof block>(key: K, value: (typeof block)[K]) {
     onUpdate({ ...block, [key]: value } as EmailBlock);
@@ -246,6 +275,7 @@ export default function BlockEditor({
           block.type === "product" && "bg-orange-500",
           block.type === "social" && "bg-cyan-500",
           block.type === "hero" && "bg-rose-500",
+          block.type === "caption" && "bg-teal-500",
           block.type === "promotion" && "bg-violet-500",
           block.type === "section" && "bg-indigo-500",
         )} />
@@ -258,7 +288,17 @@ export default function BlockEditor({
           <Field label="Logo URL"><TextInput value={block.logoUrl} onChange={(v) => set("logoUrl" as any, v)} placeholder="https://..." /></Field>
           <Field label="Background Color"><ColorInput value={block.bgColor} onChange={(v) => set("bgColor" as any, v)} /></Field>
           <Field label="Text Color"><ColorInput value={block.textColor} onChange={(v) => set("textColor" as any, v)} /></Field>
-          <Field label="Font Size (no-logo text)"><NumberInput value={block.fontSize ?? 20} onChange={(v) => set("fontSize" as any, v)} min={12} max={48} suffix="px" /></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Font Size"><NumberInput value={block.fontSize ?? 20} onChange={(v) => set("fontSize" as any, v)} min={12} max={48} suffix="px" /></Field>
+            <Field label="Font Family">
+              <SelectInput value={block.fontFamily ?? "sans"} onChange={(v) => set("fontFamily" as any, v)} options={[
+                { label: "Sans-serif", value: "sans" },
+                { label: "Serif", value: "serif" },
+                { label: "Monospace", value: "mono" },
+              ]} />
+            </Field>
+          </div>
+          <p className="text-[10px] leading-relaxed text-gray-400">Font applies to the company name when there&rsquo;s no logo.</p>
           <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
         </>
       )}
@@ -266,14 +306,7 @@ export default function BlockEditor({
       {block.type === "text" && (
         <>
           <Field label="Content">
-            <MergeFieldTextarea
-              value={block.html}
-              onValueChange={(v) => set("html" as any, v)}
-              channel={channel}
-              rows={6}
-              placeholder="HTML or plain text… type / for merge fields"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-y font-mono"
-            />
+            <RichTextEditor value={block.html} onChange={(v) => set("html" as any, v)} channel={channel} />
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Font Size"><NumberInput value={block.fontSize} onChange={(v) => set("fontSize" as any, v)} min={10} max={48} suffix="px" /></Field>
@@ -487,6 +520,58 @@ export default function BlockEditor({
         </>
       )}
 
+      {block.type === "caption" && (
+        <>
+          <Field label="Image"><ImageField value={block.imageUrl} onChange={(v) => set("imageUrl" as any, v)} prefix="images" /></Field>
+          <Field label="Alt Text"><TextInput value={block.alt} onChange={(v) => set("alt" as any, v)} placeholder="Describe the image" /></Field>
+          <Field label="Layout">
+            <SelectInput value={block.layout} onChange={(v) => set("layout" as any, v)} options={[
+              { label: "Text over image (overlay)", value: "overlay" },
+              { label: "Caption below image", value: "below" },
+              { label: "Caption above image", value: "above" },
+            ]} />
+          </Field>
+          <Field label="Headline"><TextInput value={block.heading} onChange={(v) => set("heading" as any, v)} /></Field>
+          <Field label="Subheading"><TextInput value={block.subheading} onChange={(v) => set("subheading" as any, v)} placeholder="Optional" /></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Text Color"><ColorInput value={block.textColor} onChange={(v) => set("textColor" as any, v)} /></Field>
+            <Field label={block.layout === "overlay" ? "Fallback Color" : "Panel Color"}><ColorInput value={block.bgColor} onChange={(v) => set("bgColor" as any, v)} /></Field>
+          </div>
+          <p className="text-[10px] leading-relaxed text-gray-400">
+            The headline is live text, not baked into the image — so if a recipient&rsquo;s client blocks images, the {block.layout === "overlay" ? "fallback colour fills in and the text stays readable on top" : "caption still shows"}.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Text Align">
+              <SelectInput value={block.textAlign} onChange={(v) => set("textAlign" as any, v)} options={[
+                { label: "Left", value: "left" },
+                { label: "Center", value: "center" },
+                { label: "Right", value: "right" },
+              ]} />
+            </Field>
+            <Field label="Headline Size"><NumberInput value={block.fontSize} onChange={(v) => set("fontSize" as any, v)} min={12} max={64} suffix="px" /></Field>
+          </div>
+          {block.layout === "overlay" && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Vertical Align">
+                  <SelectInput value={block.verticalAlign} onChange={(v) => set("verticalAlign" as any, v)} options={[
+                    { label: "Top", value: "top" },
+                    { label: "Middle", value: "middle" },
+                    { label: "Bottom", value: "bottom" },
+                  ]} />
+                </Field>
+                <Field label="Min Height"><NumberInput value={block.minHeight} onChange={(v) => set("minHeight" as any, v)} min={80} max={600} suffix="px" /></Field>
+              </div>
+              <Field label="Image Darkening">
+                <NumberInput value={block.scrim} onChange={(v) => set("scrim" as any, v)} min={0} max={80} suffix="%" />
+              </Field>
+              <p className="-mt-1 text-[10px] leading-relaxed text-gray-400">Darkens the photo behind the text so light text stays legible.</p>
+            </>
+          )}
+          <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
+        </>
+      )}
+
       {block.type === "section" && (
         <>
           <Field label="Background Color">
@@ -502,6 +587,13 @@ export default function BlockEditor({
             <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
             <Field label="Column Gap"><NumberInput value={block.gap} onChange={(v) => set("gap" as any, v)} min={0} max={48} suffix="px" /></Field>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Top Margin"><NumberInput value={block.marginTop ?? 0} onChange={(v) => set("marginTop" as any, v)} min={-120} max={160} suffix="px" /></Field>
+            <Field label="Bottom Margin"><NumberInput value={block.marginBottom ?? 0} onChange={(v) => set("marginBottom" as any, v)} min={-120} max={160} suffix="px" /></Field>
+          </div>
+          <p className="-mt-1 text-[10px] leading-relaxed text-gray-400">
+            Positive adds transparent space above / below to separate sections — works in every inbox. Negative (overlap) is best-effort: it shows in the editor but Gmail and Outlook ignore it.
+          </p>
           <Field label="Vertical Align">
             <SelectInput value={block.verticalAlign} onChange={(v) => {
               const va = v as VAlign;
@@ -573,11 +665,47 @@ export default function BlockEditor({
                       )}
                     </div>
                   </Field>
+                  <div>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      Content ({c.blocks.length} block{c.blocks.length === 1 ? "" : "s"})
+                    </span>
+                    {onAddToColumn && (
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) onAddToColumn(block.id, i, e.target.value as BlockType);
+                          e.target.value = "";
+                        }}
+                        className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs"
+                      >
+                        <option value="">+ Add block to this column…</option>
+                        {SECTION_CONTENT_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t[0].toUpperCase() + t.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         </>
+      )}
+
+      {/* Shared across every content block: pull it up (or push it down) relative
+          to the block above. Negative = overlap upward. Not offered for sections
+          (their spacing is the section padding) or spacers (that IS the spacing). */}
+      {block.type !== "section" && block.type !== "spacer" && (
+        <div className="border-t border-gray-100 pt-3">
+          <Field label="Top margin">
+            <NumberInput value={block.marginTop ?? 0} onChange={(v) => set("marginTop" as any, v)} min={-120} max={120} suffix="px" />
+          </Field>
+          <p className="mt-1 text-[10px] leading-relaxed text-gray-400">
+            Positive adds space above the block — works in every inbox. Negative pulls it up to overlap the block above (e.g. a title tucked into its image); that shows in the editor and Apple&nbsp;Mail, but Gmail and Outlook ignore overlap.
+          </p>
+        </div>
       )}
     </div>
     </SwatchContext.Provider>

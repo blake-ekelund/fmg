@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, ImageIcon } from "@/components/portal/icons";
 import { portalGet, type PortalAsset } from "@/components/portal/api";
 
-type Filter = "all" | "photo" | "product";
+type Filter = "all" | "photo" | "product" | "brand";
 
 export default function PortalAssets() {
   const [assets, setAssets] = useState<PortalAsset[] | null>(null);
@@ -34,7 +34,7 @@ export default function PortalAssets() {
       </div>
 
       <div className="flex gap-1.5">
-        {(["all", "photo", "product"] as Filter[]).map((f) => (
+        {(["all", "photo", "product", "brand"] as Filter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -42,7 +42,13 @@ export default function PortalAssets() {
               filter === f ? "bg-gray-900 text-white" : "bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50"
             }`}
           >
-            {f === "photo" ? "Marketing photos" : f === "product" ? "Product imagery" : "All"}
+            {f === "photo"
+              ? "Marketing photos"
+              : f === "product"
+                ? "Product imagery"
+                : f === "brand"
+                  ? "Brand images"
+                  : "All"}
           </button>
         ))}
       </div>

@@ -3,6 +3,7 @@ import {
   renderBlocksToEmailHtml,
   sanitizeInlineHtml,
   safeUrl,
+  spaceBlocks,
 } from "../renderBlocks";
 import { createDefaultBlock, createSectionPreset } from "@/components/templates/types";
 import type {
@@ -15,10 +16,109 @@ import type {
   SocialBlock,
   PromotionBlock,
   SectionBlock,
+  CaptionBlock,
 } from "@/components/templates/types";
 
 const block = <T extends EmailBlock>(type: T["type"], patch: Partial<T> = {}): T =>
   ({ ...createDefaultBlock(type), ...patch }) as T;
+
+describe("block margins", () => {
+  it("emits a real spacer row for a positive top margin (email-safe, not a CSS margin)", () => {
+    const html = renderBlocksToEmailHtml([block<TextBlock>("text", { marginTop: 30, html: "<p>Hi</p>" })]);
+    expect(html).toContain('height="30"');
+    expect(html).toContain("line-height:30px");
+    // Not carried as a CSS margin (which Gmail/Outlook strip).
+    expect(html).not.toContain("margin-top:30px");
+  });
+
+  it("adds spacer rows both above and below for top + bottom margins", () => {
+    const html = renderBlocksToEmailHtml([block<TextBlock>("text", { marginTop: 20, marginBottom: 40 })]);
+    expect(html).toContain('height="20"');
+    expect(html).toContain('height="40"');
+  });
+
+  it("uses a negative CSS margin (best-effort overlap) only for negative values", () => {
+    const html = renderBlocksToEmailHtml([block<TextBlock>("text", { marginTop: -25 })]);
+    expect(html).toContain("margin-top:-25px");
+    expect(html).not.toContain('height="-25"');
+  });
+
+  it("spaces sections apart with transparent spacer rows outside the section cell", () => {
+    const s = { ...createSectionPreset("band"), marginTop: 32, marginBottom: 16 } as SectionBlock;
+    const html = renderBlocksToEmailHtml([s]);
+    expect(html).toContain('height="32"');
+    expect(html).toContain('height="16"');
+  });
+
+  it("leaves a marginless block byte-identical (no stray spacer rows)", () => {
+    const html = renderBlocksToEmailHtml([block<TextBlock>("text", { html: "<p>Hi</p>" })]);
+    expect(html).not.toMatch(/height="\d+"[^>]*>&nbsp;/);
+  });
+});
+
+describe("caption / overlay block (image-blocked fail-safe)", () => {
+  it("overlays live text on a bulletproof background image with a solid fallback colour", () => {
+    const html = renderBlocksToEmailHtml([
+      block<CaptionBlock>("caption", {
+        layout: "overlay",
+        imageUrl: "https://cdn.example.com/hero.jpg",
+        bgColor: "#1a5632",
+        heading: "Winter Sale",
+      }),
+    ]);
+    // Live text, not baked into the image.
+    expect(html).toContain("Winter Sale");
+    // Fallback colour is on the cell (shows when the image is blocked).
+    expect(html).toContain('bgcolor="#1a5632"');
+    expect(html).toContain("background-color:#1a5632");
+    // Bulletproof background: CSS image + non-Outlook attr + VML for Outlook.
+    expect(html).toContain("background-image:url('https://cdn.example.com/hero.jpg')");
+    expect(html).toContain('background="https://cdn.example.com/hero.jpg"');
+    expect(html).toContain("v:rect");
+  });
+
+  it("still shows the headline on the fallback colour when there is no image at all", () => {
+    const html = renderBlocksToEmailHtml([
+      block<CaptionBlock>("caption", { layout: "overlay", imageUrl: "", bgColor: "#1a5632", heading: "No Image" }),
+    ]);
+    expect(html).toContain("No Image");
+    expect(html).toContain('bgcolor="#1a5632"');
+    // No image → no VML / background attr.
+    expect(html).not.toContain("v:rect");
+    expect(html).not.toContain("background=");
+  });
+
+  it("adds an rgba scrim only when darkening is set (overlay)", () => {
+    const dark = renderBlocksToEmailHtml([
+      block<CaptionBlock>("caption", { layout: "overlay", imageUrl: "https://x/y.jpg", scrim: 40 }),
+    ]);
+    expect(dark).toContain("background-color:rgba(0,0,0,0.40)");
+    const none = renderBlocksToEmailHtml([
+      block<CaptionBlock>("caption", { layout: "overlay", imageUrl: "https://x/y.jpg", scrim: 0 }),
+    ]);
+    // No scrim layer (the text-shadow still uses rgba, so check the bg specifically).
+    expect(none).not.toContain("background-color:rgba(0,0,0");
+  });
+
+  it("renders a solid caption panel beside the image for the below layout", () => {
+    const html = renderBlocksToEmailHtml([
+      block<CaptionBlock>("caption", { layout: "below", imageUrl: "https://x/y.jpg", bgColor: "#111827", heading: "Caption" }),
+    ]);
+    expect(html).toContain("<img");
+    expect(html).toContain('bgcolor="#111827"');
+    expect(html).toContain("Caption");
+  });
+});
+
+describe("image block", () => {
+  it("styles alt text so a blocked image degrades to legible text", () => {
+    const html = renderBlocksToEmailHtml([block<ImageBlock>("image", { src: "https://x/y.jpg", alt: "Product shot" })]);
+    const imgTag = html.slice(html.indexOf("<img"), html.indexOf(">", html.indexOf("<img")) + 1);
+    expect(imgTag).toContain('alt="Product shot"');
+    expect(imgTag).toContain("color:#6b7280");
+    expect(imgTag).toContain("font-size:13px");
+  });
+});
 
 describe("section rendering", () => {
   it("lays columns out as fluid inline-block divs with MSO ghost cells", () => {
@@ -58,12 +158,21 @@ describe("section rendering", () => {
     expect(html).toContain("background-image:url('https://cdn.example.com/bg.jpg')");
   });
 
-  it("splits width by column weight (image+text = 40/60-ish)", () => {
+  it("sizes a 2-column section to the real content width so it fits at a 600px client without stacking", () => {
+    // The wrapper eats 12px each side → the white column is 576px at a 600px
+    // client, and the section (24px padding) has 528px inside. The two column
+    // divs + the gap must fit there, or the columns wrap (stack) — the very bug
+    // where the editor showed side-by-side but the client preview stacked.
     const html = renderBlocksToEmailHtml([createSectionPreset("imageText")], { contentWidth: 600 });
-    // innerW 552 after 24px padding, gap 20 → avail 532, weights 2:3 → ~212 / ~319
-    const maxWidths = [...html.matchAll(/max-width:(\d+)px/g)].map((m) => Number(m[1]));
-    expect(maxWidths.some((w) => w >= 200 && w <= 224)).toBe(true);
-    expect(maxWidths.some((w) => w >= 300 && w <= 330)).toBe(true);
+    const colWidths = [...html.matchAll(/display:inline-block;vertical-align:[^;]+;width:100%;max-width:(\d+)px/g)].map(
+      (m) => Number(m[1]),
+    );
+    expect(colWidths.length).toBe(2);
+    const sectionInnerAtClient = 600 - 24 /* wrapper */ - 48 /* section padding */; // 528
+    const gap = 20;
+    expect(colWidths[0] + colWidths[1] + gap).toBeLessThanOrEqual(sectionInnerAtClient);
+    // Equal-weight preset → roughly even columns.
+    expect(Math.abs(colWidths[0] - colWidths[1])).toBeLessThanOrEqual(2);
   });
 });
 
@@ -84,6 +193,31 @@ describe("safeUrl", () => {
 
   it("escapes quotes so a url cannot break out of the attribute", () => {
     expect(safeUrl('https://x.com/"onload="alert(1)')).not.toContain('"onload');
+  });
+});
+
+describe("spaceBlocks (text-block paragraph spacing)", () => {
+  it("trims a single paragraph's margins so it hugs the block padding", () => {
+    // The excess whitespace people see is the <p>'s default ~1em top+bottom.
+    expect(spaceBlocks("<p>$220.00</p>")).toBe('<p style="margin:0;">$220.00</p>');
+  });
+
+  it("gives multiple paragraphs a bottom gap, with the last trimmed to zero", () => {
+    expect(spaceBlocks("<p>One</p><p>Two</p>")).toBe(
+      '<p style="margin:0 0 12px;">One</p><p style="margin:0;">Two</p>',
+    );
+  });
+
+  it("spaces headings too", () => {
+    expect(spaceBlocks("<h2>Title</h2><p>Body</p>")).toBe(
+      '<h2 style="margin:0 0 12px;">Title</h2><p style="margin:0;">Body</p>',
+    );
+  });
+
+  it("uses inline styles (no <style> block) so it survives Outlook", () => {
+    const html = renderBlocksToEmailHtml([block<TextBlock>("text", { html: "<p>Hi</p>" })]);
+    expect(html).not.toContain("<style");
+    expect(html).toContain('style="margin:0;"');
   });
 });
 
@@ -175,6 +309,29 @@ describe("renderBlocksToEmailHtml", () => {
     ]);
     // (600 - 20) / 2 = 290
     expect(html).toContain('width="290"');
+  });
+
+  it("centers a half-width image with an aligned table + auto margins (not just text-align)", () => {
+    const html = renderBlocksToEmailHtml([
+      block<ImageBlock>("image", { src: "https://cdn.example.com/a.jpg", width: "half", align: "center" }),
+    ]);
+    expect(html).toContain('align="center" style="margin:0 auto;"');
+  });
+
+  it("right-aligns a half-width image with margin-left auto", () => {
+    const html = renderBlocksToEmailHtml([
+      block<ImageBlock>("image", { src: "https://cdn.example.com/a.jpg", width: "half", align: "right" }),
+    ]);
+    expect(html).toContain('align="right" style="margin:0 0 0 auto;"');
+  });
+
+  it("does not wrap a full-width image in a centering table (alignment is moot)", () => {
+    const html = renderBlocksToEmailHtml([
+      block<ImageBlock>("image", { src: "https://cdn.example.com/a.jpg", width: "full", align: "center" }),
+    ]);
+    // The image-alignment table uses this exact style; the document's content
+    // table has `...max-width:600px;margin:0 auto;...`, which won't match.
+    expect(html).not.toContain('style="margin:0 auto;"');
   });
 
   it("lays columns out as table cells", () => {

@@ -10,9 +10,23 @@ import {
   currentQuarterLabel,
   type MergeVars,
 } from "@/lib/email/send";
-import { buildTrackedHtmlBody } from "@/lib/email/tracking";
+import { buildTrackedHtmlBody, buildTrackedHtmlFromHtml } from "@/lib/email/tracking";
 import { splitContactName } from "@/lib/email/mergeFields";
+import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
+import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
+import type { EmailBlock } from "@/components/templates/types";
 import { publicOriginFromRequest } from "@/lib/email/origin";
+
+type TestTemplate = {
+  id: string;
+  name: string;
+  subject: string | null;
+  body: string | null;
+  source: "text" | "blocks" | "html";
+  blocks: unknown;
+  raw_html: string | null;
+  preview_text: string | null;
+};
 import {
   isSuppressed,
   unsubscribeUrl,
@@ -210,12 +224,12 @@ export async function POST(
 
   const { data: tplRows, error: tplErr } = await supabaseServer
     .from("email_templates")
-    .select("id, name, subject, body:text_body")
+    .select("id, name, subject, body:text_body, source, blocks, raw_html, preview_text")
     .in("id", sendable.map((s) => s.template_id as string));
   if (tplErr) return NextResponse.json({ error: tplErr.message }, { status: 500 });
 
   const templates = new Map(
-    ((tplRows ?? []) as Array<{ id: string; name: string; subject: string; body: string }>).map(
+    ((tplRows ?? []) as Array<TestTemplate>).map(
       (t) => [t.id, t],
     ),
   );
@@ -272,23 +286,36 @@ export async function POST(
       continue;
     }
 
-    const subject = `[TEST ${i + 1}/${sendable.length}] ${applyMergeFields(tpl.subject, vars)}`;
-    const bodyText = applyMergeFields(tpl.body, vars);
-    // A tracked body keeps the test visually identical to a real send; the
-    // messageId is random and unrecorded, so opens land nowhere.
-    const tracked = buildTrackedHtmlBody({
-      plainText: bodyText,
-      origin,
-      messageId: randomUUID(),
-    });
+    const unsubLink = unsubscribeUrl(origin, { email, automationId: id });
+    vars.unsubscribeUrl = unsubLink;
+    const subject = `[TEST ${i + 1}/${sendable.length}] ${applyMergeFields(tpl.subject ?? "", vars)}`;
 
-    /* Include the same unsubscribe footer a real send carries, so the test
-       shows the whole email. The token is minted for the TEST address, so
-       clicking it opts out the tester — never the customer whose data was
+    /* Designed templates render to HTML like a real send; plain-text keeps the
+       escaped-text path. The unsubscribe token is minted for the TEST address,
+       so clicking it opts out the tester — never the customer whose data was
        borrowed for the merge fields. */
-    const bodyHtml =
-      tracked.html +
-      unsubscribeFooterHtml(unsubscribeUrl(origin, { email, automationId: id }));
+    let bodyHtml: string;
+    if (tpl.source === "blocks" || tpl.source === "html") {
+      const rendered =
+        tpl.source === "html"
+          ? renderRawHtmlEmail(tpl.raw_html ?? "", { previewText: tpl.preview_text ?? undefined })
+          : renderBlocksToEmailHtml(
+              Array.isArray(tpl.blocks) ? (tpl.blocks as EmailBlock[]) : [],
+              { previewText: tpl.preview_text ?? undefined },
+            );
+      const merged = applyMergeFields(rendered, vars);
+      const ownUnsub = /\{\{\s*unsubscribeUrl\s*\}\}/.test(rendered);
+      bodyHtml = buildTrackedHtmlFromHtml({
+        html: merged,
+        origin,
+        messageId: randomUUID(),
+        footerHtml: ownUnsub ? undefined : unsubscribeFooterHtml(unsubLink),
+      }).html;
+    } else {
+      const bodyText = applyMergeFields(tpl.body ?? "", vars);
+      const tracked = buildTrackedHtmlBody({ plainText: bodyText, origin, messageId: randomUUID() });
+      bodyHtml = tracked.html + unsubscribeFooterHtml(unsubLink);
+    }
 
     try {
       await sendEmail(accessToken, {

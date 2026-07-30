@@ -11,15 +11,17 @@ type Asset = {
   id: string;
   title: string;
   description: string | null;
-  kind: "photo" | "product";
+  kind: "photo" | "product" | "brand";
   url: string | null;
   fileName: string | null;
 };
 
 /**
  * GET /api/portal/assets — brand assets reps may download. Global (not agency
- * scoped): active marketing photos + product media-kit imagery. URLs are short-
- * lived signed links generated with the service role. Gated to provisioned reps.
+ * scoped): active marketing photos + product media-kit imagery + brand images
+ * from the email-assets library marked safe for 3rd-party use. Photo/product
+ * URLs are short-lived signed links; brand images live in a public bucket so
+ * they use plain public URLs. Gated to provisioned reps.
  */
 export async function GET(request: Request) {
   // Global data, but gated the same way so admin preview renders the real tab.
@@ -90,6 +92,34 @@ export async function GET(request: Request) {
         fileName: m.file_name ?? m.storage_path.split("/").pop() ?? m.part,
       });
     }
+  }
+
+  // ── Brand image library (email-assets), curated for 3rd-party use ───────────
+  // The bucket is public, so these get plain public URLs (no signing needed).
+  const { data: brand } = await supabaseServer
+    .from("email_asset_meta")
+    .select("path, title, description")
+    .eq("share_scope", "third_party")
+    .order("updated_at", { ascending: false })
+    .limit(MAX);
+
+  const brandRows = (brand ?? []) as {
+    path: string;
+    title: string | null;
+    description: string | null;
+  }[];
+
+  for (const b of brandRows) {
+    const { data: pub } = supabaseServer.storage.from("email-assets").getPublicUrl(b.path);
+    const fileName = b.path.split("/").pop() ?? null;
+    assets.push({
+      id: `brand:${b.path}`,
+      title: b.title || fileName || "Brand image",
+      description: b.description,
+      kind: "brand",
+      url: pub.publicUrl,
+      fileName,
+    });
   }
 
   return NextResponse.json({ assets });

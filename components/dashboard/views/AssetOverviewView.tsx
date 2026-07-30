@@ -74,10 +74,10 @@ export default function AssetOverviewView({
 
       <div className="pt-2 border-t border-gray-100">
         <Link
-          href="/assets"
+          href="/marketing/assets"
           className="text-xs text-blue-600 hover:text-blue-800 font-medium"
         >
-          Manage asset library
+          Manage image library
         </Link>
       </div>
     </div>

@@ -8,8 +8,17 @@ type PatchBody = {
   /** null clears the template — the step keeps its place as "Add later". */
   template_id?: string | null;
   delay_days?: number;
+  /** Pin to an exact date (YYYY-MM-DD), or null to revert to a relative wait. */
+  send_date?: string | null;
   step_order?: number;
 };
+
+/** Accept only a bare calendar date (YYYY-MM-DD), or null to clear the pin. */
+function normalizeSendDate(v: string | null | undefined): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
+}
 
 /**
  * PATCH /api/automations/<id>/steps/<stepId>
@@ -42,6 +51,16 @@ export async function PATCH(
     }
     updates.delay_days = body.delay_days;
   }
+  if (body.send_date !== undefined) {
+    const sendDate = normalizeSendDate(body.send_date);
+    if (sendDate === undefined) {
+      return NextResponse.json(
+        { error: "send_date must be YYYY-MM-DD or null" },
+        { status: 400 },
+      );
+    }
+    updates.send_date = sendDate;
+  }
   if (body.step_order !== undefined) updates.step_order = body.step_order;
 
   if (Object.keys(updates).length === 0) {
@@ -53,7 +72,7 @@ export async function PATCH(
     .update(updates)
     .eq("id", stepId)
     .eq("automation_id", id)
-    .select("id, step_order, template_id, delay_days")
+    .select("id, step_order, template_id, delay_days, send_date")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ step: data });

@@ -345,7 +345,7 @@ export type PortalAsset = {
   id: string;
   title: string;
   description: string | null;
-  kind: "photo" | "product";
+  kind: "photo" | "product" | "brand";
   url: string | null;
   fileName: string | null;
 };

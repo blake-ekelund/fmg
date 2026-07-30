@@ -12,8 +12,11 @@ import {
   sendEmail,
   type MergeVars,
 } from "@/lib/email/send";
-import { buildTrackedHtmlBody } from "@/lib/email/tracking";
+import { buildTrackedHtmlBody, buildTrackedHtmlFromHtml } from "@/lib/email/tracking";
 import { splitContactName } from "@/lib/email/mergeFields";
+import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
+import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
+import type { EmailBlock } from "@/components/templates/types";
 import { parseEmailAddresses } from "@/lib/email/addresses";
 import {
   findSuppressed,
@@ -122,12 +125,33 @@ type Step = {
   step_order: number;
   template_id: string | null;
   delay_days: number;
+  /** When set, this step fires on this exact date (YYYY-MM-DD) rather than
+   *  delay_days after the prior step. NULL = relative wait (the default). */
+  send_date: string | null;
 };
+
+/**
+ * When should this step's send be scheduled?
+ *  - Pinned (send_date set): that calendar date at 00:00 UTC. On the day, the
+ *    daily pass sees next_send_at <= now and fires it; before it, the enrollment
+ *    simply waits.
+ *  - Relative (send_date null): `base` advanced by delay_days.
+ */
+function stepSendAt(step: Step | undefined, base: Date): string {
+  if (step?.send_date) return `${step.send_date}T00:00:00Z`;
+  const d = new Date(base);
+  d.setDate(d.getDate() + (step?.delay_days ?? 0));
+  return d.toISOString();
+}
 
 type Template = {
   id: string;
-  subject: string;
-  body: string;
+  subject: string | null;
+  body: string | null;
+  source: "text" | "blocks" | "html";
+  blocks: unknown;
+  raw_html: string | null;
+  preview_text: string | null;
 };
 
 type Enrollment = {
@@ -215,7 +239,7 @@ export async function GET(request: Request) {
   if (automations.length > 0) {
     const { data: stepsRows } = await supabaseServer
       .from("automation_steps")
-      .select("id, automation_id, step_order, template_id, delay_days")
+      .select("id, automation_id, step_order, template_id, delay_days, send_date")
       .in(
         "automation_id",
         automations.map((a) => a.id),
@@ -313,6 +337,17 @@ export async function GET(request: Request) {
         MAX_NEW_ENROLLMENTS_PER_AUTOMATION,
       );
       const toEnroll = eligible.slice(0, cap);
+      /* Step 1 normally fires on the next pass (relative steps measure their
+         wait from the *prior* step, and there is none before step 1). But if
+         step 1 is pinned to an exact date, hold the enrollment until that day —
+         this is what makes a dated campaign ("Email #1 on May 1") land on its
+         date instead of the moment the audience was locked in. */
+      const firstStep =
+        steps.find((s) => s.step_order === 1) ??
+        [...steps].sort((x, y) => x.step_order - y.step_order)[0];
+      const enrollSendAt = firstStep?.send_date
+        ? `${firstStep.send_date}T00:00:00Z`
+        : new Date().toISOString();
       const rows = toEnroll.map((c) => ({
         automation_id: a.id,
         customer_type: c.audience_side,
@@ -320,7 +355,7 @@ export async function GET(request: Request) {
         customer_name: c.customer_name,
         customer_email: c.email,
         next_step_order: 1,
-        next_send_at: new Date().toISOString(),
+        next_send_at: enrollSendAt,
         status: "enrolled" as const,
         cohort_label: cohort
           ? isTestRun
@@ -401,7 +436,7 @@ export async function GET(request: Request) {
   }
   const { data: tplRows } = await supabaseServer
     .from("email_templates")
-    .select("id, subject, body:text_body")
+    .select("id, subject, body:text_body, source, blocks, raw_html, preview_text")
     .in("id", Array.from(templateIds));
   const templates = new Map<string, Template>();
   for (const t of (tplRows as Template[] | null) ?? []) {
@@ -599,21 +634,10 @@ export async function GET(request: Request) {
         return;
       }
 
-      const subjectBase = applyMergeFields(tpl.subject, vars);
-      const subject = e.is_test
-        ? `[TEST → ${e.customer_name ?? e.customer_email}] ${subjectBase}`
-        : subjectBase;
-      const bodyText = applyMergeFields(tpl.body, vars);
-      const messageId = randomUUID();
-      const tracked = buildTrackedHtmlBody({
-        plainText: bodyText,
-        origin,
-        messageId,
-      });
-
       /* Every automated send carries a way out. Conversational replies sent
          from the inbox deliberately don't — those are person-to-person mail,
-         not a list send. */
+         not a list send. Computed first so designed templates can place their
+         own {{unsubscribeUrl}}. */
       const unsubPayload = {
         /* On a test batch the token must belong to the tester, not the
            customer whose data was borrowed — otherwise clicking
@@ -624,8 +648,47 @@ export async function GET(request: Request) {
           ? {}
           : { customerType: e.customer_type, customerRef: e.customer_ref }),
       };
-      const bodyHtmlWithFooter =
-        tracked.html + unsubscribeFooterHtml(unsubscribeUrl(origin, unsubPayload));
+      const unsubLink = unsubscribeUrl(origin, unsubPayload);
+      vars.unsubscribeUrl = unsubLink;
+
+      const subjectBase = applyMergeFields(tpl.subject ?? "", vars);
+      const subject = e.is_test
+        ? `[TEST → ${e.customer_name ?? e.customer_email}] ${subjectBase}`
+        : subjectBase;
+
+      const messageId = randomUUID();
+
+      // Designed templates (block builder / uploaded HTML) render to email HTML
+      // server-side, exactly like the mass-send path; plain-text templates keep
+      // the escaped-text path. Either way we end with a tracked body + footer.
+      let tracked: { html: string; links: Array<{ id: string; link_index: number; original_url: string }> };
+      let bodyText: string;
+      let bodyHtmlWithFooter: string;
+
+      if (tpl.source === "blocks" || tpl.source === "html") {
+        const rendered =
+          tpl.source === "html"
+            ? renderRawHtmlEmail(tpl.raw_html ?? "", { previewText: tpl.preview_text ?? undefined })
+            : renderBlocksToEmailHtml(
+                Array.isArray(tpl.blocks) ? (tpl.blocks as EmailBlock[]) : [],
+                { previewText: tpl.preview_text ?? undefined },
+              );
+        const merged = applyMergeFields(rendered, vars);
+        // Skip the auto footer if the template places its own opt-out link.
+        const ownUnsub = /\{\{\s*unsubscribeUrl\s*\}\}/.test(rendered);
+        tracked = buildTrackedHtmlFromHtml({
+          html: merged,
+          origin,
+          messageId,
+          footerHtml: ownUnsub ? undefined : unsubscribeFooterHtml(unsubLink),
+        });
+        bodyHtmlWithFooter = tracked.html; // footer + open pixel already injected
+        bodyText = merged.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      } else {
+        bodyText = applyMergeFields(tpl.body ?? "", vars);
+        tracked = buildTrackedHtmlBody({ plainText: bodyText, origin, messageId });
+        bodyHtmlWithFooter = tracked.html + unsubscribeFooterHtml(unsubLink);
+      }
 
       try {
         const sent = await sendEmail(accessToken, {
@@ -700,16 +763,15 @@ export async function GET(request: Request) {
           status: "sent",
         });
 
-        // Advance the state machine.
+        // Advance the state machine. A pinned step waits for its calendar date;
+        // a relative step waits delay_days from now (this send).
         const nextStep = steps.find((s) => s.step_order === step.step_order + 1);
         if (nextStep) {
-          const nextSendAt = new Date();
-          nextSendAt.setDate(nextSendAt.getDate() + nextStep.delay_days);
           await supabaseServer
             .from("automation_enrollments")
             .update({
               next_step_order: nextStep.step_order,
-              next_send_at: nextSendAt.toISOString(),
+              next_send_at: stepSendAt(nextStep, new Date()),
               last_error: null,
             })
             .eq("id", e.id);

@@ -6,10 +6,50 @@ import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import { renderTextEmail } from "@/lib/email/renderText";
 import { sendEmail } from "@/lib/email/send";
-import { applyMergeFields, currentQuarterLabel } from "@/lib/email/send";
+import { applyMergeFields, currentQuarterLabel, daysSince, type MergeVars } from "@/lib/email/send";
+import { splitContactName } from "@/lib/email/mergeFields";
 import type { EmailBlock } from "@/components/templates/types";
 
 export const runtime = "nodejs";
+
+/**
+ * Real merge values for a chosen customer, read from the same contact views the
+ * live send uses — so a test shows how the merge fields actually resolve for
+ * that account. Data only; the email still goes to the tester's typed address.
+ */
+async function loadCustomerVars(
+  customerType: "wholesale" | "d2c",
+  customerRef: string,
+): Promise<Partial<MergeVars> | null> {
+  const view = customerType === "d2c" ? "d2c_customer_contact" : "customer_contact_summary";
+  const refCol = customerType === "d2c" ? "person_key" : "customerid";
+  const { data } = await supabaseServer
+    .from(view)
+    .select(`${refCol}, customer_name, billto_city, billto_state, primary_channel, lifetime_revenue, order_count, last_order_date`)
+    .eq(refCol, customerRef)
+    .maybeSingle();
+  if (!data) return null;
+  const r = data as Record<string, unknown>;
+  const name = (r.customer_name as string | null) ?? null;
+  const { firstName, lastName } = splitContactName(name, customerType);
+  const num = (v: unknown): number | null => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const lastOrder = (r.last_order_date as string | null) ?? null;
+  return {
+    firstName,
+    lastName,
+    customerName: name,
+    city: (r.billto_city as string | null) ?? null,
+    state: (r.billto_state as string | null) ?? null,
+    channel: (r.primary_channel as string | null) ?? null,
+    lifetimeRevenue: num(r.lifetime_revenue),
+    lifetimeOrders: num(r.order_count),
+    lastOrderDate: lastOrder,
+    daysSinceLastOrder: daysSince(lastOrder),
+  };
+}
 
 /**
  * Sample merge values so a test email shows realistic content instead of raw
@@ -59,9 +99,19 @@ export async function POST(
   const { id } = await params;
 
   let toAddress = "";
+  let customerType: "wholesale" | "d2c" | undefined;
+  let customerRef: string | undefined;
   try {
-    const parsed = (await request.json()) as { to?: string };
+    const parsed = (await request.json()) as {
+      to?: string;
+      customer_type?: "wholesale" | "d2c";
+      customer_ref?: string;
+    };
     toAddress = (parsed.to ?? "").trim();
+    if ((parsed.customer_type === "wholesale" || parsed.customer_type === "d2c") && parsed.customer_ref) {
+      customerType = parsed.customer_type;
+      customerRef = parsed.customer_ref;
+    }
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
@@ -101,8 +151,20 @@ export async function POST(
     html = renderBlocksToEmailHtml(blocks, { previewText });
   }
 
+  // Merge values: a chosen customer's real data (so the tester sees how the
+  // fields resolve), falling back to sample values for anything missing.
+  let vars: MergeVars = SAMPLE;
+  let usedCustomer: string | null = null;
+  if (customerType && customerRef) {
+    const cust = await loadCustomerVars(customerType, customerRef);
+    if (cust) {
+      vars = { ...SAMPLE, ...cust };
+      usedCustomer = cust.customerName ?? null;
+    }
+  }
+
   const subject = `[Test] ${(data.subject as string | null)?.trim() || data.name || "Untitled template"}`;
-  const body = applyMergeFields(html, SAMPLE);
+  const body = applyMergeFields(html, vars);
 
   // Send through the caller's own mailbox.
   let accessToken: string;
@@ -129,5 +191,5 @@ export async function POST(
     );
   }
 
-  return NextResponse.json({ ok: true, sentTo: toAddress });
+  return NextResponse.json({ ok: true, sentTo: toAddress, usedCustomer });
 }

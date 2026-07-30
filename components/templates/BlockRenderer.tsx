@@ -27,6 +27,7 @@ export default function BlockRenderer({
     <div
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
       className={`relative cursor-pointer transition-all ${outline} rounded`}
+      style={block.marginTop || block.marginBottom ? { marginTop: block.marginTop, marginBottom: block.marginBottom } : undefined}
     >
       {children}
     </div>
@@ -214,6 +215,61 @@ export default function BlockRenderer({
           </div>
         </div>
       );
+
+    case "caption": {
+      const heading = block.heading ? (
+        <div style={{ fontSize: block.fontSize ?? 26, fontWeight: 700, lineHeight: 1.2, color: block.textColor }}>{block.heading}</div>
+      ) : null;
+      const sub = block.subheading ? (
+        <div style={{ fontSize: 15, lineHeight: 1.4, marginTop: 6, color: block.textColor }}>{block.subheading}</div>
+      ) : null;
+      if (block.layout === "above" || block.layout === "below") {
+        const image = block.imageUrl ? (
+          <img src={block.imageUrl} alt={block.alt || block.heading} className="block w-full" />
+        ) : (
+          <div className="flex h-40 w-full items-center justify-center bg-gray-100 text-xs text-gray-400">Image</div>
+        );
+        const panel = (
+          <div style={{ backgroundColor: block.bgColor, textAlign: block.textAlign, padding: "16px 20px" }}>
+            {heading}
+            {sub}
+          </div>
+        );
+        return wrap(
+          <div style={{ padding: block.padding }}>
+            {block.layout === "above" ? panel : image}
+            {block.layout === "above" ? image : panel}
+          </div>
+        );
+      }
+      const justify = block.verticalAlign === "top" ? "flex-start" : block.verticalAlign === "bottom" ? "flex-end" : "center";
+      return wrap(
+        <div style={{ padding: block.padding }}>
+          <div
+            className="relative flex flex-col overflow-hidden"
+            style={{
+              minHeight: block.minHeight,
+              backgroundColor: block.bgColor,
+              backgroundImage: block.imageUrl ? `url('${block.imageUrl}')` : undefined,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              justifyContent: justify,
+              alignItems: block.textAlign === "left" ? "flex-start" : block.textAlign === "right" ? "flex-end" : "center",
+              padding: 24,
+              textAlign: block.textAlign,
+            }}
+          >
+            {block.imageUrl && block.scrim > 0 && (
+              <div className="absolute inset-0" style={{ backgroundColor: `rgba(0,0,0,${block.scrim / 100})` }} />
+            )}
+            <div className="relative" style={{ maxWidth: "88%", textShadow: block.imageUrl ? "0 1px 4px rgba(0,0,0,0.55)" : undefined }}>
+              {heading}
+              {sub}
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     case "promotion":
       return wrap(

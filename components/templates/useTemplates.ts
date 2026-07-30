@@ -56,10 +56,39 @@ export function useTemplates(typeFilter?: TemplateType) {
     return null;
   }, []);
 
-  const remove = useCallback(async (id: string) => {
-    const { error } = await supabase.from("email_templates").delete().eq("id", id);
-    if (!error) setTemplates((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  /**
+   * Delete a template. Routes through the API so an automation-in-use template
+   * fails cleanly (409) instead of a swallowed FK error. Pass force=true to
+   * detach it from any automation steps and delete anyway. Returns a result so
+   * the UI can warn before breaking a live sequence.
+   */
+  const remove = useCallback(
+    async (
+      id: string,
+      force = false,
+    ): Promise<
+      | { ok: true }
+      | { ok: false; error: string; inUse?: boolean; automations?: string[] }
+    > => {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      // NB: `fetch` is shadowed in this hook by the loader above — use window.fetch.
+      const res = await window.fetch(`/api/email/templates/${id}${force ? "?force=true" : ""}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.status === 204) {
+        setTemplates((prev) => prev.filter((t) => t.id !== id));
+        return { ok: true };
+      }
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        return { ok: false, error: json.error ?? "In use", inUse: true, automations: json.automations ?? [] };
+      }
+      return { ok: false, error: json.error ?? `Delete failed (${res.status})` };
+    },
+    [],
+  );
 
   const duplicate = useCallback(async (template: EmailTemplate) => {
     const { id, created_at, updated_at, ...rest } = template;

@@ -21,6 +21,7 @@ import {
   Layers,
   FlaskConical,
   Play,
+  Calendar,
 } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
@@ -88,12 +89,17 @@ type Step = {
   /** null = "Add later" — the step exists but its email hasn't been written. */
   template_id: string | null;
   delay_days: number;
+  /** When set (YYYY-MM-DD), the step is pinned to this exact date rather than
+   *  waiting delay_days. This is what a dated "Schedule" campaign uses. */
+  send_date?: string | null;
 };
 
 type Template = {
   id: string;
   name: string;
   subject: string;
+  /** "text" plain-text, or a designed template ("blocks" builder / "html" upload). */
+  source?: "text" | "blocks" | "html";
 };
 
 type Enrollment = {
@@ -195,7 +201,7 @@ export default function AutomationEditor({
   const reload = useCallback(async () => {
     const [detailRes, templatesRes] = await Promise.all([
       fetch(`/api/automations/${automationId}`, { headers: await authHeader() }),
-      fetch("/api/email/templates", { headers: await authHeader() }),
+      fetch("/api/email/templates?include=designed", { headers: await authHeader() }),
     ]);
     const detail = await detailRes.json();
     const tplJson = await templatesRes.json();
@@ -510,7 +516,7 @@ export default function AutomationEditor({
 
   async function patchStep(
     stepId: string,
-    updates: { template_id?: string | null; delay_days?: number },
+    updates: { template_id?: string | null; delay_days?: number; send_date?: string | null },
   ) {
     setError(null);
     const res = await fetch(`/api/automations/${automationId}/steps/${stepId}`, {
@@ -1082,8 +1088,12 @@ export default function AutomationEditor({
                 <Arrow>
                   <WaitRow
                     value={s.delay_days}
+                    sendDate={s.send_date ?? null}
                     isFirst={i === 0}
-                    onChange={(d) => patchStep(s.id, { delay_days: d })}
+                    onChange={(d) =>
+                      patchStep(s.id, { delay_days: d, send_date: null })
+                    }
+                    onSetDate={(date) => patchStep(s.id, { send_date: date })}
                   />
                 </Arrow>
                 <FlowCard>
@@ -1132,6 +1142,7 @@ export default function AutomationEditor({
                             {allTemplates.map((t) => (
                               <option key={t.id} value={t.id}>
                                 {t.name}
+                                {t.source === "blocks" ? "  · Designed" : t.source === "html" ? "  · HTML" : ""}
                               </option>
                             ))}
                             {s.template_id && !templateMap.has(s.template_id) && (
@@ -1835,24 +1846,34 @@ function DaysPicker({
 }
 
 /**
- * A wait between steps, rendered as a step in its own right.
+ * The timing before a step, rendered as its own row. Two mutually-exclusive
+ * modes:
  *
- * It writes to the *following* email's delay_days — the schema attaches the
- * delay to the email it precedes — so the runner needs no changes. The first
- * one measures from enrollment, which the old delay pill never exposed at all:
- * step 1 was hard-coded to 0 and uneditable.
+ *  · Wait — a relative offset written to the *following* email's delay_days
+ *    (the schema attaches the delay to the email it precedes). The first one
+ *    measures from enrollment; step 1 used to be hard-coded to 0 and uneditable.
+ *
+ *  · On date — the step is pinned to an exact calendar date (send_date). This
+ *    is what a dated "Schedule" campaign uses: "Email #1 on May 1, Email #2 on
+ *    May 8" instead of "+7 days". Switching to Wait clears the pin.
  */
 function WaitRow({
   value,
+  sendDate,
   isFirst,
   onChange,
+  onSetDate,
 }: {
   value: number;
+  sendDate: string | null;
   isFirst: boolean;
   onChange: (v: number) => void | Promise<void>;
+  onSetDate: (date: string) => void | Promise<void>;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
-  const label =
+  const pinned = !!sendDate;
+
+  const relativeLabel =
     value === 0
       ? isFirst
         ? "Immediately on enrolling"
@@ -1860,6 +1881,14 @@ function WaitRow({
       : value % 7 === 0
         ? `Wait ${value / 7} week${value / 7 === 1 ? "" : "s"}`
         : `Wait ${value} day${value === 1 ? "" : "s"}`;
+
+  const dateLabel = sendDate
+    ? new Date(sendDate + "T00:00:00Z").toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "Pick a date";
 
   return (
     <div className="w-full rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2">
@@ -1877,29 +1906,78 @@ function WaitRow({
       )}
       <div className="flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-800">
-          <Clock size={11} className="shrink-0" />
-          {label}
+          {pinned ? (
+            <Calendar size={11} className="shrink-0" />
+          ) : (
+            <Clock size={11} className="shrink-0" />
+          )}
+          {pinned ? `On ${dateLabel}` : relativeLabel}
         </span>
         <div className="flex items-center gap-1 shrink-0">
-          <select
-            value={DELAY_OPTIONS.some((o) => o.value === value) ? String(value) : "__custom__"}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "__custom__") setModalOpen(true);
-              else onChange(Number(v));
-            }}
-            className="rounded-md border border-amber-200 bg-white px-1.5 py-1 text-[11px] text-amber-900 focus:outline-none cursor-pointer"
-          >
-            {DELAY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-            {!DELAY_OPTIONS.some((o) => o.value === value) && (
-              <option value={String(value)}>{value} days later</option>
-            )}
-            <option value="__custom__">Custom…</option>
-          </select>
+          {/* Mode toggle — Wait (relative) vs On date (pinned). */}
+          <div className="flex rounded-md bg-amber-100/70 p-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                // Back to relative: clear the pin, keep the current delay.
+                if (pinned) onChange(value);
+              }}
+              className={clsx(
+                "rounded px-2 py-0.5 text-[10px] font-medium transition",
+                !pinned ? "bg-white text-amber-900 shadow-sm" : "text-amber-700 hover:text-amber-900",
+              )}
+            >
+              Wait
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                // Switch to a pinned date; default to a week out if none yet.
+                if (!pinned) {
+                  const d = new Date();
+                  d.setDate(d.getDate() + 7);
+                  onSetDate(d.toISOString().slice(0, 10));
+                }
+              }}
+              className={clsx(
+                "rounded px-2 py-0.5 text-[10px] font-medium transition",
+                pinned ? "bg-white text-amber-900 shadow-sm" : "text-amber-700 hover:text-amber-900",
+              )}
+            >
+              On date
+            </button>
+          </div>
+
+          {pinned ? (
+            <input
+              type="date"
+              value={sendDate ?? ""}
+              onChange={(e) => {
+                if (e.target.value) onSetDate(e.target.value);
+              }}
+              className="rounded-md border border-amber-200 bg-white px-1.5 py-1 text-[11px] text-amber-900 focus:outline-none cursor-pointer"
+            />
+          ) : (
+            <select
+              value={DELAY_OPTIONS.some((o) => o.value === value) ? String(value) : "__custom__"}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "__custom__") setModalOpen(true);
+                else onChange(Number(v));
+              }}
+              className="rounded-md border border-amber-200 bg-white px-1.5 py-1 text-[11px] text-amber-900 focus:outline-none cursor-pointer"
+            >
+              {DELAY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+              {!DELAY_OPTIONS.some((o) => o.value === value) && (
+                <option value={String(value)}>{value} days later</option>
+              )}
+              <option value="__custom__">Custom…</option>
+            </select>
+          )}
         </div>
       </div>
     </div>

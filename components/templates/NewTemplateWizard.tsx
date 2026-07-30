@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { X, ChevronLeft, ChevronRight, Upload, Type, LayoutGrid, Loader2, Check } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Upload, Type, LayoutGrid, Loader2, Check, Sparkles } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -31,7 +31,7 @@ type Props = {
   onComplete: (result: NewTemplateResult) => void;
 };
 
-type StartMethod = "text" | "blank" | "upload";
+type StartMethod = "ai" | "text" | "blank" | "upload";
 
 const BRANDS: { value: Brand; label: string; sub: string }[] = [
   { value: "ni", label: "Natural Inspirations", sub: "Spa-inspired, clean beauty" },
@@ -46,8 +46,9 @@ const AUDIENCES: { value: Channel; label: string; sub: string }[] = [
 ];
 
 const STARTS: { value: StartMethod; label: string; sub: string; icon: typeof Type }[] = [
-  { value: "text", label: "Plain-text email", sub: "Start with a simple text block", icon: Type },
+  { value: "ai", label: "Generate with AI", sub: "Describe it — Claude builds it from our blocks & layouts", icon: Sparkles },
   { value: "blank", label: "Blank template", sub: "Start from an empty builder", icon: LayoutGrid },
+  { value: "text", label: "Plain-text email", sub: "Start with a simple text block", icon: Type },
   { value: "upload", label: "Upload HTML", sub: "Import a file — we'll turn it into editable blocks", icon: Upload },
 ];
 
@@ -67,8 +68,10 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [start, setStart] = useState<StartMethod | null>(null);
+  const [aiPrompt, setAiPrompt] = useState("");
 
   const [importing, setImporting] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -80,7 +83,9 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
     setName("");
     setDescription("");
     setStart(null);
+    setAiPrompt("");
     setImporting(false);
+    setGenerating(false);
     setError(null);
   }
 
@@ -96,10 +101,13 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
       case 2: return purpose.length > 0;
       case 3: return name.trim().length > 0;
       case 4: return true; // description optional
-      case 5: return !!start && !importing;
+      case 5:
+        if (!start || importing || generating) return false;
+        if (start === "ai") return aiPrompt.trim().length > 0;
+        return true;
       default: return false;
     }
-  }, [step, brand, channel, purpose, name, start, importing]);
+  }, [step, brand, channel, purpose, name, start, aiPrompt, importing, generating]);
 
   function togglePurpose(v: TemplatePurpose) {
     setPurpose((cur) => (cur.includes(v) ? cur.filter((p) => p !== v) : [...cur, v]));
@@ -152,13 +160,38 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
     }
   }
 
+  async function handleGenerate() {
+    setError(null);
+    const p = aiPrompt.trim();
+    if (!p) return;
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/email/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ brand, channel, purpose, prompt: p, name }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error ?? "Generation failed. Try again.");
+        setGenerating(false);
+        return;
+      }
+      finish((json.blocks as EmailBlock[]) ?? [], json.subject ?? "", json.preview_text ?? "");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed.");
+      setGenerating(false);
+    }
+  }
+
   function onContinue() {
     if (step < 5) {
       setStep((s) => s + 1);
       return;
     }
     // Final step — act on the chosen start method.
-    if (start === "text") finish([createDefaultBlock("text")]);
+    if (start === "ai") handleGenerate();
+    else if (start === "text") finish([createDefaultBlock("text")]);
     else if (start === "blank") finish([]);
     else if (start === "upload") fileRef.current?.click();
   }
@@ -264,7 +297,7 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
                   <button
                     key={s.value}
                     onClick={() => { setStart(s.value); setError(null); }}
-                    disabled={importing}
+                    disabled={importing || generating}
                     className={clsx(
                       "flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition disabled:opacity-50",
                       start === s.value ? "border-gray-900 bg-gray-50" : "border-gray-200 hover:bg-gray-50",
@@ -281,10 +314,32 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
                   </button>
                 );
               })}
+              {start === "ai" && (
+                <div className="pt-1">
+                  <textarea
+                    autoFocus
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    rows={4}
+                    disabled={generating}
+                    placeholder="Describe the email — e.g. “Spring launch for the Eucalyptus Rosemary Mint collection. Hero, two product cards side by side, 15% off with code SPRING15, shop CTA.”"
+                    className="w-full resize-y rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-60"
+                  />
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    Claude builds it from our blocks and section layouts using the {brand === "sassy" ? "Sassy" : brand === "ni" ? "Natural Inspirations" : "brand"} voice — then it opens in the editor to tweak.
+                  </p>
+                </div>
+              )}
               {importing && (
                 <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
                   <Loader2 size={14} className="animate-spin" />
                   Converting your HTML into editable blocks…
+                </div>
+              )}
+              {generating && (
+                <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
+                  <Loader2 size={14} className="animate-spin" />
+                  Building your email from our blocks & layouts…
                 </div>
               )}
               {error && (
@@ -305,7 +360,7 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
         <div className="flex flex-shrink-0 items-center justify-between border-t border-gray-100 px-5 py-2.5">
           <button
             onClick={() => (step === 0 ? close() : setStep((s) => s - 1))}
-            disabled={importing}
+            disabled={importing || generating}
             className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40"
           >
             <ChevronLeft size={14} />
@@ -316,8 +371,14 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
             disabled={!canContinue}
             className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-gray-800 disabled:opacity-40"
           >
-            {step < 5 ? "Continue" : start === "upload" ? "Choose file" : "Create"}
-            <ChevronRight size={14} />
+            {step < 5
+              ? "Continue"
+              : start === "upload"
+                ? "Choose file"
+                : start === "ai"
+                  ? (generating ? "Generating…" : "Generate")
+                  : "Create"}
+            {!generating && <ChevronRight size={14} />}
           </button>
         </div>
       </div>

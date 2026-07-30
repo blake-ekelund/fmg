@@ -38,7 +38,7 @@ export async function GET(
       .maybeSingle(),
     supabaseServer
       .from("automation_steps")
-      .select("id, step_order, template_id, delay_days")
+      .select("id, step_order, template_id, delay_days, send_date")
       .eq("automation_id", id)
       .order("step_order", { ascending: true }),
     supabaseServer

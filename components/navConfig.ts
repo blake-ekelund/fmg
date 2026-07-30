@@ -210,10 +210,14 @@ export const navSections: readonly NavSection[] = [
     icon: Megaphone,
     items: [
       {
-        label: "Asset Library",
-        href: "/assets",
+        /* Browse the public `email-assets` bucket — the brand photos, logos, and
+           graphics used across templates — with metadata editing, delete, and a
+           per-image "safe for 3rd party" flag that surfaces it on the rep-group
+           portal. Same bucket the block editor's media-library modal reads. */
+        label: "Image Library",
+        href: "/marketing/assets",
         icon: ImageIcon,
-        roles: [...FULL_ACCESS, "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing"],
       },
     ],
   },

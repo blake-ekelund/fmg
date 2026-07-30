@@ -10,6 +10,7 @@ export type BlockType =
   | "product"
   | "social"
   | "hero"
+  | "caption"
   | "promotion"
   | "section";
 
@@ -20,6 +21,22 @@ export type VAlign = "top" | "middle" | "bottom";
 export interface BlockBase {
   id: string;
   type: BlockType;
+  /**
+   * Extra space above the block, in px. May be NEGATIVE to pull the block up
+   * toward the one above it — e.g. a title tucked right under (or over) its
+   * image. Undefined/0 = normal flow. Honoured in the editor canvas and by
+   * modern email clients; Outlook's Word engine ignores negative margins and
+   * simply renders the block at its normal position (a safe degrade).
+   */
+  marginTop?: number;
+  /**
+   * Extra space below the block, in px (may be negative). Currently surfaced in
+   * the editor only for sections — a section's top/bottom margin is transparent
+   * (shows the page/column behind it), so it spaces sections apart rather than
+   * padding inside their background. Same modern-client / Outlook caveat as
+   * {@link marginTop}.
+   */
+  marginBottom?: number;
 }
 
 export interface HeaderBlock extends BlockBase {
@@ -30,6 +47,8 @@ export interface HeaderBlock extends BlockBase {
   textColor: string;
   /** Company-name text size when there's no logo (px). Defaults to 20. */
   fontSize?: number;
+  /** Company-name font when there's no logo. Defaults to "sans". */
+  fontFamily?: FontFamily;
   padding: number;
 }
 
@@ -127,6 +146,40 @@ export interface HeroBlock extends BlockBase {
   padding: number;
 }
 
+/**
+ * An image with a real (live-text) HEADLINE + subtext, either laid OVER the
+ * image or as a caption panel above/below it. Unlike baking words into a JPG,
+ * the text is HTML — so it stays sharp, is selectable, and (the point) survives
+ * when the recipient's client blocks images: the `bgColor` fills the space and
+ * the text reads on top of it. That makes it the image-blocked fail-safe the
+ * plain image block can't be.
+ */
+export interface CaptionBlock extends BlockBase {
+  type: "caption";
+  imageUrl: string;
+  alt: string;
+  heading: string;
+  subheading: string;
+  /** overlay = text on the image; above/below = text as a caption panel. */
+  layout: "overlay" | "above" | "below";
+  textAlign: TextAlign;
+  /** Overlay only: where the text sits vertically over the image. */
+  verticalAlign: VAlign;
+  textColor: string;
+  /**
+   * Solid colour behind the image. It is the fail-safe shown when the image is
+   * blocked (overlay), and the panel colour for the above/below layouts.
+   */
+  bgColor: string;
+  /** Overlay only: 0–80 dark scrim over the image so text stays legible. */
+  scrim: number;
+  /** Headline text size (px). */
+  fontSize: number;
+  /** Overlay band minimum height (px). */
+  minHeight: number;
+  padding: number;
+}
+
 export interface PromotionBlock extends BlockBase {
   type: "promotion";
   promotionId: string;
@@ -183,12 +236,13 @@ export type EmailBlock =
   | ProductBlock
   | SocialBlock
   | HeroBlock
+  | CaptionBlock
   | PromotionBlock
   | SectionBlock;
 
 /** Content blocks that may live inside a section column (everything but section). */
 export const SECTION_CONTENT_TYPES: BlockType[] = [
-  "image", "text", "button", "header", "divider", "spacer", "social", "product",
+  "image", "text", "button", "header", "divider", "spacer", "social", "product", "caption",
 ];
 
 /* ─── Template Types ─── */
@@ -297,6 +351,8 @@ export function createDefaultBlock(type: BlockType): EmailBlock {
       return { id, type, align: "center", facebook: "", instagram: "", tiktok: "", website: "", padding: 20 };
     case "hero":
       return { id, type, imageUrl: "", heading: "Your Headline Here", subheading: "Supporting text goes here", buttonText: "Learn More", buttonUrl: "https://", overlay: true, textColor: "#ffffff", padding: 0 };
+    case "caption":
+      return { id, type, imageUrl: "", alt: "", heading: "Your Headline", subheading: "", layout: "overlay", textAlign: "center", verticalAlign: "middle", textColor: "#ffffff", bgColor: "#1a5632", scrim: 30, fontSize: 26, minHeight: 220, padding: 0 };
     case "promotion":
       return { id, type, promotionId: "", headline: "Special Offer", description: "Don't miss out on this limited-time deal.", promoCode: "", discountLabel: "", expiresLabel: "", buttonText: "Shop Now", buttonUrl: "https://", bgColor: "#f5f3ff", accentColor: "#7c3aed", textColor: "#1f2937", padding: 24 };
     case "section":
@@ -324,12 +380,13 @@ function col(weight: number, blocks: EmailBlock[]): SectionColumn {
   return { id: newBlockId(), blocks, weight, bgColor: "", verticalAlign: "middle", padding: 12 };
 }
 
-/** A heading + paragraph + button stack — the typical "content" column. */
+/** A heading + paragraph + button stack — the typical "content" column. All
+ *  center-aligned so it reads consistently next to an image. */
 function contentStack(): EmailBlock[] {
   return [
     { ...(createDefaultBlock("header") as HeaderBlock), companyName: "Your Headline", logoUrl: "", bgColor: "", textColor: "#111827", padding: 0 },
-    { ...(createDefaultBlock("text") as TextBlock), html: "<p>Supporting copy goes here. Keep it short and punchy.</p>", bgColor: "", padding: 0 },
-    { ...(createDefaultBlock("button") as ButtonBlock), align: "left", padding: 0 },
+    { ...(createDefaultBlock("text") as TextBlock), html: "<p>Supporting copy goes here. Keep it short and punchy.</p>", bgColor: "", padding: 0, textAlign: "center" },
+    { ...(createDefaultBlock("button") as ButtonBlock), align: "center", padding: 0 },
   ];
 }
 
@@ -339,9 +396,9 @@ export function createSectionPreset(preset: SectionPreset): SectionBlock {
 
   switch (preset) {
     case "imageText":
-      return { ...base, columns: [col(2, image()), col(3, contentStack())] };
+      return { ...base, columns: [col(1, image()), col(1, contentStack())] };
     case "textImage":
-      return { ...base, columns: [col(3, contentStack()), col(2, image())] };
+      return { ...base, columns: [col(1, contentStack()), col(1, image())] };
     case "twoCol":
       return { ...base, columns: [col(1, [createDefaultBlock("text")]), col(1, [createDefaultBlock("text")])] };
     case "threeCol":

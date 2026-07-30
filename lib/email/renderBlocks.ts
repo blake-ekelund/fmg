@@ -22,9 +22,14 @@
  * do, since we never escape braces.
  */
 
-import type { EmailBlock, SectionBlock, TextAlign, FontFamily, VAlign } from "@/components/templates/types";
+import type { EmailBlock, SectionBlock, CaptionBlock, TextAlign, FontFamily, VAlign } from "@/components/templates/types";
 
 const DEFAULT_WIDTH = 600;
+// The document wrapper pads the content column by this much on each side (see
+// the outer `padding:24px 12px` td below). At a viewport equal to the design
+// width the white column is really `width - DOC_HPAD*2`, which section columns
+// must respect or they overflow-and-stack at the exact width clients render.
+const DOC_HPAD = 12;
 
 export type RenderBlocksOptions = {
   /** Outer canvas colour behind the 600px content column. */
@@ -33,6 +38,12 @@ export type RenderBlocksOptions = {
   previewText?: string;
   /** Content column width in px. */
   contentWidth?: number;
+  /**
+   * Editor-only: tag each block's cell with data-block-id so the canvas iframe
+   * can map clicks back to blocks. Never set for a real send — it only ADDS an
+   * attribute, so send output with this off is byte-identical to before.
+   */
+  editable?: boolean;
 };
 
 /* ─── Escaping + small helpers ────────────────────────────────────────────── */
@@ -134,14 +145,100 @@ export function sanitizeInlineHtml(html: string): string {
   return out;
 }
 
+/**
+ * Normalise spacing inside a text block's authored HTML. Block-level tags carry
+ * the browser/client default top+bottom margin (~1em), which stacks on top of
+ * the block's own padding and reads as surprise whitespace — most visibly a
+ * one-line paragraph rendering in a tall box. We set an explicit inline
+ * bottom-margin on each block tag (so the padding control owns the OUTER
+ * spacing) and trim the last one to zero, leaving clean inter-paragraph gaps.
+ *
+ * Inline (not a <style> block) on purpose: it survives Outlook's Word engine,
+ * which drops <style>. Runs after sanitising, where every allowed block tag is
+ * bare (no attributes), so the match is exact.
+ */
+const SPACING_TAGS = "p|h1|h2|h3|h4|ul|ol|blockquote";
+export function spaceBlocks(safeHtml: string): string {
+  let html = safeHtml.replace(new RegExp(`<(${SPACING_TAGS})>`, "gi"), '<$1 style="margin:0 0 12px;">');
+  const styled = new RegExp(`<(${SPACING_TAGS}) style="margin:0 0 12px;">`, "gi");
+  const matches = [...html.matchAll(styled)];
+  if (matches.length) {
+    const last = matches[matches.length - 1];
+    const idx = last.index ?? 0;
+    // Trim the trailing margin so the block hugs its bottom padding.
+    html = html.slice(0, idx) + `<${last[1]} style="margin:0;">` + html.slice(idx + last[0].length);
+  }
+  return html;
+}
+
 /* ─── Per-block rendering ─────────────────────────────────────────────────── */
 
-function renderBlock(block: EmailBlock, width: number): string {
+/**
+ * Render a block and, in editor mode, tag its first cell with data-block-id so
+ * the canvas can identify what was clicked. The attribute injection is a no-op
+ * when `editable` is false, keeping send output unchanged.
+ */
+function renderBlockTagged(block: EmailBlock, width: number, editable: boolean): string {
+  let html = renderBlock(block, width, editable);
+  // Tag the block's OWN cell before margins add untagged spacer rows around it,
+  // so a click still maps to the block and not the surrounding gap.
+  if (editable) html = html.replace(/<td/, `<td data-block-id="${escapeHtml(block.id)}"`);
+  return applyMargins(html, block.marginTop, block.marginBottom);
+}
+
+/** A transparent full-width spacer row — the email-safe way to add vertical
+ *  space. Works in every client (Gmail/Outlook included), unlike CSS margins. */
+function spacerRow(height: number): string {
+  const h = Math.round(height);
+  if (h <= 0) return "";
+  return `<tr><td height="${h}" style="height:${px(h)};line-height:${px(h)};font-size:0;">&nbsp;</td></tr>`;
+}
+
+/**
+ * Apply a block's optional `marginTop`/`marginBottom` (either may be negative).
+ *
+ * A block renders as one `<tr>` in its surrounding table, so the space around it
+ * is added as sibling rows, not CSS margin:
+ *
+ *   - POSITIVE space → a real spacer `<tr>` above/below. Honoured by EVERY email
+ *     client, and transparent (it shows whatever is behind — the white column
+ *     for a section, the section/column background for a nested block). This is
+ *     the reliable path and the reason margins now actually work in the inbox.
+ *   - NEGATIVE space (overlap) → a negative CSS margin on a div wrapping the
+ *     cell's content. Table rows can't truly overlap in email, so this is
+ *     best-effort: it pulls content up in the editor and lenient clients
+ *     (Apple Mail / iOS) but Gmail and Outlook ignore it.
+ */
+function applyMargins(html: string, marginTop?: number, marginBottom?: number): string {
+  const mt = Math.round(marginTop ?? 0);
+  const mb = Math.round(marginBottom ?? 0);
+  if ((!mt && !mb) || !html.startsWith("<tr>")) return html;
+
+  // Negative values: wrap the cell's inner content in a negatively-margined div.
+  let core = html;
+  const negTop = mt < 0 ? mt : 0;
+  const negBot = mb < 0 ? mb : 0;
+  if (negTop || negBot) {
+    const tdStart = html.indexOf("<td");
+    const openEnd = tdStart >= 0 ? html.indexOf(">", tdStart) : -1;
+    const closeStart = html.lastIndexOf("</td>");
+    if (openEnd >= 0 && closeStart > openEnd) {
+      const inner = html.slice(openEnd + 1, closeStart);
+      const style = (negTop ? `margin-top:${negTop}px;` : "") + (negBot ? `margin-bottom:${negBot}px;` : "");
+      core = html.slice(0, openEnd + 1) + `<div style="${style}">${inner}</div>` + html.slice(closeStart);
+    }
+  }
+
+  // Positive values: real spacer rows above/below.
+  return (mt > 0 ? spacerRow(mt) : "") + core + (mb > 0 ? spacerRow(mb) : "");
+}
+
+function renderBlock(block: EmailBlock, width: number, editable = false): string {
   switch (block.type) {
     case "header": {
       const inner = block.logoUrl
         ? `<img src="${safeUrl(block.logoUrl)}" alt="${escapeHtml(block.companyName)}" height="40" style="display:block;margin:0 auto;border:0;height:40px;max-height:40px;width:auto;">`
-        : `<div style="font-size:${px(block.fontSize ?? 20)};font-weight:bold;letter-spacing:0.5px;color:${escapeHtml(block.textColor)};">${escapeHtml(block.companyName)}</div>`;
+        : `<div style="font-family:${fontStack(block.fontFamily ?? "sans")};font-size:${px(block.fontSize ?? 20)};font-weight:bold;letter-spacing:0.5px;color:${escapeHtml(block.textColor)};">${escapeHtml(block.companyName)}</div>`;
       return row(`<div align="center" style="text-align:center;color:${escapeHtml(block.textColor)};">${inner}</div>`, {
         padding: block.padding,
         bg: block.bgColor,
@@ -153,14 +250,13 @@ function renderBlock(block: EmailBlock, width: number): string {
         `font-family:${fontStack(block.fontFamily)};` +
         `font-size:${px(block.fontSize)};line-height:1.5;` +
         `color:${escapeHtml(block.textColor)};text-align:${alignAttr(block.textAlign)};`;
-      return row(`<div style="${style}">${sanitizeInlineHtml(block.html)}</div>`, {
+      return row(`<div style="${style}">${spaceBlocks(sanitizeInlineHtml(block.html))}</div>`, {
         padding: block.padding,
         bg: block.bgColor,
       });
     }
 
     case "image": {
-      if (!block.src) return ""; // the editor's "drop image here" placeholder is preview-only
       const inner = Math.max(1, width - block.padding * 2);
       const w =
         typeof block.width === "number"
@@ -170,15 +266,51 @@ function renderBlock(block: EmailBlock, width: number): string {
             : block.width === "half"
               ? Math.round(inner / 2)
               : Math.round(inner / 3);
+      if (!block.src) {
+        // Nothing ships for an empty image — but the editor needs a visible,
+        // clickable target so you can see where it goes and set it.
+        if (!editable) return "";
+        return row(
+          `<div align="${alignAttr(block.align)}" style="text-align:${alignAttr(block.align)};">` +
+            `<div style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;` +
+            `width:${px(w)};max-width:100%;aspect-ratio:1/1;padding:12px;border:2px dashed #cbd5e1;` +
+            `border-radius:${px(block.borderRadius)};background:#f8fafc;color:#94a3b8;` +
+            `font:13px/1.4 -apple-system,'Segoe UI',Arial,sans-serif;text-align:center;">` +
+            `Click to add an image</div></div>`,
+          { padding: block.padding },
+        );
+      }
+      // Alt-text styling (color/font/line-height) is inherited by most clients
+      // when they render the ALT in place of a blocked image — so a blocked
+      // image degrades to legible, readable text instead of a tiny broken glyph.
+      // It has no effect once the image actually loads.
       const img =
         `<img src="${safeUrl(block.src)}" alt="${escapeHtml(block.alt)}" width="${w}" ` +
-        `style="display:block;border:0;width:${px(w)};max-width:100%;height:auto;border-radius:${px(block.borderRadius)};">`;
+        `style="display:block;border:0;width:${px(w)};max-width:100%;height:auto;border-radius:${px(block.borderRadius)};` +
+        `color:#6b7280;font-family:${fontStack("sans")};font-size:13px;line-height:1.4;">`;
       const wrapped = block.linkUrl
         ? `<a href="${safeUrl(block.linkUrl)}" target="_blank" rel="noopener noreferrer">${img}</a>`
         : img;
-      return row(`<div align="${alignAttr(block.align)}" style="text-align:${alignAttr(block.align)};">${wrapped}</div>`, {
-        padding: block.padding,
-      });
+      // A full-width image fills the column, so alignment is moot. A narrower
+      // image is a fixed-width BLOCK element, which text-align can't move — it
+      // needs auto margins, plus an aligned table so Outlook's Word engine
+      // (which ignores margin:auto) still positions it.
+      if (w >= inner) {
+        return row(`<div style="text-align:${alignAttr(block.align)};">${wrapped}</div>`, {
+          padding: block.padding,
+        });
+      }
+      const marginStyle =
+        block.align === "center"
+          ? "margin:0 auto;"
+          : block.align === "right"
+            ? "margin:0 0 0 auto;"
+            : "margin:0;";
+      return row(
+        `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${alignAttr(block.align)}" ` +
+          `style="${marginStyle}"><tr><td style="padding:0;font-size:0;">${wrapped}</td></tr></table>`,
+        { padding: block.padding },
+      );
     }
 
     case "button":
@@ -281,7 +413,11 @@ function renderBlock(block: EmailBlock, width: number): string {
       const inner = Math.max(1, width - block.padding * 2);
       const img = block.imageUrl
         ? `<img src="${safeUrl(block.imageUrl)}" alt="${escapeHtml(block.heading)}" width="${inner}" style="display:block;width:${px(inner)};max-width:100%;height:auto;border:0;">`
-        : "";
+        : editable
+          ? `<div style="width:100%;box-sizing:border-box;padding:40px 12px;border:2px dashed #cbd5e1;` +
+            `background:#f8fafc;color:#94a3b8;font:13px/1.4 -apple-system,'Segoe UI',Arial,sans-serif;text-align:center;">` +
+            `Click to add a hero image</div>`
+          : "";
       const panelBg = block.overlay ? "#1f2937" : "#f3f4f6";
       const textColor = block.overlay ? block.textColor || "#ffffff" : "#1f2937";
       const panel =
@@ -327,12 +463,90 @@ function renderBlock(block: EmailBlock, width: number): string {
       );
     }
 
+    case "caption":
+      return renderCaption(block, width, editable);
+
     case "section":
-      return renderSection(block, width);
+      return renderSection(block, width, editable);
 
     default:
       return "";
   }
+}
+
+/* ─── Caption / overlay (image + live text, image-blocked safe) ────────────── */
+
+/**
+ * An image with a real-text headline over it (overlay) or beside it in a solid
+ * panel (above/below). The text is HTML, never baked into the image, so it
+ * survives image blocking: for the overlay the cell's `bgColor` fills the space
+ * behind the (bulletproof, VML-backed) background image and the text reads on
+ * top of it; for the panel layouts the caption is its own coloured row.
+ */
+function renderCaption(block: CaptionBlock, width: number, editable: boolean): string {
+  const align = alignAttr(block.textAlign);
+  const bg = escapeHtml(block.bgColor || "#1f2937");
+  const textColor = escapeHtml(block.textColor || "#ffffff");
+  const heading = escapeHtml(block.heading);
+  const sub = block.subheading ? escapeHtml(block.subheading) : "";
+  const fs = px(block.fontSize ?? 26);
+  const sans = fontStack("sans");
+  const img = block.imageUrl ? safeUrl(block.imageUrl) : "";
+  const hasImg = !!img && img !== "#";
+
+  // ── Above / Below: image on one side, a solid caption panel on the other ──
+  if (block.layout === "above" || block.layout === "below") {
+    const inner = Math.max(1, width - block.padding * 2);
+    const imageCell = hasImg
+      ? `<img src="${img}" alt="${escapeHtml(block.alt || block.heading)}" width="${inner}" ` +
+        `style="display:block;width:${px(inner)};max-width:100%;height:auto;border:0;color:#6b7280;font-family:${sans};font-size:14px;line-height:1.4;">`
+      : editable
+        ? `<div style="width:100%;box-sizing:border-box;padding:32px 12px;border:2px dashed #cbd5e1;background:#f8fafc;color:#94a3b8;font:13px/1.4 ${sans};text-align:center;">Click to add an image</div>`
+        : "";
+    const panel =
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${bg}" style="width:100%;">` +
+      `<tr><td align="${align}" style="padding:16px 20px;text-align:${align};background-color:${bg};">` +
+      `<div style="font-family:${sans};font-size:${fs};font-weight:700;line-height:1.2;color:${textColor};">${heading}</div>` +
+      (sub ? `<div style="font-family:${sans};font-size:15px;line-height:1.4;margin-top:6px;color:${textColor};">${sub}</div>` : "") +
+      `</td></tr></table>`;
+    return row(block.layout === "above" ? panel + imageCell : imageCell + panel, { padding: block.padding });
+  }
+
+  // ── Overlay: bulletproof background image with the text laid over it ──
+  const va = valignAttr(block.verticalAlign);
+  const scrim = Math.max(0, Math.min(80, Math.round(block.scrim ?? 0)));
+  const minH = Math.max(0, Math.round(block.minHeight ?? 200));
+  const shadow = hasImg ? "text-shadow:0 1px 4px rgba(0,0,0,0.55);" : "";
+  const scrimWrap = scrim > 0 && hasImg;
+  const textBox =
+    `<div style="display:inline-block;max-width:88%;` +
+    (scrimWrap ? `background-color:rgba(0,0,0,${(scrim / 100).toFixed(2)});padding:12px 18px;border-radius:6px;` : "") +
+    `">` +
+    `<div style="font-family:${sans};font-size:${fs};font-weight:700;line-height:1.2;color:${textColor};${shadow}">${heading}</div>` +
+    (sub ? `<div style="font-family:${sans};font-size:15px;line-height:1.4;margin-top:6px;color:${textColor};${shadow}">${sub}</div>` : "") +
+    `</div>`;
+
+  const bgImgCss = hasImg
+    ? `background-image:url('${img}');background-position:center;background-size:cover;background-repeat:no-repeat;`
+    : "";
+  const bgAttr = hasImg ? ` background="${img}"` : "";
+  const cellW = Math.max(1, Math.round(width - block.padding * 2));
+  const vmlOpen = hasImg
+    ? `<!--[if gte mso 9]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:${cellW}px;height:${minH}px;">` +
+      `<v:fill type="frame" src="${img}" color="${bg}" /><v:textbox inset="0,0,0,0"><![endif]-->`
+    : "";
+  const vmlClose = hasImg ? `<!--[if gte mso 9]></v:textbox></v:rect><![endif]-->` : "";
+
+  const cell =
+    `<td${bgAttr} bgcolor="${bg}" valign="${va}" height="${minH}" align="${align}" ` +
+    `style="height:${px(minH)};padding:24px;text-align:${align};background-color:${bg};${bgImgCss}">` +
+    vmlOpen + textBox + vmlClose +
+    `</td>`;
+
+  return row(
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;"><tr>${cell}</tr></table>`,
+    { padding: block.padding },
+  );
 }
 
 /* ─── Sections (multi-column containers with backgrounds) ─────────────────── */
@@ -348,15 +562,23 @@ function valignAttr(v: VAlign): string {
  * ignores inline-block — still lays them side by side. `font-size:0` on the
  * container removes the whitespace gaps between inline-block elements.
  */
-function renderSection(block: SectionBlock, width: number): string {
+function renderSection(block: SectionBlock, width: number, editable = false): string {
   const pad = Math.max(0, Math.round(block.padding));
-  const innerW = Math.max(1, width - pad * 2);
+  // Size columns against the REAL content width (minus the wrapper's side
+  // padding), so a multi-column section fits at a 600px client instead of
+  // stacking. Images/hero use the full width (they're fluid via max-width),
+  // so only the section's column math needs this correction.
+  const innerW = Math.max(1, width - DOC_HPAD * 2 - pad * 2);
   const cols = Array.isArray(block.columns) ? block.columns : [];
   if (cols.length === 0) return "";
 
   const gap = Math.max(0, Math.round(block.gap));
   const gapTotal = gap * (cols.length - 1);
-  const avail = Math.max(1, innerW - gapTotal);
+  // A few px of headroom so the columns never land exactly on the container
+  // width — sub-pixel rounding in some clients would otherwise wrap (stack) the
+  // last column even when the math says it fits.
+  const COL_SAFETY = cols.length > 1 ? 4 : 0;
+  const avail = Math.max(1, innerW - gapTotal - COL_SAFETY);
   const totalWeight = cols.reduce((s, c) => s + (c.weight || 1), 0) || 1;
 
   const parts: string[] = [];
@@ -366,9 +588,18 @@ function renderSection(block: SectionBlock, width: number): string {
     const contentW = Math.max(1, w - cpad * 2);
     const va = valignAttr(c.verticalAlign);
     const colBg = c.bgColor ? `background-color:${escapeHtml(c.bgColor)};` : "";
+    // Editor-only "add block" affordance at the bottom of each column. The
+    // canvas maps a click on data-add-col back to (sectionId, columnIndex).
+    const addRow = editable
+      ? `<tr><td style="padding:6px 2px 0;"><div data-add-col="${escapeHtml(block.id)}:${i}" ` +
+        `style="cursor:pointer;text-align:center;border:1px dashed #c7d2fe;border-radius:6px;padding:6px;` +
+        `color:#4f46e5;background:#eef2ff;font:11px/1.2 -apple-system,'Segoe UI',Arial,sans-serif;">+ Add block</div></td></tr>`
+      : "";
+    const filled = c.blocks.map((b) => renderBlockTagged(b, contentW, editable)).join("");
     const inner =
       `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;">` +
-      (c.blocks.map((b) => renderBlock(b, contentW)).join("") || `<tr><td>&nbsp;</td></tr>`) +
+      (filled || (editable ? "" : `<tr><td>&nbsp;</td></tr>`)) +
+      addRow +
       `</table>`;
 
     parts.push(`<!--[if mso]><td valign="${va}" width="${w}" style="width:${w}px;${colBg}padding:${cpad}px;"><![endif]-->`);
@@ -460,7 +691,8 @@ export function renderBlocksToEmailHtml(
 ): string {
   const width = opts.contentWidth ?? DEFAULT_WIDTH;
   const page = opts.pageBackground ?? "#f4f4f5";
-  const body = blocks.map((b) => renderBlock(b, width)).join("");
+  const editable = opts.editable ?? false;
+  const body = blocks.map((b) => renderBlockTagged(b, width, editable)).join("");
 
   // Hidden preheader: the text an inbox list shows after the subject line.
   // Without one, clients scrape whatever the first visible text happens to be.
