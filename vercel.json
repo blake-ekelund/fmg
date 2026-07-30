@@ -5,6 +5,10 @@
       "schedule": "45 11,12,19,20 * * *"
     },
     {
+      "path": "/api/cron/bulk-send",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/renew-email-subscriptions",
       "schedule": "0 */6 * * *"
     },
