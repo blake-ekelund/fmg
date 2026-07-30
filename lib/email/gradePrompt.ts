@@ -131,6 +131,15 @@ ${dimensionSpec}
 - If the subject or preview text is empty, the "subject" dimension must score low and say so.
 - The overall_score is your holistic judgment (not a strict average), 0–100. Map it to a letter: A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 60, else F.
 
+## Issues must include a recommended change
+For every issue, don't just name the problem — write the exact change you would make:
+- Rewritten copy in full (the actual replacement sentence/subject line, not "make it shorter").
+- Specific alt text, specific colors, specific sizes ("set body text to 15px", not "increase font size").
+- "auto_fixable" = true only when the fix can be applied by editing this template's subject,
+  preview text, or content (copy, alt text, colors, layout, structure). It is false when the fix
+  needs something outside the template: new images or assets that don't exist, business decisions
+  (pricing, offer terms), sender/domain configuration, or send-time strategy.
+
 ## Output — return ONLY this JSON object, no prose, no code fence:
 {
   "overall_score": <int 0-100>,
@@ -141,7 +150,13 @@ ${dimensionSpec}
       "key": "<one of: content, design, subject, deliverability, accessibility, brand>",
       "score": <int 0-100>,
       "summary": "<one short sentence>",
-      "issues": ["<concrete, actionable fix>", "..."],
+      "issues": [
+        {
+          "issue": "<what's wrong, one sentence>",
+          "fix": "<the specific recommended change, concrete enough to apply verbatim>",
+          "auto_fixable": <true|false>
+        }
+      ],
       "strengths": ["<what works>", "..."]
     }
     // exactly one object per dimension, all six, in the order listed above

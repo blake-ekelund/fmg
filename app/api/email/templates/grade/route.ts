@@ -36,12 +36,21 @@ type TemplateRow = {
   updated_at: string;
 };
 
+/** One graded issue: the problem plus the concrete change that would fix it.
+    auto_fixable gates the "Fix this" button — true only when the fix is an
+    edit to this template's own subject/preview/content. */
+type GradedIssue = {
+  issue: string;
+  fix: string;
+  auto_fixable: boolean;
+};
+
 type GradedDimension = {
   key: GradeDimensionKey;
   label: string;
   score: number;
   summary: string;
-  issues: string[];
+  issues: GradedIssue[];
   strengths: string[];
 };
 
@@ -73,6 +82,29 @@ function toStringList(v: unknown, cap: number): string[] {
     .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
     .map((s) => s.trim().slice(0, 400))
     .slice(0, cap);
+}
+
+/** Coerce the model's issues array. Tolerates plain strings (the pre-fix
+    grade format) by wrapping them as non-fixable issues with no fix text. */
+function toIssueList(v: unknown, cap: number): GradedIssue[] {
+  if (!Array.isArray(v)) return [];
+  const out: GradedIssue[] = [];
+  for (const x of v) {
+    if (out.length >= cap) break;
+    if (typeof x === "string" && x.trim()) {
+      out.push({ issue: x.trim().slice(0, 400), fix: "", auto_fixable: false });
+    } else if (x && typeof x === "object") {
+      const o = x as Record<string, unknown>;
+      const issue = typeof o.issue === "string" ? o.issue.trim() : "";
+      if (!issue) continue;
+      out.push({
+        issue: issue.slice(0, 400),
+        fix: typeof o.fix === "string" ? o.fix.trim().slice(0, 600) : "",
+        auto_fixable: o.auto_fixable === true,
+      });
+    }
+  }
+  return out;
 }
 
 /** Rendered content (for the prompt) + HTML (for the linter), by source. */
@@ -152,7 +184,7 @@ async function gradeOne(
       label: DIM_LABEL.get(def.key) ?? def.label,
       score: clampScore(d.score),
       summary: typeof d.summary === "string" ? d.summary.slice(0, 400) : "",
-      issues: toStringList(d.issues, 6),
+      issues: toIssueList(d.issues, 6),
       strengths: toStringList(d.strengths, 6),
     };
   });
@@ -200,9 +232,16 @@ export async function GET(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const { data, error } = await supabaseServer
+  let { data, error } = await supabaseServer
     .from("email_template_grades")
-    .select("template_id, overall_score, letter, summary, dimensions, template_updated_at, graded_at");
+    .select("template_id, overall_score, letter, summary, dimensions, fixes, template_updated_at, graded_at");
+  if (error && /fixes/i.test(error.message)) {
+    // `fixes` column not migrated yet — grades still work, just without
+    // applied-fix tracking.
+    ({ data, error } = await supabaseServer
+      .from("email_template_grades")
+      .select("template_id, overall_score, letter, summary, dimensions, template_updated_at, graded_at"));
+  }
   if (error) {
     // Table not migrated yet → behave as "no grades" rather than 500ing the page.
     return NextResponse.json({ grades: {} });
@@ -258,9 +297,15 @@ export async function POST(request: Request) {
     .map((o) => `${o.item.name}: ${o.error}`);
 
   if (gradeRows.length > 0) {
-    const { error: upsertErr } = await supabaseServer
+    // A fresh grade replaces the issue list, so applied-fix tracking resets too.
+    let { error: upsertErr } = await supabaseServer
       .from("email_template_grades")
-      .upsert(gradeRows, { onConflict: "template_id" });
+      .upsert(gradeRows.map((g) => ({ ...g, fixes: [] })), { onConflict: "template_id" });
+    if (upsertErr && /fixes/i.test(upsertErr.message)) {
+      ({ error: upsertErr } = await supabaseServer
+        .from("email_template_grades")
+        .upsert(gradeRows, { onConflict: "template_id" }));
+    }
     if (upsertErr) {
       return NextResponse.json(
         { error: `Grades computed but couldn't be saved: ${upsertErr.message}` },

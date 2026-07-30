@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   Plus,
@@ -24,6 +24,7 @@ import {
   Captions,
   Rows3,
   PanelTop,
+  PanelBottom,
   Tag,
   Code2,
   FileCode,
@@ -73,6 +74,7 @@ const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
   { type: "divider", label: "Divider", icon: Minus },
   { type: "spacer", label: "Spacer", icon: Rows3 },
   { type: "social", label: "Social Links", icon: Share2 },
+  { type: "footer", label: "Footer / Unsubscribe", icon: PanelBottom },
 ];
 
 /* Mini glyph illustrating a section layout in the palette. */
@@ -150,7 +152,7 @@ function SmsEditor({
 
 /* ─── Main Template Editor ─── */
 export default function TemplateEditorPage() {
-  const { templates, loading, save, remove, duplicate } = useTemplates();
+  const { templates, loading, save, remove, duplicate, refresh } = useTemplates();
 
   // List vs editor mode
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -252,6 +254,88 @@ export default function TemplateEditorPage() {
   const [grading, setGrading] = useState(false);
   const [gradeMsg, setGradeMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [gradeDetail, setGradeDetail] = useState<{ template: EmailTemplate; grade: TemplateGrade } | null>(null);
+
+  /* ── AI fix queue — PAGE-level state, not modal state ──
+     Fixes keep running when the grade modal closes, so the queue lives here:
+     the library table can show a "fixing" chip, reopening the modal shows the
+     true in-flight state, and a reopened modal can't accidentally start a
+     second runner racing the first. One serial queue per template (a fix
+     rewrites the template's content, so two on the same template would
+     clobber each other); different templates may fix in parallel. */
+  const [fixActive, setFixActive] = useState<Record<string, string>>({});   // template id → running issue key
+  const [fixQueued, setFixQueued] = useState<Record<string, string[]>>({}); // template id → waiting issue keys
+  const [fixErrors, setFixErrors] = useState<Record<string, string>>({});   // `${templateId}|${issueKey}` → error
+  // Refs carry the queues for the async runners — state would go stale inside the loop.
+  const fixQueuesRef = useRef<Map<string, Array<{ d: GradedDimension; iss: GradedIssue }>>>(new Map());
+  const fixRunningRef = useRef<Set<string>>(new Set());
+
+  const issueKeyOf = (d: GradedDimension, iss: GradedIssue) => `${d.key}:${iss.issue}`;
+
+  function requestFix(template: EmailTemplate, d: GradedDimension, iss: GradedIssue) {
+    const key = issueKeyOf(d, iss);
+    const queue = fixQueuesRef.current.get(template.id) ?? [];
+    if (queue.some((q) => issueKeyOf(q.d, q.iss) === key) || fixActive[template.id] === key) return;
+    queue.push({ d, iss });
+    fixQueuesRef.current.set(template.id, queue);
+    setFixQueued((cur) => ({ ...cur, [template.id]: queue.map((q) => issueKeyOf(q.d, q.iss)) }));
+    setFixErrors((cur) => ({ ...cur, [`${template.id}|${key}`]: "" }));
+    if (!fixRunningRef.current.has(template.id)) void runFixQueue(template);
+  }
+
+  async function runFixQueue(template: EmailTemplate) {
+    fixRunningRef.current.add(template.id);
+    const queue = fixQueuesRef.current.get(template.id) ?? [];
+    for (let task = queue.shift(); task; task = queue.shift()) {
+      const key = issueKeyOf(task.d, task.iss);
+      setFixQueued((cur) => ({ ...cur, [template.id]: queue.map((q) => issueKeyOf(q.d, q.iss)) }));
+      setFixActive((cur) => ({ ...cur, [template.id]: key }));
+      await applyOneFix(template, task.d, task.iss);
+    }
+    setFixActive((cur) => Object.fromEntries(Object.entries(cur).filter(([id]) => id !== template.id)));
+    setFixQueued((cur) => Object.fromEntries(Object.entries(cur).filter(([id]) => id !== template.id)));
+    fixRunningRef.current.delete(template.id);
+    // One reload per drained queue: pulls the edited content into the library
+    // (and surfaces the "stale grade" badge).
+    refresh();
+  }
+
+  async function applyOneFix(template: EmailTemplate, dimension: GradedDimension, issue: GradedIssue) {
+    const errKey = `${template.id}|${issueKeyOf(dimension, issue)}`;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const res = await fetch("/api/email/templates/grade/fix", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          template_id: template.id,
+          dimension_key: dimension.key,
+          dimension_label: dimension.label,
+          issue: issue.issue,
+          fix: issue.fix,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setFixErrors((cur) => ({ ...cur, [errKey]: json?.error ?? `Fix failed (${res.status})` }));
+        return;
+      }
+      const fixes = (json.fixes as FixRecord[]) ?? [];
+      // Keep the grades map current so the modal (open or reopened) shows the
+      // fixed state immediately.
+      setGrades((cur) =>
+        cur[template.id] ? { ...cur, [template.id]: { ...cur[template.id], fixes } } : cur,
+      );
+    } catch (e) {
+      setFixErrors((cur) => ({
+        ...cur,
+        [errKey]: e instanceof Error ? e.message : "Fix failed",
+      }));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -633,6 +717,8 @@ export default function TemplateEditorPage() {
                           {(() => {
                             const g = grades[t.id];
                             if (!g) return <span className="text-[11px] text-gray-300">—</span>;
+                            const fixingCount =
+                              (fixActive[t.id] ? 1 : 0) + (fixQueued[t.id]?.length ?? 0);
                             const stale =
                               !!g.template_updated_at &&
                               new Date(t.updated_at).getTime() >
@@ -647,13 +733,23 @@ export default function TemplateEditorPage() {
                                 title="View grade breakdown"
                               >
                                 <GradeBadge letter={g.letter} score={g.overall_score} />
-                                {stale && (
+                                {fixingCount > 0 ? (
                                   <span
-                                    className="text-[9px] font-semibold uppercase tracking-wide text-amber-500"
-                                    title="Template edited since it was graded — re-grade to refresh"
+                                    className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-indigo-600"
+                                    title={`The AI is applying ${fixingCount} fix${fixingCount === 1 ? "" : "es"} to this template`}
                                   >
-                                    stale
+                                    <Loader2 size={9} className="animate-spin" />
+                                    AI fixing{fixingCount > 1 ? ` (${fixingCount})` : ""}
                                   </span>
+                                ) : (
+                                  stale && (
+                                    <span
+                                      className="text-[9px] font-semibold uppercase tracking-wide text-amber-500"
+                                      title="Template edited since it was graded — re-grade to refresh"
+                                    >
+                                      stale
+                                    </span>
+                                  )
                                 )}
                               </button>
                             );
@@ -740,7 +836,15 @@ export default function TemplateEditorPage() {
         {gradeDetail && (
           <GradeDetailModal
             template={gradeDetail.template}
-            grade={gradeDetail.grade}
+            grade={grades[gradeDetail.template.id] ?? gradeDetail.grade}
+            activeKey={fixActive[gradeDetail.template.id] ?? null}
+            queuedKeys={fixQueued[gradeDetail.template.id] ?? []}
+            errors={Object.fromEntries(
+              Object.entries(fixErrors)
+                .filter(([k]) => k.startsWith(`${gradeDetail.template.id}|`))
+                .map(([k, v]) => [k.slice(gradeDetail.template.id.length + 1), v]),
+            )}
+            onRequestFix={(d, iss) => requestFix(gradeDetail.template, d, iss)}
             onClose={() => setGradeDetail(null)}
             onOpenEditor={() => {
               const t = gradeDetail.template;
@@ -1230,13 +1334,29 @@ export default function TemplateEditorPage() {
 
 /* ─── AI grading ─── */
 
+/** New grades store issue objects; grades saved before "Fix this" shipped
+    store plain strings. The UI renders both. */
+type GradedIssue = {
+  issue: string;
+  fix: string;
+  auto_fixable: boolean;
+};
+
 type GradedDimension = {
   key: string;
   label: string;
   score: number;
   summary: string;
-  issues: string[];
+  issues: Array<string | GradedIssue>;
   strengths: string[];
+};
+
+/** A fix that was applied via the "Fix this" button. */
+type FixRecord = {
+  dimension: string;
+  issue: string;
+  note: string;
+  fixed_at: string;
 };
 
 type TemplateGrade = {
@@ -1245,6 +1365,7 @@ type TemplateGrade = {
   letter: string;
   summary: string | null;
   dimensions: GradedDimension[];
+  fixes?: FixRecord[];
   template_updated_at: string | null;
   graded_at: string;
 };
@@ -1277,11 +1398,23 @@ function GradeBadge({ letter, score }: { letter: string; score: number }) {
 function GradeDetailModal({
   template,
   grade,
+  activeKey,
+  queuedKeys,
+  errors,
+  onRequestFix,
   onClose,
   onOpenEditor,
 }: {
   template: EmailTemplate;
+  /** The LIVE grade from the page's grades map — updates as fixes land. */
   grade: TemplateGrade;
+  /** Issue key currently being fixed for this template (page-level queue). */
+  activeKey: string | null;
+  /** Issue keys waiting in this template's fix queue. */
+  queuedKeys: string[];
+  /** Fix errors for this template, keyed by issue key. */
+  errors: Record<string, string>;
+  onRequestFix: (dimension: GradedDimension, issue: GradedIssue) => void;
   onClose: () => void;
   onOpenEditor: () => void;
 }) {
@@ -1292,6 +1425,11 @@ function GradeDetailModal({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const fixes = grade.fixes ?? [];
+  const fixedKeys = new Set(fixes.map((f) => `${f.dimension}:${f.issue}`));
+  const noteFor = (key: string) =>
+    fixes.find((f) => `${f.dimension}:${f.issue}` === key)?.note ?? null;
 
   const tone = scoreTone(grade.overall_score);
 
@@ -1347,13 +1485,74 @@ function GradeDetailModal({
                 </div>
                 {d.summary && <p className="mt-2 text-[11px] text-gray-600">{d.summary}</p>}
                 {d.issues.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {d.issues.map((iss, i) => (
-                      <li key={i} className="flex gap-1.5 text-[11px] text-gray-600">
-                        <span className="mt-[3px] h-1 w-1 shrink-0 rounded-full bg-rose-400" />
-                        <span>{iss}</span>
-                      </li>
-                    ))}
+                  <ul className="mt-2 space-y-2">
+                    {d.issues.map((raw, i) => {
+                      // Legacy grades stored plain strings — render, no button.
+                      const iss: GradedIssue =
+                        typeof raw === "string"
+                          ? { issue: raw, fix: "", auto_fixable: false }
+                          : raw;
+                      const key = `${d.key}:${iss.issue}`;
+                      const isFixed = fixedKeys.has(key);
+                      const isFixing = activeKey === key;
+                      const isQueued = queuedKeys.includes(key);
+                      const err = errors[key];
+                      return (
+                        <li key={i} className="flex gap-1.5 text-[11px]">
+                          <span
+                            className={clsx(
+                              "mt-[3px] h-1 w-1 shrink-0 rounded-full",
+                              isFixed ? "bg-emerald-400" : "bg-rose-400",
+                            )}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <span
+                                className={clsx(
+                                  "text-gray-600",
+                                  isFixed && "text-gray-400 line-through decoration-gray-300",
+                                )}
+                              >
+                                {iss.issue}
+                              </span>
+                              {iss.auto_fixable && !isFixed && (
+                                <button
+                                  onClick={() => onRequestFix(d, iss)}
+                                  disabled={isFixing || isQueued}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-40"
+                                  title={
+                                    isQueued
+                                      ? "Waiting — fixes apply one at a time"
+                                      : "Have the AI apply this change to the template"
+                                  }
+                                >
+                                  {isFixing ? (
+                                    <Loader2 size={10} className="animate-spin" />
+                                  ) : (
+                                    <Sparkles size={10} />
+                                  )}
+                                  {isFixing ? "Fixing…" : isQueued ? "Queued" : "Fix this"}
+                                </button>
+                              )}
+                            </div>
+                            {iss.fix && !isFixed && (
+                              <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400">
+                                <span className="font-medium text-gray-500">Suggested:</span>{" "}
+                                {iss.fix}
+                              </p>
+                            )}
+                            {isFixed && (
+                              <p className="mt-0.5 text-[10px] leading-relaxed text-emerald-600">
+                                ✓ Fixed — {noteFor(key)}
+                              </p>
+                            )}
+                            {err && (
+                              <p className="mt-0.5 text-[10px] leading-relaxed text-rose-600">{err}</p>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
                 {d.strengths.length > 0 && (
