@@ -5,16 +5,17 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import {
   applyMergeFields,
-  sendEmail,
   firstNameOf,
   currentQuarterLabel,
   type MergeVars,
 } from "@/lib/email/send";
+import { dispatchEmail, willUseResend } from "@/lib/email/dispatch";
+import { resolveSender, resendConfigured } from "@/lib/email/sender";
 import { buildTrackedHtmlBody, buildTrackedHtmlFromHtml } from "@/lib/email/tracking";
 import { splitContactName } from "@/lib/email/mergeFields";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
-import type { EmailBlock } from "@/components/templates/types";
+import type { Brand, EmailBlock } from "@/components/templates/types";
 import { publicOriginFromRequest } from "@/lib/email/origin";
 
 type TestTemplate = {
@@ -26,6 +27,9 @@ type TestTemplate = {
   blocks: unknown;
   raw_html: string | null;
   preview_text: string | null;
+  brand: Brand | null;
+  from_name: string | null;
+  reply_to: string | null;
 };
 import {
   isSuppressed,
@@ -224,7 +228,7 @@ export async function POST(
 
   const { data: tplRows, error: tplErr } = await supabaseServer
     .from("email_templates")
-    .select("id, name, subject, body:text_body, source, blocks, raw_html, preview_text")
+    .select("id, name, subject, body:text_body, source, blocks, raw_html, preview_text, brand, from_name, reply_to")
     .in("id", sendable.map((s) => s.template_id as string));
   if (tplErr) return NextResponse.json({ error: tplErr.message }, { status: 500 });
 
@@ -234,23 +238,27 @@ export async function POST(
     ),
   );
 
-  let accessToken: string;
-  let senderEmail: string;
-  let senderDisplay: string | null;
-  try {
-    const t = await getAccessTokenForUser(user.id);
-    accessToken = t.accessToken;
-    senderEmail = t.account.email;
-    senderDisplay = t.account.display_name;
-  } catch (e) {
-    return NextResponse.json(
-      {
-        error: `Connect your email account before sending a test (${
-          e instanceof Error ? e.message : String(e)
-        })`,
-      },
-      { status: 400 },
-    );
+  // Resend (brand domain) is the real transactional sender; only fall back to
+  // the tester's Outlook mailbox when Resend isn't configured.
+  let accessToken: string | null = null;
+  let senderEmail = "";
+  let senderDisplay: string | null = null;
+  if (!resendConfigured()) {
+    try {
+      const t = await getAccessTokenForUser(user.id);
+      accessToken = t.accessToken;
+      senderEmail = t.account.email;
+      senderDisplay = t.account.display_name;
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error: `Connect your email account before sending a test, or configure Resend (${
+            e instanceof Error ? e.message : String(e)
+          })`,
+        },
+        { status: 400 },
+      );
+    }
   }
 
   /* Borrow merge values from a real customer when one was chosen, so you can
@@ -286,6 +294,14 @@ export async function POST(
       continue;
     }
 
+    // Per-template brand sender (each step can be a different brand).
+    const sender = resolveSender({ brand: tpl.brand, fromName: tpl.from_name, replyTo: tpl.reply_to });
+    if (willUseResend(sender)) {
+      vars.senderName = sender.fromName;
+      vars.senderFirstName = firstNameOf(sender.fromName);
+      vars.senderEmail = sender.fromEmail;
+    }
+
     const unsubLink = unsubscribeUrl(origin, { email, automationId: id });
     vars.unsubscribeUrl = unsubLink;
     const subject = `[TEST ${i + 1}/${sendable.length}] ${applyMergeFields(tpl.subject ?? "", vars)}`;
@@ -318,10 +334,10 @@ export async function POST(
     }
 
     try {
-      await sendEmail(accessToken, {
-        subject,
-        bodyHtml,
-        to: [{ address: email }],
+      await dispatchEmail({
+        input: { subject, bodyHtml, to: [{ address: email }] },
+        sender,
+        accessToken,
       });
       results.push({ step: step.step_order, template: tpl.name, ok: true });
     } catch (e) {

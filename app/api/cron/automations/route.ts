@@ -9,14 +9,15 @@ import {
   currentQuarterLabel,
   daysSince,
   firstNameOf,
-  sendEmail,
   type MergeVars,
 } from "@/lib/email/send";
+import { dispatchEmail, willUseResend } from "@/lib/email/dispatch";
+import { resolveSender } from "@/lib/email/sender";
 import { buildTrackedHtmlBody, buildTrackedHtmlFromHtml } from "@/lib/email/tracking";
 import { splitContactName } from "@/lib/email/mergeFields";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
-import type { EmailBlock } from "@/components/templates/types";
+import type { Brand, EmailBlock } from "@/components/templates/types";
 import { parseEmailAddresses } from "@/lib/email/addresses";
 import {
   findSuppressed,
@@ -152,6 +153,9 @@ type Template = {
   blocks: unknown;
   raw_html: string | null;
   preview_text: string | null;
+  brand: Brand | null;
+  from_name: string | null;
+  reply_to: string | null;
 };
 
 type Enrollment = {
@@ -436,7 +440,7 @@ export async function GET(request: Request) {
   }
   const { data: tplRows } = await supabaseServer
     .from("email_templates")
-    .select("id, subject, body:text_body, source, blocks, raw_html, preview_text")
+    .select("id, subject, body:text_body, source, blocks, raw_html, preview_text, brand, from_name, reply_to")
     .in("id", Array.from(templateIds));
   const templates = new Map<string, Template>();
   for (const t of (tplRows as Template[] | null) ?? []) {
@@ -544,6 +548,12 @@ export async function GET(request: Request) {
         failedCount++;
         return;
       }
+      // Transactional/automated mail goes out via Resend from the brand's
+      // verified domain (brand rides in the From name); falls back to the
+      // batch's Outlook mailbox where Resend isn't configured.
+      const sender = resolveSender({ brand: tpl.brand, fromName: tpl.from_name, replyTo: tpl.reply_to });
+      const useResend = willUseResend(sender);
+
       if (!e.customer_email) {
         await supabaseServer
           .from("automation_enrollments")
@@ -616,6 +626,9 @@ export async function GET(request: Request) {
         lastOrderDate: contact?.last_order_date ?? null,
         daysSinceLastOrder: daysSince(contact?.last_order_date ?? null),
         ...senderVars,
+        ...(useResend
+          ? { senderName: sender.fromName, senderFirstName: firstNameOf(sender.fromName), senderEmail: sender.fromEmail }
+          : {}),
       };
       /* Test batch: everything about the send is real — the customer's merge
          fields, the step timing, the tracking — except the recipient. The
@@ -691,15 +704,19 @@ export async function GET(request: Request) {
       }
 
       try {
-        const sent = await sendEmail(accessToken, {
-          subject,
-          bodyHtml: bodyHtmlWithFooter,
-          to: redirectTo
-            ? [{ address: redirectTo }]
-            : [{ address: e.customer_email, name: e.customer_name ?? undefined }],
-          /* Same one-click opt-out the mass-send path uses — an automation is
-             just as much a list send. */
-          headers: listUnsubscribeHeaders(origin, unsubPayload),
+        const sent = await dispatchEmail({
+          input: {
+            subject,
+            bodyHtml: bodyHtmlWithFooter,
+            to: redirectTo
+              ? [{ address: redirectTo }]
+              : [{ address: e.customer_email, name: e.customer_name ?? undefined }],
+            /* Same one-click opt-out the mass-send path uses — an automation is
+               just as much a list send. Resend applies these reliably; Graph may not. */
+            headers: listUnsubscribeHeaders(origin, unsubPayload),
+          },
+          sender,
+          accessToken,
         });
 
         const { data: thread } = await supabaseServer

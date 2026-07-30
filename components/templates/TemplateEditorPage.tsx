@@ -30,6 +30,8 @@ import {
   MonitorSmartphone,
   SlidersHorizontal,
   Send,
+  GraduationCap,
+  Loader2,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -244,6 +246,69 @@ export default function TemplateEditorPage() {
     return () => { cancelled = true; };
   }, []);
 
+  /* AI grades for the library. Fetched once (existing grades) and refreshed
+     after a "Grade emails" run. Keyed by template id. */
+  const [grades, setGrades] = useState<Record<string, TemplateGrade>>({});
+  const [grading, setGrading] = useState(false);
+  const [gradeMsg, setGradeMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [gradeDetail, setGradeDetail] = useState<{ template: EmailTemplate; grade: TemplateGrade } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        const res = await fetch("/api/email/templates/grade", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setGrades(json.grades ?? {});
+      } catch {
+        /* non-critical — the column just shows "not graded" */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /* Grade every template in one shot. Server caps + runs the AI per template,
+     then upserts one current grade each. */
+  async function gradeAll() {
+    setGrading(true);
+    setGradeMsg(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const res = await fetch("/api/email/templates/grade", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setGradeMsg({ ok: false, text: json?.error ?? `Grading failed (${res.status})` });
+        return;
+      }
+      setGrades((prev) => ({ ...prev, ...(json.grades ?? {}) }));
+      const failed = json.failed ?? 0;
+      setGradeMsg({
+        ok: failed === 0,
+        text:
+          `Graded ${json.graded} template${json.graded === 1 ? "" : "s"}` +
+          (failed ? `, ${failed} failed` : "") +
+          (json.capped ? " (capped at 60 — run again for the rest)" : "") +
+          ".",
+      });
+    } catch (e) {
+      setGradeMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setGrading(false);
+    }
+  }
+
   // Load template into editor. For a brand-new template, `blankSource` picks
   // which editor opens (blocks builder by default, or a plain-text body).
   function openEditor(template?: EmailTemplate, blankSource: TemplateSource = "blocks") {
@@ -431,18 +496,37 @@ export default function TemplateEditorPage() {
               Create and manage email templates.
             </p>
           </div>
-          <button
-            onClick={() => setShowWizard(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm"
-          >
-            <Plus size={16} />
-            New template
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={gradeAll}
+              disabled={grading || templates.length === 0}
+              title="Have AI score every template for content, design, subject line, deliverability, accessibility, and brand"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {grading ? <Loader2 size={16} className="animate-spin" /> : <GraduationCap size={16} />}
+              {grading ? "Grading…" : "Grade emails"}
+            </button>
+            <button
+              onClick={() => setShowWizard(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm"
+            >
+              <Plus size={16} />
+              New template
+            </button>
+          </div>
         </div>
 
-        {/* Count */}
+        {/* Count + grade run result */}
         <div className="flex items-center gap-4 text-xs">
           <span className="text-gray-500">{templates.length} templates</span>
+          {gradeMsg && (
+            <span className={clsx("font-medium", gradeMsg.ok ? "text-emerald-600" : "text-rose-600")}>
+              {gradeMsg.text}
+            </span>
+          )}
+          {grading && (
+            <span className="text-gray-400">Scoring each template with AI — this can take a minute.</span>
+          )}
         </div>
 
         {/* Template cards */}
@@ -473,6 +557,7 @@ export default function TemplateEditorPage() {
                     <th className="px-3 py-2.5 font-semibold">Type</th>
                     <th className="px-3 py-2.5 font-semibold hidden md:table-cell">Audience</th>
                     <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">Status</th>
+                    <th className="px-3 py-2.5 font-semibold">Grade</th>
                     <th className="px-3 py-2.5 font-semibold text-right">Sends</th>
                     <th className="px-3 py-2.5 font-semibold hidden lg:table-cell">Updated</th>
                     <th className="px-3 py-2.5" />
@@ -541,6 +626,38 @@ export default function TemplateEditorPage() {
                           )}>
                             {t.status}
                           </span>
+                        </td>
+
+                        {/* Grade */}
+                        <td className="px-3 py-3">
+                          {(() => {
+                            const g = grades[t.id];
+                            if (!g) return <span className="text-[11px] text-gray-300">—</span>;
+                            const stale =
+                              !!g.template_updated_at &&
+                              new Date(t.updated_at).getTime() >
+                                new Date(g.template_updated_at).getTime();
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setGradeDetail({ template: t, grade: g });
+                                }}
+                                className="inline-flex items-center gap-1.5"
+                                title="View grade breakdown"
+                              >
+                                <GradeBadge letter={g.letter} score={g.overall_score} />
+                                {stale && (
+                                  <span
+                                    className="text-[9px] font-semibold uppercase tracking-wide text-amber-500"
+                                    title="Template edited since it was graded — re-grade to refresh"
+                                  >
+                                    stale
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })()}
                         </td>
 
                         {/* Sends */}
@@ -618,6 +735,20 @@ export default function TemplateEditorPage() {
           onClose={() => setShowWizard(false)}
           onComplete={startFromWizard}
         />
+
+        {/* Grade breakdown */}
+        {gradeDetail && (
+          <GradeDetailModal
+            template={gradeDetail.template}
+            grade={gradeDetail.grade}
+            onClose={() => setGradeDetail(null)}
+            onOpenEditor={() => {
+              const t = gradeDetail.template;
+              setGradeDetail(null);
+              openEditor(t);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -1093,6 +1224,167 @@ export default function TemplateEditorPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── AI grading ─── */
+
+type GradedDimension = {
+  key: string;
+  label: string;
+  score: number;
+  summary: string;
+  issues: string[];
+  strengths: string[];
+};
+
+type TemplateGrade = {
+  template_id: string;
+  overall_score: number;
+  letter: string;
+  summary: string | null;
+  dimensions: GradedDimension[];
+  template_updated_at: string | null;
+  graded_at: string;
+};
+
+/** Tailwind classes for a score, red→green. Shared by the badge and bars. */
+function scoreTone(score: number): { text: string; bg: string; bar: string } {
+  if (score >= 90) return { text: "text-emerald-700", bg: "bg-emerald-100", bar: "bg-emerald-500" };
+  if (score >= 80) return { text: "text-green-700", bg: "bg-green-100", bar: "bg-green-500" };
+  if (score >= 70) return { text: "text-amber-700", bg: "bg-amber-100", bar: "bg-amber-500" };
+  if (score >= 60) return { text: "text-orange-700", bg: "bg-orange-100", bar: "bg-orange-500" };
+  return { text: "text-rose-700", bg: "bg-rose-100", bar: "bg-rose-500" };
+}
+
+function GradeBadge({ letter, score }: { letter: string; score: number }) {
+  const tone = scoreTone(score);
+  return (
+    <span
+      className={clsx(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums",
+        tone.bg,
+        tone.text,
+      )}
+    >
+      {letter}
+      <span className="font-semibold opacity-70">{score}</span>
+    </span>
+  );
+}
+
+function GradeDetailModal({
+  template,
+  grade,
+  onClose,
+  onOpenEditor,
+}: {
+  template: EmailTemplate;
+  grade: TemplateGrade;
+  onClose: () => void;
+  onOpenEditor: () => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const tone = scoreTone(grade.overall_score);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={clsx(
+                "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl font-bold leading-none",
+                tone.bg,
+                tone.text,
+              )}
+            >
+              <span className="text-lg">{grade.letter}</span>
+              <span className="text-[10px] font-semibold opacity-70 tabular-nums">
+                {grade.overall_score}
+              </span>
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-gray-900">
+                {template.name || "Untitled"}
+              </div>
+              {grade.summary && (
+                <div className="mt-0.5 text-xs text-gray-500">{grade.summary}</div>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="shrink-0 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Dimensions */}
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          {grade.dimensions.map((d) => {
+            const t = scoreTone(d.score);
+            return (
+              <div key={d.key} className="rounded-xl border border-gray-100 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-gray-800">{d.label}</span>
+                  <span className={clsx("text-xs font-bold tabular-nums", t.text)}>{d.score}</span>
+                </div>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                  <div className={clsx("h-full rounded-full", t.bar)} style={{ width: `${d.score}%` }} />
+                </div>
+                {d.summary && <p className="mt-2 text-[11px] text-gray-600">{d.summary}</p>}
+                {d.issues.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {d.issues.map((iss, i) => (
+                      <li key={i} className="flex gap-1.5 text-[11px] text-gray-600">
+                        <span className="mt-[3px] h-1 w-1 shrink-0 rounded-full bg-rose-400" />
+                        <span>{iss}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {d.strengths.length > 0 && (
+                  <ul className="mt-1.5 space-y-1">
+                    {d.strengths.map((s, i) => (
+                      <li key={i} className="flex gap-1.5 text-[11px] text-gray-500">
+                        <span className="mt-[3px] h-1 w-1 shrink-0 rounded-full bg-emerald-400" />
+                        <span>{s}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
+          <span className="text-[10px] text-gray-400">
+            Graded {new Date(grade.graded_at).toLocaleString()}
+          </span>
+          <button
+            onClick={onOpenEditor}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-gray-800"
+          >
+            <Pencil size={13} />
+            Open template
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

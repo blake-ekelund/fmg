@@ -5,10 +5,11 @@ import { getAccessTokenForUser } from "@/lib/email/tokens";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import { renderTextEmail } from "@/lib/email/renderText";
-import { sendEmail } from "@/lib/email/send";
 import { applyMergeFields, currentQuarterLabel, daysSince, type MergeVars } from "@/lib/email/send";
+import { dispatchEmail, willUseResend } from "@/lib/email/dispatch";
+import { resolveSender } from "@/lib/email/sender";
 import { splitContactName } from "@/lib/email/mergeFields";
-import type { EmailBlock } from "@/components/templates/types";
+import type { Brand, EmailBlock } from "@/components/templates/types";
 
 export const runtime = "nodejs";
 
@@ -121,7 +122,7 @@ export async function POST(
 
   const { data, error } = await supabaseServer
     .from("email_templates")
-    .select("name, subject, preview_text, source, blocks, raw_html, text_body")
+    .select("name, subject, preview_text, source, blocks, raw_html, text_body, brand, from_name, reply_to")
     .eq("id", id)
     .maybeSingle();
 
@@ -163,26 +164,40 @@ export async function POST(
     }
   }
 
+  // Prefer Resend (from the brand's verified domain) — that's the real
+  // transactional sender, so the test shows what a customer actually receives.
+  // Falls back to the caller's Outlook mailbox where Resend isn't configured.
+  const sender = resolveSender({
+    brand: (data.brand as Brand | null) ?? null,
+    fromName: (data.from_name as string | null) ?? null,
+    replyTo: (data.reply_to as string | null) ?? null,
+  });
+  const viaResend = willUseResend(sender);
+  if (viaResend) {
+    // {{senderName}}/{{senderEmail}} should reflect the brand, not a rep.
+    vars = { ...vars, senderName: sender.fromName, senderEmail: sender.fromEmail };
+  }
+
   const subject = `[Test] ${(data.subject as string | null)?.trim() || data.name || "Untitled template"}`;
   const body = applyMergeFields(html, vars);
 
-  // Send through the caller's own mailbox.
-  let accessToken: string;
-  try {
-    const t = await getAccessTokenForUser(user.id);
-    accessToken = t.accessToken;
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Could not access your mailbox. Connect Outlook first." },
-      { status: 400 },
-    );
+  let accessToken: string | null = null;
+  if (!viaResend) {
+    try {
+      accessToken = (await getAccessTokenForUser(user.id)).accessToken;
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Could not access your mailbox. Connect Outlook first, or configure Resend." },
+        { status: 400 },
+      );
+    }
   }
 
   try {
-    await sendEmail(accessToken, {
-      subject,
-      bodyHtml: body,
-      to: [{ address: toAddress }],
+    await dispatchEmail({
+      input: { subject, bodyHtml: body, to: [{ address: toAddress }] },
+      sender,
+      accessToken,
     });
   } catch (e) {
     return NextResponse.json(
@@ -191,5 +206,5 @@ export async function POST(
     );
   }
 
-  return NextResponse.json({ ok: true, sentTo: toAddress, usedCustomer });
+  return NextResponse.json({ ok: true, sentTo: toAddress, usedCustomer, via: viaResend ? "resend" : "outlook" });
 }
