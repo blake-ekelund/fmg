@@ -128,7 +128,7 @@ export async function isSuppressed(email: string): Promise<boolean> {
  */
 export async function recordUnsubscribe(
   payload: UnsubscribePayload,
-  source: "link" | "manual" | "bounce" = "link",
+  source: "link" | "manual" | "bounce" | "complaint" = "link",
   reason?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const email = normalizeEmail(payload.email);
