@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildTrackedHtmlFromHtml, buildTrackedHtmlBody } from "../tracking";
 import { renderBlocksToEmailHtml } from "../renderBlocks";
+import { applyMergeFields } from "../send";
 import { createDefaultBlock } from "@/components/templates/types";
-import type { ButtonBlock, TextBlock } from "@/components/templates/types";
+import type { ButtonBlock, FooterBlock, TextBlock } from "@/components/templates/types";
 
 const ORIGIN = "https://portal.example.com";
 const MSG = "msg-123";
@@ -116,6 +117,22 @@ describe("unsubscribe footer", () => {
     }
   });
 
+  it("leaves an IN-BODY unsubscribe link untracked (template's own footer block)", () => {
+    // A footer block renders href="{{unsubscribeUrl}}", which is substituted
+    // with the real URL BEFORE tracking runs — so the tracker sees a normal
+    // https link and must recognise it by path instead.
+    const { html, links } = buildTrackedHtmlFromHtml({
+      html:
+        '<body><a href="https://sassyandco.com">Shop</a>' +
+        '<a href="https://portal.example.com/api/email/unsubscribe?t=TOK">Unsubscribe</a></body>',
+      origin: ORIGIN,
+      messageId: MSG,
+    });
+    expect(links).toHaveLength(1);
+    expect(links[0].original_url).toBe("https://sassyandco.com");
+    expect(html).toContain('href="https://portal.example.com/api/email/unsubscribe?t=TOK"');
+  });
+
   it("still tracks body links while leaving the footer link alone", () => {
     const { html, links } = buildTrackedHtmlFromHtml({
       html: '<body><a href="https://sassyandco.com">Shop</a></body>',
@@ -126,6 +143,25 @@ describe("unsubscribe footer", () => {
     expect(links).toHaveLength(1);
     expect(links[0].original_url).toBe("https://sassyandco.com");
     expect(html).toContain("/api/email/unsubscribe?t=TOK");
+  });
+
+  it("footer BLOCK round-trip: render → merge → track keeps the opt-out link direct", () => {
+    // The full path a designed template takes at send time. The rendered
+    // template must carry the {{unsubscribeUrl}} token (that's what makes the
+    // send routes skip their auto-appended fallback), and after substitution
+    // the link must survive tracking un-rewritten.
+    const rendered = renderBlocksToEmailHtml([
+      { ...(createDefaultBlock("button") as ButtonBlock), url: "https://sassyandco.com" },
+      createDefaultBlock("footer") as FooterBlock,
+    ]);
+    expect(rendered).toContain('href="{{unsubscribeUrl}}"');
+
+    const unsub = `${ORIGIN}/api/email/unsubscribe?t=TOK`;
+    const merged = applyMergeFields(rendered, { unsubscribeUrl: unsub });
+    const { html, links } = buildTrackedHtmlFromHtml({ html: merged, origin: ORIGIN, messageId: MSG });
+    expect(links).toHaveLength(1); // the button, not the opt-out
+    expect(links[0].original_url).toBe("https://sassyandco.com");
+    expect(html).toContain(`href="${unsub}"`);
   });
 
   it("omits the footer entirely when none is supplied", () => {

@@ -12,6 +12,7 @@ export type BlockType =
   | "hero"
   | "caption"
   | "promotion"
+  | "footer"
   | "section";
 
 export type TextAlign = "left" | "center" | "right";
@@ -180,6 +181,28 @@ export interface CaptionBlock extends BlockBase {
   padding: number;
 }
 
+/**
+ * The compliance footer: a small "why you're receiving this" line with the
+ * unsubscribe link. The renderer hard-codes the link's href to the
+ * {{unsubscribeUrl}} merge token — every bulk/automation send substitutes a
+ * real per-recipient URL, and the presence of that token in the rendered HTML
+ * is what tells the send routes to skip their auto-appended fallback footer.
+ * So placing this block = designing your own unsubscribe treatment.
+ */
+export interface FooterBlock extends BlockBase {
+  type: "footer";
+  /** The "why you're receiving this" line shown before the unsubscribe link. */
+  text: string;
+  /** Text of the unsubscribe link itself. */
+  unsubscribeLabel: string;
+  bgColor: string;
+  textColor: string;
+  linkColor: string;
+  fontSize: number;
+  textAlign: TextAlign;
+  padding: number;
+}
+
 export interface PromotionBlock extends BlockBase {
   type: "promotion";
   promotionId: string;
@@ -238,6 +261,7 @@ export type EmailBlock =
   | HeroBlock
   | CaptionBlock
   | PromotionBlock
+  | FooterBlock
   | SectionBlock;
 
 /** Content blocks that may live inside a section column (everything but section). */
@@ -355,6 +379,9 @@ export function createDefaultBlock(type: BlockType): EmailBlock {
       return { id, type, imageUrl: "", alt: "", heading: "Your Headline", subheading: "", layout: "overlay", textAlign: "center", verticalAlign: "middle", textColor: "#ffffff", bgColor: "#1a5632", scrim: 30, fontSize: 26, minHeight: 220, padding: 0 };
     case "promotion":
       return { id, type, promotionId: "", headline: "Special Offer", description: "Don't miss out on this limited-time deal.", promoCode: "", discountLabel: "", expiresLabel: "", buttonText: "Shop Now", buttonUrl: "https://", bgColor: "#f5f3ff", accentColor: "#7c3aed", textColor: "#1f2937", padding: 24 };
+    case "footer":
+      // Same copy as the auto-appended fallback footer (lib/email/unsubscribe.ts).
+      return { id, type, text: "You're receiving this because you're a Fragrance Marketing Group customer.", unsubscribeLabel: "Unsubscribe", bgColor: "#ffffff", textColor: "#6b7b88", linkColor: "#1b3c53", fontSize: 12, textAlign: "center", padding: 20 };
     case "section":
       return createSectionPreset("imageText");
   }

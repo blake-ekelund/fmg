@@ -277,6 +277,7 @@ export default function BlockEditor({
           block.type === "hero" && "bg-rose-500",
           block.type === "caption" && "bg-teal-500",
           block.type === "promotion" && "bg-violet-500",
+          block.type === "footer" && "bg-slate-500",
           block.type === "section" && "bg-indigo-500",
         )} />
         {block.type} Block
@@ -465,6 +466,31 @@ export default function BlockEditor({
               { label: "Right", value: "right" },
             ]} />
           </Field>
+          <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
+        </>
+      )}
+
+      {block.type === "footer" && (
+        <>
+          <Field label="Text"><TextArea value={block.text} onChange={(v) => set("text" as any, v)} rows={3} /></Field>
+          <Field label="Unsubscribe Link Text"><TextInput value={block.unsubscribeLabel} onChange={(v) => set("unsubscribeLabel" as any, v)} placeholder="Unsubscribe" /></Field>
+          <p className="text-[10px] leading-relaxed text-gray-400">
+            The link always points to the recipient&rsquo;s personal unsubscribe URL, filled in at send time.
+            With this block in the template, the standard auto-appended footer is skipped.
+          </p>
+          <Field label="Alignment">
+            <SelectInput value={block.textAlign} onChange={(v) => set("textAlign" as any, v)} options={[
+              { label: "Left", value: "left" },
+              { label: "Center", value: "center" },
+              { label: "Right", value: "right" },
+            ]} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Text Color"><ColorInput value={block.textColor} onChange={(v) => set("textColor" as any, v)} /></Field>
+            <Field label="Link Color"><ColorInput value={block.linkColor} onChange={(v) => set("linkColor" as any, v)} /></Field>
+          </div>
+          <Field label="Background"><ColorInput value={block.bgColor} onChange={(v) => set("bgColor" as any, v)} /></Field>
+          <Field label="Font Size"><NumberInput value={block.fontSize} onChange={(v) => set("fontSize" as any, v)} min={9} max={18} suffix="px" /></Field>
           <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
         </>
       )}

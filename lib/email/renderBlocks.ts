@@ -463,6 +463,25 @@ function renderBlock(block: EmailBlock, width: number, editable = false): string
       );
     }
 
+    case "footer": {
+      // The href is the literal {{unsubscribeUrl}} merge token, deliberately
+      // NOT run through safeUrl (which would neutralise it to "#"). Bulk and
+      // automation sends substitute a real per-recipient link, and the token's
+      // presence in the rendered HTML is what makes those routes skip their
+      // auto-appended fallback footer in favour of this block.
+      const style =
+        `font-family:${fontStack("sans")};font-size:${px(block.fontSize)};line-height:1.5;` +
+        `color:${escapeHtml(block.textColor)};text-align:${alignAttr(block.textAlign)};`;
+      const link =
+        `<a href="{{unsubscribeUrl}}" target="_blank" ` +
+        `style="color:${escapeHtml(block.linkColor)};text-decoration:underline;">` +
+        `${escapeHtml(block.unsubscribeLabel || "Unsubscribe")}</a>`;
+      return row(`<div style="${style}">${escapeHtml(block.text)} ${link}</div>`, {
+        padding: block.padding,
+        bg: block.bgColor,
+      });
+    }
+
     case "caption":
       return renderCaption(block, width, editable);
 

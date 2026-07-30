@@ -28,7 +28,7 @@ import {
 
 const KNOWN_TYPES: BlockType[] = [
   "header", "text", "image", "button", "divider", "spacer",
-  "columns", "product", "social", "hero", "caption", "promotion", "section",
+  "columns", "product", "social", "hero", "caption", "promotion", "footer", "section",
 ];
 
 type Raw = Record<string, unknown>;

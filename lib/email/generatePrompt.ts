@@ -50,8 +50,9 @@ function brandBlock(brand: Brand): string {
   ].join("\n");
 }
 
-/** The block + layout vocabulary. Compact JSON shapes, one per line. */
-const BLOCK_VOCAB = `
+/** The block + layout vocabulary. Compact JSON shapes, one per line.
+    Exported so the grade-fix prompt speaks the same block language. */
+export const BLOCK_VOCAB = `
 BLOCKS (emit an ordered array; every block needs a unique "id" like "b1"):
 
 • header   {"id","type":"header","logoUrl":"","companyName":"...","bgColor":"#hex","textColor":"#hex","padding":20}
@@ -65,6 +66,7 @@ BLOCKS (emit an ordered array; every block needs a unique "id" like "b1"):
 • divider  {"id","type":"divider","color":"#e5e7eb","thickness":1,"style":"solid","padding":10}
 • spacer   {"id","type":"spacer","height":24}
 • social   {"id","type":"social","align":"center","facebook":"","instagram":"","tiktok":"","website":"","padding":20}
+• footer   {"id","type":"footer","text":"You're receiving this because you're a Fragrance Marketing Group customer.","unsubscribeLabel":"Unsubscribe","bgColor":"#hex","textColor":"#hex","linkColor":"#hex","fontSize":12,"textAlign":"center","padding":20} — compliance footer; the unsubscribe link is wired automatically. Optional: a plain fallback is auto-appended when absent.
 
 LAYOUTS — a "section" is a 1–3 column container with its own background; each column holds a stack of the blocks above. THIS is how you build side-by-side layouts (e.g. two products, or image beside text):
 • section  {"id","type":"section","bgColor":"","bgImage":"","padding":24,"gap":20,"stackOnMobile":true,"verticalAlign":"middle","columns":[ {"weight":1,"bgColor":"","verticalAlign":"middle","padding":12,"blocks":[ ...blocks... ]}, ... ]}

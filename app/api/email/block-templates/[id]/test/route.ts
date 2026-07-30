@@ -9,6 +9,8 @@ import { applyMergeFields, currentQuarterLabel, daysSince, type MergeVars } from
 import { dispatchEmail, willUseResend } from "@/lib/email/dispatch";
 import { resolveSender } from "@/lib/email/sender";
 import { splitContactName } from "@/lib/email/mergeFields";
+import { unsubscribeUrl } from "@/lib/email/unsubscribe";
+import { appOrigin } from "@/lib/email/origin";
 import type { Brand, EmailBlock } from "@/components/templates/types";
 
 export const runtime = "nodejs";
@@ -73,7 +75,6 @@ const SAMPLE = {
   senderEmail: "you@fragrance-marketing-group.com",
   currentYear: String(new Date().getFullYear()),
   currentQuarter: currentQuarterLabel(),
-  unsubscribeUrl: "#",
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -154,12 +155,21 @@ export async function POST(
 
   // Merge values: a chosen customer's real data (so the tester sees how the
   // fields resolve), falling back to sample values for anything missing.
-  let vars: MergeVars = SAMPLE;
+  // The unsubscribe link is REAL but minted for the tester's own address —
+  // same rule as automation test batches: clicking it while reviewing must
+  // never opt out a customer, only the tester. (There's no re-subscribe UI;
+  // undoing a click means deleting the row from email_unsubscribes.)
+  // Env-derived origin (same as the bulk/cron paths) so the link matches what
+  // a real send would carry for this environment.
+  let vars: MergeVars = {
+    ...SAMPLE,
+    unsubscribeUrl: unsubscribeUrl(appOrigin(), { email: toAddress }),
+  };
   let usedCustomer: string | null = null;
   if (customerType && customerRef) {
     const cust = await loadCustomerVars(customerType, customerRef);
     if (cust) {
-      vars = { ...SAMPLE, ...cust };
+      vars = { ...vars, ...cust };
       usedCustomer = cust.customerName ?? null;
     }
   }

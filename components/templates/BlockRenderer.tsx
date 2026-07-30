@@ -318,6 +318,30 @@ export default function BlockRenderer({
         </div>
       );
 
+    case "footer":
+      return wrap(
+        <div
+          style={{
+            padding: block.padding,
+            backgroundColor: block.bgColor,
+            textAlign: block.textAlign,
+            fontSize: block.fontSize,
+            lineHeight: 1.5,
+            color: block.textColor,
+            fontFamily: "system-ui, sans-serif",
+          }}
+        >
+          {block.text}{" "}
+          <a
+            href="#"
+            onClick={(e) => e.preventDefault()}
+            style={{ color: block.linkColor, textDecoration: "underline" }}
+          >
+            {block.unsubscribeLabel || "Unsubscribe"}
+          </a>
+        </div>
+      );
+
     default:
       return null;
   }

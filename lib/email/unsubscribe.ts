@@ -134,17 +134,20 @@ export async function recordUnsubscribe(
   const email = normalizeEmail(payload.email);
   if (!email) return { ok: false, error: "No email" };
 
-  const { error } = await supabaseServer.from("email_unsubscribes").upsert(
-    {
-      email,
-      customer_type: payload.customerType ?? null,
-      customer_ref: payload.customerRef ?? null,
-      automation_id: payload.automationId ?? null,
-      source,
-      reason: reason ?? null,
-    },
-    { onConflict: "email" },
-  );
+  // `reason` is only written when actually provided. The one-click header POST
+  // and repeat clicks carry no reason, and including `reason: null` in the
+  // upsert would clobber one collected earlier from the confirmation page.
+  const row: Record<string, unknown> = {
+    email,
+    customer_type: payload.customerType ?? null,
+    customer_ref: payload.customerRef ?? null,
+    automation_id: payload.automationId ?? null,
+    source,
+  };
+  if (reason !== undefined) row.reason = reason;
+  const { error } = await supabaseServer
+    .from("email_unsubscribes")
+    .upsert(row, { onConflict: "email" });
   if (error) return { ok: false, error: error.message };
 
   // Halt anything mid-flight for this address, or the next cron pass would

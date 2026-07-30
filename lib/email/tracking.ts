@@ -67,6 +67,11 @@ export function buildTrackedHtmlFromHtml(opts: {
       const url = dq ?? sq ?? "";
       // Leave anchors we deliberately neutralised, plus in-message jumps.
       if (!/^https?:\/\//i.test(url)) return match;
+      // Never route an unsubscribe link through the click tracker: an opt-out
+      // is not engagement, and the one link that must always work shouldn't
+      // gain a redirect hop. Reached when a template places its own footer
+      // ({{unsubscribeUrl}} is substituted before tracking runs).
+      if (url.includes("/api/email/unsubscribe")) return match;
       const id = randomUUID();
       links.push({ id, link_index: linkIndex++, original_url: url });
       return `${prefix}"${origin}/api/email/link/${id}"`;
