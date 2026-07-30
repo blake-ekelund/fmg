@@ -17,6 +17,7 @@ import {
   TicketPercent,
   Activity,
   Receipt,
+  ClipboardList,
   Contact,
   BookOpen,
   Eye,
@@ -137,6 +138,14 @@ export const navSections: readonly NavSection[] = [
         href: "/storefronts/purchases",
         icon: Receipt,
         roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        // Holiday prebook reservations (holiday_prebook_requests) — what buyers
+        // reserved for the season and who they are. Distinct from Orders.
+        label: "Prebookings",
+        href: "/storefronts/prebookings",
+        icon: ClipboardList,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
       },
       {
         label: "Discounts",
