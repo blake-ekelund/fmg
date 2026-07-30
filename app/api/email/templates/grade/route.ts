@@ -6,6 +6,7 @@ import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import { renderTextEmail } from "@/lib/email/renderText";
 import { lintEmailHtml } from "@/lib/email/clientCompat";
+import { unsubscribeFooterHtml } from "@/lib/email/unsubscribe";
 import { buildGradePrompt, GRADE_DIMENSIONS, type GradeDimensionKey } from "@/lib/email/gradePrompt";
 import { toPurposeArray } from "@/components/templates/types";
 import type { EmailBlock } from "@/components/templates/types";
@@ -107,23 +108,41 @@ function toIssueList(v: unknown, cap: number): GradedIssue[] {
   return out;
 }
 
-/** Rendered content (for the prompt) + HTML (for the linter), by source. */
+/** Rendered content (for the prompt) + HTML (for the linter), by source.
+
+    Grades what actually SHIPS, not the bare template: every send route
+    auto-appends the fallback unsubscribe footer when the template doesn't
+    place its own {{unsubscribeUrl}}, so the grader must see that footer too —
+    otherwise every footerless template is falsely penalized for a missing
+    opt-out that no real email ever lacks. */
 function renderForGrading(t: TemplateRow): { content: string; html: string } {
   const previewText = t.preview_text ?? undefined;
+
+  const withSendFooter = (html: string): string =>
+    /\{\{\s*unsubscribeUrl\s*\}\}/.test(html)
+      ? html
+      : html + unsubscribeFooterHtml("{{unsubscribeUrl}}");
+
   if (t.source === "blocks") {
-    const html = renderBlocksToEmailHtml(
-      Array.isArray(t.blocks) ? (t.blocks as EmailBlock[]) : [],
-      { previewText },
+    const html = withSendFooter(
+      renderBlocksToEmailHtml(
+        Array.isArray(t.blocks) ? (t.blocks as EmailBlock[]) : [],
+        { previewText },
+      ),
     );
     return { content: html, html };
   }
   if (t.source === "html") {
-    const html = renderRawHtmlEmail(t.raw_html ?? "", { previewText });
+    const html = withSendFooter(renderRawHtmlEmail(t.raw_html ?? "", { previewText }));
     return { content: html, html };
   }
-  // Plain text: grade the actual body, but lint the rendered HTML.
-  const html = renderTextEmail(t.text_body ?? "", { previewText });
-  return { content: t.text_body ?? "", html };
+  // Plain text: grade the actual body, but lint the rendered HTML. The footer
+  // note keeps the graded text honest about what the recipient receives.
+  const html = withSendFooter(renderTextEmail(t.text_body ?? "", { previewText }));
+  const body =
+    (t.text_body ?? "") +
+    "\n\n---\nYou're receiving this because you're a Fragrance Marketing Group customer. Unsubscribe: {{unsubscribeUrl}}";
+  return { content: body, html };
 }
 
 async function gradeOne(

@@ -86,13 +86,27 @@ const CHANNEL_LABEL: Record<string, string> = {
 
 /** Trim the graded content so a single template can't blow the token budget. */
 const MAX_CONTENT_CHARS = 16000;
+/** When trimming, always keep the END of the email too — that's where the
+    footer/unsubscribe lives, and cutting it made the grader report a missing
+    opt-out on emails that have one. */
+const TAIL_CHARS = 3500;
+
+/** Head + tail with an explicit marker for the removed middle. */
+function clampContent(content: string): { content: string; truncated: string } {
+  if (content.length <= MAX_CONTENT_CHARS) return { content, truncated: "" };
+  const head = content.slice(0, MAX_CONTENT_CHARS - TAIL_CHARS);
+  const tail = content.slice(-TAIL_CHARS);
+  return {
+    content: `${head}\n[... middle of the email omitted for length — do NOT treat anything as missing solely because it isn't shown here ...]\n${tail}`,
+    truncated: "\n[middle truncated]",
+  };
+}
 
 export function buildGradePrompt(input: GradeTemplateInput): string {
   const brand = BRAND_LABEL[input.brand ?? "both"] ?? BRAND_LABEL.both;
   const channel = CHANNEL_LABEL[input.channel ?? "both"] ?? CHANNEL_LABEL.both;
   const purpose = input.purpose.length ? input.purpose.join(", ") : "unspecified";
-  const content = input.content.slice(0, MAX_CONTENT_CHARS);
-  const truncated = input.content.length > MAX_CONTENT_CHARS ? "\n[content truncated]" : "";
+  const { content, truncated } = clampContent(input.content);
 
   const dimensionSpec = GRADE_DIMENSIONS.map(
     (d, i) => `${i + 1}. "${d.key}" — ${d.label}: ${d.brief}`,
@@ -122,6 +136,11 @@ ${content}${truncated}
 
 ## Cross-client compatibility findings (from a static linter — treat as ground truth for deliverability/accessibility)
 ${compat}
+
+## What the sending pipeline guarantees (do NOT penalize the template for these)
+- Every send substitutes all {{merge_field}} tokens with real per-recipient values, including {{unsubscribeUrl}} — a literal token in the content above is correct, not broken.
+- Every send carries a working unsubscribe link (the footer shown above ships with the email) plus List-Unsubscribe one-click headers. Never report a missing unsubscribe/opt-out.
+- Open/click tracking is applied per message at send time.
 
 ## Grade these six dimensions (score each 0–100)
 ${dimensionSpec}
