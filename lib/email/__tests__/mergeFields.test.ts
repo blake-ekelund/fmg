@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeGroupsFor, splitContactName } from "../mergeFields";
+import { mergeGroupsFor, properCase, splitContactName, stateCase } from "../mergeFields";
 
 function customerLabels(channel: "wholesale" | "d2c" | "both"): string[] {
   const customer = mergeGroupsFor(channel).find((g) => g.group === "Customer");
@@ -57,5 +57,61 @@ describe("mergeGroupsFor", () => {
       expect(groups).toContain("Sender");
       expect(groups).toContain("Date");
     }
+  });
+});
+
+describe("properCase", () => {
+  it("title-cases an ALL CAPS person name", () => {
+    expect(properCase("JULIE EKELUND")).toBe("Julie Ekelund");
+  });
+
+  it("title-cases an all-lowercase name", () => {
+    expect(properCase("julie ekelund")).toBe("Julie Ekelund");
+  });
+
+  it("leaves already-mixed-case data untouched", () => {
+    expect(properCase("McDonald's Spa & Gift")).toBe("McDonald's Spa & Gift");
+    expect(properCase("Julie Ekelund")).toBe("Julie Ekelund");
+  });
+
+  it("title-cases a company name and keeps business tokens uppercase", () => {
+    expect(properCase("ACME GOODS CO.")).toBe("Acme Goods Co.");
+    expect(properCase("SPROUT HEALTH LLC")).toBe("Sprout Health LLC");
+  });
+
+  it("keeps small words lowered mid-name but not at the start", () => {
+    expect(properCase("HOUSE OF FRAGRANCE")).toBe("House of Fragrance");
+    expect(properCase("THE SPA SHOP")).toBe("The Spa Shop");
+  });
+
+  it("capitalizes after hyphens, apostrophes, and initials", () => {
+    expect(properCase("O'BRIEN-SMITH")).toBe("O'Brien-Smith");
+    expect(properCase("J.B. HUNT")).toBe("J.B. Hunt");
+  });
+
+  it("handles Mc names", () => {
+    expect(properCase("MCDONALD")).toBe("McDonald");
+  });
+
+  it("collapses whitespace and is empty-safe", () => {
+    expect(properCase("  ACME   GOODS  ")).toBe("Acme Goods");
+    expect(properCase(null)).toBe("");
+    expect(properCase(undefined)).toBe("");
+  });
+});
+
+describe("stateCase", () => {
+  it("keeps two-letter codes uppercase", () => {
+    expect(stateCase("ca")).toBe("CA");
+    expect(stateCase("CA")).toBe("CA");
+  });
+
+  it("title-cases spelled-out state names", () => {
+    expect(stateCase("CALIFORNIA")).toBe("California");
+    expect(stateCase("NEW YORK")).toBe("New York");
+  });
+
+  it("is empty-safe", () => {
+    expect(stateCase(null)).toBe("");
   });
 });

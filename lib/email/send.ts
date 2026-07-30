@@ -6,7 +6,7 @@
  * in our DB and to thread replies later.
  */
 
-import { MERGE_KEYS, type MergeKey } from "./mergeFields";
+import { MERGE_KEYS, properCase, stateCase, type MergeKey } from "./mergeFields";
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
@@ -199,16 +199,19 @@ function formatDate(iso: string | null | undefined): string {
 export function applyMergeFields(template: string, vars: MergeVars): string {
   return template.replace(MERGE_RE, (_m, key) => {
     switch (key as MergeKey) {
+      // Customer name/place fields arrive ALL CAPS from Fishbowl — properCase
+      // makes them read human ("JULIE" → "Julie", "ACME GOODS CO." → "Acme
+      // Goods Co.") while passing already-mixed-case data through untouched.
       case "firstName":
-        return vars.firstName ?? "";
+        return properCase(vars.firstName);
       case "lastName":
-        return vars.lastName ?? "";
+        return properCase(vars.lastName);
       case "customerName":
-        return vars.customerName ?? "";
+        return properCase(vars.customerName);
       case "city":
-        return vars.city ?? "";
+        return properCase(vars.city);
       case "state":
-        return vars.state ?? "";
+        return stateCase(vars.state);
       case "channel":
         return vars.channel ?? "";
       case "lifetimeRevenue":

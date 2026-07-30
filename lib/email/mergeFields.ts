@@ -149,3 +149,51 @@ const SAMPLE_MERGE_RE = new RegExp(
 export function applyMergeSample(template: string): string {
   return template.replace(SAMPLE_MERGE_RE, (_m, k: string) => SAMPLE_VARS[k] ?? _m);
 }
+
+/* ─── Name display ─────────────────────────────────────────────────────────── */
+
+/** Business tokens that stay fully uppercase when title-casing. */
+const KEEP_UPPER = new Set(["LLC", "LLP", "PLLC", "PLC", "USA", "DBA", "II", "III", "IV"]);
+/** Small words that stay lowercase mid-name ("House of Fragrance"). */
+const KEEP_LOWER = new Set(["and", "of", "the", "for", "at", "on", "in", "by"]);
+
+/**
+ * Human-readable casing for names that arrive SHOUTING from the ERP.
+ *
+ * Fishbowl stores customer/contact names in ALL CAPS ("JULIE EKELUND",
+ * "ACME GOODS CO."), which reads terribly in a merged email ("Hi JULIE,").
+ * This title-cases single-cased strings only: anything already mixed-case
+ * ("McDonald's", "Julie Ekelund") is assumed correct and passes through
+ * untouched, so clean data is never mangled.
+ */
+export function properCase(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim().replace(/\s+/g, " ");
+  if (!s) return "";
+  // Mixed case → already human-entered; leave it alone.
+  if (/[a-z]/.test(s) && /[A-Z]/.test(s)) return s;
+
+  const words = s.toLowerCase().split(" ");
+  const cased = words.map((word, i) => {
+    if (KEEP_UPPER.has(word.replace(/[.,]/g, "").toUpperCase())) {
+      return word.toUpperCase();
+    }
+    if (i > 0 && KEEP_LOWER.has(word)) return word;
+    // Capitalize after start, hyphen, apostrophe, slash, ampersand, paren, dot
+    // — covers "o'brien-smith", "j.b.", "spa/salon".
+    return word.replace(/(^|[-'’/&(.])([a-z])/g, (_m, p: string, c: string) => p + c.toUpperCase());
+  });
+  // "mcdonald" → "McDonald" (best-effort; common enough to special-case).
+  return cased.join(" ").replace(/\bMc([a-z])/g, (_m, c: string) => `Mc${c.toUpperCase()}`);
+}
+
+/**
+ * Display casing for the state field specifically: two-letter codes stay
+ * uppercase ("CA"), spelled-out names get title case ("CALIFORNIA" →
+ * "California").
+ */
+export function stateCase(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
+  return properCase(s);
+}
