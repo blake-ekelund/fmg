@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Loader2,
   Receipt,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -84,6 +85,37 @@ export default function PurchasesPage() {
     })();
   }, [reload]);
 
+  // Manual Faire pull — same code path as the half-hourly cron (signed-in
+  // users are allowed through its auth), then refresh the list.
+  const [faireSyncing, setFaireSyncing] = useState(false);
+  const [faireResult, setFaireResult] = useState<string | null>(null);
+  const syncFaire = useCallback(async () => {
+    setFaireSyncing(true);
+    setFaireResult(null);
+    try {
+      const res = await fetch("/api/cron/faire-order-sync", {
+        headers: await authHeader(),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setFaireResult(`Faire sync failed: ${json?.error ?? res.status}`);
+        return;
+      }
+      const imported = Array.isArray(json.imported) ? json.imported.length : 0;
+      setFaireResult(
+        json.note ??
+          (imported > 0
+            ? `Imported ${imported} Faire order${imported === 1 ? "" : "s"}.`
+            : `No unfulfilled Faire orders right now (checked ${json.checked ?? 0}).`),
+      );
+      if (imported > 0) await reload();
+    } catch (e) {
+      setFaireResult(`Faire sync failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setFaireSyncing(false);
+    }
+  }, [reload]);
+
   // Everything matching search + channel + store (but NOT the state tab), so
   // the tab counts reflect the other active filters.
   const base = useMemo(() => {
@@ -133,10 +165,31 @@ export default function PurchasesPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <p className="max-w-2xl text-sm text-gray-500">
-        Orders from sassyandco.com and naturalinspirations.com — retail and
-        wholesale.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-2xl text-sm text-gray-500">
+          Orders from sassyandco.com, naturalinspirations.com, and Faire —
+          retail and wholesale.
+        </p>
+        <button
+          type="button"
+          onClick={syncFaire}
+          disabled={faireSyncing}
+          title="Pull unfulfilled Faire orders into this list now (the cron also does this every 30 minutes)"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {faireSyncing ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <RefreshCw size={13} />
+          )}
+          {faireSyncing ? "Syncing Faire…" : "Sync Faire"}
+        </button>
+      </div>
+      {faireResult ? (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600">
+          {faireResult}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
