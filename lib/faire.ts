@@ -15,8 +15,22 @@
 
 const BASE = "https://www.faire.com/external-api/v2";
 
+/**
+ * The real access token is the LONG value (~100 chars). Faire's portal also
+ * hands out an `apa_…` applicationId that's easily mistaken for the token
+ * (it 401s), so accept either env name and pick whichever value actually
+ * looks like an access token.
+ */
+function faireToken(): string | null {
+  for (const name of ["FAIRE_ACCESS_TOKEN", "FAIRE_API_KEY"]) {
+    const v = (process.env[name] ?? "").trim();
+    if (v.length > 20 && !v.startsWith("apa_")) return v;
+  }
+  return null;
+}
+
 export function faireConfigured(): boolean {
-  return (process.env.FAIRE_ACCESS_TOKEN ?? "").trim().length > 5;
+  return faireToken() !== null;
 }
 
 type Rec = Record<string, unknown>;
@@ -63,8 +77,8 @@ export type FaireOrder = {
 };
 
 async function faireGet(path: string): Promise<Rec> {
-  const token = (process.env.FAIRE_ACCESS_TOKEN ?? "").trim();
-  if (!token) throw new Error("FAIRE_ACCESS_TOKEN is not set.");
+  const token = faireToken();
+  if (!token) throw new Error("No Faire access token configured (FAIRE_ACCESS_TOKEN / FAIRE_API_KEY).");
   const res = await fetch(`${BASE}${path}`, {
     headers: { "X-FAIRE-ACCESS-TOKEN": token, Accept: "application/json" },
     cache: "no-store",
@@ -119,9 +133,11 @@ function parseOrder(raw: unknown): FaireOrder | null {
   };
 }
 
-/** States that mean "a real order a brand should fulfill". Cancelled/backorder
- *  variants are excluded; DELIVERED etc. are long past import relevance. */
-const IMPORTABLE_STATES = new Set(["NEW", "PROCESSING", "PRE_TRANSIT", "IN_TRANSIT"]);
+/** States that mean "an order still awaiting fulfillment" — the ones the
+ *  upload flow exists for. PRE_TRANSIT/IN_TRANSIT are deliberately excluded:
+ *  those were already handled (possibly hand-keyed into Fishbowl before this
+ *  integration existed), and importing them risks double-entry. */
+const IMPORTABLE_STATES = new Set(["NEW", "PROCESSING"]);
 
 /**
  * All current importable orders, paging until Faire runs dry (capped at 10
