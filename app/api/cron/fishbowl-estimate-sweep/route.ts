@@ -99,9 +99,13 @@ export async function GET(request: Request) {
   // (wholesale submit, test-mode completion, or Stripe payment landed).
   const eligible = (orders ?? []).filter(
     (o) =>
-      targetNumber != null ||
-      o.channel === "wholesale" ||
-      o.payment_status === "paid",
+      // Faire imports are VIEW-ONLY for now — visible in Purchases, never
+      // pushed to Fishbowl (pushOrderEstimate refuses them too). JS-side so
+      // the sweep works whether or not the source column has been migrated.
+      o.source !== "faire" &&
+      (targetNumber != null ||
+        o.channel === "wholesale" ||
+        o.payment_status === "paid"),
   );
   const pushable = eligible.filter((o) =>
     (o.items ?? []).some((it) => it.part && (it.quantity ?? 0) > 0),

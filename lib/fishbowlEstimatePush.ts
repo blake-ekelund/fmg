@@ -40,6 +40,13 @@ export async function pushOrderEstimate(
   if (order.fishbowl_entered_at) {
     throw new Error("Order is already marked as entered into Fishbowl.");
   }
+  // Faire orders are import-only while the integration is in testing — they
+  // show in Purchases but must NOT move into Fishbowl (cron or manual).
+  if (order.source === "faire") {
+    throw new Error(
+      "Faire orders are view-only for now — not pushed to Fishbowl during testing.",
+    );
+  }
 
   // UPCs ride at the end of each line's description so ops sees the barcode
   // on the SO without opening the product record.
