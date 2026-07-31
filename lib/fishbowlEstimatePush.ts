@@ -2,6 +2,7 @@ import { type SupabaseClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { createEstimate } from "@/lib/fishbowl";
 import { estimateRowsForOrder } from "@/lib/fishbowlEstimate";
+import { upcsForParts } from "@/lib/productUpc";
 import { type StorefrontOrder } from "@/lib/storefrontOrder";
 
 /**
@@ -40,7 +41,10 @@ export async function pushOrderEstimate(
     throw new Error("Order is already marked as entered into Fishbowl.");
   }
 
-  const payload = estimateRowsForOrder(order, customerName);
+  // UPCs ride at the end of each line's description so ops sees the barcode
+  // on the SO without opening the product record.
+  const upcByPart = await upcsForParts((order.items ?? []).map((it) => it.part));
+  const payload = estimateRowsForOrder(order, customerName, upcByPart);
   // soNum comes back from Fishbowl (auto-numbered); the storefront ref rides
   // as Customer PO and is the dedupe key.
   const { soId, soNum, created } = await createEstimate(

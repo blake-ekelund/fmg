@@ -32,6 +32,8 @@ const money = (n?: number | null) =>
 
 export default function OrderDetailPage({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<StorefrontOrder | null>(null);
+  /** UPC by part number — internal detail appended to line descriptions. */
+  const [upcs, setUpcs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
       }
       setError(null);
       setOrder(json.order as StorefrontOrder);
+      setUpcs((json.upcs as Record<string, string>) ?? {});
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -334,7 +337,12 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
                 <td className="py-2 pr-2 font-mono text-xs text-gray-500">
                   {l.part}
                 </td>
-                <td className="py-2 pr-2 text-gray-900">{l.description}</td>
+                <td className="py-2 pr-2 text-gray-900">
+                  {l.description}
+                  {upcs[l.part] ? (
+                    <span className="text-gray-400"> · UPC {upcs[l.part]}</span>
+                  ) : null}
+                </td>
                 <td className="py-2 pr-2 text-right tabular-nums text-gray-600">
                   {l.unitPrice == null ? "—" : money(l.unitPrice)}
                 </td>

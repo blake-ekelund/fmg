@@ -162,6 +162,10 @@ export type EstimatePayload = {
 export function estimateRowsForOrder(
   order: StorefrontOrder,
   customerName: string,
+  /** UPC by part number (lib/productUpc.ts) — appended to each sale line's
+   *  description so ops sees the barcode on the SO. Optional; parts without
+   *  an entry render without a UPC suffix. */
+  upcByPart: Record<string, string> = {},
 ): EstimatePayload {
   const poNum = orderRef(order);
   const items = (order.items ?? []).filter((it) => it.part && (it.quantity ?? 0) > 0);
@@ -264,14 +268,18 @@ export function estimateRowsForOrder(
     CustomerPartNumber: "",
   };
 
-  const itemRows: RowValues[] = items.map((it) => ({
-    ...itemDefaults,
-    SOItemTypeID: "10",
-    ProductNumber: it.part as string,
-    ProductDescription: it.form ? `${it.name ?? ""} · ${it.form}` : (it.name ?? ""),
-    ProductQuantity: String(it.quantity ?? 0),
-    ProductPrice: money(it.price ?? 0),
-  }));
+  const itemRows: RowValues[] = items.map((it) => {
+    const base = it.form ? `${it.name ?? ""} · ${it.form}` : (it.name ?? "");
+    const upc = upcByPart[it.part as string];
+    return {
+      ...itemDefaults,
+      SOItemTypeID: "10",
+      ProductNumber: it.part as string,
+      ProductDescription: upc ? `${base} · UPC ${upc}` : base,
+      ProductQuantity: String(it.quantity ?? 0),
+      ProductPrice: money(it.price ?? 0),
+    };
+  });
 
   // Order-level discounts → the ".COM DISCOUNTS" line web orders already use.
   const discountTotal =

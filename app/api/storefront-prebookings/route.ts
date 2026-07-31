@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { SCENTS, hcField, gsField, lbField, HC_DISPLAY_KEY, LIP_BUTTER_KEY, HAND_CREME_PER_CASE } from "@/lib/storefrontPrebooking";
+import { SCENTS, hcField, gsField, lbField, hcSku, gsSku, lbSku, HC_DISPLAY_KEY, LIP_BUTTER_KEY, HC_DISPLAY_SKU, LIP_DISPLAY_SKU, HAND_CREME_PER_CASE } from "@/lib/storefrontPrebooking";
+import { upcsForParts } from "@/lib/productUpc";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,17 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ prebookings: data ?? [], notReady: false });
+
+  // UPCs for the (fixed) holiday line SKUs — internal detail the admin list
+  // appends to invoice-line descriptions. Missing barcodes just don't map.
+  const holidaySkus = [
+    ...SCENTS.flatMap((s) => [hcSku(s.code), gsSku(s.code), lbSku(s.code)]),
+    HC_DISPLAY_SKU,
+    LIP_DISPLAY_SKU,
+  ];
+  const upcs = await upcsForParts(holidaySkus);
+
+  return NextResponse.json({ prebookings: data ?? [], upcs, notReady: false });
 }
 
 const STATUSES = new Set(["new", "contacted", "converted", "archived"]);

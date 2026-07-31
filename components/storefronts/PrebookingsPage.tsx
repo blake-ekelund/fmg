@@ -56,6 +56,8 @@ function StoreBadge({ store }: { store: string }) {
  */
 export default function PrebookingsPage() {
   const [rows, setRows] = useState<PrebookRequest[]>([]);
+  /** UPC by holiday SKU — internal detail appended to line descriptions. */
+  const [upcs, setUpcs] = useState<Record<string, string>>({});
   const [notReady, setNotReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +90,7 @@ export default function PrebookingsPage() {
       setError(null);
       setNotReady(!!json.notReady);
       setRows(json.prebookings as PrebookRequest[]);
+      setUpcs((json.upcs as Record<string, string>) ?? {});
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -379,7 +382,12 @@ export default function PrebookingsPage() {
                                       {invoice.map((l, i) => (
                                         <tr key={i} className="border-t border-gray-100">
                                           <td className="py-1.5 pr-3 font-mono text-[10px] text-gray-500 whitespace-nowrap">{l.sku}</td>
-                                          <td className="py-1.5 pr-3 text-gray-700">{l.description}</td>
+                                          <td className="py-1.5 pr-3 text-gray-700">
+                                            {l.description}
+                                            {upcs[l.sku] ? (
+                                              <span className="text-gray-400"> · UPC {upcs[l.sku]}</span>
+                                            ) : null}
+                                          </td>
                                           <td className="py-1.5 px-3 text-right tabular-nums text-gray-600">{l.qty}</td>
                                           <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{money(l.unitPrice)}</td>
                                           <td className="py-1.5 pl-3 text-right tabular-nums font-medium text-gray-900">{money(l.amount)}</td>

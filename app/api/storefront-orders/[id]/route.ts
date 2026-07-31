@@ -4,6 +4,7 @@ import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isCarrierId } from "@/lib/tracking";
 import { notifyStorefrontShipped } from "@/lib/storefrontShipped";
+import { upcsForParts } from "@/lib/productUpc";
 
 /**
  * A single storefront order (for the Purchases detail / invoice view), plus
@@ -33,7 +34,14 @@ export async function GET(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Order not found." }, { status: 404 });
-  return NextResponse.json({ order: data });
+
+  // UPCs for the line items — internal detail for the admin invoice view.
+  const items = Array.isArray(data.items)
+    ? (data.items as Array<{ part?: string | null }>)
+    : [];
+  const upcs = await upcsForParts(items.map((it) => it.part));
+
+  return NextResponse.json({ order: data, upcs });
 }
 
 export async function PATCH(
