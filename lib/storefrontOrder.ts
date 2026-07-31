@@ -73,12 +73,22 @@ export type StorefrontOrder = {
    *  project has them added — treat as optional. */
   fishbowl_estimate_num?: string | null;
   fishbowl_estimate_at?: string | null;
+  /** Where the order originated: 'storefront' (checkout) or 'faire'. */
+  source?: string | null;
+  /** Marketplace order id (Faire display id) — the sync cron's dedupe key. */
+  external_ref?: string | null;
   [key: string]: unknown;
 };
 
-/** Human-facing order number: SASSY-#### / NI-####. Legacy rows placed
+/** Human-facing order number: SASSY-#### / NI-####. Faire orders use the
+ *  marketplace id with the -FAIRE suffix (the Customer PO convention already
+ *  established in Fishbowl, e.g. GQXAWDBFQS-FAIRE). Legacy rows placed
  *  before `store` was tracked fall back to SO-####. */
-export function orderRef(o: Pick<StorefrontOrder, "store" | "number" | "id">): string {
+export function orderRef(
+  o: Pick<StorefrontOrder, "store" | "number" | "id"> &
+    Partial<Pick<StorefrontOrder, "source" | "external_ref">>,
+): string {
+  if (o.source === "faire" && o.external_ref) return `${o.external_ref}-FAIRE`;
   if (o.number == null) return o.id ? o.id.slice(0, 8) : "—";
   const prefix = o.store === "ni" ? "NI" : o.store === "sassy" ? "SASSY" : "SO";
   return `${prefix}-${o.number}`;

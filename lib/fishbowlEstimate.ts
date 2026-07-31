@@ -192,6 +192,7 @@ export function estimateRowsForOrder(
 
   const created = usDate(order.created_at);
   const rep = (order.sales_rep || CF_DEFAULTS.rep).toUpperCase();
+  const orderSource = order.source === "faire" ? "FAIRE" : CF_DEFAULTS.orderSource;
 
   const noteParts = [
     `Storefront order ${poNum} — pushed automatically from the FMG site as an estimate.`,
@@ -251,7 +252,7 @@ export function estimateRowsForOrder(
     "CF-Territory Sales Rep Name": rep,
     "CF-Order Agency": CF_DEFAULTS.agency,
     "CF-Order Rep": rep,
-    "CF-Order Source": CF_DEFAULTS.orderSource,
+    "CF-Order Source": orderSource,
     "CF-Order Agency Code": CF_DEFAULTS.agencyCode,
   };
 

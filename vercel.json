@@ -33,6 +33,10 @@
       "schedule": "23 * * * *"
     },
     {
+      "path": "/api/cron/faire-order-sync",
+      "schedule": "13,43 * * * *"
+    },
+    {
       "path": "/api/cron/fishbowl-inventory-sync",
       "schedule": "0 0,1,8,9,16,17 * * *"
     }
