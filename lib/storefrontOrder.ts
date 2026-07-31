@@ -68,6 +68,11 @@ export type StorefrontOrder = {
    *  old `approved_*` columns. */
   fishbowl_entered_at?: string | null;
   fishbowl_entered_by?: string | null;
+  /** Set when the order was pushed to Fishbowl as an estimate via the API
+   *  (the SO number, e.g. SASSY-1042). Columns exist only once the wholesale
+   *  project has them added — treat as optional. */
+  fishbowl_estimate_num?: string | null;
+  fishbowl_estimate_at?: string | null;
   [key: string]: unknown;
 };
 

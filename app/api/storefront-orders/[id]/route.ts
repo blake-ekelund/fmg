@@ -3,6 +3,7 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isCarrierId } from "@/lib/tracking";
+import { notifyStorefrontShipped } from "@/lib/storefrontShipped";
 
 /**
  * A single storefront order (for the Purchases detail / invoice view), plus
@@ -115,6 +116,16 @@ export async function PATCH(
   // for cancellations/edits). Best-effort; never blocks the order update.
   if (body.action === "enter-fishbowl") {
     await supabaseServer.from("tasks").delete().eq("fishbowl_order_id", id);
+  }
+
+  // Hand-entered tracking triggers the customer's "your order shipped" email
+  // the same way the tracking cron does. The storefront endpoint claims the
+  // send atomically (shipped_email_at), so edits/retries can't double-send.
+  if (body.action === "set-tracking" && data) {
+    await notifyStorefrontShipped(
+      (data as { store?: string | null }).store,
+      (data as { number?: number | null }).number,
+    );
   }
 
   return NextResponse.json({ order: data });

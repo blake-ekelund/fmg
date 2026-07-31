@@ -21,6 +21,14 @@
       "schedule": "0 0,7,8,15,16,23 * * *"
     },
     {
+      "path": "/api/cron/fishbowl-estimate-sweep",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/fishbowl-tracking-sync",
+      "schedule": "7,37 * * * *"
+    },
+    {
       "path": "/api/cron/fishbowl-inventory-sync",
       "schedule": "0 0,1,8,9,16,17 * * *"
     }

@@ -95,6 +95,32 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
 
   const enterFishbowl = () => patchOrder({ action: "enter-fishbowl" });
   const clearFishbowl = () => patchOrder({ action: "clear-fishbowl" });
+
+  /** Estimate pilot: push this order into Fishbowl as an Estimate under one
+   *  of the two TEST customers (the API allowlists them). */
+  const [estimateCustomer, setEstimateCustomer] = useState("TEST CUSTOMER #1");
+  const [pushing, setPushing] = useState(false);
+  const pushEstimate = async () => {
+    setPushing(true);
+    try {
+      const res = await fetch(`/api/storefront-orders/${orderId}/estimate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ customerName: estimateCustomer }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.error ?? `Failed (${res.status})`);
+        return;
+      }
+      setError(null);
+      setOrder(json.order as StorefrontOrder);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPushing(false);
+    }
+  };
   const saveTracking = (carrier: string, tracking_code: string) =>
     patchOrder({ action: "set-tracking", carrier, tracking_code });
   const clearTracking = () => patchOrder({ action: "clear-tracking" });
@@ -149,19 +175,40 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
               Undo Fishbowl
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={enterFishbowl}
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {saving ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <CheckCircle2 size={14} />
-              )}
-              Mark in Fishbowl
-            </button>
+            <>
+              {/* Estimate pilot — books under a TEST customer for now */}
+              <select
+                value={estimateCustomer}
+                onChange={(e) => setEstimateCustomer(e.target.value)}
+                disabled={pushing}
+                className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:border-gray-400 focus:outline-none"
+              >
+                <option>TEST CUSTOMER #1</option>
+                <option>TEST CUSTOMER #2</option>
+              </select>
+              <button
+                type="button"
+                onClick={pushEstimate}
+                disabled={pushing || saving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {pushing ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <CheckCircle2 size={14} />
+                )}
+                Create Fishbowl estimate
+              </button>
+              <button
+                type="button"
+                onClick={enterFishbowl}
+                disabled={saving || pushing}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={14} className="animate-spin" /> : null}
+                Mark manually
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -340,7 +387,18 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
           {inFishbowl ? (
             <div className="flex items-center gap-2 text-sm text-emerald-700">
               <CheckCircle2 size={15} />
-              Entered into Fishbowl by{" "}
+              {order.fishbowl_estimate_num ? (
+                <>
+                  Estimate{" "}
+                  <span className="font-mono font-medium">
+                    {order.fishbowl_estimate_num}
+                  </span>{" "}
+                  created in Fishbowl
+                </>
+              ) : (
+                "Entered into Fishbowl"
+              )}{" "}
+              by{" "}
               <span className="font-medium">
                 {order.fishbowl_entered_by ?? "—"}
               </span>{" "}

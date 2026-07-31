@@ -232,3 +232,130 @@ export async function getSalesSnapshot(): Promise<{
 export async function getInventoryAvailability(): Promise<Record<string, unknown>[]> {
   return runDataQuery(INVENTORY_SQL);
 }
+
+/** Escape a value for interpolation into a data-query SQL string literal. */
+const sqlQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
+
+export type CreateEstimateResult = {
+  /** Fishbowl's internal so.id for the estimate. */
+  soId: number;
+  /** False when an SO with this number already existed (nothing imported). */
+  created: boolean;
+};
+
+/**
+ * Create a sales order in ESTIMATE status via Fishbowl's CSV-import endpoint
+ * (POST /api/import/SalesOrderDetails — the REST /sales-orders endpoint is
+ * read-only on this instance, it 405s on POST). `rows` is the CSV as an array
+ * of arrays, header row first — build it with lib/fishbowlEstimate.ts.
+ *
+ * Everything runs in ONE session (one license seat):
+ *  1. The customer must already exist — the import silently CREATES unknown
+ *     customer names, so we refuse rather than pollute the customer list.
+ *  2. If an SO with `soNum` already exists, returns it without importing —
+ *     re-posting the same number would append/update, not error.
+ *  3. Imports, then verifies the SO actually appeared (the import endpoint
+ *     returns 200 with an empty body on success).
+ */
+export async function createEstimate(
+  soNum: string,
+  customerName: string,
+  rows: string[][],
+): Promise<CreateEstimateResult> {
+  return withSession(async (call) => {
+    const customers = await dataQueryWith(
+      call,
+      `SELECT id, accountId FROM customer WHERE name = ${sqlQuote(customerName)} AND activeFlag = 1`,
+    );
+    if (customers.length === 0) {
+      throw new Error(
+        `Fishbowl has no active customer named "${customerName}" — the import would auto-create one, so this is blocked. Add/match the customer in Fishbowl first.`,
+      );
+    }
+
+    // The import rejects blank addresses ("Address is required"), but orders
+    // placed before checkout collected addresses have none. Backfill blank
+    // bill-to/ship-to column groups from the customer's default address —
+    // the same thing the Fishbowl client does when keying an order.
+    await backfillAddresses(call, Number(customers[0].accountId), rows);
+
+    const findSo = () =>
+      dataQueryWith(call, `SELECT id FROM so WHERE num = ${sqlQuote(soNum)}`);
+
+    const existing = await findSo();
+    if (existing.length > 0) {
+      return { soId: Number(existing[0].id), created: false };
+    }
+
+    const res = await call(`/api/import/SalesOrderDetails`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rows),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      let message = body.slice(0, 500);
+      try {
+        const parsed = JSON.parse(body) as { message?: string };
+        if (parsed.message) message = parsed.message;
+      } catch {
+        /* keep raw body */
+      }
+      throw new Error(`Fishbowl estimate import failed (${res.status}): ${message}`);
+    }
+
+    const check = await findSo();
+    if (check.length === 0) {
+      throw new Error(
+        `Fishbowl accepted the import but estimate ${soNum} did not appear — check the order in the Fishbowl client.`,
+      );
+    }
+    return { soId: Number(check[0].id), created: true };
+  });
+}
+
+/**
+ * Fill blank BillTo/ShipTo column groups in SalesOrderDetails import rows
+ * with the account's default address. Mutates `rows` in place; no-op when
+ * every row already has both cities or the account has no default address.
+ */
+async function backfillAddresses(
+  call: Caller,
+  accountId: number,
+  rows: string[][],
+): Promise<void> {
+  const header = rows[0] ?? [];
+  const col = (name: string) => header.indexOf(name);
+  const groups = [
+    { city: col("BillToCity"), street: col("BillToAddress"), state: col("BillToState"), zip: col("BillToZip"), country: col("BillToCountry") },
+    { city: col("ShipToCity"), street: col("ShipToAddress"), state: col("ShipToState"), zip: col("ShipToZip"), country: col("ShipToCountry") },
+  ].filter((g) => g.city >= 0);
+
+  const needsFill = rows
+    .slice(1)
+    .some((row) => groups.some((g) => !(row[g.city] ?? "").trim()));
+  if (!needsFill || !Number.isFinite(accountId)) return;
+
+  const addr = await dataQueryWith(
+    call,
+    `SELECT a.address AS street, a.city, s.code AS state, a.zip, c.name AS country
+     FROM address a
+     LEFT JOIN stateconst s ON a.stateId = s.id
+     LEFT JOIN countryconst c ON a.countryId = c.id
+     WHERE a.accountId = ${accountId} AND a.defaultFlag = 1
+     ORDER BY a.typeID LIMIT 1`,
+  );
+  if (addr.length === 0) return;
+  const d = addr[0] as Record<string, string | null>;
+
+  for (const row of rows.slice(1)) {
+    for (const g of groups) {
+      if ((row[g.city] ?? "").trim()) continue;
+      row[g.street] = String(d.street ?? "");
+      row[g.city] = String(d.city ?? "");
+      row[g.state] = String(d.state ?? "");
+      row[g.zip] = String(d.zip ?? "");
+      row[g.country] = String(d.country ?? "UNITED STATES");
+    }
+  }
+}
