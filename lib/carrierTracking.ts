@@ -30,17 +30,30 @@ export type DeliveryStatus = {
 type Creds = { id: string; secret: string };
 
 function creds(prefix: "USPS" | "FEDEX" | "UPS"): Creds | null {
-  const id = process.env[`${prefix}_CLIENT_ID`];
-  const secret = process.env[`${prefix}_CLIENT_SECRET`];
-  return id && secret ? { id, secret } : null;
+  const id = (process.env[`${prefix}_CLIENT_ID`] ?? "").trim();
+  const secret = (process.env[`${prefix}_CLIENT_SECRET`] ?? "").trim();
+  // Length gate keeps placeholder values ("x") from enabling a carrier.
+  return id.length > 5 && secret.length > 5 ? { id, secret } : null;
 }
 
-/** Which carriers have keys configured right now. */
+/** EasyPost aggregator key — when set, it serves ALL carriers (their IP
+ *  agreements cover packages regardless of who shipped them, which sidesteps
+ *  USPS's MID access controls entirely). Direct carrier keys then act as
+ *  fallback when it's absent. */
+function easypostKey(): string | null {
+  const k = (process.env.EASYPOST_API_KEY ?? "").trim();
+  return k.length > 5 ? k : null;
+}
+
+/** Which carriers have a working provider right now. EasyPost covers USPS +
+ *  UPS on its own agreements; FedEx tracking requires either direct FedEx
+ *  keys or a FedEx carrier account linked inside EasyPost (verified live
+ *  2026-07-31: without one, EasyPost returns CREDENTIALS_NOT_FOUND). */
 export function configuredCarriers(): CarrierId[] {
   const out: CarrierId[] = [];
-  if (creds("USPS")) out.push("usps");
+  if (easypostKey() || creds("USPS")) out.push("usps");
   if (creds("FEDEX")) out.push("fedex");
-  if (creds("UPS")) out.push("ups");
+  if (easypostKey() || creds("UPS")) out.push("ups");
   return out;
 }
 
@@ -241,12 +254,71 @@ async function upsStatus(trackingNum: string): Promise<DeliveryStatus | null> {
   return { delivered, deliveredAt, summary };
 }
 
+/* ── EasyPost (api.easypost.com) ─────────────────────────────────────────── */
+
+const EASYPOST_CARRIER: Record<CarrierId, string> = {
+  usps: "USPS",
+  fedex: "FedEx",
+  ups: "UPS",
+};
+
+/**
+ * One call does everything: POST /v2/trackers both registers the package for
+ * background tracking AND returns its current status. Idempotent by design —
+ * EasyPost returns the existing Tracker when the same (tracking_code, carrier)
+ * is re-submitted within 3 months — so the hourly cron can just re-post.
+ * A freshly created tracker may report "unknown" until EasyPost's first
+ * carrier fetch completes; the next cron run picks up the real status.
+ */
+async function easypostStatus(
+  carrier: CarrierId,
+  trackingNum: string,
+): Promise<DeliveryStatus> {
+  const key = easypostKey()!;
+  const res = await fetch("https://api.easypost.com/v2/trackers", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      tracker: { tracking_code: trackingNum, carrier: EASYPOST_CARRIER[carrier] },
+    }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`EasyPost tracker failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  }
+  const t = asRecord(await res.json().catch(() => ({})));
+  const status = typeof t.status === "string" ? t.status : "unknown";
+  const delivered = status === "delivered";
+
+  // Delivery timestamp: the datetime of the "delivered" scan event.
+  let deliveredAt: string | null = null;
+  const details = Array.isArray(t.tracking_details) ? t.tracking_details : [];
+  for (const d of details) {
+    const rec = asRecord(d);
+    if (rec.status === "delivered" && typeof rec.datetime === "string") {
+      const parsed = new Date(rec.datetime);
+      if (!Number.isNaN(parsed.getTime())) deliveredAt = parsed.toISOString();
+    }
+  }
+
+  const detail = typeof t.status_detail === "string" ? t.status_detail : null;
+  return {
+    delivered,
+    deliveredAt,
+    summary: detail && detail !== "unknown" ? `${status} (${detail})` : status,
+  };
+}
+
 /* ── Dispatcher ──────────────────────────────────────────────────────────── */
 
 /**
- * Current delivery status for a tracking number, or null when that carrier's
- * keys aren't configured. Throws on API errors (caller logs and retries next
- * cron run).
+ * Current delivery status for a tracking number, or null when no provider is
+ * configured for that carrier. EasyPost (when its key is set) is preferred
+ * for every carrier; the direct carrier clients are the fallback. Throws on
+ * API errors (caller logs and retries next cron run).
  */
 export async function getDeliveryStatus(
   carrier: CarrierId,
@@ -254,10 +326,13 @@ export async function getDeliveryStatus(
 ): Promise<DeliveryStatus | null> {
   switch (carrier) {
     case "usps":
-      return uspsStatus(trackingNum);
+      return easypostKey() ? easypostStatus(carrier, trackingNum) : uspsStatus(trackingNum);
     case "fedex":
-      return fedexStatus(trackingNum);
+      // Direct keys first — EasyPost can't track FedEx without a linked
+      // FedEx carrier account.
+      if (creds("FEDEX")) return fedexStatus(trackingNum);
+      return easypostKey() ? easypostStatus(carrier, trackingNum) : null;
     case "ups":
-      return upsStatus(trackingNum);
+      return easypostKey() ? easypostStatus(carrier, trackingNum) : upsStatus(trackingNum);
   }
 }
