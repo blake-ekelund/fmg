@@ -35,8 +35,8 @@ export const SCENTS: { key: string; name: string; color: string; code: string }[
 export const hcSku = (code: string) => `124-00-${code}`;
 export const gsSku = (code: string) => `411-00-${code}`;
 export const lbSku = (code: string) => `224-00-${code}`;
-export const HC_DISPLAY_SKU = "506-05-99";
-export const LIP_DISPLAY_SKU = "506-06-99";
+export const HC_DISPLAY_SKU = "512-01-99";
+export const LIP_DISPLAY_SKU = "515-00-99";
 
 export const hcField = (key: string) => `hc_${key}`;
 export const gsField = (key: string) => `gs_${key}`;

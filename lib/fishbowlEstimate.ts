@@ -93,9 +93,10 @@ type HeaderColumn = (typeof SALES_ORDER_IMPORT_HEADER)[number];
 type RowValues = Partial<Record<HeaderColumn, string>>;
 
 /** Defaults for the required SO custom fields until real rep attribution is
- *  wired up — HOUSE/web matches how D2C storefront orders are attributed. */
+ *  wired up. Territory/Order Agency "100" is the house/web agency code per
+ *  the order-entry spec (2026-07-31). */
 const CF_DEFAULTS = {
-  agency: "HOUSE",
+  agency: "100",
   agencyCode: "000",
   rep: "JULIE EKELUND",
   orderSource: "WEB",
@@ -142,7 +143,10 @@ function flattenAddress(
 }
 
 export type EstimatePayload = {
-  soNum: string;
+  /** The storefront ref (SASSY-####) — travels as Customer PO, NOT the SO
+   *  number. Fishbowl auto-assigns the SO number (next in its 24xxx sequence)
+   *  because SONum is sent blank; dedupe + lookup key on customerPO. */
+  poNum: string;
   /** Header + item rows, ready for createEstimate(). */
   rows: string[][];
 };
@@ -159,7 +163,7 @@ export function estimateRowsForOrder(
   order: StorefrontOrder,
   customerName: string,
 ): EstimatePayload {
-  const soNum = orderRef(order);
+  const poNum = orderRef(order);
   const items = (order.items ?? []).filter((it) => it.part && (it.quantity ?? 0) > 0);
   if (items.length === 0) {
     throw new Error("Order has no line items with a Fishbowl product number.");
@@ -186,14 +190,21 @@ export function estimateRowsForOrder(
   const rep = (order.sales_rep || CF_DEFAULTS.rep).toUpperCase();
 
   const noteParts = [
-    `Storefront order ${soNum} — pushed automatically from the FMG site as an estimate.`,
+    `Storefront order ${poNum} — pushed automatically from the FMG site as an estimate.`,
   ];
   if (order.email) noteParts.push(`Customer email: ${order.email}`);
   if ((order.tax ?? 0) > 0) noteParts.push(`Tax collected at checkout: $${money(order.tax ?? 0)}`);
   if (order.note) noteParts.push(`Order note: ${order.note}`);
 
+  // Destination-based tax: Minnesota ship-tos use the "MN State" rate
+  // (taxrate.name, verified 2026-07-31); everywhere else is "None".
+  const shipState = (ship.state ?? "").trim().toUpperCase();
+  const taxRateName = shipState === "MN" || shipState === "MINNESOTA" ? "MN State" : "None";
+
   const header: RowValues = {
-    SONum: soNum,
+    // Blank SONum → Fishbowl assigns the next number in its own sequence.
+    // The storefront ref rides in PONum (Customer PO) instead.
+    SONum: "",
     Status: ESTIMATE_STATUS,
     CustomerName: customerName,
     CustomerContact: order.contact_name || customerName,
@@ -211,19 +222,18 @@ export function estimateRowsForOrder(
     ShipToCountry: ship.country,
     ShipToResidential: order.channel === "d2c" ? "true" : "false",
     CarrierName: "RATESHOP",
-    TaxRateName: "None",
+    TaxRateName: taxRateName,
     PriorityId: "30",
-    PONum: "",
+    PONum: poNum,
     VendorPONum: "",
     Date: created,
-    // Salesman must match an existing Fishbowl user ("Unknown Salesman"
-    // otherwise) — leave blank; rep attribution rides in the custom fields.
-    Salesman: "",
-    ShippingTerms: "Prepaid & Billed",
-    PaymentTerms: order.payment_status === "paid" ? "CREDIT CARD" : "",
+    // Must match an existing Fishbowl user — "admin" verified active 2026-07-31.
+    Salesman: "admin",
+    ShippingTerms: "Prepaid",
+    PaymentTerms: "NET 30",
     FOB: "Origin",
     Note: noteParts.join("\n"),
-    QuickBooksClassName: "",
+    QuickBooksClassName: "WEB",
     LocationGroupName: "Point B Solutions",
     OrderDateScheduled: created,
     URL: "",
@@ -297,7 +307,7 @@ export function estimateRowsForOrder(
     SALES_ORDER_IMPORT_HEADER.map((col) => values[col] ?? "");
 
   return {
-    soNum,
+    poNum,
     rows: [
       [...SALES_ORDER_IMPORT_HEADER],
       ...itemRows.map((item) => toRow({ ...header, ...item })),

@@ -55,13 +55,15 @@ async function main() {
   console.log(`  store=${order.store} channel=${order.channel} total=$${order.total}`);
   console.log(`  items=${order.items.length} discount=$${order.discount ?? 0} shipping=$${order.shipping ?? 0}`);
 
+  // SONum rides blank (Fishbowl auto-numbers); the test suffixes the Customer
+  // PO instead so it can't collide with a real push of the same order.
   const payload = estimateRowsForOrder(order, "TEST CUSTOMER #2");
-  const testNum = `${payload.soNum}-APITEST`;
-  const soNumCol = payload.rows[0].indexOf("SONum");
-  for (let i = 1; i < payload.rows.length; i++) payload.rows[i][soNumCol] = testNum;
+  const testPo = `${payload.poNum}-APITEST`;
+  const poCol = payload.rows[0].indexOf("PONum");
+  for (let i = 1; i < payload.rows.length; i++) payload.rows[i][poCol] = testPo;
 
-  console.log(`\nPushing as estimate ${testNum} under TEST CUSTOMER #2…`);
-  const result = await createEstimate(testNum, "TEST CUSTOMER #2", payload.rows);
+  console.log(`\nPushing estimate with Customer PO ${testPo} under TEST CUSTOMER #2…`);
+  const result = await createEstimate(testPo, "TEST CUSTOMER #2", payload.rows);
   console.log("Result:", result);
 
   const lines = await runDataQuery(
@@ -69,7 +71,8 @@ async function main() {
      FROM soitem WHERE soitem.soId = ${result.soId} ORDER BY soitem.id`,
   );
   const header = await runDataQuery(
-    `SELECT so.num, so.totalPrice, SOSTATUS.name AS status, so.customerId, so.billToName, so.shipToCity
+    `SELECT so.num, so.customerPO, so.totalPrice, SOSTATUS.name AS status, so.customerId,
+            so.billToName, so.shipToCity, so.salesmanId, so.taxRateName, so.paymentTermsId
      FROM so LEFT JOIN SOSTATUS ON so.statusId = SOSTATUS.id WHERE so.id = ${result.soId}`,
   );
   console.log("\nFishbowl SO header:", JSON.stringify(header, null, 2));

@@ -41,12 +41,13 @@ export async function pushOrderEstimate(
   }
 
   const payload = estimateRowsForOrder(order, customerName);
-  const { soId, created } = await createEstimate(
-    payload.soNum,
+  // soNum comes back from Fishbowl (auto-numbered); the storefront ref rides
+  // as Customer PO and is the dedupe key.
+  const { soId, soNum, created } = await createEstimate(
+    payload.poNum,
     customerName,
     payload.rows,
   );
-  const soNum = payload.soNum;
 
   // Stamp the order. The estimate columns are a fresh migration — fall back
   // to the base stamp until it's pushed.

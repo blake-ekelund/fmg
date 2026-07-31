@@ -152,7 +152,7 @@ function SmsEditor({
 
 /* ─── Main Template Editor ─── */
 export default function TemplateEditorPage() {
-  const { templates, loading, save, remove, duplicate, refresh } = useTemplates();
+  const { templates, loading, save, saveError, remove, duplicate, refresh } = useTemplates();
 
   // List vs editor mode
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -955,6 +955,12 @@ export default function TemplateEditorPage() {
           </button>
         </div>
       </div>
+
+      {saveError && (
+        <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+          <span className="font-medium">Save failed:</span> {saveError}
+        </div>
+      )}
 
       {/* SMS Editor */}
       {source === "blocks" && templateType === "sms" && (

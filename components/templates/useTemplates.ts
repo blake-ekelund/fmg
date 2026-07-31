@@ -7,6 +7,7 @@ import type { EmailTemplate, EmailBlock, TemplateType } from "./types";
 export function useTemplates(typeFilter?: TemplateType) {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const fetch = useCallback(async () => {
     setLoading(true);
@@ -25,6 +26,7 @@ export function useTemplates(typeFilter?: TemplateType) {
   useEffect(() => { fetch(); }, [fetch]);
 
   const save = useCallback(async (template: Partial<EmailTemplate> & { id?: string }) => {
+    setSaveError(null);
     const payload = {
       ...template,
       blocks: template.blocks ? JSON.parse(JSON.stringify(template.blocks)) : undefined,
@@ -42,6 +44,8 @@ export function useTemplates(typeFilter?: TemplateType) {
         setTemplates((prev) => prev.map((t) => (t.id === data.id ? data as EmailTemplate : t)));
         return data as EmailTemplate;
       }
+      console.error("Template update failed:", error);
+      setSaveError(error?.message ?? "Update failed for an unknown reason");
     } else {
       const { data, error } = await supabase
         .from("email_templates")
@@ -52,6 +56,8 @@ export function useTemplates(typeFilter?: TemplateType) {
         setTemplates((prev) => [data as EmailTemplate, ...prev]);
         return data as EmailTemplate;
       }
+      console.error("Template insert failed:", error);
+      setSaveError(error?.message ?? "Save failed for an unknown reason");
     }
     return null;
   }, []);
@@ -95,5 +101,5 @@ export function useTemplates(typeFilter?: TemplateType) {
     return save({ ...rest, name: `${rest.name} (Copy)`, status: "draft" });
   }, [save]);
 
-  return { templates, loading, save, remove, duplicate, refresh: fetch };
+  return { templates, loading, save, saveError, remove, duplicate, refresh: fetch };
 }

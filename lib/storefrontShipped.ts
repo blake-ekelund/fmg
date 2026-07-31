@@ -15,7 +15,8 @@ const STORE_BASES: Record<string, string | undefined> = {
   ni: process.env.NI_SITE_URL, // unset until the NI storefront is live
 };
 
-export async function notifyStorefrontShipped(
+async function notifyStorefront(
+  path: "shipped" | "delivered",
   store: string | null | undefined,
   orderNumber: number | string | null | undefined,
 ): Promise<boolean> {
@@ -24,7 +25,7 @@ export async function notifyStorefrontShipped(
   if (!secret || !base || !orderNumber) return false;
 
   try {
-    const res = await fetch(`${base.replace(/\/$/, "")}/api/orders/shipped`, {
+    const res = await fetch(`${base.replace(/\/$/, "")}/api/orders/${path}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${secret}`,
@@ -35,13 +36,29 @@ export async function notifyStorefrontShipped(
     });
     if (!res.ok) {
       console.error(
-        `[shipped-notify] ${store} rejected order ${orderNumber} (${res.status})`,
+        `[${path}-notify] ${store} rejected order ${orderNumber} (${res.status})`,
       );
       return false;
     }
     return true;
   } catch (err) {
-    console.error(`[shipped-notify] ${store} order ${orderNumber} failed`, err);
+    console.error(`[${path}-notify] ${store} order ${orderNumber} failed`, err);
     return false;
   }
+}
+
+export function notifyStorefrontShipped(
+  store: string | null | undefined,
+  orderNumber: number | string | null | undefined,
+): Promise<boolean> {
+  return notifyStorefront("shipped", store, orderNumber);
+}
+
+/** Same contract as shipped: the storefront's /api/orders/delivered claims
+ *  delivered_email_at atomically, so repeated calls can never double-email. */
+export function notifyStorefrontDelivered(
+  store: string | null | undefined,
+  orderNumber: number | string | null | undefined,
+): Promise<boolean> {
+  return notifyStorefront("delivered", store, orderNumber);
 }

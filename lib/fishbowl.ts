@@ -239,7 +239,9 @@ const sqlQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
 export type CreateEstimateResult = {
   /** Fishbowl's internal so.id for the estimate. */
   soId: number;
-  /** False when an SO with this number already existed (nothing imported). */
+  /** The SO number Fishbowl assigned (SONum is sent blank → auto-numbered). */
+  soNum: string;
+  /** False when an SO with this Customer PO already existed (nothing imported). */
   created: boolean;
 };
 
@@ -249,16 +251,20 @@ export type CreateEstimateResult = {
  * read-only on this instance, it 405s on POST). `rows` is the CSV as an array
  * of arrays, header row first — build it with lib/fishbowlEstimate.ts.
  *
+ * The SO number is auto-assigned by Fishbowl (rows carry a blank SONum); the
+ * storefront ref (SASSY-####) travels as Customer PO, so `poNum` is the
+ * identity used for dedupe and post-import lookup.
+ *
  * Everything runs in ONE session (one license seat):
  *  1. The customer must already exist — the import silently CREATES unknown
  *     customer names, so we refuse rather than pollute the customer list.
- *  2. If an SO with `soNum` already exists, returns it without importing —
- *     re-posting the same number would append/update, not error.
+ *  2. If an SO with this Customer PO already exists, returns it without
+ *     importing — pushing the same order twice must not create two SOs.
  *  3. Imports, then verifies the SO actually appeared (the import endpoint
  *     returns 200 with an empty body on success).
  */
 export async function createEstimate(
-  soNum: string,
+  poNum: string,
   customerName: string,
   rows: string[][],
 ): Promise<CreateEstimateResult> {
@@ -279,12 +285,44 @@ export async function createEstimate(
     // the same thing the Fishbowl client does when keying an order.
     await backfillAddresses(call, Number(customers[0].accountId), rows);
 
+    // Match on customerPO, plus num for orders pushed before the auto-number
+    // switch (their SO number IS the storefront ref).
     const findSo = () =>
-      dataQueryWith(call, `SELECT id FROM so WHERE num = ${sqlQuote(soNum)}`);
+      dataQueryWith(
+        call,
+        `SELECT id, num FROM so WHERE customerPO = ${sqlQuote(poNum)} OR num = ${sqlQuote(poNum)} ORDER BY id DESC`,
+      );
 
     const existing = await findSo();
     if (existing.length > 0) {
-      return { soId: Number(existing[0].id), created: false };
+      return { soId: Number(existing[0].id), soNum: String(existing[0].num), created: false };
+    }
+
+    // The import REQUIRES an SO number (verified 2026-07-31: blank SONum →
+    // "Order number must be specified"), and Fishbowl's internal counter isn't
+    // queryable. So auto-number the way the client effectively does: next
+    // numeric so.num, bumped past any collision. Re-posting an EXISTING number
+    // would append lines to that SO, so the free-number check matters.
+    const header = rows[0] ?? [];
+    const soCol = header.indexOf("SONum");
+    if (soCol >= 0 && rows.slice(1).every((r) => !(r[soCol] ?? "").trim())) {
+      const maxRows = await dataQueryWith(
+        call,
+        `SELECT MAX(CAST(num AS UNSIGNED)) AS maxNum FROM so WHERE num REGEXP '^[0-9]+$'`,
+      );
+      let next = Number(maxRows[0]?.maxNum ?? 0) + 1;
+      if (!Number.isFinite(next) || next <= 1) {
+        throw new Error("Could not determine the next Fishbowl SO number.");
+      }
+      for (;;) {
+        const clash = await dataQueryWith(
+          call,
+          `SELECT id FROM so WHERE num = ${sqlQuote(String(next))}`,
+        );
+        if (clash.length === 0) break;
+        next++;
+      }
+      for (const row of rows.slice(1)) row[soCol] = String(next);
     }
 
     const res = await call(`/api/import/SalesOrderDetails`, {
@@ -307,10 +345,10 @@ export async function createEstimate(
     const check = await findSo();
     if (check.length === 0) {
       throw new Error(
-        `Fishbowl accepted the import but estimate ${soNum} did not appear — check the order in the Fishbowl client.`,
+        `Fishbowl accepted the import but the estimate for PO ${poNum} did not appear — check the order in the Fishbowl client.`,
       );
     }
-    return { soId: Number(check[0].id), created: true };
+    return { soId: Number(check[0].id), soNum: String(check[0].num), created: true };
   });
 }
 

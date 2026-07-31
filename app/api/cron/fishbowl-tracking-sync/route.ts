@@ -80,18 +80,25 @@ export async function GET(request: Request) {
     .returns<StorefrontOrder[]>();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Fishbowl now auto-assigns SO numbers with the storefront ref riding as
+  // Customer PO — so match on BOTH: fishbowl_estimate_num holds the real SO
+  // number for new pushes, while the ref (SASSY-####) matches customerPO (new)
+  // or so.num (orders pushed before the auto-number switch).
   const waiting = (orders ?? []).map((o) => ({
     order: o,
     soNum: o.fishbowl_estimate_num ?? orderRef(o),
+    poRef: orderRef(o),
   }));
   if (waiting.length === 0) {
     return NextResponse.json({ watched: 0, shipped: [] });
   }
 
-  // One Fishbowl session: any shipped cartons for those SO numbers?
-  const nums = waiting.map((w) => sqlQuote(w.soNum)).join(",");
+  // One Fishbowl session: any shipped cartons for those SOs?
+  const keys = Array.from(
+    new Set(waiting.flatMap((w) => [sqlQuote(w.soNum), sqlQuote(w.poRef)])),
+  ).join(",");
   const cartons = await runDataQuery(
-    `SELECT so.num AS orderNum, carrier.name AS carrier,
+    `SELECT so.num AS orderNum, so.customerPO AS poNum, carrier.name AS carrier,
             shipcarton.trackingNum AS trackingNum, ship.dateShipped AS dateShipped
      FROM shipcarton
      JOIN ship ON shipcarton.shipId = ship.id
@@ -99,26 +106,27 @@ export async function GET(request: Request) {
      LEFT JOIN carrier ON ship.carrierId = carrier.id
      WHERE shipcarton.trackingNum IS NOT NULL AND shipcarton.trackingNum <> ''
        AND ship.dateShipped IS NOT NULL
-       AND so.num IN (${nums})`,
+       AND (so.num IN (${keys}) OR so.customerPO IN (${keys}))`,
   );
 
   // First shipped carton per SO wins (multi-carton orders share a shipment;
-  // the customer email links one number).
+  // the customer email links one number). Index by both SO num and PO ref.
   const bySo = new Map<string, { carrier: string | null; trackingNum: string; dateShipped: unknown }>();
   for (const c of cartons as Array<Record<string, unknown>>) {
-    const key = String(c.orderNum ?? "");
-    if (!key || bySo.has(key)) continue;
-    bySo.set(key, {
+    const hit = {
       carrier: (c.carrier as string) ?? null,
       trackingNum: String(c.trackingNum),
       dateShipped: c.dateShipped,
-    });
+    };
+    for (const key of [String(c.orderNum ?? ""), String(c.poNum ?? "")]) {
+      if (key && !bySo.has(key)) bySo.set(key, hit);
+    }
   }
 
   const shipped: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
-  for (const { order, soNum } of waiting) {
-    const hit = bySo.get(soNum);
+  for (const { order, soNum, poRef } of waiting) {
+    const hit = bySo.get(soNum) ?? bySo.get(poRef);
     if (!hit) continue;
     const carrier = resolveCarrier(hit.carrier, hit.trackingNum);
     const entry = {
