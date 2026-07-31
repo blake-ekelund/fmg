@@ -364,10 +364,11 @@ export default function PrebookingsPage() {
                               {invoice.length === 0 ? (
                                 <span className="text-[11px] text-gray-400">No items on this request.</span>
                               ) : (
-                                <div className="max-w-xl">
+                                <div className="max-w-2xl">
                                   <table className="w-full text-[11px]">
                                     <thead>
                                       <tr className="text-left text-[10px] uppercase tracking-wider text-gray-400">
+                                        <th className="py-1 pr-3 font-medium">Product #</th>
                                         <th className="py-1 pr-3 font-medium">Item</th>
                                         <th className="py-1 px-3 text-right font-medium">Qty</th>
                                         <th className="py-1 px-3 text-right font-medium">Unit</th>
@@ -377,6 +378,7 @@ export default function PrebookingsPage() {
                                     <tbody>
                                       {invoice.map((l, i) => (
                                         <tr key={i} className="border-t border-gray-100">
+                                          <td className="py-1.5 pr-3 font-mono text-[10px] text-gray-500 whitespace-nowrap">{l.sku}</td>
                                           <td className="py-1.5 pr-3 text-gray-700">{l.description}</td>
                                           <td className="py-1.5 px-3 text-right tabular-nums text-gray-600">{l.qty}</td>
                                           <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{money(l.unitPrice)}</td>
@@ -386,7 +388,7 @@ export default function PrebookingsPage() {
                                     </tbody>
                                     <tfoot>
                                       <tr className="border-t border-gray-200">
-                                        <td colSpan={3} className="py-1.5 pr-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                                        <td colSpan={4} className="py-1.5 pr-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                                           Estimated total
                                         </td>
                                         <td className="py-1.5 pl-3 text-right tabular-nums font-bold text-gray-900">

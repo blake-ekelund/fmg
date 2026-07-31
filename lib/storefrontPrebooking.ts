@@ -14,15 +14,29 @@
 
 export type PrebookStatus = "new" | "contacted" | "converted" | "archived";
 
-/** The six holiday personalities, in display order (keys match the DB columns). */
-export const SCENTS: { key: string; name: string; color: string }[] = [
-  { key: "up_to_snow_good", name: "Up to Snow Good", color: "#3f6fa3" },
-  { key: "sleigh_all_day", name: "Sleigh All Day", color: "#158a8a" },
-  { key: "naughty_and_nice", name: "Naughty & Nice", color: "#b12a72" },
-  { key: "fa_la_la_fabulous", name: "Fa La La Fabulous", color: "#d4762f" },
-  { key: "holly_dazed", name: "Holly Dazed", color: "#2c5c3f" },
-  { key: "ho_ho_glow", name: "Ho Ho Glow", color: "#c4283b" },
+/** The six holiday personalities, in display order (keys match the DB columns).
+    `code` is the Fishbowl fragrance suffix shared across product families —
+    confirmed against inventory_products for the 124-00-XX (mini hand crème)
+    and 224-00-XX (lip butter) parts. */
+export const SCENTS: { key: string; name: string; color: string; code: string }[] = [
+  { key: "up_to_snow_good", name: "Up to Snow Good", color: "#3f6fa3", code: "05" },
+  { key: "sleigh_all_day", name: "Sleigh All Day", color: "#158a8a", code: "07" },
+  { key: "naughty_and_nice", name: "Naughty & Nice", color: "#b12a72", code: "04" },
+  { key: "fa_la_la_fabulous", name: "Fa La La Fabulous", color: "#d4762f", code: "06" },
+  { key: "holly_dazed", name: "Holly Dazed", color: "#2c5c3f", code: "02" },
+  { key: "ho_ho_glow", name: "Ho Ho Glow", color: "#c4283b", code: "01" },
 ];
+
+/* Fishbowl part numbers (product numbers), from inventory_products.
+   124-00-XX and 224-00-XX are confirmed for all six scents; the gift-set
+   series follows the same fragrance codes — 411-00-01 (Ho Ho Glow) exists in
+   Fishbowl today and the other five are inferred from the numbering scheme,
+   so verify when those parts are created. */
+export const hcSku = (code: string) => `124-00-${code}`;
+export const gsSku = (code: string) => `411-00-${code}`;
+export const lbSku = (code: string) => `224-00-${code}`;
+export const HC_DISPLAY_SKU = "506-05-99";
+export const LIP_DISPLAY_SKU = "506-06-99";
 
 export const hcField = (key: string) => `hc_${key}`;
 export const gsField = (key: string) => `gs_${key}`;
@@ -112,6 +126,8 @@ export function buyerName(r: PrebookRequest): string {
 }
 
 export type PrebookInvoiceLine = {
+  /** Fishbowl part number, for keying the order in. */
+  sku: string;
   description: string;
   qty: number;
   unitPrice: number;
@@ -129,6 +145,7 @@ export function prebookInvoiceLines(r: PrebookRequest): PrebookInvoiceLine[] {
     const c = int(r[hcField(s.key)]);
     if (c > 0)
       lines.push({
+        sku: hcSku(s.code),
         description: `${s.name} — Mini Hand Crème (case of ${HAND_CREME_PER_CASE})`,
         qty: c,
         unitPrice: HAND_CREME_CASE_PRICE,
@@ -139,6 +156,7 @@ export function prebookInvoiceLines(r: PrebookRequest): PrebookInvoiceLine[] {
     const g = int(r[gsField(s.key)]);
     if (g > 0)
       lines.push({
+        sku: gsSku(s.code),
         description: `${s.name} — Gift Set (case of ${GIFT_SETS_PER_CASE})`,
         qty: g,
         unitPrice: GIFT_SET_CASE_PRICE,
@@ -149,6 +167,7 @@ export function prebookInvoiceLines(r: PrebookRequest): PrebookInvoiceLine[] {
     const lb = int(r[lbField(s.key)]);
     if (lb > 0)
       lines.push({
+        sku: lbSku(s.code),
         description: `${s.name} — SPF 30 Lip Butter (case of ${LIP_BUTTER_PER_PACK})`,
         qty: lb,
         unitPrice: LIP_BUTTER_PACK_PRICE,
@@ -158,6 +177,7 @@ export function prebookInvoiceLines(r: PrebookRequest): PrebookInvoiceLine[] {
   const hcd = int(r[HC_DISPLAY_KEY]);
   if (hcd > 0)
     lines.push({
+      sku: HC_DISPLAY_SKU,
       description: "Holiday Sassy Mini Hand Crème Display",
       qty: hcd,
       unitPrice: HC_DISPLAY_PRICE,
@@ -166,6 +186,7 @@ export function prebookInvoiceLines(r: PrebookRequest): PrebookInvoiceLine[] {
   const lip = int(r[LIP_BUTTER_KEY]);
   if (lip > 0)
     lines.push({
+      sku: LIP_DISPLAY_SKU,
       description: `Holiday SPF 30 Lip Butter Display (${LIP_BUTTER_PER_CASE}-ct)`,
       qty: lip,
       unitPrice: LIP_DISPLAY_PRICE,
@@ -226,5 +247,6 @@ export function aggregateTotals(rows: PrebookRequest[]): {
   };
 }
 
-/** "$1,234" — whole-dollar money formatting. */
-export const money = (n: number) => `$${n.toLocaleString("en-US")}`;
+/** "$1,234.00" — money always shows cents, matching the storefront. */
+export const money = (n: number) =>
+  `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
