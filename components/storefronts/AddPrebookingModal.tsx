@@ -7,11 +7,15 @@ import {
   SCENTS,
   hcField,
   gsField,
+  lbField,
   HC_DISPLAY_KEY,
   LIP_BUTTER_KEY,
   HAND_CREME_PER_CASE,
   HAND_CREME_CASE_PRICE,
-  GIFT_SET_PRICE,
+  GIFT_SETS_PER_CASE,
+  GIFT_SET_CASE_PRICE,
+  LIP_BUTTER_PER_PACK,
+  LIP_BUTTER_PACK_PRICE,
   HC_DISPLAY_PRICE,
   LIP_DISPLAY_PRICE,
   LIP_BUTTER_PER_CASE,
@@ -219,8 +223,9 @@ export default function AddPrebookingModal({ open, onClose, onCreated }: Props) 
               ) : null}
             </div>
             <div className="hidden items-center justify-end gap-4 pr-1 text-[9px] font-bold uppercase tracking-wider text-gray-400 sm:flex">
-              <span className="w-28 text-center">Mini Hand Crème</span>
-              <span className="w-28 text-center">Gift Sets</span>
+              <span className="w-24 text-center">Mini Hand Crème</span>
+              <span className="w-24 text-center">Gift Sets</span>
+              <span className="w-24 text-center">Lip Butters</span>
             </div>
             <div className="divide-y divide-gray-100">
               {SCENTS.map((s) => (
@@ -230,18 +235,23 @@ export default function AddPrebookingModal({ open, onClose, onCreated }: Props) 
                     <span className="text-xs font-semibold text-gray-800">{s.name}</span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="w-28 text-center">
+                    <div className="w-24 text-center">
                       <QtyStepper value={qty[hcField(s.key)] ?? 0} onChange={(n) => setLine(hcField(s.key), n)} />
                     </div>
-                    <div className="w-28 text-center">
+                    <div className="w-24 text-center">
                       <QtyStepper value={qty[gsField(s.key)] ?? 0} onChange={(n) => setLine(gsField(s.key), n)} />
+                    </div>
+                    <div className="w-24 text-center">
+                      <QtyStepper value={qty[lbField(s.key)] ?? 0} onChange={(n) => setLine(lbField(s.key), n)} />
                     </div>
                   </div>
                 </div>
               ))}
             </div>
             <p className="mt-1.5 text-[10px] text-gray-400">
-              Case pack = {HAND_CREME_PER_CASE} minis ({money(HAND_CREME_CASE_PRICE)}). Gift set {money(GIFT_SET_PRICE)} each.
+              All quantities are case packs: {HAND_CREME_PER_CASE} minis ({money(HAND_CREME_CASE_PRICE)}) ·{" "}
+              {GIFT_SETS_PER_CASE} gift sets ({money(GIFT_SET_CASE_PRICE)}) ·{" "}
+              {LIP_BUTTER_PER_PACK} lip butters ({money(LIP_BUTTER_PACK_PRICE)}).
             </p>
           </div>
 

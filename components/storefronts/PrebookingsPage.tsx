@@ -167,7 +167,10 @@ export default function PrebookingsPage() {
   const totalTiles = [
     { label: "Requests", value: String(filtered.length) },
     { label: "HC case packs", value: String(totals.cases) },
-    { label: "Gift sets", value: String(totals.giftSets) },
+    // Gift sets sell as case packs of 4 — show both so nobody misreads
+    // "6 cases" as six individual $14 sets.
+    { label: "GS case packs", value: `${totals.giftSets}`, detail: `${totals.giftSetUnits} sets` },
+    { label: "Lip packs", value: String(totals.lipPacks) },
     { label: "HC displays", value: String(totals.hcDisplays) },
     { label: "Lip displays", value: String(totals.lipDisplays) },
     { label: "Est. total", value: money(totals.estimated) },
@@ -225,10 +228,15 @@ export default function PrebookingsPage() {
       ) : (
         <>
           {/* Totals across the current filter */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
             {totalTiles.map((t) => (
               <div key={t.label} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
-                <div className="text-lg font-bold tabular-nums text-gray-900">{t.value}</div>
+                <div className="text-lg font-bold tabular-nums text-gray-900">
+                  {t.value}
+                  {"detail" in t && t.detail && (
+                    <span className="ml-1 text-[11px] font-medium text-gray-400">({t.detail})</span>
+                  )}
+                </div>
                 <div className="text-[10px] uppercase tracking-wider text-gray-400">{t.label}</div>
               </div>
             ))}

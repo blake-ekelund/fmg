@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { SCENTS, hcField, gsField, HC_DISPLAY_KEY, LIP_BUTTER_KEY, HAND_CREME_PER_CASE } from "@/lib/storefrontPrebooking";
+import { SCENTS, hcField, gsField, lbField, HC_DISPLAY_KEY, LIP_BUTTER_KEY, HAND_CREME_PER_CASE } from "@/lib/storefrontPrebooking";
 
 export const runtime = "nodejs";
 
@@ -82,6 +82,8 @@ export async function POST(request: Request) {
     const gifts = intGte0(body[gsField(s.key)]);
     row[hcField(s.key)] = cases;
     row[gsField(s.key)] = gifts;
+    // Per-scent lip butter case packs — same shape the storefront form writes.
+    row[lbField(s.key)] = intGte0(body[lbField(s.key)]);
     casesTotal += cases;
     giftSetsTotal += gifts;
   }

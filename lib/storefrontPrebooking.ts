@@ -26,13 +26,22 @@ export const SCENTS: { key: string; name: string; color: string }[] = [
 
 export const hcField = (key: string) => `hc_${key}`;
 export const gsField = (key: string) => `gs_${key}`;
+/** Per-scent individual lip butter line (case packs of 6). */
+export const lbField = (key: string) => `lb_${key}`;
 export const HC_DISPLAY_KEY = "hand_creme_display_qty";
 export const LIP_BUTTER_KEY = "lip_butter_qty";
 
-/* Pricing + pack sizes — identical to the storefront's constants. */
+/* Pricing + pack sizes — identical to the storefront's constants
+   (store/sassy/src/app/prebook/constants.ts). Every per-scent count is a CASE
+   PACK, priced as such: a `gs_` count of 1 is 4 gift sets = $56, never $14. */
 export const HAND_CREME_PER_CASE = 6; // minis per case pack
 export const HAND_CREME_CASE_PRICE = 30; // 6 × $5
-export const GIFT_SET_PRICE = 14;
+export const GIFT_SETS_PER_CASE = 4; // gift sets per case pack
+export const GIFT_SET_PRICE = 14; // $ per individual set
+export const GIFT_SET_CASE_PRICE = GIFT_SETS_PER_CASE * GIFT_SET_PRICE; // $56
+export const LIP_BUTTER_PER_PACK = 6; // lip butters per case pack
+export const LIP_BUTTER_UNIT_PRICE = 3; // $ per lip butter
+export const LIP_BUTTER_PACK_PRICE = LIP_BUTTER_PER_PACK * LIP_BUTTER_UNIT_PRICE; // $18
 export const HC_DISPLAY_PRICE = 220;
 export const LIP_DISPLAY_PRICE = 113;
 export const LIP_BUTTER_PER_CASE = 36; // lip butters per display
@@ -73,7 +82,7 @@ const int = (v: unknown): number => {
   return Number.isFinite(n) && n > 0 ? n : 0;
 };
 
-export type PrebookLine = { label: string; qty: number; unit?: string; group: "creme" | "giftset" | "display" };
+export type PrebookLine = { label: string; qty: number; unit?: string; group: "creme" | "giftset" | "lip" | "display" };
 
 /** Every ordered line with qty > 0 — "what was ordered", folded flat. */
 export function prebookLines(r: PrebookRequest): PrebookLine[] {
@@ -84,7 +93,11 @@ export function prebookLines(r: PrebookRequest): PrebookLine[] {
   }
   for (const s of SCENTS) {
     const gs = int(r[gsField(s.key)]);
-    if (gs > 0) lines.push({ label: s.name, qty: gs, unit: "gift sets", group: "giftset" });
+    if (gs > 0) lines.push({ label: s.name, qty: gs, unit: "GS cases", group: "giftset" });
+  }
+  for (const s of SCENTS) {
+    const lb = int(r[lbField(s.key)]);
+    if (lb > 0) lines.push({ label: s.name, qty: lb, unit: "lip packs", group: "lip" });
   }
   const hcd = int(r[HC_DISPLAY_KEY]);
   if (hcd > 0) lines.push({ label: "Mini Hand Crème Display", qty: hcd, unit: "displays", group: "display" });
@@ -125,7 +138,22 @@ export function prebookInvoiceLines(r: PrebookRequest): PrebookInvoiceLine[] {
   for (const s of SCENTS) {
     const g = int(r[gsField(s.key)]);
     if (g > 0)
-      lines.push({ description: `${s.name} — Gift Set`, qty: g, unitPrice: GIFT_SET_PRICE, amount: g * GIFT_SET_PRICE });
+      lines.push({
+        description: `${s.name} — Gift Set (case of ${GIFT_SETS_PER_CASE})`,
+        qty: g,
+        unitPrice: GIFT_SET_CASE_PRICE,
+        amount: g * GIFT_SET_CASE_PRICE,
+      });
+  }
+  for (const s of SCENTS) {
+    const lb = int(r[lbField(s.key)]);
+    if (lb > 0)
+      lines.push({
+        description: `${s.name} — SPF 30 Lip Butter (case of ${LIP_BUTTER_PER_PACK})`,
+        qty: lb,
+        unitPrice: LIP_BUTTER_PACK_PRICE,
+        amount: lb * LIP_BUTTER_PACK_PRICE,
+      });
   }
   const hcd = int(r[HC_DISPLAY_KEY]);
   if (hcd > 0)
@@ -151,7 +179,8 @@ export function estimatedTotal(qty: Record<string, unknown>): number {
   let sum = 0;
   for (const s of SCENTS) {
     sum += int(qty[hcField(s.key)]) * HAND_CREME_CASE_PRICE;
-    sum += int(qty[gsField(s.key)]) * GIFT_SET_PRICE;
+    sum += int(qty[gsField(s.key)]) * GIFT_SET_CASE_PRICE;
+    sum += int(qty[lbField(s.key)]) * LIP_BUTTER_PACK_PRICE;
   }
   sum += int(qty[HC_DISPLAY_KEY]) * HC_DISPLAY_PRICE;
   sum += int(qty[LIP_BUTTER_KEY]) * LIP_DISPLAY_PRICE;
@@ -164,22 +193,37 @@ export function estimatedTotal(qty: Record<string, unknown>): number {
 export function aggregateTotals(rows: PrebookRequest[]): {
   cases: number;
   minis: number;
+  /** Gift-set CASE PACKS (each = 4 sets). */
   giftSets: number;
+  /** Individual gift sets (cases × 4). */
+  giftSetUnits: number;
+  /** Per-scent lip butter case packs (each = 6). */
+  lipPacks: number;
   hcDisplays: number;
   lipDisplays: number;
   estimated: number;
 } {
-  let cases = 0, giftSets = 0, hcDisplays = 0, lipDisplays = 0, estimated = 0;
+  let cases = 0, giftSets = 0, lipPacks = 0, hcDisplays = 0, lipDisplays = 0, estimated = 0;
   for (const r of rows) {
     for (const s of SCENTS) {
       cases += int(r[hcField(s.key)]);
       giftSets += int(r[gsField(s.key)]);
+      lipPacks += int(r[lbField(s.key)]);
     }
     hcDisplays += int(r[HC_DISPLAY_KEY]);
     lipDisplays += int(r[LIP_BUTTER_KEY]);
     estimated += estimatedTotal(r);
   }
-  return { cases, minis: cases * HAND_CREME_PER_CASE, giftSets, hcDisplays, lipDisplays, estimated };
+  return {
+    cases,
+    minis: cases * HAND_CREME_PER_CASE,
+    giftSets,
+    giftSetUnits: giftSets * GIFT_SETS_PER_CASE,
+    lipPacks,
+    hcDisplays,
+    lipDisplays,
+    estimated,
+  };
 }
 
 /** "$1,234" — whole-dollar money formatting. */
