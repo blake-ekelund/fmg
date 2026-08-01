@@ -127,7 +127,12 @@ export async function GET(request: Request) {
       : null;
 
     const businessName = o.retailerName ?? addr?.company ?? "Faire retailer";
-    const match = matchCustomer(customerIndex, { business_name: businessName, email: null });
+    const match = matchCustomer(customerIndex, {
+      business_name: businessName,
+      email: null,
+      ship_city: addr?.city ?? null,
+      ship_state: addr?.state ?? null,
+    });
 
     const row: Record<string, unknown> = {
       source: "faire",
@@ -191,12 +196,18 @@ export async function GET(request: Request) {
   if (!dry) {
     const { data: unmatched, error: unErr } = await admin
       .from("orders")
-      .select("id, external_ref, business_name, email")
+      .select("id, external_ref, business_name, email, ship_to")
       .eq("source", "faire")
       .is("fishbowl_customer", null);
     if (!unErr) {
       for (const o of unmatched ?? []) {
-        const match = matchCustomer(customerIndex, o);
+        const shipTo = (o.ship_to ?? {}) as { city?: string | null; state?: string | null };
+        const match = matchCustomer(customerIndex, {
+          business_name: o.business_name as string | null,
+          email: o.email as string | null,
+          ship_city: shipTo.city ?? null,
+          ship_state: shipTo.state ?? null,
+        });
         if (!match) continue;
         const { error: upErr } = await admin
           .from("orders")
