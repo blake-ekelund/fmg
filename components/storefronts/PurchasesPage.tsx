@@ -58,12 +58,20 @@ export default function PurchasesPage() {
   >("all");
   const [storeFilter, setStoreFilter] = useState<"all" | "sassy" | "ni">("all");
   const [page, setPage] = useState(0);
+  /** "orders" = completed business; "abandoned" = unpaid D2C checkout-starts
+   *  (the abandoned-cart material — win-back targets, not real orders). */
+  const [view, setView] = useState<"orders" | "abandoned">("orders");
 
   const reload = useCallback(async () => {
     try {
-      const res = await fetch("/api/storefront-orders", {
-        headers: await authHeader(),
-      });
+      const res = await fetch(
+        view === "abandoned"
+          ? "/api/storefront-orders?view=abandoned"
+          : "/api/storefront-orders",
+        {
+          headers: await authHeader(),
+        },
+      );
       const json = await res.json();
       if (!res.ok) {
         setError(json?.error ?? `Failed (${res.status})`);
@@ -75,7 +83,7 @@ export default function PurchasesPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     (async () => {
@@ -167,9 +175,34 @@ export default function PurchasesPage() {
     <div className="w-full space-y-6 p-6 md:px-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-sm text-gray-500">
-          Orders from sassyandco.com, naturalinspirations.com, and Faire —
-          retail and wholesale.
+          {view === "abandoned"
+            ? "Checkouts that were started but never paid — abandoned-cart material, not real orders."
+            : "Orders from sassyandco.com, naturalinspirations.com, and Faire — retail and wholesale."}
         </p>
+        <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-0.5">
+          {(
+            [
+              { key: "orders", label: "Orders" },
+              { key: "abandoned", label: "Abandoned carts" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => {
+                setView(t.key);
+                setPage(0);
+              }}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                view === t.key
+                  ? "bg-gray-900 text-white"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={syncFaire}

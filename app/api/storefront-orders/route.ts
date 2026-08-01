@@ -37,15 +37,21 @@ export async function GET(request: Request) {
 
   // Unpaid D2C storefront rows are checkout-starts, not orders — the row
   // exists so the Stripe webhook can find it and so abandoned-cart recovery
-  // has material, but Purchases only shows completed business: paid D2C,
+  // has material. The default view shows completed business only: paid D2C,
   // wholesale (NET-30 terms — legitimately unpaid), and marketplace imports.
-  const orders = (data ?? []).filter(
-    (o: { channel?: string; source?: string; payment_status?: string }) =>
-      !(
-        o.channel === "d2c" &&
-        (o.source ?? "storefront") === "storefront" &&
-        o.payment_status !== "paid"
-      ),
+  // ?view=abandoned inverts the filter so staff can inspect the carts.
+  const isCheckoutStart = (o: {
+    channel?: string;
+    source?: string;
+    payment_status?: string;
+  }) =>
+    o.channel === "d2c" &&
+    (o.source ?? "storefront") === "storefront" &&
+    o.payment_status !== "paid";
+
+  const view = new URL(request.url).searchParams.get("view");
+  const orders = (data ?? []).filter((o) =>
+    view === "abandoned" ? isCheckoutStart(o) : !isCheckoutStart(o),
   );
   return NextResponse.json({ orders, notReady: false });
 }
