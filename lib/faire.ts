@@ -76,19 +76,27 @@ export type FaireOrder = {
   subtotal: number;
 };
 
-async function faireGet(path: string): Promise<Rec> {
+async function faireRequest(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<Rec> {
   const token = faireToken();
   if (!token) throw new Error("No Faire access token configured (FAIRE_ACCESS_TOKEN / FAIRE_API_KEY).");
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "X-FAIRE-ACCESS-TOKEN": token, Accept: "application/json" },
+    method,
+    headers: {
+      "X-FAIRE-ACCESS-TOKEN": token,
+      Accept: "application/json",
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Faire ${path} failed (${res.status}): ${body.slice(0, 300)}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`Faire ${method} ${path} failed (${res.status}): ${text.slice(0, 300)}`);
   }
   return asRecord(await res.json().catch(() => ({})));
 }
+
+const faireGet = (path: string) => faireRequest("GET", path);
 
 function parseAddress(raw: unknown): FaireAddress | null {
   const a = asRecord(raw);
@@ -152,6 +160,12 @@ const LOOKBACK_DAYS = 90;
  * hops × 50 = 2,000 recently-updated orders per run.
  */
 export async function getFaireOrders(): Promise<FaireOrder[]> {
+  const all = await listRecentOrders();
+  return all.filter((o) => IMPORTABLE_STATES.has(o.state));
+}
+
+/** Cursor-walk every order updated in the lookback window, all states. */
+async function listRecentOrders(): Promise<FaireOrder[]> {
   const out: FaireOrder[] = [];
   const since = new Date(Date.now() - LOOKBACK_DAYS * 86400_000).toISOString();
   let params = `limit=50&updated_at_min=${encodeURIComponent(since)}`;
@@ -164,5 +178,65 @@ export async function getFaireOrders(): Promise<FaireOrder[]> {
     if (!cursor || raw.length === 0) break;
     params = `limit=50&cursor=${encodeURIComponent(cursor)}`;
   }
-  return out.filter((o) => IMPORTABLE_STATES.has(o.state));
+  return out;
+}
+
+/* ── Ship-confirmation back-sync ─────────────────────────────────────────── */
+
+/** Our carrier ids → the names Faire displays to retailers. */
+const FAIRE_CARRIER: Record<string, string> = {
+  usps: "USPS",
+  ups: "UPS",
+  fedex: "FedEx",
+};
+
+export type FaireShipResult = { ok: boolean; detail: string };
+
+/**
+ * Tell Faire an order has shipped (carrier + tracking) — the API version of
+ * the brand portal's "Ship orders" action. Accepts our order ref
+ * ("<displayId>-FAIRE" or a bare display id), resolves it to Faire's internal
+ * order id, moves a NEW order to PROCESSING first (shipping implies
+ * acceptance), then posts the shipment. Faire notifies the retailer and
+ * tracks the package from there.
+ *
+ * HARD GATE: does nothing unless env FAIRE_SHIP_SYNC="on" — marking real
+ * marketplace orders shipped is customer-visible, so this stays dark until
+ * Blake flips it deliberately.
+ */
+export async function markFaireOrderShipped(
+  orderRef: string,
+  carrierId: string | null,
+  trackingCode: string,
+): Promise<FaireShipResult> {
+  if ((process.env.FAIRE_SHIP_SYNC ?? "").trim().toLowerCase() !== "on") {
+    return { ok: false, detail: "FAIRE_SHIP_SYNC is not 'on' — Faire not notified (testing gate)." };
+  }
+  const displayId = orderRef.replace(/-FAIRE$/i, "").replace(/^#/, "").trim();
+  if (!displayId || !trackingCode.trim()) {
+    return { ok: false, detail: "Missing display id or tracking code." };
+  }
+
+  const recent = await listRecentOrders();
+  const match = recent.find((o) => o.displayId === displayId);
+  if (!match) {
+    return { ok: false, detail: `Order ${displayId} not found on Faire (last ${LOOKBACK_DAYS}d).` };
+  }
+  if (["DELIVERED", "CANCELED", "IN_TRANSIT", "PRE_TRANSIT"].includes(match.state)) {
+    return { ok: true, detail: `Order ${displayId} already ${match.state} on Faire — nothing to do.` };
+  }
+
+  if (match.state === "NEW") {
+    await faireRequest("PUT", `/orders/${encodeURIComponent(match.id)}/processing`, {});
+  }
+  await faireRequest("POST", `/orders/${encodeURIComponent(match.id)}/shipments`, {
+    shipments: [
+      {
+        order_id: match.id,
+        carrier: FAIRE_CARRIER[carrierId ?? ""] ?? (carrierId || "Other"),
+        tracking_code: trackingCode.trim(),
+      },
+    ],
+  });
+  return { ok: true, detail: `Faire order ${displayId} marked shipped (${trackingCode}).` };
 }

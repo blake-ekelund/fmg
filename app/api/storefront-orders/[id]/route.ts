@@ -4,6 +4,7 @@ import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isCarrierId } from "@/lib/tracking";
 import { notifyStorefrontShipped } from "@/lib/storefrontShipped";
+import { markFaireOrderShipped } from "@/lib/faire";
 import { upcsForParts } from "@/lib/productUpc";
 
 /**
@@ -129,11 +130,25 @@ export async function PATCH(
   // Hand-entered tracking triggers the customer's "your order shipped" email
   // the same way the tracking cron does. The storefront endpoint claims the
   // send atomically (shipped_email_at), so edits/retries can't double-send.
+  // Faire orders confirm to the marketplace instead (gated by FAIRE_SHIP_SYNC).
   if (body.action === "set-tracking" && data) {
-    await notifyStorefrontShipped(
-      (data as { store?: string | null }).store,
-      (data as { number?: number | null }).number,
-    );
+    const row = data as {
+      store?: string | null;
+      number?: number | null;
+      source?: string | null;
+      external_ref?: string | null;
+      carrier?: string | null;
+      tracking_code?: string | null;
+    };
+    if (row.source === "faire" && row.external_ref && row.tracking_code) {
+      try {
+        await markFaireOrderShipped(`${row.external_ref}-FAIRE`, row.carrier ?? null, row.tracking_code);
+      } catch (err) {
+        console.error("[faire] ship notify failed:", err);
+      }
+    } else {
+      await notifyStorefrontShipped(row.store, row.number);
+    }
   }
 
   return NextResponse.json({ order: data });

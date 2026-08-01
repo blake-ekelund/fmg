@@ -4,6 +4,7 @@ import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { fishbowlConfigured, runDataQuery } from "@/lib/fishbowl";
 import { resolveCarrier } from "@/lib/tracking";
 import { notifyStorefrontShipped } from "@/lib/storefrontShipped";
+import { markFaireOrderShipped } from "@/lib/faire";
 import { orderRef, type StorefrontOrder } from "@/lib/storefrontOrder";
 
 export const runtime = "nodejs";
@@ -152,8 +153,22 @@ export async function GET(request: Request) {
       failed.push({ ...entry, error: updateError.message });
       continue;
     }
-    const emailed = await notifyStorefrontShipped(order.store, order.number);
-    shipped.push({ ...entry, emailed });
+    // Faire orders confirm back to the marketplace (their API is how the
+    // retailer gets notified); storefront orders email the customer directly.
+    if (order.source === "faire") {
+      try {
+        const faire = await markFaireOrderShipped(orderRef(order), carrier, hit.trackingNum);
+        shipped.push({ ...entry, faire: faire.detail });
+      } catch (err) {
+        shipped.push({
+          ...entry,
+          faire: `Faire notify failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    } else {
+      const emailed = await notifyStorefrontShipped(order.store, order.number);
+      shipped.push({ ...entry, emailed });
+    }
   }
 
   return NextResponse.json({ watched: waiting.length, shipped, failed, dry });
