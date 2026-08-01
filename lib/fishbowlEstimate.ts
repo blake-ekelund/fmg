@@ -305,17 +305,17 @@ export function estimateRowsForOrder(
     });
   }
 
-  if ((order.shipping ?? 0) > 0) {
-    itemRows.push({
-      ...itemDefaults,
-      SOItemTypeID: "60",
-      ProductNumber: "Shipping",
-      ProductDescription: "Shipping",
-      ProductQuantity: "1",
-      ProductPrice: money(order.shipping ?? 0),
-      Taxable: "false",
-    });
-  }
+  // A Shipping line is ALWAYS present — even free ($0.00) — so every SO has a
+  // consistent shape for ops and downstream reporting.
+  itemRows.push({
+    ...itemDefaults,
+    SOItemTypeID: "60",
+    ProductNumber: "Shipping",
+    ProductDescription: "Shipping",
+    ProductQuantity: "1",
+    ProductPrice: money(order.shipping ?? 0),
+    Taxable: "false",
+  });
 
   const toRow = (values: RowValues): string[] =>
     SALES_ORDER_IMPORT_HEADER.map((col) => values[col] ?? "");
