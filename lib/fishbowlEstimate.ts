@@ -192,7 +192,11 @@ export function estimateRowsForOrder(
   const ship = shipTo ?? nameOnly;
 
   const created = usDate(order.created_at);
-  const rep = (order.sales_rep || CF_DEFAULTS.rep).toUpperCase();
+  // D2C storefront sales are house sales — the rep is "NI HOUSE" (a Fishbowl
+  // user). An explicit order.sales_rep still wins; otherwise D2C → NI HOUSE,
+  // and wholesale/other → the JULIE EKELUND default.
+  const repDefault = order.channel === "d2c" ? "NI HOUSE" : CF_DEFAULTS.rep;
+  const rep = (order.sales_rep || repDefault).toUpperCase();
   const orderSource = order.source === "faire" ? "FAIRE" : CF_DEFAULTS.orderSource;
 
   const noteParts = [
