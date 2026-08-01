@@ -203,13 +203,14 @@ export function estimateRowsForOrder(
     `Storefront order ${poNum} — pushed automatically from the FMG site as an estimate.`,
   ];
   if (order.email) noteParts.push(`Customer email: ${order.email}`);
-  if ((order.tax ?? 0) > 0) noteParts.push(`Tax collected at checkout: $${money(order.tax ?? 0)}`);
   if (order.note) noteParts.push(`Order note: ${order.note}`);
 
-  // Destination-based tax: Minnesota ship-tos use the "MN State" rate
-  // (taxrate.name, verified 2026-07-31); everywhere else is "None".
-  const shipState = (ship.state ?? "").trim().toUpperCase();
-  const taxRateName = shipState === "MN" || shipState === "MINNESOTA" ? "MN State" : "None";
+  // The STORE (Stripe Tax) is the source of truth for tax, not Fishbowl — so
+  // the SO's own rate is ".COM Tax" (0%, taxrate id 3) and never auto-computes.
+  // The exact amount the store collected rides as an explicit ".COM Tax" line
+  // (SOITEMTYPE 70), matching the established convention (185 existing SOs).
+  // This keeps the SO total reconciled to the Stripe charge to the penny.
+  const taxRateName = ".COM Tax";
 
   const header: RowValues = {
     // Blank SONum → Fishbowl assigns the next number in its own sequence.
@@ -301,7 +302,9 @@ export function estimateRowsForOrder(
         order.discounts?.map((d) => d.label).filter(Boolean).join(", ") || ".COM DISCOUNTS",
       ProductQuantity: "1",
       ProductPrice: money(-discountTotal),
-      Taxable: "false",
+      // Taxable so the discount reduces the taxable base (matches the store's
+      // tax math and the Fishbowl convention — the Tax checkbox is checked).
+      Taxable: "true",
     });
   }
 
@@ -316,6 +319,21 @@ export function estimateRowsForOrder(
     ProductPrice: money(order.shipping ?? 0),
     Taxable: "false",
   });
+
+  // Store-collected tax (really just MN) as an explicit ".COM Tax" line
+  // (SOITEMTYPE 70 = Tax) — the amount Stripe actually charged, so the SO
+  // reconciles to the payment. Only when tax was collected.
+  if ((order.tax ?? 0) > 0) {
+    itemRows.push({
+      ...itemDefaults,
+      SOItemTypeID: "70",
+      ProductNumber: ".COM Tax",
+      ProductDescription: ".COM Tax",
+      ProductQuantity: "1",
+      ProductPrice: money(order.tax ?? 0),
+      Taxable: "false",
+    });
+  }
 
   const toRow = (values: RowValues): string[] =>
     SALES_ORDER_IMPORT_HEADER.map((col) => values[col] ?? "");
