@@ -8,6 +8,7 @@ import MobileNav from "@/components/MobileNav";
 import TopBar from "@/components/TopBar";
 import { useUser } from "@/components/UserContext";
 import { getAllowedPaths, getDefaultRoute } from "@/components/navConfig";
+import { supabaseBrowser } from "@/lib/supabase/browser";
 
 const COLLAPSED_WIDTH = 64;
 const DEFAULT_WIDTH = 224; // ~w-56
@@ -49,12 +50,41 @@ export default function LayoutShell({
   }
 
   /* Block render until profile is loaded — prevents nav flash */
-  if (loading || !profile) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-surface-muted">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-line-strong border-t-brand-700 rounded-full animate-spin" />
           <span className="text-sm text-ink-muted">Loading…</span>
+        </div>
+      </div>
+    );
+  }
+
+  /* Signed in but no profile row (deleted user's stale session, or a profile
+     that was removed) — an infinite spinner here once locked Blake out of the
+     whole app. Give the dead session an exit instead. */
+  if (!profile) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-surface-muted">
+        <div className="max-w-sm space-y-4 rounded-2xl border border-gray-200 bg-white p-6 text-center">
+          <div className="text-sm font-semibold text-gray-900">
+            Your session can&apos;t be loaded
+          </div>
+          <p className="text-sm text-gray-500">
+            This sign-in no longer matches an active account (it may have been
+            deleted). Sign out and sign back in with your current account.
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              await supabaseBrowser().auth.signOut();
+              router.replace("/auth/sign-in");
+            }}
+            className="inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            Sign out
+          </button>
         </div>
       </div>
     );
