@@ -139,18 +139,30 @@ function parseOrder(raw: unknown): FaireOrder | null {
  *  integration existed), and importing them risks double-entry. */
 const IMPORTABLE_STATES = new Set(["NEW", "PROCESSING"]);
 
+/** How far back to look. Faire serves orders OLDEST-FIRST (this account's
+ *  history starts in 2019), so an unfiltered walk never reaches the present —
+ *  updated_at_min keeps the walk to the recent window that can contain
+ *  unfulfilled orders. */
+const LOOKBACK_DAYS = 90;
+
 /**
- * All current importable orders, paging until Faire runs dry (capped at 10
- * pages × 50 = 500 orders per run — far above any realistic backlog).
+ * All current importable orders. Faire paginates by CURSOR (verified live
+ * 2026-07-31 — `page` numbers just walk 2019-onward history; the portal's
+ * open orders only surfaced via updated_at_min + cursor hops). Capped at 40
+ * hops × 50 = 2,000 recently-updated orders per run.
  */
 export async function getFaireOrders(): Promise<FaireOrder[]> {
   const out: FaireOrder[] = [];
-  for (let page = 1; page <= 10; page++) {
-    const data = await faireGet(`/orders?page=${page}&limit=50`);
+  const since = new Date(Date.now() - LOOKBACK_DAYS * 86400_000).toISOString();
+  let params = `limit=50&updated_at_min=${encodeURIComponent(since)}`;
+  for (let hop = 0; hop < 40; hop++) {
+    const data = await faireGet(`/orders?${params}`);
     const raw = asArray(data.orders);
     const parsed = raw.map(parseOrder).filter((o): o is FaireOrder => o !== null);
     out.push(...parsed);
-    if (raw.length < 50) break;
+    const cursor = typeof data.cursor === "string" && data.cursor ? data.cursor : null;
+    if (!cursor || raw.length === 0) break;
+    params = `limit=50&cursor=${encodeURIComponent(cursor)}`;
   }
   return out.filter((o) => IMPORTABLE_STATES.has(o.state));
 }
