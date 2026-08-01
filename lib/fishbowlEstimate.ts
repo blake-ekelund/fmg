@@ -93,11 +93,12 @@ type HeaderColumn = (typeof SALES_ORDER_IMPORT_HEADER)[number];
 type RowValues = Partial<Record<HeaderColumn, string>>;
 
 /** Defaults for the required SO custom fields until real rep attribution is
- *  wired up. Territory/Order Agency "100" is the house/web agency code per
- *  the order-entry spec (2026-07-31). */
+ *  wired up. All four agency fields — Territory Agency, Territory Code,
+ *  Order Agency, Order Agency Code — are "100" per the order-entry spec
+ *  (2026-08-01). */
 const CF_DEFAULTS = {
   agency: "100",
-  agencyCode: "000",
+  agencyCode: "100",
   rep: "JULIE EKELUND",
   orderSource: "WEB",
 };
