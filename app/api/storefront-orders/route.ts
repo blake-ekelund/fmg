@@ -34,5 +34,18 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ orders: data ?? [], notReady: false });
+
+  // Unpaid D2C storefront rows are checkout-starts, not orders — the row
+  // exists so the Stripe webhook can find it and so abandoned-cart recovery
+  // has material, but Purchases only shows completed business: paid D2C,
+  // wholesale (NET-30 terms — legitimately unpaid), and marketplace imports.
+  const orders = (data ?? []).filter(
+    (o: { channel?: string; source?: string; payment_status?: string }) =>
+      !(
+        o.channel === "d2c" &&
+        (o.source ?? "storefront") === "storefront" &&
+        o.payment_status !== "paid"
+      ),
+  );
+  return NextResponse.json({ orders, notReady: false });
 }
