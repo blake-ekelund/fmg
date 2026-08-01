@@ -284,22 +284,36 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
           </div>
         </div>
 
-        {/* Bill to / Ship to */}
+        {/* Bill to / Ship to. Unpaid D2C rows are checkout-starts — Stripe
+            only delivers the buyer's name/email/addresses when payment
+            completes, so until then say that instead of looking broken. */}
         <div className="grid grid-cols-2 gap-6 py-5">
-          <AddressBlock
-            title="Bill to"
-            addr={order.bill_to}
-            fallback={
-              wholesale
-                ? order.business_name ?? order.contact_name ?? "—"
-                : order.contact_name ?? order.email ?? "—"
-            }
-          />
-          <AddressBlock
-            title="Ship to"
-            addr={order.ship_to}
-            fallback="Confirmed by email"
-          />
+          {order.channel === "d2c" &&
+          order.payment_status !== "paid" &&
+          !order.ship_to ? (
+            <div className="col-span-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Checkout started but not paid — buyer name, email, and addresses
+              arrive automatically when Stripe confirms payment. If it stays
+              unpaid, this is an abandoned cart.
+            </div>
+          ) : (
+            <>
+              <AddressBlock
+                title="Bill to"
+                addr={order.bill_to}
+                fallback={
+                  wholesale
+                    ? order.business_name ?? order.contact_name ?? "—"
+                    : order.contact_name ?? order.email ?? "—"
+                }
+              />
+              <AddressBlock
+                title="Ship to"
+                addr={order.ship_to}
+                fallback="Confirmed by email"
+              />
+            </>
+          )}
         </div>
 
         {/* Meta */}
