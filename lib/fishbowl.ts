@@ -267,6 +267,13 @@ export async function createEstimate(
   poNum: string,
   customerName: string,
   rows: string[][],
+  opts?: {
+    /** Extra dedupe key: any SO whose customerPO CONTAINS this string counts
+     *  as "already entered". Marketplace orders pass their bare display id —
+     *  ops hand-keys Faire orders with PO "NJB3Z5USFJ" (no -FAIRE suffix),
+     *  and a hand-keyed order must never be pushed again. */
+    dedupeContains?: string;
+  },
 ): Promise<CreateEstimateResult> {
   return withSession(async (call) => {
     const customers = await dataQueryWith(
@@ -286,11 +293,15 @@ export async function createEstimate(
     await backfillAddresses(call, Number(customers[0].accountId), rows);
 
     // Match on customerPO, plus num for orders pushed before the auto-number
-    // switch (their SO number IS the storefront ref).
+    // switch (their SO number IS the storefront ref), plus the contains-key
+    // for hand-keyed marketplace conventions.
+    const containsClause = opts?.dedupeContains?.trim()
+      ? ` OR customerPO LIKE ${sqlQuote(`%${opts.dedupeContains.trim()}%`)}`
+      : "";
     const findSo = () =>
       dataQueryWith(
         call,
-        `SELECT id, num FROM so WHERE customerPO = ${sqlQuote(poNum)} OR num = ${sqlQuote(poNum)} ORDER BY id DESC`,
+        `SELECT id, num FROM so WHERE customerPO = ${sqlQuote(poNum)} OR num = ${sqlQuote(poNum)}${containsClause} ORDER BY id DESC`,
       );
 
     const existing = await findSo();

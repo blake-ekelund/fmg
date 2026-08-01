@@ -223,6 +223,11 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
         </div>
       ) : null}
 
+      {/* Marketplace orders: which Fishbowl customer the estimate books under */}
+      {order.source === "faire" || order.source === "markettime" ? (
+        <MarketplaceCustomerCard order={order} busy={saving} onPatch={patchOrder} />
+      ) : null}
+
       {/* Invoice — `print-document` is the only thing that prints (globals.css) */}
       <div className="print-document rounded-2xl border border-gray-200 bg-white p-8">
         <div className="flex items-start justify-between gap-4 border-b border-gray-100 pb-5">
@@ -575,6 +580,153 @@ function BackLink() {
     >
       <ArrowLeft size={15} /> Purchases
     </Link>
+  );
+}
+
+/**
+ * Marketplace (Faire/MarketTime) orders: shows which Fishbowl customer the
+ * estimate books under — the matcher's verdict, or an amber flag — with an
+ * Assign/Change picker that searches ACTIVE Fishbowl customers live
+ * (search-on-submit; each search briefly uses a Fishbowl license seat).
+ */
+function MarketplaceCustomerCard({
+  order,
+  busy,
+  onPatch,
+}: {
+  order: StorefrontOrder;
+  busy: boolean;
+  onPatch: (body: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  async function search() {
+    if (q.trim().length < 2) return;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const res = await fetch(
+        `/api/storefront-orders/fishbowl-customers?q=${encodeURIComponent(q.trim())}`,
+        { headers: await authHeader() },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+      setResults(json.customers ?? []);
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : String(e));
+      setResults(null);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function assign(c: { id: string; name: string }) {
+    const ok = await onPatch({
+      action: "assign-customer",
+      customer_name: c.name,
+      customer_id: c.id,
+    });
+    if (ok) {
+      setOpen(false);
+      setQ("");
+      setResults(null);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 print:hidden">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          Fishbowl customer
+        </div>
+        {order.fishbowl_customer ? (
+          <span className="text-sm font-medium text-emerald-700">
+            {order.fishbowl_customer}
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+            No customer match — assign one so this order can enter Fishbowl
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {order.fishbowl_customer && !order.fishbowl_entered_at ? (
+            <button
+              type="button"
+              onClick={() => onPatch({ action: "clear-customer" })}
+              disabled={busy}
+              className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
+            >
+              Clear
+            </button>
+          ) : null}
+          {!order.fishbowl_entered_at ? (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+            >
+              {order.fishbowl_customer ? "Change customer" : "Assign customer"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {open ? (
+        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+          <div className="flex items-center gap-2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") search();
+              }}
+              placeholder="Search Fishbowl customers…"
+              className="w-72 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={search}
+              disabled={searching || q.trim().length < 2}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+            >
+              {searching ? <Loader2 size={13} className="animate-spin" /> : null}
+              Search
+            </button>
+          </div>
+          {searchError ? (
+            <div className="text-xs text-red-600">{searchError}</div>
+          ) : null}
+          {results ? (
+            results.length === 0 ? (
+              <div className="text-xs text-gray-400">
+                No active Fishbowl customers match — create the customer in
+                Fishbowl first, then search again.
+              </div>
+            ) : (
+              <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                {results.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => assign(c)}
+                      disabled={busy}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <span>{c.name}</span>
+                      <span className="font-mono text-[11px] text-gray-400">{c.id}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

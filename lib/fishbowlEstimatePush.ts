@@ -40,11 +40,13 @@ export async function pushOrderEstimate(
   if (order.fishbowl_entered_at) {
     throw new Error("Order is already marked as entered into Fishbowl.");
   }
-  // Faire orders are import-only while the integration is in testing — they
-  // show in Purchases but must NOT move into Fishbowl (cron or manual).
-  if (order.source === "faire") {
+  // Marketplace orders may only push under a MATCHED/ASSIGNED real customer —
+  // the caller passes order.fishbowl_customer as customerName; without one
+  // the order stays flagged in Purchases.
+  const isMarketplace = order.source === "faire" || order.source === "markettime";
+  if (isMarketplace && !order.fishbowl_customer?.trim()) {
     throw new Error(
-      "Faire orders are view-only for now — not pushed to Fishbowl during testing.",
+      "No Fishbowl customer matched/assigned for this marketplace order — assign one first.",
     );
   }
 
@@ -53,11 +55,15 @@ export async function pushOrderEstimate(
   const upcByPart = await upcsForParts((order.items ?? []).map((it) => it.part));
   const payload = estimateRowsForOrder(order, customerName, upcByPart);
   // soNum comes back from Fishbowl (auto-numbered); the storefront ref rides
-  // as Customer PO and is the dedupe key.
+  // as Customer PO and is the dedupe key. Marketplace orders also dedupe on
+  // their bare display id — ops hand-keys Faire orders with that as the PO.
   const { soId, soNum, created } = await createEstimate(
     payload.poNum,
     customerName,
     payload.rows,
+    isMarketplace && order.external_ref
+      ? { dedupeContains: order.external_ref }
+      : undefined,
   );
 
   // Stamp the order. The estimate columns are a fresh migration — fall back

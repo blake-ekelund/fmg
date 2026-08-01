@@ -61,9 +61,13 @@ export async function PATCH(
       | "enter-fishbowl"
       | "clear-fishbowl"
       | "set-tracking"
-      | "clear-tracking";
+      | "clear-tracking"
+      | "assign-customer"
+      | "clear-customer";
     carrier?: string;
     tracking_code?: string;
+    customer_name?: string;
+    customer_id?: string;
   };
 
   // These stamps deliberately don't touch `status` (its check constraint has a
@@ -107,6 +111,19 @@ export async function PATCH(
     };
   } else if (body.action === "clear-tracking") {
     patch = { carrier: null, tracking_code: null, shipped_at: null };
+  } else if (body.action === "assign-customer") {
+    // Marketplace orders only: pin which Fishbowl customer the estimate books
+    // under (replacing/overriding the matcher's verdict).
+    const name = body.customer_name?.trim();
+    if (!name) {
+      return NextResponse.json({ error: "Pick a customer." }, { status: 400 });
+    }
+    patch = {
+      fishbowl_customer: name,
+      fishbowl_customer_id: body.customer_id?.trim() || null,
+    };
+  } else if (body.action === "clear-customer") {
+    patch = { fishbowl_customer: null, fishbowl_customer_id: null };
   } else {
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   }
