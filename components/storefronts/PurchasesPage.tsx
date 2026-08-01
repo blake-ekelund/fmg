@@ -361,6 +361,19 @@ export default function PurchasesPage() {
                           {o.email ? (
                             <div className="text-gray-400">{o.email}</div>
                           ) : null}
+                          {/* Marketplace orders: which Fishbowl customer the
+                              estimate will book under — or the no-match flag. */}
+                          {o.source === "faire" || o.source === "markettime" ? (
+                            o.fishbowl_customer ? (
+                              <div className="text-[11px] text-emerald-700">
+                                → {String(o.fishbowl_customer)}
+                              </div>
+                            ) : (
+                              <span className="mt-0.5 inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                                No customer match
+                              </span>
+                            )
+                          ) : null}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-gray-600">
                           {units || (o.items?.length ?? 0) || "—"}

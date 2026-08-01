@@ -77,6 +77,10 @@ export type StorefrontOrder = {
   source?: string | null;
   /** Marketplace order id (Faire display id) — the sync cron's dedupe key. */
   external_ref?: string | null;
+  /** Marketplace orders: the exact Fishbowl customer name the estimate books
+   *  under (matcher-stamped). Null = no match on file → flagged, not pushed. */
+  fishbowl_customer?: string | null;
+  fishbowl_customer_id?: string | null;
   [key: string]: unknown;
 };
 

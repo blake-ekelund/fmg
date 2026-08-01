@@ -126,16 +126,28 @@ export async function GET(request: Request) {
   // use at 1 of the 3 licenses. One bad order never aborts the rest.
   const pushed: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
+  const noCustomerMatch: string[] = [];
   for (const order of pushable) {
     const ref = orderRef(order);
+    // Customer selection: storefront orders ride the pilot env customer;
+    // marketplace orders (Faire/MarketTime) book under their MATCHED real
+    // customer — no match on file means no push, just the Purchases flag.
+    const isMarketplace = order.source === "faire" || order.source === "markettime";
+    const bookUnder = isMarketplace
+      ? (order.fishbowl_customer as string | null | undefined)?.trim()
+      : customerName;
+    if (!bookUnder) {
+      noCustomerMatch.push(ref);
+      continue;
+    }
     try {
       const result = await pushOrderEstimate(
         admin,
         order,
-        customerName,
+        bookUnder,
         targetNumber ? "checkout" : "auto-push",
       );
-      pushed.push({ ref, ...result });
+      pushed.push({ ref, customer: bookUnder, ...result });
     } catch (e) {
       failed.push({ ref, error: e instanceof Error ? e.message : String(e) });
     }
@@ -145,6 +157,7 @@ export async function GET(request: Request) {
     customer: customerName,
     pushed,
     failed,
+    noCustomerMatch,
     skippedWithoutParts: skipped,
   });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { faireConfigured, getFaireOrders, type FaireOrder } from "@/lib/faire";
+import { loadCustomerIndex, matchCustomer } from "@/lib/customerMatch";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -83,6 +84,11 @@ export async function GET(request: Request) {
   }
   const seen = new Set((existing ?? []).map((r) => r.external_ref as string));
 
+  // Customer matching: marketplace orders book under their REAL Fishbowl
+  // customer when we can identify it (email → normalized business name).
+  // No match → fishbowl_customer stays null and the Purchases list flags it.
+  const customerIndex = await loadCustomerIndex();
+
   const imported: Array<Record<string, unknown>> = [];
   const skippedNoSku: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
@@ -120,7 +126,10 @@ export async function GET(request: Request) {
         }
       : null;
 
-    const row = {
+    const businessName = o.retailerName ?? addr?.company ?? "Faire retailer";
+    const match = matchCustomer(customerIndex, { business_name: businessName, email: null });
+
+    const row: Record<string, unknown> = {
       source: "faire",
       external_ref: o.displayId,
       store: "faire",
@@ -128,7 +137,7 @@ export async function GET(request: Request) {
       status: "new",
       payment_status: "paid",
       payment_terms: "FAIRE",
-      business_name: o.retailerName ?? addr?.company ?? "Faire retailer",
+      business_name: businessName,
       contact_name: addr?.name ?? o.retailerName ?? "Faire retailer",
       email: null, // Faire does not expose retailer emails; comms stay on Faire.
       phone: addr?.phone ?? null,
@@ -141,24 +150,67 @@ export async function GET(request: Request) {
       discount: 0,
       total: o.subtotal,
       note: `Faire order ${o.displayId} (${o.state}) — imported by faire-order-sync.`,
+      fishbowl_customer: match?.name ?? null,
+      fishbowl_customer_id: match?.customerId ?? null,
     };
 
     if (dry) {
-      imported.push({ ref: `${o.displayId}-FAIRE`, items: items.length, subtotal: o.subtotal, dry: true });
+      imported.push({
+        ref: `${o.displayId}-FAIRE`,
+        items: items.length,
+        subtotal: o.subtotal,
+        customer: match ? `${match.name} (${match.via})` : "NO MATCH",
+        dry: true,
+      });
       continue;
     }
-    const { error } = await admin.from("orders").insert(row);
+    let { error } = await admin.from("orders").insert(row);
+    if (error && /fishbowl_customer|schema cache/i.test(error.message)) {
+      // Customer-mapping migration not pushed yet — import without the stamp.
+      delete row.fishbowl_customer;
+      delete row.fishbowl_customer_id;
+      ({ error } = await admin.from("orders").insert(row));
+    }
     if (error) {
       failed.push({ ref: `${o.displayId}-FAIRE`, error: error.message });
       continue;
     }
-    imported.push({ ref: `${o.displayId}-FAIRE`, items: items.length, subtotal: o.subtotal });
+    imported.push({
+      ref: `${o.displayId}-FAIRE`,
+      items: items.length,
+      subtotal: o.subtotal,
+      customer: match ? `${match.name} (${match.via})` : "NO MATCH",
+    });
     if (skuless > 0) skippedNoSku.push({ ref: `${o.displayId}-FAIRE`, itemsWithoutSku: skuless });
+  }
+
+  // Self-heal: stamp any previously-imported marketplace order that still has
+  // no customer match (covers orders imported before this matcher existed,
+  // and re-tries after new customers land in Fishbowl).
+  const rematched: Array<Record<string, unknown>> = [];
+  if (!dry) {
+    const { data: unmatched, error: unErr } = await admin
+      .from("orders")
+      .select("id, external_ref, business_name, email")
+      .eq("source", "faire")
+      .is("fishbowl_customer", null);
+    if (!unErr) {
+      for (const o of unmatched ?? []) {
+        const match = matchCustomer(customerIndex, o);
+        if (!match) continue;
+        const { error: upErr } = await admin
+          .from("orders")
+          .update({ fishbowl_customer: match.name, fishbowl_customer_id: match.customerId })
+          .eq("id", o.id);
+        if (!upErr) rematched.push({ ref: `${o.external_ref}-FAIRE`, customer: `${match.name} (${match.via})` });
+      }
+    }
   }
 
   return NextResponse.json({
     checked: faireOrders.length,
     imported,
+    rematched,
     itemsMissingSku: skippedNoSku,
     failed,
     dry,
