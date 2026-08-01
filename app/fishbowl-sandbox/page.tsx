@@ -33,6 +33,10 @@ const EXAMPLES: { label: string; sql: string }[] = [
   { label: "Line items", sql: LINE_ITEMS_SQL },
   { label: "Open sales orders", sql: "SELECT id, num FROM so WHERE statusId = 1" },
   { label: "Parts (50)", sql: "SELECT id, num, description FROM part ORDER BY num LIMIT 50" },
+  {
+    label: "All SKUs (parts + UPC)",
+    sql: "SELECT part.num AS sku, part.description, part.upc, part.activeFlag AS active FROM part ORDER BY part.num",
+  },
 
   /* Shipping/tracking discovery. Tracking numbers are not on `so` — Fishbowl
      keeps them on shipment cartons — so these probe what this instance
