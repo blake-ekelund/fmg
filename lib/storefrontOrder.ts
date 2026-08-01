@@ -84,15 +84,19 @@ export type StorefrontOrder = {
   [key: string]: unknown;
 };
 
-/** Human-facing order number: SASSY-#### / NI-####. Faire orders use the
- *  marketplace id with the -FAIRE suffix (the Customer PO convention already
- *  established in Fishbowl, e.g. GQXAWDBFQS-FAIRE). Legacy rows placed
- *  before `store` was tracked fall back to SO-####. */
+/** Human-facing order number: SASSY-#### / NI-####. Marketplace orders use the
+ *  marketplace id with a source suffix (the Customer PO convention already
+ *  established in Fishbowl): Faire → -FAIRE (e.g. GQXAWDBFQS-FAIRE), MarketTime
+ *  → -MKTTIME. Legacy rows placed before `store` was tracked fall back to
+ *  SO-####. */
 export function orderRef(
   o: Pick<StorefrontOrder, "store" | "number" | "id"> &
     Partial<Pick<StorefrontOrder, "source" | "external_ref">>,
 ): string {
-  if (o.source === "faire" && o.external_ref) return `${o.external_ref}-FAIRE`;
+  if (o.external_ref) {
+    if (o.source === "faire") return `${o.external_ref}-FAIRE`;
+    if (o.source === "markettime") return `${o.external_ref}-MKTTIME`;
+  }
   if (o.number == null) return o.id ? o.id.slice(0, 8) : "—";
   const prefix = o.store === "ni" ? "NI" : o.store === "sassy" ? "SASSY" : "SO";
   return `${prefix}-${o.number}`;

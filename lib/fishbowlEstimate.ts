@@ -197,7 +197,12 @@ export function estimateRowsForOrder(
   // and wholesale/other → the JULIE EKELUND default.
   const repDefault = order.channel === "d2c" ? "NI HOUSE" : CF_DEFAULTS.rep;
   const rep = (order.sales_rep || repDefault).toUpperCase();
-  const orderSource = order.source === "faire" ? "FAIRE" : CF_DEFAULTS.orderSource;
+  const orderSource =
+    order.source === "faire"
+      ? "FAIRE"
+      : order.source === "markettime"
+        ? "MARKETTIME"
+        : CF_DEFAULTS.orderSource;
 
   const noteParts = [
     `Storefront order ${poNum} — pushed automatically from the FMG site as an estimate.`,
