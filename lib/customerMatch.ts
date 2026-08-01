@@ -55,9 +55,33 @@ export function normalizeBusinessName(s: string): string {
     .trim();
 }
 
+/** Full state names → USPS codes: Fishbowl stores "Iowa", marketplaces ship
+ *  "IA" — both must land on the same key. */
+const STATE_CODES: Record<string, string> = {
+  ALABAMA: "AL", ALASKA: "AK", ARIZONA: "AZ", ARKANSAS: "AR", CALIFORNIA: "CA",
+  COLORADO: "CO", CONNECTICUT: "CT", DELAWARE: "DE", FLORIDA: "FL", GEORGIA: "GA",
+  HAWAII: "HI", IDAHO: "ID", ILLINOIS: "IL", INDIANA: "IN", IOWA: "IA",
+  KANSAS: "KS", KENTUCKY: "KY", LOUISIANA: "LA", MAINE: "ME", MARYLAND: "MD",
+  MASSACHUSETTS: "MA", MICHIGAN: "MI", MINNESOTA: "MN", MISSISSIPPI: "MS",
+  MISSOURI: "MO", MONTANA: "MT", NEBRASKA: "NE", NEVADA: "NV",
+  "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ", "NEW MEXICO": "NM", "NEW YORK": "NY",
+  "NORTH CAROLINA": "NC", "NORTH DAKOTA": "ND", OHIO: "OH", OKLAHOMA: "OK",
+  OREGON: "OR", PENNSYLVANIA: "PA", "RHODE ISLAND": "RI", "SOUTH CAROLINA": "SC",
+  "SOUTH DAKOTA": "SD", TENNESSEE: "TN", TEXAS: "TX", UTAH: "UT", VERMONT: "VT",
+  VIRGINIA: "VA", WASHINGTON: "WA", "WEST VIRGINIA": "WV", WISCONSIN: "WI",
+  WYOMING: "WY", "DISTRICT OF COLUMBIA": "DC", "PUERTO RICO": "PR",
+};
+
+const normalizeState = (state: unknown): string => {
+  const s = String(state ?? "").toUpperCase().trim();
+  if (!s) return "";
+  if (s.length === 2) return s;
+  return STATE_CODES[s] ?? s.slice(0, 2);
+};
+
 const cityKey = (city: unknown, state: unknown): string | null => {
   const c = String(city ?? "").toUpperCase().replace(/[^A-Z ]/g, "").trim();
-  const s = String(state ?? "").toUpperCase().trim().slice(0, 2);
+  const s = normalizeState(state);
   return c && s ? `${c}|${s}` : null;
 };
 
@@ -87,11 +111,7 @@ export async function loadCustomerIndex(): Promise<CustomerIndex> {
           (k): k is string => k !== null,
         ),
       ),
-      states: new Set(
-        [r.billto_state, r.shipto_state]
-          .map((s) => String(s ?? "").toUpperCase().trim().slice(0, 2))
-          .filter(Boolean),
-      ),
+      states: new Set([r.billto_state, r.shipto_state].map(normalizeState).filter(Boolean)),
       lastOrder: String(r.last_order_date ?? ""),
       orderCount: Number(r.order_count ?? 0),
     };
@@ -133,7 +153,7 @@ export function matchCustomer(index: CustomerIndex, order: MatchInput): Customer
 
   // Ambiguous name — the order's ship-to must pick a side.
   const orderCity = cityKey(order.ship_city, order.ship_state);
-  const orderState = String(order.ship_state ?? "").toUpperCase().trim().slice(0, 2);
+  const orderState = normalizeState(order.ship_state);
   let filtered = orderCity ? candidates.filter((c) => c.cities.has(orderCity)) : [];
   if (filtered.length === 0 && orderState) {
     // City spellings drift; a unique state match is still decisive.
