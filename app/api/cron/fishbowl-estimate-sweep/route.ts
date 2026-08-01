@@ -99,9 +99,14 @@ export async function GET(request: Request) {
   // (wholesale submit, test-mode completion, or Stripe payment landed).
   const eligible = (orders ?? []).filter(
     (o) =>
-      targetNumber != null ||
-      o.channel === "wholesale" ||
-      o.payment_status === "paid",
+      // Marketplace orders are view-only again (Blake, 2026-08-01) —
+      // pushOrderEstimate refuses them too; filtering here keeps the
+      // sweep report clean instead of listing them as failures.
+      o.source !== "faire" &&
+      o.source !== "markettime" &&
+      (targetNumber != null ||
+        o.channel === "wholesale" ||
+        o.payment_status === "paid"),
   );
   const pushable = eligible.filter((o) =>
     (o.items ?? []).some((it) => it.part && (it.quantity ?? 0) > 0),

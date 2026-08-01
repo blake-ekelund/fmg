@@ -40,13 +40,13 @@ export async function pushOrderEstimate(
   if (order.fishbowl_entered_at) {
     throw new Error("Order is already marked as entered into Fishbowl.");
   }
-  // Marketplace orders may only push under a MATCHED/ASSIGNED real customer —
-  // the caller passes order.fishbowl_customer as customerName; without one
-  // the order stays flagged in Purchases.
+  // Marketplace pushes are RE-LOCKED (Blake, 2026-08-01, after deleting the
+  // first auto-pushed SO): Faire/MarketTime orders import, match, and flag —
+  // but do not enter Fishbowl until Blake explicitly re-opens this.
   const isMarketplace = order.source === "faire" || order.source === "markettime";
-  if (isMarketplace && !order.fishbowl_customer?.trim()) {
+  if (isMarketplace) {
     throw new Error(
-      "No Fishbowl customer matched/assigned for this marketplace order — assign one first.",
+      "Marketplace orders are view-only right now — not pushed to Fishbowl until re-enabled.",
     );
   }
 
