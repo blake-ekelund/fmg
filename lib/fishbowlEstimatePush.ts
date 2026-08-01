@@ -40,13 +40,14 @@ export async function pushOrderEstimate(
   if (order.fishbowl_entered_at) {
     throw new Error("Order is already marked as entered into Fishbowl.");
   }
-  // Marketplace pushes are RE-LOCKED (Blake, 2026-08-01, after deleting the
-  // first auto-pushed SO): Faire/MarketTime orders import, match, and flag —
-  // but do not enter Fishbowl until Blake explicitly re-opens this.
+  // Marketplace policy (Blake, 2026-08-01): Faire/MarketTime orders NEVER
+  // auto-push — the estimate sweep filters them out entirely. Pushing one is
+  // a deliberate human action (the order page's button → the estimate route),
+  // and only under the matched/assigned real customer.
   const isMarketplace = order.source === "faire" || order.source === "markettime";
-  if (isMarketplace) {
+  if (isMarketplace && !order.fishbowl_customer?.trim()) {
     throw new Error(
-      "Marketplace orders are view-only right now — not pushed to Fishbowl until re-enabled.",
+      "No Fishbowl customer matched/assigned for this marketplace order — assign one first.",
     );
   }
 

@@ -151,6 +151,7 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
   if (!order) return null;
 
   const wholesale = order.channel === "wholesale";
+  const isMarketplace = order.source === "faire" || order.source === "markettime";
   const lines = composeInvoiceLines(order);
   const inFishbowl = Boolean(order.fishbowl_entered_at);
   const fulfillment = fulfillmentState(order);
@@ -179,20 +180,33 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
             </button>
           ) : (
             <>
-              {/* Estimate pilot — books under a TEST customer for now */}
-              <select
-                value={estimateCustomer}
-                onChange={(e) => setEstimateCustomer(e.target.value)}
-                disabled={pushing}
-                className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:border-gray-400 focus:outline-none"
-              >
-                <option>TEST CUSTOMER #1</option>
-                <option>TEST CUSTOMER #2</option>
-              </select>
+              {/* Storefront orders: estimate pilot books under a TEST customer.
+                  Marketplace orders: books under the matched/assigned real
+                  customer — the server enforces it. */}
+              {!isMarketplace ? (
+                <select
+                  value={estimateCustomer}
+                  onChange={(e) => setEstimateCustomer(e.target.value)}
+                  disabled={pushing}
+                  className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:border-gray-400 focus:outline-none"
+                >
+                  <option>TEST CUSTOMER #1</option>
+                  <option>TEST CUSTOMER #2</option>
+                </select>
+              ) : null}
               <button
                 type="button"
                 onClick={pushEstimate}
-                disabled={pushing || saving}
+                disabled={
+                  pushing ||
+                  saving ||
+                  (isMarketplace && !order.fishbowl_customer?.trim())
+                }
+                title={
+                  isMarketplace && !order.fishbowl_customer?.trim()
+                    ? "Assign a Fishbowl customer first"
+                    : undefined
+                }
                 className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 {pushing ? (
@@ -200,7 +214,9 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
                 ) : (
                   <CheckCircle2 size={14} />
                 )}
-                Create Fishbowl estimate
+                {isMarketplace && order.fishbowl_customer
+                  ? `Create estimate — ${order.fishbowl_customer}`
+                  : "Create Fishbowl estimate"}
               </button>
               <button
                 type="button"

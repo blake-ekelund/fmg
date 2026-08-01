@@ -52,15 +52,6 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as {
     customerName?: string;
   };
-  const customerName = body.customerName?.trim();
-  if (!customerName || !PILOT_CUSTOMERS.includes(customerName)) {
-    return NextResponse.json(
-      {
-        error: `During the estimate pilot, pick one of: ${PILOT_CUSTOMERS.join(", ")}.`,
-      },
-      { status: 400 }
-    );
-  }
 
   const { id } = await params;
   const { data: order, error } = await admin
@@ -70,6 +61,35 @@ export async function POST(
     .maybeSingle<StorefrontOrder>();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
+
+  // Customer selection by source:
+  //  - Marketplace (Faire/MarketTime): ALWAYS the matched/assigned customer on
+  //    the order — pushing under a real account is the whole point, and this
+  //    endpoint is the deliberate human "push it" action (no auto-push).
+  //  - Storefront: still the pilot allowlist until real mapping lands.
+  const isMarketplace = order.source === "faire" || order.source === "markettime";
+  let customerName: string;
+  if (isMarketplace) {
+    const assigned = order.fishbowl_customer?.trim();
+    if (!assigned) {
+      return NextResponse.json(
+        { error: "Assign a Fishbowl customer to this order first." },
+        { status: 400 }
+      );
+    }
+    customerName = assigned;
+  } else {
+    const picked = body.customerName?.trim();
+    if (!picked || !PILOT_CUSTOMERS.includes(picked)) {
+      return NextResponse.json(
+        {
+          error: `During the estimate pilot, pick one of: ${PILOT_CUSTOMERS.join(", ")}.`,
+        },
+        { status: 400 }
+      );
+    }
+    customerName = picked;
+  }
 
   let result;
   try {
