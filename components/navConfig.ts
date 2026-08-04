@@ -24,6 +24,7 @@ import {
   Layers,
   LayoutTemplate,
   MailX,
+  Route,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -264,6 +265,20 @@ export const navSections: readonly NavSection[] = [
         label: "Rep Portal Preview",
         href: "/sales-team/portal-preview",
         icon: Eye,
+        roles: ["owner", "admin"],
+      },
+    ],
+  },
+  {
+    // Internal engineering surface: integration status + the technical roadmap
+    // documenting in-flight work (e.g. the Point B / Synapse connector).
+    label: "System",
+    icon: Route,
+    items: [
+      {
+        label: "Technical Roadmap",
+        href: "/technical-roadmap",
+        icon: Route,
         roles: ["owner", "admin"],
       },
     ],
