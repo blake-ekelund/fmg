@@ -141,7 +141,7 @@ function isPackCruft(line: string): boolean {
 function htmlToText(html: string | null): string {
   if (!html) return "";
   const text = html
-    .replace(/<!--.*?-->/gs, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<\s*br\s*\/?\s*>/gi, "\n")
     .replace(/<\/\s*(p|div|li)\s*>/gi, "\n")
     .replace(/<[^>]+>/g, "")
