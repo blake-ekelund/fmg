@@ -270,11 +270,18 @@ export const navSections: readonly NavSection[] = [
     ],
   },
   {
-    // Internal engineering surface: integration status + the technical roadmap
-    // documenting in-flight work (e.g. the Point B / Synapse connector).
+    // Internal engineering surface: the founder-facing System Handbook (how it
+    // all works + where the docs are) and the technical roadmap tracking
+    // in-flight work (e.g. the Point B / Synapse connector).
     label: "System",
     icon: Route,
     items: [
+      {
+        label: "System Handbook",
+        href: "/handbook",
+        icon: BookOpen,
+        roles: ["owner", "admin"],
+      },
       {
         label: "Technical Roadmap",
         href: "/technical-roadmap",
