@@ -211,13 +211,11 @@ export type OrderFees = {
   detail: Array<{ code: number; description: string; amount: number }>;
 };
 
-/** Per-order freight + pick/pack charges. `totalAmount × 1.25` = the FB freight line. */
-export async function getOrderFees(synapseOrderId: number): Promise<OrderFees | null> {
-  const token = await feesToken();
-  const res = await fetch(
-    `${FEES_URL()}/api/order/fees?customerId=${CUST_ID()}&orderId=${synapseOrderId}`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store" },
-  );
+async function fetchFeesWithToken(token: string, orderId: number): Promise<OrderFees | null> {
+  const res = await fetch(`${FEES_URL()}/api/order/fees?customerId=${CUST_ID()}&orderId=${orderId}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    cache: "no-store",
+  });
   if (!res.ok) return null;
   const data = (await res.json().catch(() => ({}))) as {
     orderId?: number;
@@ -225,12 +223,28 @@ export async function getOrderFees(synapseOrderId: number): Promise<OrderFees | 
     detail?: Array<{ code: number; description: string; amount: string | number }>;
   };
   if (data.orderId == null) return null;
-  const num = (v: string | number | undefined) => (typeof v === "number" ? v : Number(v) || 0);
+  const n = (v: string | number | undefined) => (typeof v === "number" ? v : Number(v) || 0);
   return {
     orderId: data.orderId,
-    totalAmount: num(data.totalAmount),
-    detail: (data.detail ?? []).map((d) => ({ ...d, amount: num(d.amount) })),
+    totalAmount: n(data.totalAmount),
+    detail: (data.detail ?? []).map((d) => ({ ...d, amount: n(d.amount) })),
   };
+}
+
+/** Per-order freight + pick/pack charges. `totalAmount × 1.25` = the FB freight line. */
+export async function getOrderFees(synapseOrderId: number): Promise<OrderFees | null> {
+  return fetchFeesWithToken(await feesToken(), synapseOrderId);
+}
+
+/** Fees for many orders, reusing ONE token — for batch monitoring. */
+export async function getOrderFeesMany(orderIds: number[]): Promise<Map<number, OrderFees>> {
+  const token = await feesToken();
+  const out = new Map<number, OrderFees>();
+  for (const id of orderIds) {
+    const f = await fetchFeesWithToken(token, id).catch(() => null);
+    if (f) out.set(id, f);
+  }
+  return out;
 }
 
 export const POINTB_MARKUP = 1.25; // <ShipPercent>0.25</ShipPercent> from LilyPad config
