@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, Loader2, CheckCircle2, XCircle, Boxes, Warehouse, ArrowLeftRight } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
@@ -50,6 +50,8 @@ type Result = {
   pointbError: string | null;
 };
 
+type RecentOrder = { num: string; customerPO: string; status: string; channel: string; issued: string };
+
 const money = (n: number | null | undefined) =>
   n == null ? "—" : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -86,16 +88,29 @@ export default function OrderCheckPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [res, setRes] = useState<Result | null>(null);
+  const [recent, setRecent] = useState<RecentOrder[]>([]);
 
-  async function run(e?: React.FormEvent) {
-    e?.preventDefault();
-    const value = so.trim();
-    if (!value) return;
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/pointb/recent-orders", { headers: await authHeader() });
+        const json = await r.json();
+        if (r.ok) setRecent((json.orders as RecentOrder[]) ?? []);
+      } catch {
+        /* non-fatal — the dropdown just stays empty */
+      }
+    })();
+  }, []);
+
+  async function doCheck(value: string) {
+    const v = value.trim();
+    if (!v) return;
+    setSo(v);
     setLoading(true);
     setError(null);
     setRes(null);
     try {
-      const r = await fetch(`/api/pointb/order-check?so=${encodeURIComponent(value)}`, {
+      const r = await fetch(`/api/pointb/order-check?so=${encodeURIComponent(v)}`, {
         headers: await authHeader(),
       });
       const json = await r.json();
@@ -106,6 +121,11 @@ export default function OrderCheckPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    doCheck(so);
   }
 
   const a = res?.alignment;
@@ -126,26 +146,46 @@ export default function OrderCheckPage() {
         </p>
       </div>
 
-      {/* Search */}
-      <form onSubmit={run} className="flex gap-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={so}
-            onChange={(e) => setSo(e.target.value)}
-            placeholder="Order number (e.g. 24527)"
-            className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={loading || !so.trim()}
-          className="inline-flex items-center gap-2 rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-40 transition"
-        >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-          Check
-        </button>
-      </form>
+      {/* Pick a recent order, or type any order number */}
+      <div className="space-y-3">
+        {recent.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Recent orders</label>
+            <select
+              value=""
+              onChange={(e) => e.target.value && doCheck(e.target.value)}
+              className="block w-full max-w-md rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+            >
+              <option value="">Pick a recent order…</option>
+              {recent.map((o) => (
+                <option key={o.num} value={o.num}>
+                  {[o.num, o.channel, o.status, o.issued].filter(Boolean).join("  ·  ")}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <form onSubmit={onSubmit} className="flex gap-2">
+          <div className="relative flex-1 max-w-sm">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={so}
+              onChange={(e) => setSo(e.target.value)}
+              placeholder="…or type any order number"
+              className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading || !so.trim()}
+            className="inline-flex items-center gap-2 rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-40 transition"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            Check
+          </button>
+        </form>
+      </div>
 
       {error && (
         <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
