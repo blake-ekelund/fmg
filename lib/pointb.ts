@@ -119,13 +119,29 @@ export async function getSynapseOrder(
   fbCustomerPO: string,
 ): Promise<SynapseOrder | null> {
   const s = await synapseLogin();
-  const data = await synapsePost(s, "/orders/order-info", {
+  const info = await synapsePost(s, "/orders/order-info", {
     custid: CUST_ID(),
     po: fbSoNum,
     reference: fbCustomerPO,
   }).catch(() => ({}) as Record<string, unknown>);
-  const orders = (data.order as SynapseOrder[]) || [];
-  return orders[0] ?? null;
+  const order = ((info.order as SynapseOrder[]) || [])[0];
+  if (!order) return null;
+
+  // order-info does NOT carry carton tracking; pull plate_details from
+  // shipped-orders (the same source the batch view uses) so the detail's
+  // tracking is consistent with the grid. Shipped orders only — empty for
+  // not-yet-shipped orders, which is fine.
+  const shipped = await synapsePost(s, "/orders/shipped-orders", {
+    request_type: "order",
+    custid: CUST_ID(),
+    po: fbSoNum,
+    reference: fbCustomerPO,
+  }).catch(() => ({}) as Record<string, unknown>);
+  const shipRow = ((shipped.orders as Array<Record<string, unknown>>) || [])[0];
+  if (shipRow && Array.isArray(shipRow.plate_details)) {
+    order.plate_details = shipRow.plate_details as SynapseOrder["plate_details"];
+  }
+  return order;
 }
 
 export type ShipSummary = {
