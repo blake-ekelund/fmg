@@ -128,6 +128,50 @@ export async function getSynapseOrder(
   return orders[0] ?? null;
 }
 
+export type ShipSummary = {
+  po: string;
+  orderid: number;
+  status: string;
+  dateShipped: string | null;
+  shippingCost: number | null;
+  tracking: string[];
+};
+
+/**
+ * All Synapse shipments in the last `days` — ONE call, for batch reconciliation
+ * (match to Fishbowl orders by `po` = Fishbowl SO num). Returns [] on any error
+ * so the batch view degrades to Fishbowl-only rather than failing.
+ */
+export async function getRecentShippedOrders(days = 60): Promise<ShipSummary[]> {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmt = (d: Date, tail: string) =>
+    `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ${tail}`;
+  const end = new Date();
+  const begin = new Date(end.getTime() - days * 86400_000);
+
+  const s = await synapseLogin();
+  const data = await synapsePost(s, "/orders/shipped-orders", {
+    request_type: "range",
+    begin_date: fmt(begin, "00:00:00"),
+    end_date: fmt(end, "23:59:59"),
+    custid: CUST_ID(),
+  }).catch(() => ({}) as Record<string, unknown>);
+
+  const orders = (data.orders as Array<Record<string, unknown>>) || [];
+  return orders.map((o) => ({
+    po: String(o.po_number ?? ""),
+    orderid: Number(o.orderid) || 0,
+    status: String(o.order_status ?? ""),
+    dateShipped: (o.date_shipped as string) ?? null,
+    shippingCost: o.shipping_cost != null ? Number(o.shipping_cost) : null,
+    tracking: Array.isArray(o.plate_details)
+      ? ((o.plate_details as Array<{ tracking_number?: string | null }>)
+          .map((p) => p.tracking_number)
+          .filter(Boolean) as string[])
+      : [],
+  }));
+}
+
 /* ── Integration API (bearer) — order fees ────────────────────────────── */
 
 async function feesToken(): Promise<string> {

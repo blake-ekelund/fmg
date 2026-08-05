@@ -1,16 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Loader2, CheckCircle2, XCircle, Boxes, Warehouse, ArrowLeftRight } from "lucide-react";
+import {
+  Search,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Boxes,
+  Warehouse,
+  ArrowLeftRight,
+  Play,
+} from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 /**
- * Order Check — a founder-facing reconciliation view. Type a Fishbowl SO number
- * and see the same order in BOTH systems (Fishbowl + Point B / Synapse), side by
- * side, with clear "these agree" indicators. Built for confidence, not for
- * engineers. Read-only; data comes from /api/pointb/order-check.
+ * Order Check — founder-facing reconciliation. "Run" pulls the recent orders per
+ * status and shows how each sits in both systems (Fishbowl + Point B / Synapse);
+ * clicking a row (or searching a SO#) drills into the full side-by-side detail.
+ * Read-only; data from /api/pointb/reconcile-batch and /order-check.
  */
 
+/* ── Single-order detail types ─────────────────────────────────────────── */
 type Result = {
   so: string;
   fishbowl: {
@@ -50,7 +60,22 @@ type Result = {
   pointbError: string | null;
 };
 
-type RecentOrder = { num: string; customerPO: string; status: string; channel: string; issued: string };
+/* ── Batch types ───────────────────────────────────────────────────────── */
+type BatchState = "aligned" | "review" | "pending";
+type BatchRow = {
+  num: string;
+  channel: string;
+  fbTracking: string[];
+  fbShipLines: number[];
+  synapse: { status: string; tracking: string[]; shippingCost: number | null; dateShipped: string | null } | null;
+  state: BatchState;
+};
+type BatchGroup = { status: string; orders: BatchRow[]; aligned: number; total: number };
+type BatchResult = {
+  groups: BatchGroup[];
+  connected: { fishbowl: boolean; synapse: boolean };
+  pointbError: string | null;
+};
 
 const money = (n: number | null | undefined) =>
   n == null ? "—" : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -85,6 +110,21 @@ function Check({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   );
 }
 
+function StateBadge({ state, connected }: { state: BatchState; connected: boolean }) {
+  if (!connected) return <span className="text-xs text-gray-400">—</span>;
+  const map: Record<BatchState, { cls: string; label: string }> = {
+    aligned: { cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", label: "Aligned" },
+    review: { cls: "bg-amber-50 text-amber-700 ring-amber-200", label: "Review" },
+    pending: { cls: "bg-gray-100 text-gray-500 ring-gray-200", label: "Awaiting ship" },
+  };
+  const s = map[state];
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${s.cls}`}>
+      {s.label}
+    </span>
+  );
+}
+
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5 border-b border-gray-50 last:border-0">
@@ -99,19 +139,30 @@ export default function OrderCheckPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [res, setRes] = useState<Result | null>(null);
-  const [recent, setRecent] = useState<RecentOrder[]>([]);
 
+  const [batch, setBatch] = useState<BatchResult | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+
+  // Load the batch on first open so the founder sees data immediately.
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/pointb/recent-orders", { headers: await authHeader() });
-        const json = await readJson(r);
-        if (r.ok) setRecent((json.orders as RecentOrder[]) ?? []);
-      } catch {
-        /* non-fatal — the dropdown just stays empty */
-      }
-    })();
+    runBatch();
   }, []);
+
+  async function runBatch() {
+    setBatchLoading(true);
+    setBatchError(null);
+    try {
+      const r = await fetch("/api/pointb/reconcile-batch", { headers: await authHeader() });
+      const json = await readJson(r);
+      if (!r.ok) setBatchError((json.error as string) ?? `Failed (${r.status})`);
+      else setBatch(json as unknown as BatchResult);
+    } catch (e) {
+      setBatchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBatchLoading(false);
+    }
+  }
 
   async function doCheck(value: string) {
     const v = value.trim();
@@ -152,38 +203,107 @@ export default function OrderCheckPage() {
         </div>
         <h1 className="text-xl font-semibold text-gray-900 tracking-tight mt-1">Fishbowl ↔ Point B</h1>
         <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-          Type an order number to see it in both systems side by side — Fishbowl (our books) and Point B
-          (the warehouse) — and confirm they match.
+          Confirm our books (Fishbowl) and the warehouse (Point B) agree. Run the reconciliation for a
+          quick pass across recent orders, or click any order for the full side-by-side.
         </p>
       </div>
 
-      {/* Pick a recent order, or type any order number */}
-      <div className="space-y-3">
-        {recent.length > 0 && (
+      {/* Batch reconciliation */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Recent orders</label>
-            <select
-              value=""
-              onChange={(e) => e.target.value && doCheck(e.target.value)}
-              className="block w-full max-w-md rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-            >
-              <option value="">Pick a recent order…</option>
-              {recent.map((o) => (
-                <option key={o.num} value={o.num}>
-                  {[o.num, o.channel, o.status, o.issued].filter(Boolean).join("  ·  ")}
-                </option>
-              ))}
-            </select>
+            <h2 className="text-sm font-semibold text-gray-900">Reconciliation</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              The most recent orders in each status, checked against Point B. Click a row for detail.
+            </p>
+          </div>
+          <button
+            onClick={runBatch}
+            disabled={batchLoading}
+            className="inline-flex items-center gap-2 rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-40 transition"
+          >
+            {batchLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            Run
+          </button>
+        </div>
+
+        {batchError && (
+          <div className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {batchError}
           </div>
         )}
 
+        {batch && (
+          <div className="mt-4 space-y-5">
+            {!batch.connected.synapse && (
+              <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                Point B isn&apos;t connected in this environment yet — showing Fishbowl orders only.
+                {batch.pointbError && <span className="block text-gray-400 mt-0.5">({batch.pointbError})</span>}
+              </div>
+            )}
+            {batch.groups.map((g) => (
+              <div key={g.status}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-sm font-semibold text-gray-900">{g.status}</span>
+                  {batch.connected.synapse && (
+                    <span className="text-[11px] text-gray-500">
+                      {g.aligned}/{g.total} aligned
+                    </span>
+                  )}
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-400">
+                      <tr>
+                        <th className="text-left font-medium px-3 py-2">Order</th>
+                        <th className="text-left font-medium px-3 py-2">Channel</th>
+                        <th className="text-left font-medium px-3 py-2">Fishbowl tracking</th>
+                        <th className="text-left font-medium px-3 py-2">Point B tracking</th>
+                        <th className="text-left font-medium px-3 py-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {g.orders.map((o) => (
+                        <tr
+                          key={o.num}
+                          onClick={() => doCheck(o.num)}
+                          className="hover:bg-gray-50 cursor-pointer"
+                        >
+                          <td className="px-3 py-2 font-medium text-gray-900">{o.num}</td>
+                          <td className="px-3 py-2 text-gray-600">{o.channel || "—"}</td>
+                          <td className="px-3 py-2 text-gray-500 font-mono text-xs">
+                            {o.fbTracking.join(", ") || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-gray-500 font-mono text-xs">
+                            {o.synapse ? o.synapse.tracking.join(", ") || "shipped" : "—"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <StateBadge state={o.state} connected={batch.connected.synapse} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+            {batch.groups.length === 0 && (
+              <div className="text-sm text-gray-400 py-4 text-center">No recent issued orders.</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Single-order lookup */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+        <h2 className="text-sm font-semibold text-gray-900">Check a single order</h2>
         <form onSubmit={onSubmit} className="flex gap-2">
           <div className="relative flex-1 max-w-sm">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               value={so}
               onChange={(e) => setSo(e.target.value)}
-              placeholder="…or type any order number"
+              placeholder="Order number (e.g. 24527)"
               className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"
             />
           </div>
@@ -202,9 +322,9 @@ export default function OrderCheckPage() {
         <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
 
+      {/* Single-order detail */}
       {res && (
         <div className="space-y-5">
-          {/* Verdict banner */}
           {res.connected.synapse ? (
             <div
               className={`rounded-2xl border p-4 ${
@@ -219,10 +339,10 @@ export default function OrderCheckPage() {
                 )}
                 <span className={`text-sm font-semibold ${allGood ? "text-emerald-900" : "text-amber-900"}`}>
                   {allGood
-                    ? "Both systems agree on this order."
+                    ? `Both systems agree on order ${res.fishbowl.num}.`
                     : a?.foundInBoth
-                      ? "Found in both systems — review the details below."
-                      : "This order hasn't reached Point B yet (or isn't matched)."}
+                      ? `Order ${res.fishbowl.num} — found in both, review the details.`
+                      : `Order ${res.fishbowl.num} hasn't reached Point B yet (or isn't matched).`}
                 </span>
               </div>
               {a && a.foundInBoth && (
@@ -235,14 +355,12 @@ export default function OrderCheckPage() {
             </div>
           ) : (
             <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
-              The Point B connection isn&apos;t set up in this environment yet — showing the Fishbowl side only.
+              The Point B connection isn&apos;t set up yet — showing the Fishbowl side only.
               {res.pointbError && <span className="block text-xs text-gray-400 mt-1">({res.pointbError})</span>}
             </div>
           )}
 
-          {/* Side by side */}
           <div className="grid gap-4 md:grid-cols-2">
-            {/* Fishbowl */}
             <div className="rounded-2xl border border-gray-200 bg-white p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Boxes size={15} className="text-gray-500" />
@@ -263,7 +381,6 @@ export default function OrderCheckPage() {
               <Row label="Order total" value={money(res.fishbowl.total)} />
             </div>
 
-            {/* Point B / Synapse */}
             <div className="rounded-2xl border border-gray-200 bg-white p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Warehouse size={15} className="text-gray-500" />
@@ -290,7 +407,6 @@ export default function OrderCheckPage() {
             </div>
           </div>
 
-          {/* Shipping charge reconciliation */}
           {res.fees && (
             <div className="rounded-2xl border border-gray-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-gray-900 mb-3">How the shipping charge is built</h2>
