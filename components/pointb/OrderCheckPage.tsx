@@ -110,6 +110,27 @@ function Check({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   );
 }
 
+/* Fulfillment pipeline — the board columns. An order's column is derived from
+   its real state (Fishbowl status + whether Point B has shipped it). */
+const PIPELINE = [
+  { key: "awaiting", label: "Awaiting shipment", hint: "Issued · at Point B" },
+  { key: "finalize", label: "Shipped — to finalize", hint: "Ready to Ship in Fishbowl" },
+  { key: "complete", label: "Complete", hint: "Fulfilled · invoiced" },
+] as const;
+type Stage = (typeof PIPELINE)[number]["key"];
+
+function stageOf(o: BatchRow, fbStatus: string): Stage {
+  if (/fulfil/i.test(fbStatus)) return "complete";
+  if (o.synapse) return "finalize";
+  return "awaiting";
+}
+
+const STATE_BORDER: Record<BatchState, string> = {
+  aligned: "border-l-emerald-400",
+  review: "border-l-amber-400",
+  pending: "border-l-gray-200",
+};
+
 function StateBadge({ state, connected }: { state: BatchState; connected: boolean }) {
   if (!connected) return <span className="text-xs text-gray-400">—</span>;
   const map: Record<BatchState, { cls: string; label: string }> = {
@@ -134,6 +155,58 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function Board({ batch, onView }: { batch: BatchResult; onView: (num: string) => void }) {
+  const cards = batch.groups.flatMap((g) => g.orders.map((o) => ({ o, stage: stageOf(o, g.status) })));
+  if (cards.length === 0) {
+    return <div className="text-sm text-gray-400 py-4 text-center">No recent issued orders.</div>;
+  }
+  return (
+    <div className="grid gap-4 md:grid-cols-3">
+      {PIPELINE.map((col) => {
+        const items = cards.filter((c) => c.stage === col.key);
+        return (
+          <div key={col.key} className="rounded-xl bg-gray-50/60 p-3">
+            <div className="flex items-baseline justify-between mb-2.5">
+              <div>
+                <div className="text-sm font-semibold text-gray-900">{col.label}</div>
+                <div className="text-[11px] text-gray-400">{col.hint}</div>
+              </div>
+              <span className="text-xs font-medium text-gray-400">{items.length}</span>
+            </div>
+            <div className="space-y-2">
+              {items.map(({ o }) => {
+                const track = o.fbTracking[0] || o.synapse?.tracking[0] || "";
+                return (
+                  <button
+                    key={o.num}
+                    onClick={() => onView(o.num)}
+                    className={`w-full text-left rounded-lg border border-gray-200 border-l-4 ${STATE_BORDER[o.state]} bg-white p-2.5 hover:shadow-sm transition`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-gray-900">{o.num}</span>
+                      <span className="text-[11px] text-gray-400">{o.channel}</span>
+                    </div>
+                    {track && (
+                      <div className="font-mono text-[10px] text-gray-500 mt-1 truncate">{track}</div>
+                    )}
+                    <div className="flex items-center justify-between mt-1.5">
+                      <StateBadge state={o.state} connected={batch.connected.synapse} />
+                      <span className="text-[11px] text-gray-400">View →</span>
+                    </div>
+                  </button>
+                );
+              })}
+              {items.length === 0 && (
+                <div className="text-[11px] text-gray-300 py-3 text-center">—</div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function OrderCheckPage() {
   const [so, setSo] = useState("");
   const [loading, setLoading] = useState(false);
@@ -143,6 +216,7 @@ export default function OrderCheckPage() {
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [view, setView] = useState<"board" | "grid">("board");
 
   // Load the batch on first open so the founder sees data immediately.
   useEffect(() => {
@@ -210,21 +284,36 @@ export default function OrderCheckPage() {
 
       {/* Batch reconciliation */}
       <div className="rounded-2xl border border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 className="text-sm font-semibold text-gray-900">Reconciliation</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              The most recent orders in each status, checked against Point B. Click a row for detail.
+              Recent orders through Point B. Click any order for the full side-by-side.
             </p>
           </div>
-          <button
-            onClick={runBatch}
-            disabled={batchLoading}
-            className="inline-flex items-center gap-2 rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-40 transition"
-          >
-            {batchLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            Run
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 text-xs">
+              {(["board", "grid"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setView(v)}
+                  className={`px-2.5 py-1 rounded-md font-medium capitalize transition ${
+                    view === v ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={runBatch}
+              disabled={batchLoading}
+              className="inline-flex items-center gap-2 rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-40 transition"
+            >
+              {batchLoading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+              Run
+            </button>
+          </div>
         </div>
 
         {batchError && (
@@ -241,6 +330,10 @@ export default function OrderCheckPage() {
                 {batch.pointbError && <span className="block text-gray-400 mt-0.5">({batch.pointbError})</span>}
               </div>
             )}
+            {view === "board" ? (
+              <Board batch={batch} onView={doCheck} />
+            ) : (
+              <>
             {batch.groups.map((g) => (
               <div key={g.status}>
                 <div className="flex items-center gap-2 mb-1.5">
@@ -289,6 +382,8 @@ export default function OrderCheckPage() {
             ))}
             {batch.groups.length === 0 && (
               <div className="text-sm text-gray-400 py-4 text-center">No recent issued orders.</div>
+            )}
+              </>
             )}
           </div>
         )}
