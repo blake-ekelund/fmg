@@ -12,6 +12,7 @@ import {
   Play,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { FIELD_MAP, PUSH_LABEL, type PushOwner } from "@/lib/pointbFieldMap";
 
 /**
  * Order Check — founder-facing reconciliation. "Run" pulls the recent orders per
@@ -75,6 +76,13 @@ type BatchResult = {
   groups: BatchGroup[];
   connected: { fishbowl: boolean; synapse: boolean };
   pointbError: string | null;
+};
+
+type FieldCheck = {
+  connected: boolean;
+  sampled?: number;
+  feeCodes?: Array<{ code: number; description: string; known: boolean }>;
+  unknownCount?: number;
 };
 
 const money = (n: number | null | undefined) =>
@@ -142,6 +150,22 @@ function StateBadge({ state, connected }: { state: BatchState; connected: boolea
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${s.cls}`}>
       {s.label}
+    </span>
+  );
+}
+
+function PushChip({ owner }: { owner: PushOwner }) {
+  const cls: Record<PushOwner, string> = {
+    "connector-out": "bg-sky-50 text-sky-700 ring-sky-200",
+    "connector-in": "bg-violet-50 text-violet-700 ring-violet-200",
+    human: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    constant: "bg-gray-100 text-gray-500 ring-gray-200",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset whitespace-nowrap ${cls[owner]}`}
+    >
+      {PUSH_LABEL[owner]}
     </span>
   );
 }
@@ -217,10 +241,20 @@ export default function OrderCheckPage() {
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [view, setView] = useState<"board" | "grid">("board");
+  const [fieldCheck, setFieldCheck] = useState<FieldCheck | null>(null);
 
-  // Load the batch on first open so the founder sees data immediately.
+  // Load the batch + field drift-check on first open.
   useEffect(() => {
     runBatch();
+    (async () => {
+      try {
+        const r = await fetch("/api/pointb/field-check", { headers: await authHeader() });
+        const json = await readJson(r);
+        if (r.ok) setFieldCheck(json as unknown as FieldCheck);
+      } catch {
+        /* non-fatal */
+      }
+    })();
   }, []);
 
   async function runBatch() {
@@ -387,6 +421,69 @@ export default function OrderCheckPage() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Field map + drift check */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Field map</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            How Fishbowl and Point B connect, field by field — and who pushes each. Review it to catch changes.
+          </p>
+        </div>
+
+        {fieldCheck?.connected &&
+          (fieldCheck.unknownCount === 0 ? (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-sm text-emerald-800">
+              <CheckCircle2 size={15} className="shrink-0" />
+              Point B&apos;s charges match the contract — {fieldCheck.feeCodes?.length ?? 0} types, all recognized
+              (checked {fieldCheck.sampled} recent orders).
+            </div>
+          ) : (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <div className="flex items-center gap-2 font-medium">
+                <XCircle size={15} className="shrink-0" />
+                {fieldCheck.unknownCount} new Point B charge type(s) — review the freight mapping.
+              </div>
+              <div className="text-xs mt-1 font-mono">
+                {fieldCheck.feeCodes
+                  ?.filter((f) => !f.known)
+                  .map((f) => `${f.code} ${f.description}`)
+                  .join(", ")}
+              </div>
+            </div>
+          ))}
+
+        {FIELD_MAP.map((g) => (
+          <div key={g.title}>
+            <div className="text-xs font-semibold text-gray-700 mb-1.5">{g.title}</div>
+            <div className="overflow-x-auto rounded-xl border border-gray-100">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-400">
+                  <tr>
+                    <th className="text-left font-medium px-3 py-2">Point B field</th>
+                    <th className="text-left font-medium px-3 py-2">Fishbowl</th>
+                    <th className="text-left font-medium px-3 py-2">Push</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {g.entries.map((e) => (
+                    <tr key={e.pointb} className="align-top">
+                      <td className="px-3 py-2 font-mono text-[11px] text-gray-700">{e.pointb}</td>
+                      <td className="px-3 py-2 text-gray-600">
+                        {e.fishbowl}
+                        {e.note && <span className="block text-[11px] text-gray-400">{e.note}</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <PushChip owner={e.owner} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Single-order lookup */}
