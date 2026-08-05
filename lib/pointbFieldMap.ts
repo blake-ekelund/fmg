@@ -56,6 +56,45 @@ export const FIELD_MAP: FieldMapGroup[] = [
   },
 ];
 
+/**
+ * Per-field annotation keyed by the Point B (order-info) field name — used by
+ * the relationships inspector to label a real order's fields. Fields not listed
+ * are shown as unmapped pass-through.
+ */
+export const FIELD_LOOKUP: Record<string, { fishbowl: string; owner: PushOwner; note?: string }> = {
+  // Identity / routing (we send these)
+  custid: { fishbowl: "1590", owner: "constant", note: "NI customer id" },
+  order_type: { fishbowl: "O", owner: "constant", note: "Outbound" },
+  order_type_desc: { fishbowl: "—", owner: "constant" },
+  from_facility: { fishbowl: "PB1", owner: "constant" },
+  po_number: { fishbowl: "so.num", owner: "connector-out" },
+  reference: { fishbowl: "so.customerPO", owner: "connector-out" },
+  ship_type: { fishbowl: "S", owner: "constant", note: "Small Pkg" },
+  ship_type_desc: { fishbowl: "—", owner: "constant" },
+  ship_terms: { fishbowl: "PPD", owner: "constant", note: "Prepaid" },
+  ship_terms_desc: { fishbowl: "—", owner: "constant" },
+  // Ship-to (we send these)
+  ship_to_name: { fishbowl: "so.shipToName", owner: "connector-out" },
+  ship_to_contact: { fishbowl: "so.shipToName", owner: "connector-out" },
+  ship_to_address_1: { fishbowl: "so.shipToAddress", owner: "connector-out" },
+  ship_to_address_2: { fishbowl: "so.shipToAddress (line 2)", owner: "connector-out" },
+  ship_to_city: { fishbowl: "so.shipToCity", owner: "connector-out" },
+  ship_to_state: { fishbowl: "so.shipToStateId → state", owner: "connector-out" },
+  ship_to_postal_code: { fishbowl: "so.shipToZip", owner: "connector-out" },
+  ship_to_country_code: { fishbowl: "so.shipToCountryId → country", owner: "connector-out" },
+  ship_to_phone: { fishbowl: "so.phone", owner: "connector-out" },
+  ship_to_email: { fishbowl: "so.email", owner: "connector-out" },
+  // Shipment back (Point B sends these)
+  order_status: { fishbowl: "→ ready-to-finalize signal", owner: "connector-in", note: "9 = Shipped" },
+  order_status_desc: { fishbowl: "—", owner: "connector-in" },
+  date_shipped: { fishbowl: "→ ship record", owner: "connector-in" },
+  carrier: { fishbowl: "carrier (rate-shopped)", owner: "connector-in" },
+  scac: { fishbowl: "carrier code", owner: "connector-in" },
+  shipping_cost: { fishbowl: "freight → ×1.25 → Shipping line", owner: "connector-in" },
+  qty_ship: { fishbowl: "soitem.qtyFulfilled (on ship)", owner: "connector-in" },
+  weight_ship: { fishbowl: "—", owner: "connector-in" },
+};
+
 export const PUSH_LABEL: Record<PushOwner, string> = {
   "connector-out": "Connector → Point B",
   "connector-in": "Point B → Connector",

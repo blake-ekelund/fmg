@@ -26,6 +26,7 @@ import {
   MailX,
   Route,
   ArrowLeftRight,
+  Network,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -284,11 +285,19 @@ export const navSections: readonly NavSection[] = [
         roles: ["owner", "admin"],
       },
       {
-        // Founder-facing reconciliation: type a SO number, see it in both
-        // Fishbowl and Point B / Synapse side by side, confirmed aligned.
+        // Founder-facing reconciliation kanban: recent orders across statuses,
+        // Fishbowl vs Point B, confirmed aligned. Click through for detail.
         label: "Order Check",
         href: "/pointb-check",
         icon: ArrowLeftRight,
+        roles: ["owner", "admin"],
+      },
+      {
+        // The live Fishbowl ↔ Point B field mapping for a real order —
+        // every field, its value, and who pushes it.
+        label: "Point B Fields",
+        href: "/pointb-relationships",
+        icon: Network,
         roles: ["owner", "admin"],
       },
       {

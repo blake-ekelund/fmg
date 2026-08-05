@@ -188,6 +188,34 @@ export async function getRecentShippedOrders(days = 60): Promise<ShipSummary[]> 
   }));
 }
 
+/**
+ * The RAW order-info + shipped-orders rows for one order — every field Point B
+ * returns, unfiltered (for the field-relationships inspector). order-info is the
+ * order header/detail; shipped-orders adds plate_details (carton tracking).
+ */
+export async function getSynapseOrderRaw(
+  fbSoNum: string,
+  fbCustomerPO: string,
+): Promise<{ order: Record<string, unknown> | null; shipped: Record<string, unknown> | null }> {
+  const s = await synapseLogin();
+  const info = await synapsePost(s, "/orders/order-info", {
+    custid: CUST_ID(),
+    po: fbSoNum,
+    reference: fbCustomerPO,
+  }).catch(() => ({}) as Record<string, unknown>);
+  const order = ((info.order as Record<string, unknown>[]) || [])[0] ?? null;
+
+  const shipped = await synapsePost(s, "/orders/shipped-orders", {
+    request_type: "order",
+    custid: CUST_ID(),
+    po: fbSoNum,
+    reference: fbCustomerPO,
+  }).catch(() => ({}) as Record<string, unknown>);
+  const shipRow = ((shipped.orders as Record<string, unknown>[]) || [])[0] ?? null;
+
+  return { order, shipped: shipRow };
+}
+
 /* ── Integration API (bearer) — order fees ────────────────────────────── */
 
 async function feesToken(): Promise<string> {
