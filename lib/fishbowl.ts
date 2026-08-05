@@ -194,6 +194,19 @@ export async function runDataQuery(sql: string): Promise<Record<string, unknown>
   return withSession((call) => dataQueryWith(call, sql));
 }
 
+/**
+ * Run several (possibly dependent) read-only queries inside ONE Fishbowl session
+ * — one login / one license seat for the whole batch. Prefer this over multiple
+ * runDataQuery() calls in a single request: concurrent runDataQuery() calls each
+ * open their own session and can exhaust Fishbowl's small concurrent-seat license
+ * (only ~3 seats), which surfaces as intermittent login failures.
+ */
+export async function withFishbowl<T>(
+  fn: (query: (sql: string) => Promise<Record<string, unknown>[]>) => Promise<T>,
+): Promise<T> {
+  return withSession((call) => fn((sql) => dataQueryWith(call, sql)));
+}
+
 async function dataQueryWith(call: Caller, sql: string): Promise<Record<string, unknown>[]> {
   // The param form (?query=) avoids GET-with-body, which Node's fetch rejects.
   const res = await call(`/api/data-query?query=${encodeURIComponent(sql)}`);

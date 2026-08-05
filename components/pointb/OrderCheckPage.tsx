@@ -61,6 +61,17 @@ async function authHeader(): Promise<Record<string, string>> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+/** Parse a response body safely — never throws on an empty/non-JSON body. */
+async function readJson(r: Response): Promise<Record<string, unknown>> {
+  const text = await r.text().catch(() => "");
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { error: text.slice(0, 200) };
+  }
+}
+
 function Check({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -94,7 +105,7 @@ export default function OrderCheckPage() {
     (async () => {
       try {
         const r = await fetch("/api/pointb/recent-orders", { headers: await authHeader() });
-        const json = await r.json();
+        const json = await readJson(r);
         if (r.ok) setRecent((json.orders as RecentOrder[]) ?? []);
       } catch {
         /* non-fatal — the dropdown just stays empty */
@@ -113,9 +124,9 @@ export default function OrderCheckPage() {
       const r = await fetch(`/api/pointb/order-check?so=${encodeURIComponent(v)}`, {
         headers: await authHeader(),
       });
-      const json = await r.json();
-      if (!r.ok) setError(json?.error ?? `Failed (${r.status})`);
-      else setRes(json as Result);
+      const json = await readJson(r);
+      if (!r.ok) setError((json.error as string) ?? `Failed (${r.status})`);
+      else setRes(json as unknown as Result);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
