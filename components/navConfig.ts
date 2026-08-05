@@ -25,6 +25,7 @@ import {
   LayoutTemplate,
   MailX,
   Route,
+  ArrowLeftRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -280,6 +281,14 @@ export const navSections: readonly NavSection[] = [
         label: "System Handbook",
         href: "/handbook",
         icon: BookOpen,
+        roles: ["owner", "admin"],
+      },
+      {
+        // Founder-facing reconciliation: type a SO number, see it in both
+        // Fishbowl and Point B / Synapse side by side, confirmed aligned.
+        label: "Order Check",
+        href: "/pointb-check",
+        icon: ArrowLeftRight,
         roles: ["owner", "admin"],
       },
       {
