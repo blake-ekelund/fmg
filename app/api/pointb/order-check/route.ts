@@ -46,9 +46,10 @@ export async function GET(request: Request) {
     const fb = await withFishbowl(async (query) => {
       const headRows = await query(
         `SELECT so.id, so.num, so.customerPO, sostatus.name AS status, so.totalPrice,
-                so.shipToName, so.shipToCity, so.shipToState, qbclass.name AS channel
+                so.shipToName, so.shipToCity, shipState.name AS shipToState, qbclass.name AS channel
          FROM so
          LEFT JOIN sostatus ON so.statusId = sostatus.id
+         LEFT JOIN stateconst shipState ON so.shipToStateId = shipState.id
          LEFT JOIN customer ON so.customerId = customer.id
          LEFT JOIN qbclass ON customer.qbClassId = qbclass.id
          WHERE so.num = ${q(so)} LIMIT 1`,
