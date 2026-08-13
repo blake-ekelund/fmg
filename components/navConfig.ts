@@ -27,6 +27,8 @@ import {
   Route,
   ArrowLeftRight,
   Network,
+  Share2,
+  Newspaper,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -242,6 +244,18 @@ export const navSections: readonly NavSection[] = [
         href: "/marketing/assets",
         icon: ImageIcon,
         roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        label: "Social Media Posts",
+        href: "/marketing/social",
+        icon: Share2,
+        roles: [...FULL_ACCESS, "marketing"],
+      },
+      {
+        label: "Blog Posts",
+        href: "/marketing/blog",
+        icon: Newspaper,
+        roles: [...FULL_ACCESS, "marketing"],
       },
     ],
   },
