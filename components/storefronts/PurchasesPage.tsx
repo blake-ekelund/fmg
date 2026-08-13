@@ -124,6 +124,40 @@ export default function PurchasesPage() {
     }
   }, [reload]);
 
+  // Manual MarketTime pull — same code path as Faire's manual sync: hits the
+  // markettime-order-sync route (signed-in users pass its auth), which imports
+  // the live open MarketTime orders into this `orders` list. It does NOT push to
+  // Fishbowl — that stays a separate, human-triggered step per order — so the
+  // list itself is a safe place to eyeball what came in.
+  const [mtSyncing, setMtSyncing] = useState(false);
+  const [mtResult, setMtResult] = useState<string | null>(null);
+  const syncMarketTime = useCallback(async () => {
+    setMtSyncing(true);
+    setMtResult(null);
+    try {
+      const res = await fetch("/api/cron/markettime-order-sync", {
+        headers: await authHeader(),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setMtResult(`MarketTime sync failed: ${json?.error ?? res.status}`);
+        return;
+      }
+      const imported = Array.isArray(json.imported) ? json.imported.length : 0;
+      setMtResult(
+        json.note ??
+          (imported > 0
+            ? `Imported ${imported} MarketTime order${imported === 1 ? "" : "s"} into the list below.`
+            : `No open MarketTime orders to import right now (checked ${json.checked ?? 0}).`),
+      );
+      if (imported > 0) await reload();
+    } catch (e) {
+      setMtResult(`MarketTime sync failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setMtSyncing(false);
+    }
+  }, [reload]);
+
   // Everything matching search + channel + store (but NOT the state tab), so
   // the tab counts reflect the other active filters.
   const base = useMemo(() => {
@@ -217,10 +251,29 @@ export default function PurchasesPage() {
           )}
           {faireSyncing ? "Syncing Faire…" : "Sync Faire"}
         </button>
+        <button
+          type="button"
+          onClick={syncMarketTime}
+          disabled={mtSyncing}
+          title="Pull the live open MarketTime orders into this list now. Does not push to Fishbowl — that stays a separate step per order."
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {mtSyncing ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <RefreshCw size={13} />
+          )}
+          {mtSyncing ? "Syncing MarketTime…" : "Sync MarketTime"}
+        </button>
       </div>
       {faireResult ? (
         <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600">
           {faireResult}
+        </div>
+      ) : null}
+      {mtResult ? (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600">
+          {mtResult}
         </div>
       ) : null}
 

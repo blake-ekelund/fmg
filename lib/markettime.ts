@@ -1,17 +1,26 @@
 /**
  * Server-only client for the MarketTime External API — the second marketplace
- * source (after Faire) that flows into the storefront order pipeline. Mapped
- * from MarketTime's published OpenAPI spec (publicapi.markettime.com/v3/api-docs).
+ * source (after Faire) that flows into the storefront order pipeline. Verified
+ * live against the real API 2026-08-13 (not just the OpenAPI spec).
  *
  * Auth: header `x-api-key: <MARKETTIME_API_KEY>`. Endpoints are scoped by a
- * "Who Am I" path segment — our Repgroup ID (R123) or Manufacturer ID (M123),
- * stored as MARKETTIME_WHO_AM_I.
+ * "Who Am I" path segment — our Manufacturer ID (M123; FMG is M1292), read from
+ * `MANUFACTURER_ID` (see whoAmI() for the accepted names). markettimeConfigured()
+ * stays false until the key + id are set.
  *
- * Endpoints used:
- *   POST /mtpublic/api/v1/{whoAmI}/orders/get         list orders (paginated)
- *   POST /mtpublic/api/v1/{whoAmI}/orders/{id}/trackingdetails   ship-back-sync
+ * Endpoint used:
+ *   POST /mtpublic/api/v1/{whoAmI}/orders/get   list orders (paginated)
+ *     • body is a QueryFilter[] — `[]` = no filter; we filter by
+ *       manufacturerOrderStatus = OPEN to get only unfulfilled orders.
+ *     • NO sortField/sortType params — they 500 this endpoint.
+ *     • response: { success, response: Order[], total, error, timeStamp }.
  *
- * Ships dark: markettimeConfigured() is false until both env vars are set.
+ * Live gotchas that bit us: the account holds 6,500+ orders back to 2021 with a
+ * NON-chronological default order (offset 0 = 2021, the tail ≠ newest), so an
+ * offset walk can't find open orders — server-side status filtering is the only
+ * reliable path. There is no `publicOrderID`-as-number; we key on recordID.
+ * Ship-back-sync (POST .../orders/{id}/trackingdetails) is documented but not
+ * built here yet — import + Fishbowl push is the current scope.
  */
 
 const BASE = "https://publicapi.markettime.com";
@@ -20,9 +29,37 @@ function apiKey(): string | null {
   const k = (process.env.MARKETTIME_API_KEY ?? "").trim();
   return k.length > 3 ? k : null;
 }
+
+/**
+ * Our MarketTime identity — the `{whoAmI}` path segment. It's a Repgroup
+ * (R123) or Manufacturer (M123) id; FMG is a manufacturer, so `MANUFACTURER_ID`
+ * is the name it's actually stored under (in `.env.local` and Vercel).
+ *
+ * Accepts, in order: MARKETTIME_WHO_AM_I (already R#/M#), MANUFACTURER_ID /
+ * MARKETTIME_MANUFACTURER_ID (→ M#), MARKETTIME_REP_GROUP_ID (→ R#). Bare
+ * digits are prefixed with the type implied by the var name, so `123` in
+ * MANUFACTURER_ID becomes `M123`.
+ */
 function whoAmI(): string | null {
-  const w = (process.env.MARKETTIME_WHO_AM_I ?? "").trim();
-  return /^[RM]\d+$/i.test(w) ? w.toUpperCase() : null;
+  const explicit = (process.env.MARKETTIME_WHO_AM_I ?? "").trim();
+  if (/^[RM]\d+$/i.test(explicit)) return explicit.toUpperCase();
+
+  const norm = (raw: string, prefix: "M" | "R"): string | null => {
+    const v = raw.trim().toUpperCase();
+    if (/^[RM]\d+$/.test(v)) return v;
+    if (/^\d+$/.test(v)) return `${prefix}${v}`;
+    return null;
+  };
+
+  for (const name of ["MANUFACTURER_ID", "MARKETTIME_MANUFACTURER_ID"]) {
+    const v = norm(process.env[name] ?? "", "M");
+    if (v) return v;
+  }
+  for (const name of ["MARKETTIME_REP_GROUP_ID", "REP_GROUP_ID"]) {
+    const v = norm(process.env[name] ?? "", "R");
+    if (v) return v;
+  }
+  return null;
 }
 export function markettimeConfigured(): boolean {
   return apiKey() !== null && whoAmI() !== null;
@@ -62,8 +99,10 @@ export type MarketTimeOrderItem = {
 export type MarketTimeOrder = {
   /** Internal recordID — needed for the tracking-detail POST (ship-back). */
   id: string;
-  /** Public order id — rides as `<publicOrderID>-MKTTIME` in Fishbowl POs. */
+  /** recordID as string — unique idempotency key; rides as `<id>-MKTTIME` in Fishbowl POs. */
   displayId: string;
+  /** MarketTime's UUID public order id — kept for cross-reference, not used as the ref. */
+  publicOrderId: string | null;
   poNumber: string | null;
   /** repGroup + manufacturer status, combined for readability. */
   state: string;
@@ -144,7 +183,12 @@ function parseOrder(raw: unknown): MarketTimeOrder | null {
     null;
   return {
     id,
-    displayId: (str(o.publicOrderID) ?? str(o.orderCode) ?? id).replace(/^#/, ""),
+    // recordID is unique, stable, and short — the right idempotency key and
+    // Fishbowl Customer PO stem (`<recordID>-MKTTIME`). publicOrderID exists too
+    // but is a 36-char UUID; orderCode ("DRCT") is an order *type*, not unique —
+    // an earlier version used it as the id and would have collided every order.
+    displayId: id,
+    publicOrderId: str(o.publicOrderID),
     poNumber: str(o.poNumber),
     state: status,
     // Cancelled if a cancelDate is present or a status says so.
@@ -161,38 +205,62 @@ function parseOrder(raw: unknown): MarketTimeOrder | null {
   };
 }
 
-const LOOKBACK_DAYS = 90;
+/**
+ * A MarketTime QueryFilter (the POST-body entry for /orders/get). Operators are
+ * word tokens — `eq`, `gte`, `lte`, `gt`, `lt`, `ne` (`>=`/`<=` are rejected).
+ */
+type QueryFilter = { field: string; operator: string; value: string };
 
 /**
- * Recent MarketTime orders (last LOOKBACK_DAYS by orderDate), excluding
- * cancelled. Paginates POST /orders/get via offset/recordSize.
+ * manufacturerOrderStatus values that mean "still needs fulfillment" — the ones
+ * this import exists for. Confirmed live values are OPEN (unfulfilled), SHIPPED,
+ * and CANCELLED; only OPEN should flow into the portal + Fishbowl. Kept as a set
+ * so a new open-ish status (e.g. a HOLD/BACKORDER) is a one-line addition.
+ */
+const IMPORTABLE_MFR_STATUSES = ["OPEN"];
+
+/**
+ * Current importable MarketTime orders: those with an open manufacturer status.
  *
- * ⚠ The exact "unfulfilled" status enum isn't known until we see live data —
- * for now this returns all recent, non-cancelled orders and the cron/import
- * shows their status. Tighten to specific open statuses once confirmed.
+ * Filtering is SERVER-SIDE via QueryFilter — the account holds 6,500+ orders
+ * back to 2021 and /orders/get has no working sort (the documented sort params
+ * 500), so an offset walk never reliably reaches the open ones. We ask the API
+ * directly for manufacturerOrderStatus = OPEN and paginate that small set.
  */
 export async function getMarketTimeOrders(): Promise<MarketTimeOrder[]> {
   const who = whoAmI();
-  if (!who) throw new Error("MARKETTIME_WHO_AM_I is not set (Repgroup R123 / Manufacturer M123).");
+  if (!who) {
+    throw new Error(
+      "MarketTime identity not set — set MANUFACTURER_ID (M123) or MARKETTIME_WHO_AM_I.",
+    );
+  }
 
   const out: MarketTimeOrder[] = [];
   const size = 100;
-  for (let offset = 0; offset < 5000; offset += size) {
-    const data = await marketTimePost(
-      `/mtpublic/api/v1/${encodeURIComponent(who)}/orders/get?offset=${offset}&recordSize=${size}&sortField=orderDate&sortOrder=DESC`,
-      {},
-    );
-    const rows = asArray(data.response ?? data.successResponse);
-    const parsed = rows.map(parseOrder).filter((o): o is MarketTimeOrder => o !== null);
-    out.push(...parsed);
-    if (rows.length < size) break;
+  for (const status of IMPORTABLE_MFR_STATUSES) {
+    const filter: QueryFilter[] = [
+      { field: "manufacturerOrderStatus", operator: "eq", value: status },
+    ];
+    for (let offset = 0; offset < 5000; offset += size) {
+      // NB: no sortField/sortType — those trigger a 500 on this endpoint.
+      const data = await marketTimePost(
+        `/mtpublic/api/v1/${encodeURIComponent(who)}/orders/get?offset=${offset}&recordSize=${size}`,
+        filter,
+      );
+      const rows = asArray(data.response ?? data.successResponse);
+      const parsed = rows.map(parseOrder).filter((o): o is MarketTimeOrder => o !== null);
+      out.push(...parsed);
+      if (rows.length < size) break;
+    }
   }
 
-  const since = Date.now() - LOOKBACK_DAYS * 86400_000;
+  // Belt-and-suspenders: never import a cancelled order even if it slips the
+  // status filter, and de-dupe by recordID across status passes.
+  const seen = new Set<string>();
   return out.filter((o) => {
     if (o.cancelled) return false;
-    if (!o.orderDate) return true;
-    const t = new Date(o.orderDate).getTime();
-    return Number.isNaN(t) || t >= since;
+    if (seen.has(o.id)) return false;
+    seen.add(o.id);
+    return true;
   });
 }

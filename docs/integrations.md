@@ -47,7 +47,7 @@ work happens after the handler's own gating.
 | `automations` | `45 11,12,19,20 * * *` | ET-gated | Email automation engine — sends due automation steps. |
 | `bulk-send` | `*/5 * * * *` | every 5 min | Bulk email blast worker (drains the Resend send queue). |
 | `renew-email-subscriptions` | `0 */6 * * *` | every 6 h | Keeps email-account tokens/subscriptions fresh. |
-| `markettime-order-sync` | *(not in `vercel.json`)* | **dark** | Route exists but is **not scheduled** — MarketTime is off until keys are set. |
+| `markettime-order-sync` | *(not in `vercel.json`)* | **manual** | Import MarketTime open orders. Live + working; deliberately **not scheduled** — run on demand via the "Sync MarketTime" button on the Orders page. |
 
 ---
 
@@ -160,14 +160,36 @@ of emailing a customer directly.
 
 ---
 
-## MarketTime — wholesale order import (dark)
+## MarketTime — wholesale order import
 
-**What it is.** A wholesale order channel. The client and cron **exist but are
-not scheduled** (`markettime-order-sync` is absent from `vercel.json`) — it's
-built and waiting on live keys.
+**What it is.** The second wholesale marketplace (after Faire). Open MarketTime
+orders import into the `orders` table, join the Purchases list, match to a
+Fishbowl customer, and are pushed to Fishbowl by a human — same pipeline and
+same non-auto-push policy as Faire. Verified live 2026-08-13 (FMG = Manufacturer
+`M1292`).
 
-**Files.** `lib/markettime.ts`. Env: `MARKETTIME_API_KEY`,
-`MARKETTIME_WHO_AM_I`. To turn on: set the keys and add the cron to `vercel.json`.
+**Files.** `lib/markettime.ts` (API client), `lib/markettimeImport.ts` (the
+shared import used by the route, the button, and the backfill script),
+`app/api/cron/markettime-order-sync/route.ts`. Verify/backfill from the CLI with
+`scripts/test-markettime-sync.ts` and `scripts/import-markettime-once.ts`.
+
+**Env.** `MARKETTIME_API_KEY` and `MANUFACTURER_ID` (the `{whoAmI}` segment,
+`M###`; `whoAmI()` also accepts `MARKETTIME_WHO_AM_I` / `MARKETTIME_REP_GROUP_ID`).
+⚠ The var name is `MANUFACTURER_ID` exactly — an earlier `.env.local` typo of
+`MANUFACTURER_ID:=` (stray colon) made the key invisible and kept it dark.
+
+**How it runs.** Deliberately **manual** — no cron in `vercel.json`. Press
+"Sync MarketTime" on the Orders page (`/storefronts/purchases`) to pull the
+current open orders. It imports only; it does **not** push to Fishbowl (that's a
+separate per-order step) and sends no customer email. To automate later, add
+`markettime-order-sync` to `vercel.json` like `faire-order-sync`.
+
+**API notes.** `POST /mtpublic/api/v1/{whoAmI}/orders/get` with a `QueryFilter[]`
+body — we filter `manufacturerOrderStatus = OPEN`. No sort params (they 500),
+and the default order is non-chronological, so status-filtering (not an offset
+walk) is the only reliable way to reach open orders. Idempotency key = `recordID`
+(`<recordID>-MKTTIME`), since there's no short public order number. Ship-back
+tracking (`.../trackingdetails`) is documented but not built yet.
 
 ---
 
