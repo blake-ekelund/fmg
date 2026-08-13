@@ -260,6 +260,12 @@ one or two live API calls — no vendor needed.
 
 1. **Read-only, TEST env.** `login` → `shipment-by-order` + `inventory/by-customer`. Proves auth and data shapes with zero risk.
 2. **Egress.** Build create-order mapping; push a test SO; verify it lands in Synapse-Anywhere.
+   *Built:* `createSynapseOrder()` in `lib/pointb.ts` + the single-shot smoke endpoint
+   `POST /api/pointb/create-order-test` (admin-gated). It is **test-only by construction** —
+   `synapseWriteBlockReason()` fails closed unless the test base URL has a `test` path segment
+   and no `prod` segment, and the write is re-checked inside the client. `GET` the same route to
+   see whether a write is currently allowed. This is a hand-fired probe, **not** the connector
+   (no Fishbowl poll, no `pointb_order_sync`).
 3. **Ingress phase 1.** Build the Fishbowl shipment write; confirm it reproduces LilyPad's footprint via a test-SO diff.
 4. **Shadow run.** Run our connector **alongside** LilyPad against real data and compare — same orders sent, same tracking/freight written. Don't flip until they match.
 5. **Cutover.** Disable LilyPad (the Fishbowl app `9818`); ours takes over. Keep the shadow comparison as a monitor for a week.
@@ -277,8 +283,10 @@ Names only. Values go in Vercel / `.env.local`.
 
 | Variable | For |
 |----------|-----|
-| `SYNAPSE_API_URL` | Synapse WMS base (`.../test/api` vs `.../prod/api`) |
+| `SYNAPSE_API_URL` | Synapse WMS base for **reads** (reconciliation). Prod today. |
 | `SYNAPSE_USER`, `SYNAPSE_PASS` | Synapse WMS login (`NATURAL-API` / …) |
+| `SYNAPSE_TEST_API_URL` | Synapse WMS base for the **create-order smoke test** — must be the test env (`https://pntb1.synapsewms.net/test/api`). Kept separate from `SYNAPSE_API_URL` so the write test never repoints the prod-read var. Falls back to `SYNAPSE_API_URL` if unset. |
+| `SYNAPSE_TEST_USER`, `SYNAPSE_TEST_PASS` | Login for the test env (fall back to `SYNAPSE_USER`/`SYNAPSE_PASS`). Confirm these have **write** scope in test. |
 | `POINTB_FEES_URL` | Integration API base (`integrations.pointbsolutions.com`) |
 | `POINTB_FEES_USER`, `POINTB_FEES_PASS` | Integration API `/api/token` login — **email-based, must be requested from Point B** |
 | `POINTB_CUSTOMER_ID` | `1590` |
