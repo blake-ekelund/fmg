@@ -60,7 +60,8 @@ type SortKey =
   | "buyer"
   | "items"
   | "total"
-  | "status";
+  | "status"
+  | "payment";
 
 const COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "order", label: "Order" },
@@ -72,7 +73,17 @@ const COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "items", label: "Items", align: "right" },
   { key: "total", label: "Total", align: "right" },
   { key: "status", label: "Status" },
+  { key: "payment", label: "Payment" },
 ];
+
+/** Label + pill colours for a payment_status value (null → no pill). */
+function paymentMeta(status?: string | null): { label: string; badge: string } | null {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  if (s === "paid") return { label: "paid", badge: "bg-emerald-50 text-emerald-700" };
+  if (s === "unpaid") return { label: "unpaid · test", badge: "bg-amber-50 text-amber-700" };
+  return { label: status, badge: "bg-gray-100 text-gray-600" };
+}
 
 /** Date/number columns default to descending on first click; text ascending. */
 const DESC_FIRST: SortKey[] = ["placed", "shipby", "shipped", "items", "total"];
@@ -106,6 +117,8 @@ function sortValue(o: StorefrontOrder, key: SortKey): string | number {
       return Number(o.total ?? 0);
     case "status":
       return STATUS_RANK[fulfillmentState(o).key] ?? 9;
+    case "payment":
+      return (o.payment_status ?? "").toLowerCase();
   }
 }
 
@@ -130,6 +143,7 @@ export default function PurchasesPage() {
     "all" | "d2c" | "wholesale"
   >("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | OrderSourceKey>("all");
+  const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("placed");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(0);
@@ -187,6 +201,7 @@ export default function PurchasesPage() {
     return orders.filter((o) => {
       if (channelFilter !== "all" && o.channel !== channelFilter) return false;
       if (sourceFilter !== "all" && orderSource(o) !== sourceFilter) return false;
+      if (paymentFilter !== "all" && (o.payment_status ?? "") !== paymentFilter) return false;
       if (q) {
         const hay = [orderRef(o), o.business_name, o.contact_name, o.email]
           .filter(Boolean)
@@ -196,7 +211,14 @@ export default function PurchasesPage() {
       }
       return true;
     });
-  }, [orders, query, channelFilter, sourceFilter]);
+  }, [orders, query, channelFilter, sourceFilter, paymentFilter]);
+
+  // Distinct payment_status values present, for the filter dropdown.
+  const paymentOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of orders) if (o.payment_status) set.add(o.payment_status);
+    return Array.from(set).sort();
+  }, [orders]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: base.length };
@@ -364,6 +386,21 @@ export default function PurchasesPage() {
                   </option>
                 ))}
               </select>
+              <select
+                value={paymentFilter}
+                onChange={(e) => {
+                  setPaymentFilter(e.target.value);
+                  setPage(0);
+                }}
+                className={selectCls}
+              >
+                <option value="all">All payments</option>
+                {paymentOptions.map((p) => (
+                  <option key={p} value={p}>
+                    {p === "unpaid" ? "unpaid · test" : p}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -407,7 +444,7 @@ export default function PurchasesPage() {
                 {pageItems.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={9}
+                      colSpan={10}
                       className="px-3 py-10 text-center text-sm text-gray-400"
                     >
                       No orders match these filters.
@@ -421,6 +458,7 @@ export default function PurchasesPage() {
                     );
                     const wholesale = o.channel === "wholesale";
                     const f = fulfillmentState(o);
+                    const payment = paymentMeta(o.payment_status);
                     return (
                       <tr
                         key={o.id}
@@ -487,13 +525,17 @@ export default function PurchasesPage() {
                           >
                             {f.label}
                           </span>
-                          {o.payment_status && o.payment_status !== "paid" ? (
-                            <span className="ml-1.5 inline-flex rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                              {o.payment_status === "unpaid"
-                                ? "unpaid · test"
-                                : o.payment_status}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {payment ? (
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${payment.badge}`}
+                            >
+                              {payment.label}
                             </span>
-                          ) : null}
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
                         </td>
                       </tr>
                     );
