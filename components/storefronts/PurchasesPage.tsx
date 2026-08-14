@@ -4,8 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ArrowUpDown,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Loader2,
   Receipt,
   Search,
@@ -47,6 +50,65 @@ function fmtShipDate(value?: string | null): string {
   return `${Number(m[2])}/${Number(m[3])}/${m[1].slice(2)}`;
 }
 
+/** Sortable table columns, in display order. */
+type SortKey =
+  | "order"
+  | "placed"
+  | "shipby"
+  | "shipped"
+  | "channel"
+  | "buyer"
+  | "items"
+  | "total"
+  | "status";
+
+const COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
+  { key: "order", label: "Order" },
+  { key: "placed", label: "Placed" },
+  { key: "shipby", label: "Ship by" },
+  { key: "shipped", label: "Shipped" },
+  { key: "channel", label: "Channel" },
+  { key: "buyer", label: "Buyer" },
+  { key: "items", label: "Items", align: "right" },
+  { key: "total", label: "Total", align: "right" },
+  { key: "status", label: "Status" },
+];
+
+/** Date/number columns default to descending on first click; text ascending. */
+const DESC_FIRST: SortKey[] = ["placed", "shipby", "shipped", "items", "total"];
+
+/** Pipeline order, so sorting by Status groups the buckets logically. */
+const STATUS_RANK: Record<string, number> = {
+  "needs-fishbowl": 0,
+  "needs-tracking": 1,
+  shipped: 2,
+  cancelled: 3,
+};
+
+/** The comparable value for a given order + column. */
+function sortValue(o: StorefrontOrder, key: SortKey): string | number {
+  switch (key) {
+    case "order":
+      return orderRef(o).toLowerCase();
+    case "placed":
+      return new Date(o.created_at).getTime() || 0;
+    case "shipby":
+      return o.scheduled_ship_date ? Date.parse(o.scheduled_ship_date) || 0 : 0;
+    case "shipped":
+      return o.shipped_at ? Date.parse(o.shipped_at) || 0 : 0;
+    case "channel":
+      return (o.channel ?? "").toLowerCase();
+    case "buyer":
+      return (o.business_name || o.contact_name || "").toLowerCase();
+    case "items":
+      return (o.items ?? []).reduce((s, l) => s + (l?.quantity ?? 0), 0);
+    case "total":
+      return Number(o.total ?? 0);
+    case "status":
+      return STATUS_RANK[fulfillmentState(o).key] ?? 9;
+  }
+}
+
 /**
  * Purchases from both storefronts. Reads the wholesale project's `orders`
  * table, which doesn't exist until checkout ships — until then this is an
@@ -68,7 +130,19 @@ export default function PurchasesPage() {
     "all" | "d2c" | "wholesale"
   >("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | OrderSourceKey>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("placed");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(0);
+
+  const toggleSort = useCallback((key: SortKey) => {
+    setSortKey((prevKey) => {
+      setSortDir((prevDir) =>
+        prevKey === key ? (prevDir === "asc" ? "desc" : "asc") : DESC_FIRST.includes(key) ? "desc" : "asc",
+      );
+      return key;
+    });
+    setPage(0);
+  }, []);
   /** "orders" = completed business; "abandoned" = unpaid D2C checkout-starts
    *  (the abandoned-cart material — win-back targets, not real orders). */
   const [view, setView] = useState<"orders" | "abandoned">("orders");
@@ -141,14 +215,28 @@ export default function PurchasesPage() {
     [base, stateFilter]
   );
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const va = sortValue(a, sortKey);
+      const vb = sortValue(b, sortKey);
+      const cmp =
+        typeof va === "number" && typeof vb === "number"
+          ? va - vb
+          : String(va).localeCompare(String(vb));
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
-  const pageItems = filtered.slice(
+  const pageItems = sorted.slice(
     safePage * PAGE_SIZE,
     safePage * PAGE_SIZE + PAGE_SIZE
   );
-  const from = filtered.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
-  const to = Math.min(filtered.length, (safePage + 1) * PAGE_SIZE);
+  const from = sorted.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
+  const to = Math.min(sorted.length, (safePage + 1) * PAGE_SIZE);
 
   const selectCls =
     "rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-gray-400 focus:outline-none";
@@ -235,36 +323,6 @@ export default function PurchasesPage() {
               />
             </div>
 
-            <div className="flex flex-wrap items-center gap-1">
-              {STATE_TABS.map((t) => {
-                const active = stateFilter === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => {
-                      setStateFilter(t.key);
-                      setPage(0);
-                    }}
-                    className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
-                      active
-                        ? "bg-gray-900 text-white"
-                        : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {t.label}
-                    <span
-                      className={
-                        active ? "ml-1 text-gray-300" : "ml-1 text-gray-400"
-                      }
-                    >
-                      {counts[t.key] ?? 0}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
             <div className="ml-auto flex items-center gap-2">
               <select
                 value={sourceFilter}
@@ -292,6 +350,20 @@ export default function PurchasesPage() {
                 <option value="d2c">D2C</option>
                 <option value="wholesale">Wholesale</option>
               </select>
+              <select
+                value={stateFilter}
+                onChange={(e) => {
+                  setStateFilter(e.target.value as typeof stateFilter);
+                  setPage(0);
+                }}
+                className={selectCls}
+              >
+                {STATE_TABS.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.label} ({counts[t.key] ?? 0})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -300,15 +372,35 @@ export default function PurchasesPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-gray-100 text-left text-[10px] uppercase tracking-wider text-gray-400">
-                  <th className="px-3 py-2.5 font-medium">Order</th>
-                  <th className="px-3 py-2.5 font-medium">Placed</th>
-                  <th className="px-3 py-2.5 font-medium">Ship by</th>
-                  <th className="px-3 py-2.5 font-medium">Shipped</th>
-                  <th className="px-3 py-2.5 font-medium">Channel</th>
-                  <th className="px-3 py-2.5 font-medium">Buyer</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Items</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Total</th>
-                  <th className="px-3 py-2.5 font-medium">Status</th>
+                  {COLUMNS.map((col) => {
+                    const active = sortKey === col.key;
+                    return (
+                      <th
+                        key={col.key}
+                        className={`px-3 py-2.5 font-medium ${col.align === "right" ? "text-right" : ""}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(col.key)}
+                          title={`Sort by ${col.label}`}
+                          className={`inline-flex items-center gap-1 uppercase tracking-wider ${
+                            col.align === "right" ? "flex-row-reverse" : ""
+                          } ${active ? "text-gray-700" : "hover:text-gray-600"}`}
+                        >
+                          {col.label}
+                          {active ? (
+                            sortDir === "asc" ? (
+                              <ChevronUp size={11} />
+                            ) : (
+                              <ChevronDown size={11} />
+                            )
+                          ) : (
+                            <ArrowUpDown size={11} className="opacity-30" />
+                          )}
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
