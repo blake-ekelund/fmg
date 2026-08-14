@@ -85,19 +85,35 @@ export async function GET(request: Request) {
   // Customer PO — so match on BOTH: fishbowl_estimate_num holds the real SO
   // number for new pushes, while the ref (SASSY-####) matches customerPO (new)
   // or so.num (orders pushed before the auto-number switch).
+  /** Marketplace orders (Faire/MarketTime) sit in Fishbowl under their BARE ref
+   *  as customerPO (e.g. `ZJUHGM7VPR`, sometimes `#`-prefixed) — never the
+   *  "-FAIRE"/"-MKTTIME" form orderRef() builds — so they match on a substring
+   *  of customerPO, not an exact SO num / PO key. */
+  const bareMarketplaceRef = (o: StorefrontOrder): string | null => {
+    if (o.source !== "faire" && o.source !== "markettime") return null;
+    const bare = String(o.external_ref ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    return bare.length >= 6 ? bare : null;
+  };
+
   const waiting = (orders ?? []).map((o) => ({
     order: o,
     soNum: o.fishbowl_estimate_num ?? orderRef(o),
     poRef: orderRef(o),
+    bareRef: bareMarketplaceRef(o),
   }));
   if (waiting.length === 0) {
     return NextResponse.json({ watched: 0, shipped: [] });
   }
 
-  // One Fishbowl session: any shipped cartons for those SOs?
+  // One Fishbowl session: any shipped cartons for those SOs? Storefront orders
+  // match exactly on SO num / Customer PO; marketplace orders match on their
+  // bare ref appearing anywhere in customerPO (LIKE — tolerates the `#` prefix).
   const keys = Array.from(
     new Set(waiting.flatMap((w) => [sqlQuote(w.soNum), sqlQuote(w.poRef)])),
   ).join(",");
+  const likeClause = Array.from(new Set(waiting.map((w) => w.bareRef).filter((r): r is string => !!r)))
+    .map((ref) => `so.customerPO LIKE '%${ref}%'`) // ref is [A-Z0-9] only → injection-safe
+    .join(" OR ");
   const cartons = await runDataQuery(
     `SELECT so.num AS orderNum, so.customerPO AS poNum, carrier.name AS carrier,
             shipcarton.trackingNum AS trackingNum, ship.dateShipped AS dateShipped
@@ -107,14 +123,18 @@ export async function GET(request: Request) {
      LEFT JOIN carrier ON ship.carrierId = carrier.id
      WHERE shipcarton.trackingNum IS NOT NULL AND shipcarton.trackingNum <> ''
        AND ship.dateShipped IS NOT NULL
-       AND (so.num IN (${keys}) OR so.customerPO IN (${keys}))`,
+       AND (so.num IN (${keys}) OR so.customerPO IN (${keys})${likeClause ? ` OR ${likeClause}` : ""})`,
   );
 
   // First shipped carton per SO wins (multi-carton orders share a shipment;
-  // the customer email links one number). Index by both SO num and PO ref.
-  const bySo = new Map<string, { carrier: string | null; trackingNum: string; dateShipped: unknown }>();
+  // the customer email links one number). Index by both SO num and PO ref for
+  // exact matches, and keep an alnum-normalized PO list for marketplace
+  // contains-matches.
+  type Hit = { carrier: string | null; trackingNum: string; dateShipped: unknown };
+  const bySo = new Map<string, Hit>();
+  const byPoAlnum: Array<{ poAlnum: string; hit: Hit }> = [];
   for (const c of cartons as Array<Record<string, unknown>>) {
-    const hit = {
+    const hit: Hit = {
       carrier: (c.carrier as string) ?? null,
       trackingNum: String(c.trackingNum),
       dateShipped: c.dateShipped,
@@ -122,12 +142,17 @@ export async function GET(request: Request) {
     for (const key of [String(c.orderNum ?? ""), String(c.poNum ?? "")]) {
       if (key && !bySo.has(key)) bySo.set(key, hit);
     }
+    const poAlnum = String(c.poNum ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    if (poAlnum) byPoAlnum.push({ poAlnum, hit });
   }
 
   const shipped: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
-  for (const { order, soNum, poRef } of waiting) {
-    const hit = bySo.get(soNum) ?? bySo.get(poRef);
+  for (const { order, soNum, poRef, bareRef } of waiting) {
+    const hit =
+      bySo.get(soNum) ??
+      bySo.get(poRef) ??
+      (bareRef ? byPoAlnum.find((c) => c.poAlnum.includes(bareRef))?.hit : undefined);
     if (!hit) continue;
     const carrier = resolveCarrier(hit.carrier, hit.trackingNum);
     const entry = {
@@ -154,7 +179,8 @@ export async function GET(request: Request) {
       continue;
     }
     // Faire orders confirm back to the marketplace (their API is how the
-    // retailer gets notified); storefront orders email the customer directly.
+    // retailer gets notified); MarketTime has no ship-back yet, so we just
+    // record tracking locally; storefront orders email the customer directly.
     if (order.source === "faire") {
       try {
         const faire = await markFaireOrderShipped(orderRef(order), carrier, hit.trackingNum);
@@ -165,6 +191,9 @@ export async function GET(request: Request) {
           faire: `Faire notify failed: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
+    } else if (order.source === "markettime") {
+      // Tracking recorded on the order; no MarketTime ship-back / customer email.
+      shipped.push({ ...entry, note: "tracking recorded (no MarketTime ship-back)" });
     } else {
       const emailed = await notifyStorefrontShipped(order.store, order.number);
       shipped.push({ ...entry, emailed });
