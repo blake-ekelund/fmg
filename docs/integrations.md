@@ -49,6 +49,7 @@ work happens after the handler's own gating.
 | `renew-email-subscriptions` | `0 */6 * * *` | every 6 h | Keeps email-account tokens/subscriptions fresh. |
 | `markettime-order-sync` | *(not in `vercel.json`)* | **manual** | Import MarketTime open orders. Live + working; deliberately **not scheduled** — pulled by the Orders-page cron path / on demand. |
 | `fishbowl-reconcile-marketplace` | `27 13,22 * * *` | 2×/day | Stamp Faire/MarketTime orders already hand-keyed into Fishbowl (match bare ref in SO `customerPO`) so Status stops showing "Needs Fishbowl". |
+| `charge-wholesale-due` | `40 15 * * *` | daily | Wholesale card-on-file: off-session-charge the saved card 30 days after ship. **Dark** until `WHOLESALE_CHARGE_ENABLED='on'`; `?dry=1` previews. |
 
 ---
 

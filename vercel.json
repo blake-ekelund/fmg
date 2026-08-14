@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/fishbowl-reconcile-marketplace",
       "schedule": "27 13,22 * * *"
+    },
+    {
+      "path": "/api/cron/charge-wholesale-due",
+      "schedule": "40 15 * * *"
     }
   ]
 }
