@@ -47,7 +47,8 @@ work happens after the handler's own gating.
 | `automations` | `45 11,12,19,20 * * *` | ET-gated | Email automation engine — sends due automation steps. |
 | `bulk-send` | `*/5 * * * *` | every 5 min | Bulk email blast worker (drains the Resend send queue). |
 | `renew-email-subscriptions` | `0 */6 * * *` | every 6 h | Keeps email-account tokens/subscriptions fresh. |
-| `markettime-order-sync` | *(not in `vercel.json`)* | **manual** | Import MarketTime open orders. Live + working; deliberately **not scheduled** — run on demand via the "Sync MarketTime" button on the Orders page. |
+| `markettime-order-sync` | *(not in `vercel.json`)* | **manual** | Import MarketTime open orders. Live + working; deliberately **not scheduled** — pulled by the Orders-page cron path / on demand. |
+| `fishbowl-reconcile-marketplace` | `27 13,22 * * *` | 2×/day | Stamp Faire/MarketTime orders already hand-keyed into Fishbowl (match bare ref in SO `customerPO`) so Status stops showing "Needs Fishbowl". |
 
 ---
 
@@ -157,6 +158,16 @@ feature flag gating the ship-confirmation half.
 a PO convention; the estimate push dedupes on it). When Fishbowl shows tracking,
 `fishbowl-tracking-sync` calls `markFaireOrderShipped` to notify Faire instead
 of emailing a customer directly.
+
+**Fishbowl reconciliation.** Ops often hand-key marketplace orders straight into
+Fishbowl without marking them in the app, so they'd read "Needs Fishbowl" forever.
+`lib/fishbowlReconcile.ts` (cron `fishbowl-reconcile-marketplace`,
+`scripts/reconcile-fishbowl-marketplace.ts` for backfill) matches on the **bare
+external_ref inside the SO `customerPO`** and stamps `fishbowl_entered_at`.
+Per-source gate: Faire = ref alone (unique 10-char code; totals legitimately
+differ once shipped, since Fishbowl adds shipping); MarketTime = ref **and** equal
+total (numeric refs are looser, and these are unshipped so an estimate total
+should match). Read-only against Fishbowl, idempotent (only unstamped orders).
 
 ---
 
