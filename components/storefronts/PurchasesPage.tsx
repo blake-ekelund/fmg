@@ -38,6 +38,15 @@ const STATE_TABS: { key: "all" | FulfillmentKey; label: string }[] = [
   { key: "shipped", label: "Shipped" },
 ];
 
+/** Format a ship date (date-only `scheduled_ship_date` or a `shipped_at`
+ *  timestamp) as M/D/YY from its leading YYYY-MM-DD — no Date() parsing, so no
+ *  timezone day-shift (shipped_at is stored at noon UTC for exactly this). */
+function fmtShipDate(value?: string | null): string {
+  const m = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "—";
+  return `${Number(m[2])}/${Number(m[3])}/${m[1].slice(2)}`;
+}
+
 /**
  * Purchases from both storefronts. Reads the wholesale project's `orders`
  * table, which doesn't exist until checkout ships — until then this is an
@@ -293,6 +302,8 @@ export default function PurchasesPage() {
                 <tr className="border-b border-gray-100 text-left text-[10px] uppercase tracking-wider text-gray-400">
                   <th className="px-3 py-2.5 font-medium">Order</th>
                   <th className="px-3 py-2.5 font-medium">Placed</th>
+                  <th className="px-3 py-2.5 font-medium">Ship by</th>
+                  <th className="px-3 py-2.5 font-medium">Shipped</th>
                   <th className="px-3 py-2.5 font-medium">Channel</th>
                   <th className="px-3 py-2.5 font-medium">Buyer</th>
                   <th className="px-3 py-2.5 text-right font-medium">Items</th>
@@ -304,7 +315,7 @@ export default function PurchasesPage() {
                 {pageItems.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={9}
                       className="px-3 py-10 text-center text-sm text-gray-400"
                     >
                       No orders match these filters.
@@ -331,6 +342,12 @@ export default function PurchasesPage() {
                         </td>
                         <td className="whitespace-nowrap px-3 py-2.5 text-gray-500">
                           {new Date(o.created_at).toLocaleString()}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-500">
+                          {fmtShipDate(o.scheduled_ship_date)}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-500">
+                          {fmtShipDate(o.shipped_at)}
                         </td>
                         <td className="px-3 py-2.5">
                           <span

@@ -63,6 +63,10 @@ export type StorefrontOrder = {
   carrier?: string | null;
   tracking_code?: string | null;
   shipped_at?: string | null;
+  /** Fishbowl SO dateFirstShip — the marketplace "ship by" date, captured by
+   *  the reconciliation cron. The target; shipped_at is what actually happened.
+   *  Column added in migration 20260813000000 — treat as optional. */
+  scheduled_ship_date?: string | null;
   /** Fishbowl entry stamp — set from the Purchases view once the order's
    *  details are keyed into Fishbowl. The fulfillment gate that replaces the
    *  old `approved_*` columns. */

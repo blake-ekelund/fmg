@@ -23,7 +23,7 @@ async function main() {
   const result = await reconcileMarketplaceFishbowl(admin, { dry: !write });
   console.log(`${write ? "WRITE" : "DRY"} — checked ${result.checked}`);
   console.log(`\nStamped (${result.stamped.length}):`);
-  for (const s of result.stamped) console.log(`  ✓ ${s.ref}  → SO ${s.soNum}  ($${s.total.toFixed(2)})  ${s.kind}`);
+  for (const s of result.stamped) console.log(`  ✓ ${s.ref}  → SO ${s.soNum}  ($${s.total.toFixed(2)})  ship-by ${s.shipBy ?? "—"}  ${s.kind}`);
   console.log(`\nSkipped (${result.skipped.length}):`);
   for (const s of result.skipped) console.log(`  – ${s.ref}  (${s.reason})`);
   if (result.note) console.log(`\nnote: ${result.note}`);
