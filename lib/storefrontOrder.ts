@@ -102,6 +102,29 @@ export function orderRef(
   return `${prefix}-${o.number}`;
 }
 
+/** The order's origin, unified across the two columns that carry it: marketplace
+ *  orders are identified by `source` (faire/markettime), storefront orders by
+ *  `store` (sassy/ni). `source` wins so a marketplace order is never misfiled
+ *  under a store. Legacy rows with neither return null (only shown under "All"). */
+export type OrderSourceKey = "markettime" | "faire" | "sassy" | "ni";
+
+export function orderSource(
+  o: Pick<StorefrontOrder, "source" | "store">,
+): OrderSourceKey | null {
+  if (o.source === "markettime") return "markettime";
+  if (o.source === "faire") return "faire";
+  if (o.store === "ni") return "ni";
+  if (o.store === "sassy") return "sassy";
+  return null;
+}
+
+export const ORDER_SOURCE_LABELS: Record<OrderSourceKey, string> = {
+  markettime: "MarketTime",
+  faire: "Faire",
+  sassy: "Sassy",
+  ni: "Natural Inspirations",
+};
+
 export type InvoiceLine = {
   lineNo: number;
   kind: "Sale" | "Discount" | "Shipping";

@@ -8,14 +8,16 @@ import {
   ChevronRight,
   Loader2,
   Receipt,
-  RefreshCw,
   Search,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
   fulfillmentState,
   orderRef,
+  orderSource,
+  ORDER_SOURCE_LABELS,
   type FulfillmentKey,
+  type OrderSourceKey,
   type StorefrontOrder,
 } from "@/lib/storefrontOrder";
 
@@ -56,7 +58,7 @@ export default function PurchasesPage() {
   const [channelFilter, setChannelFilter] = useState<
     "all" | "d2c" | "wholesale"
   >("all");
-  const [storeFilter, setStoreFilter] = useState<"all" | "sassy" | "ni">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | OrderSourceKey>("all");
   const [page, setPage] = useState(0);
   /** "orders" = completed business; "abandoned" = unpaid D2C checkout-starts
    *  (the abandoned-cart material — win-back targets, not real orders). */
@@ -93,78 +95,15 @@ export default function PurchasesPage() {
     })();
   }, [reload]);
 
-  // Manual Faire pull — same code path as the half-hourly cron (signed-in
-  // users are allowed through its auth), then refresh the list.
-  const [faireSyncing, setFaireSyncing] = useState(false);
-  const [faireResult, setFaireResult] = useState<string | null>(null);
-  const syncFaire = useCallback(async () => {
-    setFaireSyncing(true);
-    setFaireResult(null);
-    try {
-      const res = await fetch("/api/cron/faire-order-sync", {
-        headers: await authHeader(),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setFaireResult(`Faire sync failed: ${json?.error ?? res.status}`);
-        return;
-      }
-      const imported = Array.isArray(json.imported) ? json.imported.length : 0;
-      setFaireResult(
-        json.note ??
-          (imported > 0
-            ? `Imported ${imported} Faire order${imported === 1 ? "" : "s"}.`
-            : `No unfulfilled Faire orders right now (checked ${json.checked ?? 0}).`),
-      );
-      if (imported > 0) await reload();
-    } catch (e) {
-      setFaireResult(`Faire sync failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setFaireSyncing(false);
-    }
-  }, [reload]);
-
-  // Manual MarketTime pull — same code path as Faire's manual sync: hits the
-  // markettime-order-sync route (signed-in users pass its auth), which imports
-  // the live open MarketTime orders into this `orders` list. It does NOT push to
-  // Fishbowl — that stays a separate, human-triggered step per order — so the
-  // list itself is a safe place to eyeball what came in.
-  const [mtSyncing, setMtSyncing] = useState(false);
-  const [mtResult, setMtResult] = useState<string | null>(null);
-  const syncMarketTime = useCallback(async () => {
-    setMtSyncing(true);
-    setMtResult(null);
-    try {
-      const res = await fetch("/api/cron/markettime-order-sync", {
-        headers: await authHeader(),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setMtResult(`MarketTime sync failed: ${json?.error ?? res.status}`);
-        return;
-      }
-      const imported = Array.isArray(json.imported) ? json.imported.length : 0;
-      setMtResult(
-        json.note ??
-          (imported > 0
-            ? `Imported ${imported} MarketTime order${imported === 1 ? "" : "s"} into the list below.`
-            : `No open MarketTime orders to import right now (checked ${json.checked ?? 0}).`),
-      );
-      if (imported > 0) await reload();
-    } catch (e) {
-      setMtResult(`MarketTime sync failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setMtSyncing(false);
-    }
-  }, [reload]);
-
-  // Everything matching search + channel + store (but NOT the state tab), so
-  // the tab counts reflect the other active filters.
+  // Everything matching search + source + channel (but NOT the state tab), so
+  // the tab counts reflect the other active filters. Marketplace orders arrive
+  // via their crons (faire-order-sync / markettime-order-sync); there are no
+  // manual pull buttons here.
   const base = useMemo(() => {
     const q = query.trim().toLowerCase();
     return orders.filter((o) => {
       if (channelFilter !== "all" && o.channel !== channelFilter) return false;
-      if (storeFilter !== "all" && (o.store ?? "") !== storeFilter) return false;
+      if (sourceFilter !== "all" && orderSource(o) !== sourceFilter) return false;
       if (q) {
         const hay = [orderRef(o), o.business_name, o.contact_name, o.email]
           .filter(Boolean)
@@ -174,7 +113,7 @@ export default function PurchasesPage() {
       }
       return true;
     });
-  }, [orders, query, channelFilter, storeFilter]);
+  }, [orders, query, channelFilter, sourceFilter]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: base.length };
@@ -211,7 +150,7 @@ export default function PurchasesPage() {
         <p className="max-w-2xl text-sm text-gray-500">
           {view === "abandoned"
             ? "Checkouts that were started but never paid — abandoned-cart material, not real orders."
-            : "Orders from sassyandco.com, naturalinspirations.com, and Faire — retail and wholesale."}
+            : "Orders from sassyandco.com, naturalinspirations.com, Faire, and MarketTime — D2C and wholesale."}
         </p>
         <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-0.5">
           {(
@@ -237,45 +176,7 @@ export default function PurchasesPage() {
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={syncFaire}
-          disabled={faireSyncing}
-          title="Pull unfulfilled Faire orders into this list now (the cron also does this every 30 minutes)"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {faireSyncing ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <RefreshCw size={13} />
-          )}
-          {faireSyncing ? "Syncing Faire…" : "Sync Faire"}
-        </button>
-        <button
-          type="button"
-          onClick={syncMarketTime}
-          disabled={mtSyncing}
-          title="Pull the live open MarketTime orders into this list now. Does not push to Fishbowl — that stays a separate step per order."
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {mtSyncing ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <RefreshCw size={13} />
-          )}
-          {mtSyncing ? "Syncing MarketTime…" : "Sync MarketTime"}
-        </button>
       </div>
-      {faireResult ? (
-        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600">
-          {faireResult}
-        </div>
-      ) : null}
-      {mtResult ? (
-        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600">
-          {mtResult}
-        </div>
-      ) : null}
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -357,6 +258,20 @@ export default function PurchasesPage() {
 
             <div className="ml-auto flex items-center gap-2">
               <select
+                value={sourceFilter}
+                onChange={(e) => {
+                  setSourceFilter(e.target.value as typeof sourceFilter);
+                  setPage(0);
+                }}
+                className={selectCls}
+              >
+                <option value="all">All sources</option>
+                <option value="markettime">{ORDER_SOURCE_LABELS.markettime}</option>
+                <option value="faire">{ORDER_SOURCE_LABELS.faire}</option>
+                <option value="sassy">{ORDER_SOURCE_LABELS.sassy}</option>
+                <option value="ni">{ORDER_SOURCE_LABELS.ni}</option>
+              </select>
+              <select
                 value={channelFilter}
                 onChange={(e) => {
                   setChannelFilter(e.target.value as typeof channelFilter);
@@ -365,20 +280,8 @@ export default function PurchasesPage() {
                 className={selectCls}
               >
                 <option value="all">All channels</option>
-                <option value="d2c">Retail</option>
+                <option value="d2c">D2C</option>
                 <option value="wholesale">Wholesale</option>
-              </select>
-              <select
-                value={storeFilter}
-                onChange={(e) => {
-                  setStoreFilter(e.target.value as typeof storeFilter);
-                  setPage(0);
-                }}
-                className={selectCls}
-              >
-                <option value="all">Both stores</option>
-                <option value="sassy">Sassy</option>
-                <option value="ni">NI</option>
               </select>
             </div>
           </div>
@@ -394,7 +297,7 @@ export default function PurchasesPage() {
                   <th className="px-3 py-2.5 font-medium">Buyer</th>
                   <th className="px-3 py-2.5 text-right font-medium">Items</th>
                   <th className="px-3 py-2.5 text-right font-medium">Total</th>
-                  <th className="px-3 py-2.5 font-medium">Fulfillment</th>
+                  <th className="px-3 py-2.5 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
