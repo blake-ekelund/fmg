@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -14,6 +14,31 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  // Token-hash flow: the recovery email links straight to our own domain with
+  // ?token_hash=…&type=recovery (so the clickable link is app.fragrance…, not
+  // supabase.co). Exchange it for a session on load so updateUser() works. The
+  // legacy hash flow (session already in the URL) still works untouched — this
+  // only runs when a token_hash is present.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tokenHash = params.get("token_hash");
+    const type = params.get("type");
+    if (!tokenHash || !type) return;
+    supabase.auth
+      .verifyOtp({ type: type as "recovery", token_hash: tokenHash })
+      .then(({ error }) => {
+        if (error) {
+          setError(
+            "This reset link is invalid or has expired — request a new one from the forgot-password page."
+          );
+        }
+        // Drop the token from the URL so a refresh/back can't replay it.
+        window.history.replaceState({}, "", "/auth/reset-password");
+      });
+    // supabase client is stable for the page's lifetime; run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function updatePassword() {
     setError(null);
