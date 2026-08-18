@@ -467,7 +467,7 @@ export async function GET(request: Request) {
 
   const origin =
     (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "") ||
-    "https://www.fragrance-marketing-group.com";
+    "https://app.fragrancemarketinggroup.com";
 
   for (const [senderKey, batch] of enrollmentsBySender.entries()) {
     let senderUserId = senderKey === "__fallback__" ? null : senderKey;

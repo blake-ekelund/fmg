@@ -91,7 +91,7 @@ export type BulkWorkerResult = {
 export function bulkSendOrigin(): string {
   return (
     (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "") ||
-    "https://www.fragrance-marketing-group.com"
+    "https://app.fragrancemarketinggroup.com"
   );
 }
 

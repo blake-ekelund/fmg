@@ -157,7 +157,7 @@ export async function GET(request: Request) {
   }
   const origin =
     (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "") ||
-    "https://www.fragrance-marketing-group.com";
+    "https://app.fragrancemarketinggroup.com";
   try {
     const { accessToken } = await getAccessTokenForUser(senderUserId);
     const count = issues.length + drift.length;
