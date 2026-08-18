@@ -14,17 +14,28 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  /** Exchanging the token_hash for a session — the form stays locked until this
+   *  finishes, so a fast submit can't fire updateUser() before we have a
+   *  session ("Auth session missing!"). */
+  const [verifying, setVerifying] = useState(false);
+  /** Session established (token verified, or legacy hash flow) → safe to save. */
+  const [ready, setReady] = useState(false);
 
   // Token-hash flow: the recovery email links straight to our own domain with
   // ?token_hash=…&type=recovery (so the clickable link is app.fragrance…, not
   // supabase.co). Exchange it for a session on load so updateUser() works. The
-  // legacy hash flow (session already in the URL) still works untouched — this
-  // only runs when a token_hash is present.
+  // legacy hash flow (session already in the URL) still works untouched.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tokenHash = params.get("token_hash");
     const type = params.get("type");
-    if (!tokenHash || !type) return;
+    if (!tokenHash || !type) {
+      // No token in the URL → legacy hash flow (session set by the client) or a
+      // page open with an existing session. Let the form through.
+      setReady(true);
+      return;
+    }
+    setVerifying(true);
     supabase.auth
       .verifyOtp({ type: type as "recovery", token_hash: tokenHash })
       .then(({ error }) => {
@@ -32,10 +43,13 @@ export default function ResetPasswordPage() {
           setError(
             "This reset link is invalid or has expired — request a new one from the forgot-password page."
           );
+        } else {
+          setReady(true);
         }
         // Drop the token from the URL so a refresh/back can't replay it.
         window.history.replaceState({}, "", "/auth/reset-password");
-      });
+      })
+      .finally(() => setVerifying(false));
     // supabase client is stable for the page's lifetime; run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -116,10 +130,14 @@ export default function ResetPasswordPage() {
 
               <button
                 onClick={updatePassword}
-                disabled={loading}
+                disabled={loading || verifying || !ready}
                 className="w-full rounded-xl bg-orange-800 py-2 text-white hover:bg-orange-700 disabled:opacity-60"
               >
-                {loading ? "Updating…" : "Update password"}
+                {verifying
+                  ? "Verifying link…"
+                  : loading
+                    ? "Updating…"
+                    : "Update password"}
               </button>
             </>
           )}
