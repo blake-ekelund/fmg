@@ -24,6 +24,13 @@ describe("resolveSender", () => {
     expect(resolveSender({ brand: null }).from).toBe("Fragrance Marketing Group <hello@send.fragrancemarketinggroup.com>");
   });
 
+  it("defaults Reply-To to a monitored inbox so replies never bounce", () => {
+    // No template reply_to, no RESEND_REPLY_TO env → fall back, not undefined.
+    expect(resolveSender({ brand: "both" }).replyTo).toBe(
+      "blake.ekelund@fragrancemarketinggroup.com"
+    );
+  });
+
   it("lets a template's own from_name and reply_to win", () => {
     const s = resolveSender({ brand: "ni", fromName: "NI Wholesale", replyTo: "maria@naturalinspirations.com" });
     expect(s.from).toBe("NI Wholesale <hello@send.fragrancemarketinggroup.com>");
