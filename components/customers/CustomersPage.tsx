@@ -23,12 +23,22 @@ import type { Customer, D2CCustomer } from "./types";
 import AssignWorkflowModal from "./AssignWorkflowModal";
 import ComposeEmailModal from "./ComposeEmailModal";
 import { useSuppressionFlags } from "./hooks/useSuppressionFlags";
+import { useEmailQuality, QUALITY_FILTERS } from "./hooks/useEmailQuality";
+import { useCampaignSkips } from "./hooks/useCampaignSkips";
+import { LAST_ORDER_OPTIONS, type LastOrderWindow } from "./hooks/queryHelpers";
+import { fetchOpenOrderCustomerIds } from "@/lib/orderStage";
 
-/** Email-status filter values map onto the suppression list's sources. */
+/** Email-status filter values. The first three come from the suppression list
+ *  (addresses that went bad after we mailed them); the rest from the address
+ *  itself (nothing to mail, or nothing worth mailing). */
 const EMAIL_FLAG_OPTIONS = [
   { label: "Email bounced", value: "bounced" },
   { label: "Unsubscribed / complained", value: "unsubscribed" },
   { label: "New email on file", value: "changed" },
+  { label: "No email on file", value: "no_email" },
+  { label: "Invalid / likely typo", value: "bad_address" },
+  { label: "Role address (info@, sales@…)", value: "role_address" },
+  { label: "Last campaign didn't send", value: "campaign_blocked" },
 ];
 
 type SortDir = "asc" | "desc";
@@ -74,7 +84,9 @@ export default function CustomersPage({
   const [page, setPage] = useState(0);
 
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
+  /* Status is a multi-select: empty array = "All". The buckets are date
+     ranges over last_order_date, so selecting several is a plain union. */
+  const [statuses, setStatuses] = useState<string[]>([]);
   const [channel, setChannel] = useState("");
   const [agency, setAgency] = useState("");
   const [states, setStates] = useState<string[]>([]);
@@ -91,8 +103,37 @@ export default function CustomersPage({
      select-all stay exact. */
   const [emailFlag, setEmailFlag] = useState("");
   const suppression = useSuppressionFlags();
+  const quality = useEmailQuality(viewMode);
+  const skips = useCampaignSkips(viewMode);
+
+  /* Recency + open-order filters. Open orders are a wholesale idea only:
+     every D2C shopper shares one storefront account in Fishbowl, so an
+     open-order lookup by customerid would flag all of them at once. */
+  const [lastOrder, setLastOrder] = useState<LastOrderWindow>("");
+  const [openOnly, setOpenOnly] = useState(false);
+
   const emailFlagIds = useMemo(() => {
-    if (!emailFlag || !suppression.loaded) return undefined;
+    if (!emailFlag) return undefined;
+
+    // Whatever happened on the last send, straight from the recipient rows.
+    if (emailFlag === "campaign_blocked") {
+      if (!skips.loaded) return undefined;
+      const ids = [...skips.byRef.keys()];
+      return ids.length > 0 ? ids : ["__none__"];
+    }
+
+    // Address-quality filters read the contact view, not the suppression list.
+    const issues = QUALITY_FILTERS[emailFlag];
+    if (issues) {
+      if (!quality.loaded) return undefined;
+      const ids: string[] = [];
+      for (const [ref, info] of quality.byRef) {
+        if (issues.includes(info.issue)) ids.push(ref);
+      }
+      return ids.length > 0 ? ids : ["__none__"];
+    }
+
+    if (!suppression.loaded) return undefined;
     const prefix = `${viewMode === "d2c" ? "d2c" : "wholesale"}:`;
     const ids: string[] = [];
     for (const [key, info] of suppression.byCustomer) {
@@ -109,7 +150,7 @@ export default function CustomersPage({
     // Filter active but nothing matches → impossible id so the query returns
     // zero rows instead of silently dropping the restriction.
     return ids.length > 0 ? ids : ["__none__"];
-  }, [emailFlag, suppression, viewMode]);
+  }, [emailFlag, suppression, quality, skips, viewMode]);
 
   const [sortColumn, setSortColumn] =
     useState<SortColumn>("last_order_date");
@@ -137,7 +178,7 @@ export default function CustomersPage({
   // Clear selection on page / filter / view change
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, status, channel, agency, states, repeatOnly, spendBucket, emailFlag, viewMode]);
+  }, [page, search, statuses, channel, agency, states, repeatOnly, spendBucket, emailFlag, lastOrder, openOnly, viewMode]);
 
   /* Export column picker state */
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
@@ -187,12 +228,14 @@ export default function CustomersPage({
     page,
     pageSize: PAGE_SIZE,
     search,
-    status,
+    statuses,
     channel,
     agency,
     states,
     repeatOnly,
     spendBucket: spendBucket as WholesaleSpendBucket,
+    lastOrder,
+    openOnly,
     sortColumn,
     sortDir,
     enabled: viewMode === "wholesale",
@@ -210,10 +253,11 @@ export default function CustomersPage({
     page,
     pageSize: PAGE_SIZE,
     search,
-    status,
+    statuses,
     states,
     repeatOnly,
     spendBucket: spendBucket as D2CSpendBucket,
+    lastOrder,
     sortColumn,
     sortDir,
     enabled: viewMode === "d2c",
@@ -252,10 +296,11 @@ export default function CustomersPage({
         let q = supabase.from("d2c_customer_summary").select("person_key");
         q = applyD2CFilters(q, {
           search,
-          status,
+          statuses,
           repeatOnly,
           spendBucket: spendBucket as D2CSpendBucket,
           states,
+          lastOrder,
         });
         const { data } = await q.range(0, 4999);
         let ids = (data ?? []).map((r: { person_key: string }) => r.person_key);
@@ -272,18 +317,26 @@ export default function CustomersPage({
         q = applyFilters(
           q,
           search,
-          status,
+          statuses,
           channel,
           agency,
           repeatOnly,
           spendBucket as WholesaleSpendBucket,
           states,
+          // The open-order id list isn't fetched for this query; when the
+          // filter is on, the returned ids are intersected with it below.
+          undefined,
+          lastOrder,
         );
         if (brand !== "all") {
           q = q.ilike("brands_purchased", `%${brand}%`);
         }
         const { data } = await q;
         let ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
+        if (openOnly) {
+          const open = await fetchOpenOrderCustomerIds(supabase);
+          ids = ids.filter((id: string) => open.has(id));
+        }
         if (emailFlagIds) {
           const allowed = new Set(emailFlagIds);
           ids = ids.filter((id: string) => allowed.has(id));
@@ -293,7 +346,7 @@ export default function CustomersPage({
     } finally {
       setSelectAllLoading(false);
     }
-  }, [isD2C, search, status, channel, agency, states, repeatOnly, spendBucket, brand, emailFlagIds]);
+  }, [isD2C, search, statuses, channel, agency, states, repeatOnly, spendBucket, brand, emailFlagIds, lastOrder, openOnly]);
 
   /* ─── Customer name map for workflow modal ─── */
   const customerNames = useMemo(() => {
@@ -315,7 +368,7 @@ export default function CustomersPage({
   /* Reset page when filters/sort/view change */
   useEffect(() => {
     setPage(0);
-  }, [search, status, channel, agency, states, repeatOnly, spendBucket, emailFlag, sortColumn, sortDir]);
+  }, [search, statuses, channel, agency, states, repeatOnly, spendBucket, emailFlag, lastOrder, openOnly, sortColumn, sortDir]);
 
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / PAGE_SIZE) : 1;
   const canGoNext = page + 1 < totalPages;
@@ -395,7 +448,7 @@ export default function CustomersPage({
 
     query = applyD2CFilters(query, {
       search,
-      status,
+      statuses,
       repeatOnly,
       spendBucket: spendBucket as D2CSpendBucket,
       states,
@@ -442,7 +495,7 @@ export default function CustomersPage({
     query = applyFilters(
       query,
       search,
-      status,
+      statuses,
       channel,
       agency,
       repeatOnly,
@@ -514,13 +567,13 @@ export default function CustomersPage({
   return (
     <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
 
-      {/* Single-row toolbar: search · status pills with counts · more filters · export */}
+      {/* Single-row toolbar: search · status multi-select · more filters · export */}
       <CustomersFilters
         viewMode={viewMode}
         search={search}
         setSearch={setSearch}
-        status={status}
-        setStatus={setStatus}
+        statuses={statuses}
+        setStatuses={setStatuses}
         channel={channel}
         setChannel={setChannel}
         channelOptions={channelOptions}
@@ -538,6 +591,11 @@ export default function CustomersPage({
         emailFlag={emailFlag}
         setEmailFlag={setEmailFlag}
         emailFlagOptions={EMAIL_FLAG_OPTIONS}
+        lastOrder={lastOrder}
+        setLastOrder={(v) => setLastOrder(v as LastOrderWindow)}
+        lastOrderOptions={LAST_ORDER_OPTIONS}
+        openOnly={openOnly}
+        setOpenOnly={viewMode === "wholesale" ? setOpenOnly : undefined}
         stats={stats}
         onDownload={handleDownload}
         downloading={downloading}
@@ -557,6 +615,8 @@ export default function CustomersPage({
         onToggleSelect={handleToggleSelect}
         onToggleAll={handleToggleAll}
         suppression={suppression}
+        quality={quality}
+        skips={skips}
       />
 
       {/* Cards (phones) */}

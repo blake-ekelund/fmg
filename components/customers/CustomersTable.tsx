@@ -14,8 +14,16 @@ import {
   type CustomerEmailFlag,
   type SuppressionMaps,
 } from "./hooks/useSuppressionFlags";
+import {
+  qualityChip,
+  type EmailQualityMaps,
+} from "./hooks/useEmailQuality";
+import { skipChip, type CampaignSkipMaps } from "./hooks/useCampaignSkips";
 
-/** Tiny inline chip flagging a customer's email suppression state. */
+/** Tiny inline chip flagging a customer's email state.
+ *
+ *  Suppression wins when both apply: "bounced" is the more actionable fact
+ *  than "that's a role address", and two chips on one row is noise. */
 function EmailFlagChip({ flag }: { flag: CustomerEmailFlag | null }) {
   if (!flag) return null;
   const chip = flagChip(flag);
@@ -25,6 +33,45 @@ function EmailFlagChip({ flag }: { flag: CustomerEmailFlag | null }) {
       title={chip.title}
     >
       {chip.label}
+    </span>
+  );
+}
+
+/**
+ * One chip per row, most actionable first: a suppression (bounced, opted
+ * out), then a bad address, then whatever stopped the last campaign send.
+ *
+ * The last one is usually explained by the first two — a skip for "no email
+ * address" is the same fact the "No email" chip already states — so skipChip
+ * returns null for those and only speaks up when it knows something new,
+ * like a duplicate address inside the send.
+ */
+function EmailChip({
+  flag,
+  quality,
+  skips,
+  customerRef,
+}: {
+  flag: CustomerEmailFlag | null;
+  quality: EmailQualityMaps;
+  skips: CampaignSkipMaps;
+  customerRef: string;
+}) {
+  if (flag) return <EmailFlagChip flag={flag} />;
+
+  const info = quality.byRef.get(customerRef);
+  const chip = info ? qualityChip(info) : null;
+
+  const skip = chip ? null : skips.byRef.get(customerRef);
+  const resolved = chip ?? (skip ? skipChip(skip) : null);
+  if (!resolved) return null;
+
+  return (
+    <span
+      className={`inline-block shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${resolved.className}`}
+      title={resolved.title}
+    >
+      {resolved.label}
     </span>
   );
 }
@@ -49,6 +96,8 @@ export default function CustomersTable({
   onToggleSelect,
   onToggleAll,
   suppression,
+  quality,
+  skips,
 }: {
   customers?: (Customer | D2CCustomer)[];
   loading: boolean;
@@ -61,6 +110,10 @@ export default function CustomersTable({
   onToggleAll?: () => void;
   /** Email-suppression maps from the page (shared with its filter). */
   suppression: SuppressionMaps;
+  /** Address-quality maps from the page (shared with its filter). */
+  quality: EmailQualityMaps;
+  /** Last-campaign outcomes from the page (shared with its filter). */
+  skips: CampaignSkipMaps;
 }) {
   const router = useRouter();
   const safeCustomers = customers ?? [];
@@ -193,7 +246,12 @@ export default function CustomersTable({
                   <div className="font-medium text-slate-800 truncate">{c.name}</div>
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-[11px] text-slate-400 truncate">{c.email ?? "—"}</span>
-                    <EmailFlagChip flag={customerEmailFlag(suppression, "d2c", c.person_key, c.email)} />
+                    <EmailChip
+                      flag={customerEmailFlag(suppression, "d2c", c.person_key, c.email)}
+                      quality={quality}
+                      skips={skips}
+                      customerRef={c.person_key}
+                    />
                   </div>
                 </div>
                 <div>
@@ -279,7 +337,12 @@ export default function CustomersTable({
                 <div className="text-xs text-slate-400">{c.customerid}</div>
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="font-medium text-slate-800 truncate">{c.name}</span>
-                  <EmailFlagChip flag={customerEmailFlag(suppression, "wholesale", c.customerid)} />
+                  <EmailChip
+                    flag={customerEmailFlag(suppression, "wholesale", c.customerid)}
+                    quality={quality}
+                    skips={skips}
+                    customerRef={c.customerid}
+                  />
                 </div>
               </div>
               <div className="col-span-2">

@@ -3,9 +3,11 @@ import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
 import type { Customer } from "../types";
 import {
+  applyLastOrderWindow,
   orIlikeClauses,
-  getStatusCutoffs,
+  planStatusFilter,
   type CustomerStats,
+  type LastOrderWindow,
 } from "./queryHelpers";
 import { fetchOpenOrderCustomerIds } from "@/lib/orderStage";
 
@@ -40,12 +42,17 @@ type Params = {
   page: number;
   pageSize: number;
   search: string;
-  status: string;
+  /** Selected status buckets. Empty means "All" — no status restriction. */
+  statuses: string[];
   channel: string;
   agency: string;
   states: string[];
   repeatOnly: boolean;
   spendBucket: WholesaleSpendBucket;
+  /** Recency bucket over last_order_date. Empty means no restriction. */
+  lastOrder?: LastOrderWindow;
+  /** Only customers with a live estimate or in-flight Fishbowl order. */
+  openOnly?: boolean;
   sortColumn: string;
   sortDir: "asc" | "desc";
   enabled?: boolean;
@@ -61,7 +68,7 @@ type Params = {
 export function applyFilters<T extends FilterableQuery<T>>(
   query: T,
   search: string,
-  status: string,
+  statuses: string[],
   channel: string,
   agency?: string,
   repeatOnly?: boolean,
@@ -69,6 +76,9 @@ export function applyFilters<T extends FilterableQuery<T>>(
   states?: string[],
   /** Customers with a live estimate/in-flight order — treated as active. */
   openOrderIds?: string[],
+  lastOrder?: LastOrderWindow,
+  /** Narrow to the open-order set rather than just treating it as active. */
+  openOnly?: boolean,
 ): T {
   if (search.trim()) {
     query = query.or(
@@ -91,46 +101,34 @@ export function applyFilters<T extends FilterableQuery<T>>(
     query = query.in("bill_to_state", states);
   }
 
-  if (status) {
-    const { active, risk } = getStatusCutoffs();
-
+  if (statuses.length > 0) {
     /* Customers with a live estimate or in-flight order count as active
        regardless of dates, so they're pulled INTO the active bucket and pushed
        OUT of the lapsed ones. Filtering happens in the query (not on the
-       fetched page) so the pills, the counts and the rows all agree.
+       fetched page) so the dropdown, the counts and the rows all agree.
 
-       Empty list → these clauses collapse to the plain date logic. */
+       Empty list → the clauses collapse to the plain date logic. */
     const openList = (openOrderIds ?? []).filter(Boolean);
     const openCsv = openList.length > 0 ? `(${openList.join(",")})` : null;
 
-    if (status === "active") {
-      query = openCsv
-        ? query.or(
-            `last_order_date.gte.${active.toISOString()},customerid.in.${openCsv}`,
-          )
-        : query.gte("last_order_date", active.toISOString());
-    }
-
-    if (status === "at_risk") {
-      query = query
-        .lt("last_order_date", active.toISOString())
-        .gte("last_order_date", risk.toISOString());
-      if (openCsv) query = query.not("customerid", "in", openCsv);
-    }
-
-    if (status === "churned") {
-      query = query.lt("last_order_date", risk.toISOString());
-      if (openCsv) query = query.not("customerid", "in", openCsv);
-    }
-
-    if (status === "no_orders") {
-      query = query.is("last_order_date", null);
-      if (openCsv) query = query.not("customerid", "in", openCsv);
+    const plan = planStatusFilter(statuses, openCsv, "customerid");
+    if (plan.or) query = query.or(plan.or);
+    if (plan.excludeOpen && openCsv) {
+      query = query.not("customerid", "in", openCsv);
     }
   }
 
   if (repeatOnly) {
     query = query.gt("lifetime_orders", 1);
+  }
+
+  query = applyLastOrderWindow(query, lastOrder);
+
+  if (openOnly) {
+    // No open orders (or the id list is too big to send) → match nothing
+    // rather than silently returning every customer.
+    const ids = (openOrderIds ?? []).filter(Boolean);
+    query = query.in("customerid", ids.length > 0 ? ids : ["__none__"]);
   }
 
   switch (spendBucket) {
@@ -162,12 +160,14 @@ export function useCustomers({
   page,
   pageSize,
   search,
-  status,
+  statuses,
   channel,
   agency,
   states,
   repeatOnly,
   spendBucket,
+  lastOrder,
+  openOnly,
   sortColumn,
   sortDir,
   enabled = true,
@@ -232,13 +232,15 @@ export function useCustomers({
       tableQuery = applyFilters(
         tableQuery,
         search,
-        status,
+        statuses,
         channel,
         agency,
         repeatOnly,
         spendBucket,
         states,
         openOrderIds,
+        lastOrder,
+        openOnly,
       );
 
       if (brand !== "all") {
@@ -283,13 +285,15 @@ export function useCustomers({
         q = applyFilters(
           q,
           search,
-          bucket,
+          bucket ? [bucket] : [],
           channel,
           agency,
           repeatOnly,
           spendBucket,
           states,
           openOrderIds,
+          lastOrder,
+          openOnly,
         );
         if (brand !== "all") {
           q = q.ilike("brands_purchased", `%${brand}%`);
@@ -347,12 +351,14 @@ export function useCustomers({
     page,
     pageSize,
     search,
-    status,
+    statuses,
     channel,
     agency,
     states,
     repeatOnly,
     spendBucket,
+    lastOrder,
+    openOnly,
     sortColumn,
     sortDir,
     brand,

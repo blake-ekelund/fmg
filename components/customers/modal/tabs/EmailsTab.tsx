@@ -11,6 +11,11 @@ import ThreadChatView, {
   type ThreadRow,
 } from "@/components/email/ThreadChatView";
 import { useMyEmailAccountId } from "@/components/email/useMyEmailAccountId";
+import CampaignEmailsTab from "./CampaignEmailsTab";
+
+/** Campaign mail is the default view — it's the company-wide record. The 1:1
+ *  thread list is the signed-in rep's own correspondence, one click away. */
+type View = "campaigns" | "threads";
 
 export default function EmailsTab({
   customerId,
@@ -21,6 +26,7 @@ export default function EmailsTab({
 }) {
   const customerType: "wholesale" | "d2c" = isD2C ? "d2c" : "wholesale";
   const account = useMyEmailAccountId();
+  const [view, setView] = useState<View>("campaigns");
 
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,116 +61,151 @@ export default function EmailsTab({
     };
   }, [account.state, reloadThreads]);
 
-  if (loading || account.state === "loading") {
-    return (
-      <div className="py-12 text-center text-sm text-gray-400 inline-flex items-center gap-2 justify-center w-full">
-        <Loader2 size={14} className="animate-spin" />
-        Loading email history…
-      </div>
-    );
-  }
+  const switcher = (
+    <nav className="flex gap-1 rounded-lg border border-gray-200 bg-white p-1">
+      {([
+        { value: "campaigns", label: "Campaigns" },
+        { value: "threads", label: "1:1 threads" },
+      ] as const).map((v) => (
+        <button
+          key={v.value}
+          onClick={() => setView(v.value)}
+          className={clsx(
+            "rounded-md px-3 py-1.5 text-xs font-medium transition",
+            view === v.value
+              ? "bg-gray-100 text-gray-900"
+              : "text-gray-500 hover:text-gray-900",
+          )}
+        >
+          {v.label}
+        </button>
+      ))}
+    </nav>
+  );
 
-  if (account.state === "no-account") {
-    return (
-      <div className="py-12 text-center">
-        <Mail size={28} className="mx-auto text-gray-300 mb-3" />
-        <div className="text-sm font-medium text-gray-500">
-          Connect Outlook to use this tab
+  function threadsBody() {
+    if (loading || account.state === "loading") {
+      return (
+        <div className="py-12 text-center text-sm text-gray-400 inline-flex items-center gap-2 justify-center w-full">
+          <Loader2 size={14} className="animate-spin" />
+          Loading email history…
         </div>
-        <p className="text-xs text-gray-400 mt-1">
-          Go to{" "}
-          <Link href="/settings?section=email-connection" className="underline">
-            Settings → Email connection
-          </Link>{" "}
-          to connect your mailbox.
-        </p>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (activeThread) {
-    return (
-      <div className="h-[60vh] min-h-[400px]">
-        <ThreadChatView
-          thread={activeThread}
-          onBack={async () => {
-            await reloadThreads();
-            setActiveThread(null);
-          }}
-          onSentReply={() => reloadThreads()}
-        />
-      </div>
-    );
-  }
+    if (account.state === "no-account") {
+      return (
+        <div className="py-12 text-center">
+          <Mail size={28} className="mx-auto text-gray-300 mb-3" />
+          <div className="text-sm font-medium text-gray-500">
+            Connect Outlook to use this tab
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            Go to{" "}
+            <Link href="/settings?section=email-connection" className="underline">
+              Settings → Email connection
+            </Link>{" "}
+            to connect your mailbox.
+          </p>
+        </div>
+      );
+    }
 
-  if (threads.length === 0) {
+    if (activeThread) {
+      return (
+        <div className="h-[60vh] min-h-[400px]">
+          <ThreadChatView
+            thread={activeThread}
+            onBack={async () => {
+              await reloadThreads();
+              setActiveThread(null);
+            }}
+            onSentReply={() => reloadThreads()}
+          />
+        </div>
+      );
+    }
+
+    if (threads.length === 0) {
+      return (
+        <div className="py-12 text-center">
+          <Mail size={28} className="mx-auto text-gray-300 mb-3" />
+          <div className="text-sm font-medium text-gray-500">No emails yet</div>
+          <p className="text-xs text-gray-400 mt-1">
+            When you send an email to this customer from the portal, or they reply to one,
+            it&apos;ll show up here.
+          </p>
+        </div>
+      );
+    }
+
     return (
-      <div className="py-12 text-center">
-        <Mail size={28} className="mx-auto text-gray-300 mb-3" />
-        <div className="text-sm font-medium text-gray-500">No emails yet</div>
-        <p className="text-xs text-gray-400 mt-1">
-          When you send an email to this customer from the portal, or they reply to one,
-          it&apos;ll show up here.
-        </p>
+      <div className="space-y-2">
+        {threads.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActiveThread(t)}
+            className="w-full flex items-start gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 hover:bg-gray-50 transition text-left"
+          >
+            <div
+              className={clsx(
+                "shrink-0 mt-0.5 h-8 w-8 rounded-full flex items-center justify-center",
+                t.unread_count > 0
+                  ? "bg-blue-100 text-blue-700"
+                  : t.last_direction === "received"
+                  ? "bg-gray-100 text-gray-500"
+                  : "bg-gray-100 text-gray-400",
+              )}
+            >
+              <Mail size={14} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <div
+                  className={clsx(
+                    "text-sm truncate",
+                    t.unread_count > 0 ? "font-semibold text-gray-900" : "font-medium text-gray-800",
+                  )}
+                >
+                  {t.subject || "(no subject)"}
+                </div>
+                {t.unread_count > 0 && (
+                  <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 text-[10px] font-medium">
+                    {t.unread_count} new
+                  </span>
+                )}
+              </div>
+              {t.last_preview && (() => {
+                const cleaned = stripQuotedReply(t.last_preview);
+                return cleaned ? (
+                  <div className="text-xs text-gray-500 truncate mt-0.5">{cleaned}</div>
+                ) : (
+                  <div className="text-xs text-gray-300 italic mt-0.5">(quoted reply only)</div>
+                );
+              })()}
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-[11px] text-gray-400 tabular-nums">
+                {t.last_message_at ? formatWhen(new Date(t.last_message_at)) : ""}
+              </div>
+              <div className="text-[10px] text-gray-400">
+                {t.message_count} message{t.message_count === 1 ? "" : "s"}
+              </div>
+            </div>
+          </button>
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {threads.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => setActiveThread(t)}
-          className="w-full flex items-start gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 hover:bg-gray-50 transition text-left"
-        >
-          <div
-            className={clsx(
-              "shrink-0 mt-0.5 h-8 w-8 rounded-full flex items-center justify-center",
-              t.unread_count > 0
-                ? "bg-blue-100 text-blue-700"
-                : t.last_direction === "received"
-                ? "bg-gray-100 text-gray-500"
-                : "bg-gray-100 text-gray-400",
-            )}
-          >
-            <Mail size={14} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <div
-                className={clsx(
-                  "text-sm truncate",
-                  t.unread_count > 0 ? "font-semibold text-gray-900" : "font-medium text-gray-800",
-                )}
-              >
-                {t.subject || "(no subject)"}
-              </div>
-              {t.unread_count > 0 && (
-                <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-1.5 py-0.5 text-[10px] font-medium">
-                  {t.unread_count} new
-                </span>
-              )}
-            </div>
-            {t.last_preview && (() => {
-              const cleaned = stripQuotedReply(t.last_preview);
-              return cleaned ? (
-                <div className="text-xs text-gray-500 truncate mt-0.5">{cleaned}</div>
-              ) : (
-                <div className="text-xs text-gray-300 italic mt-0.5">(quoted reply only)</div>
-              );
-            })()}
-          </div>
-          <div className="shrink-0 text-right">
-            <div className="text-[11px] text-gray-400 tabular-nums">
-              {t.last_message_at ? formatWhen(new Date(t.last_message_at)) : ""}
-            </div>
-            <div className="text-[10px] text-gray-400">
-              {t.message_count} message{t.message_count === 1 ? "" : "s"}
-            </div>
-          </div>
-        </button>
-      ))}
+    <div className="space-y-3">
+      {switcher}
+      {view === "campaigns" ? (
+        <CampaignEmailsTab customerId={customerId} isD2C={isD2C} />
+      ) : (
+        threadsBody()
+      )}
     </div>
   );
 }

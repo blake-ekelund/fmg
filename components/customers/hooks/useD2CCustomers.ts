@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { D2CCustomer } from "../types";
 import {
+  applyLastOrderWindow,
   orIlikeClauses,
-  getStatusCutoffs,
+  planStatusFilter,
   type CustomerStats,
+  type LastOrderWindow,
 } from "./queryHelpers";
 
 export type D2CSpendBucket =
@@ -19,10 +21,13 @@ type Params = {
   page: number;
   pageSize: number;
   search: string;
-  status: string;
+  /** Selected status buckets. Empty means "All" — no status restriction. */
+  statuses: string[];
   states: string[];
   repeatOnly: boolean;
   spendBucket: D2CSpendBucket;
+  /** Recency bucket over last_order_date. Empty means no restriction. */
+  lastOrder?: LastOrderWindow;
   sortColumn: string;
   sortDir: "asc" | "desc";
   enabled: boolean;
@@ -42,6 +47,8 @@ interface FilterableD2CQuery<T> {
   gt: (column: string, value: string | number) => T;
   gte: (column: string, value: string | number) => T;
   lt: (column: string, value: string | number) => T;
+  is: (column: string, value: null) => T;
+  not: (column: string, operator: string, value: string) => T;
   in: (column: string, values: string[]) => T;
 }
 
@@ -52,7 +59,14 @@ interface FilterableD2CQuery<T> {
  */
 export function applyD2CFilters<T extends FilterableD2CQuery<T>>(
   q: T,
-  args: { search: string; status: string; repeatOnly: boolean; spendBucket: D2CSpendBucket; states?: string[] },
+  args: {
+    search: string;
+    statuses: string[];
+    repeatOnly: boolean;
+    spendBucket: D2CSpendBucket;
+    lastOrder?: LastOrderWindow;
+    states?: string[];
+  },
 ): T {
   let out = q;
   if (args.search.trim()) {
@@ -63,21 +77,16 @@ export function applyD2CFilters<T extends FilterableD2CQuery<T>>(
   if (args.states && args.states.length > 0) {
     out = out.in("bill_to_state", args.states);
   }
-  if (args.status) {
-    const { active, risk } = getStatusCutoffs();
-    if (args.status === "active") {
-      out = out.gte("last_order_date", active.toISOString());
-    } else if (args.status === "at_risk") {
-      out = out
-        .lt("last_order_date", active.toISOString())
-        .gte("last_order_date", risk.toISOString());
-    } else if (args.status === "churned") {
-      out = out.lt("last_order_date", risk.toISOString());
-    }
+  if (args.statuses.length > 0) {
+    // D2C has no open-order concept, so the plan is purely the date-range
+    // union; the same helper keeps the two lists' bucket definitions in sync.
+    const plan = planStatusFilter(args.statuses, null, "person_key");
+    if (plan.or) out = out.or(plan.or);
   }
   if (args.repeatOnly) {
     out = out.gt("lifetime_orders", 1);
   }
+  out = applyLastOrderWindow(out, args.lastOrder);
   switch (args.spendBucket) {
     case "lt50":
       out = out.lt("lifetime_revenue", 50);
@@ -102,10 +111,11 @@ export function useD2CCustomers({
   page,
   pageSize,
   search,
-  status,
+  statuses,
   states,
   repeatOnly,
   spendBucket,
+  lastOrder,
   sortColumn,
   sortDir,
   enabled,
@@ -141,10 +151,11 @@ export function useD2CCustomers({
         .select("*", { count: "exact" });
       baseQuery = applyD2CFilters(baseQuery, {
         search,
-        status,
+        statuses,
         repeatOnly,
         spendBucket,
         states,
+        lastOrder,
       });
       if (restrictIds) {
         baseQuery = baseQuery.in("person_key", restrictIds);
@@ -167,10 +178,11 @@ export function useD2CCustomers({
           .select("person_key", { count: "exact", head: true });
         q = applyD2CFilters(q, {
           search,
-          status: bucket,
+          statuses: bucket ? [bucket] : [],
           repeatOnly,
           spendBucket,
           states,
+          lastOrder,
         });
         if (restrictIds) {
           q = q.in("person_key", restrictIds);
@@ -209,7 +221,7 @@ export function useD2CCustomers({
 
     load();
     return () => { cancelled = true; };
-  }, [page, pageSize, search, status, states, repeatOnly, spendBucket, sortColumn, sortDir, enabled, restrictIds]);
+  }, [page, pageSize, search, statuses, states, repeatOnly, spendBucket, lastOrder, sortColumn, sortDir, enabled, restrictIds]);
 
   /* Distinct billing states for the filter dropdown (only when this view is
      active, so the wholesale page doesn't query the D2C summary needlessly). */

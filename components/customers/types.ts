@@ -52,8 +52,17 @@ export type OrderItem = {
 
 export type Order = {
   id: string;
+  /** Fishbowl's human-facing order number; falls back to `id` when absent. */
+  num?: string | null;
+  /** Raw Fishbowl SOSTATUS — collapse with `stageOf` before showing it. */
+  status?: string | null;
+  dateissued?: string | null;
   datecompleted: string;
   totalprice: number;
   channel: string;
+  shiptocity?: string | null;
+  shiptostate?: string | null;
+  /** Units on the order, filled in per page after the order list loads. */
+  units?: number;
   items?: OrderItem[];
 };

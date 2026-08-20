@@ -6,8 +6,8 @@ import clsx from "clsx";
 import type { CustomerViewMode } from "./constants";
 import CustomersHeader from "./CustomersHeader";
 import MultiSelectFilter from "./MultiSelectFilter";
+import StatusFilter from "./StatusFilter";
 import type { CustomerStats } from "./hooks/queryHelpers";
-import { formatCompactCount } from "./customerDisplay";
 
 type Option = { label: string; value: string };
 type SpendOption = { label: string; value: string };
@@ -19,8 +19,8 @@ export default function CustomersFilters({
   viewMode = "wholesale",
   search,
   setSearch,
-  status,
-  setStatus,
+  statuses,
+  setStatuses,
   channel,
   setChannel,
   channelOptions,
@@ -36,6 +36,11 @@ export default function CustomersFilters({
   setSpendBucket,
   spendBucketOptions,
   emailFlag = "",
+  lastOrder = "",
+  setLastOrder,
+  lastOrderOptions = [],
+  openOnly = false,
+  setOpenOnly,
   setEmailFlag,
   emailFlagOptions = [],
   stats,
@@ -47,8 +52,9 @@ export default function CustomersFilters({
   viewMode?: CustomerViewMode;
   search: string;
   setSearch: (v: string) => void;
-  status: string;
-  setStatus: (v: string) => void;
+  /** Selected status buckets. Empty means "All". */
+  statuses: string[];
+  setStatuses: (v: string[]) => void;
   channel: string;
   setChannel: (v: string) => void;
   channelOptions: Option[];
@@ -65,6 +71,14 @@ export default function CustomersFilters({
   spendBucketOptions?: SpendOption[];
   /** Email deliverability filter: bounced / unsubscribed / address changed. */
   emailFlag?: string;
+  /** Recency bucket over the last order date. */
+  lastOrder?: string;
+  setLastOrder?: (v: string) => void;
+  lastOrderOptions?: Option[];
+  /** Wholesale only — D2C shoppers share one Fishbowl account, so an
+      open-order lookup can't distinguish them. Omit setOpenOnly to hide it. */
+  openOnly?: boolean;
+  setOpenOnly?: (v: boolean) => void;
   setEmailFlag?: (v: string) => void;
   emailFlagOptions?: Option[];
   stats: CustomersStats;
@@ -77,11 +91,6 @@ export default function CustomersFilters({
   // doesn't have to re-open it after every interaction.
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // "All" is its own exact count, not a sum of the three status buckets —
-  // summing silently omitted customers who have never ordered, which made this
-  // pill disagree with the pagination total underneath it.
-  const allCount = stats.all;
-
   // Number of advanced filters currently active — surfaced on the toggle so
   // users don't forget they have hidden filters applied.
   const advancedActive =
@@ -90,7 +99,9 @@ export default function CustomersFilters({
     (states.length > 0 ? 1 : 0) +
     (spendBucket ? 1 : 0) +
     (repeatOnly ? 1 : 0) +
-    (emailFlag ? 1 : 0);
+    (emailFlag ? 1 : 0) +
+    (lastOrder ? 1 : 0) +
+    (openOnly ? 1 : 0);
 
   const hasAdvanced =
     (viewMode === "wholesale" && channelOptions.length > 0) ||
@@ -98,6 +109,8 @@ export default function CustomersFilters({
     (stateOptions.length > 0 && !!setStates) ||
     (!!setSpendBucket && !!spendBucketOptions && spendBucketOptions.length > 0) ||
     (!!setEmailFlag && emailFlagOptions.length > 0) ||
+    (!!setLastOrder && lastOrderOptions.length > 0) ||
+    !!setOpenOnly ||
     !!setRepeatOnly;
 
   function clearAdvanced() {
@@ -107,13 +120,15 @@ export default function CustomersFilters({
     setSpendBucket?.("");
     setRepeatOnly?.(false);
     setEmailFlag?.("");
+    setLastOrder?.("");
+    setOpenOnly?.(false);
   }
 
   return (
     <div className="space-y-2">
-      {/* Top toolbar. On phones this is two stacked rows — a full-width search
-          above a scrollable pill strip — instead of one wrapping flex row that
-          collapsed into a ragged four-line stack at 375px. */}
+      {/* Top toolbar: search on the left, the status · filters · export
+          controls on the right. On phones the two halves stack instead of
+          wrapping into a ragged four-line row at 375px. */}
       <div className="space-y-2 md:flex md:flex-wrap md:items-center md:gap-2 md:space-y-0">
         {/* Search */}
         <div className="relative w-full md:flex-1 md:min-w-[200px] md:max-w-sm">
@@ -133,41 +148,15 @@ export default function CustomersFilters({
           />
         </div>
 
-        {/* Status pills · scroll sideways on phones rather than wrapping */}
-        <div className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:overflow-visible md:px-0">
-          <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
-            <Pill
-              label={`All (${formatCompactCount(allCount)})`}
-              title={`${allCount.toLocaleString()} customers`}
-              active={status === ""}
-              onClick={() => setStatus("")}
-            />
-            <Pill
-              label={`Active (${formatCompactCount(stats.active)})`}
-              title={`${stats.active.toLocaleString()} active`}
-              active={status === "active"}
-              onClick={() => setStatus(status === "active" ? "" : "active")}
-              tone="green"
-            />
-            <Pill
-              label={`At Risk (${formatCompactCount(stats.atRisk)})`}
-              title={`${stats.atRisk.toLocaleString()} at risk`}
-              active={status === "at_risk"}
-              onClick={() => setStatus(status === "at_risk" ? "" : "at_risk")}
-              tone="amber"
-            />
-            <Pill
-              label={`Churned (${formatCompactCount(stats.churned)})`}
-              title={`${stats.churned.toLocaleString()} churned`}
-              active={status === "churned"}
-              onClick={() => setStatus(status === "churned" ? "" : "churned")}
-              tone="gray"
-            />
-          </div>
-        </div>
+        {/* Status · Filters · Export cluster, pinned to the right edge. On
+            phones it wraps onto its own row under the search field. */}
+        <div className="flex flex-wrap items-center gap-2 md:ml-auto md:flex-nowrap">
+          <StatusFilter
+            statuses={statuses}
+            setStatuses={setStatuses}
+            stats={stats}
+          />
 
-        {/* More filters + Export share a row on phones */}
-        <div className="flex items-center gap-2 md:contents">
           {hasAdvanced && (
             <button
               onClick={() => setShowAdvanced((v) => !v)}
@@ -195,14 +184,12 @@ export default function CustomersFilters({
             </button>
           )}
 
-          <div className="ml-auto">
-            <CustomersHeader
-              onDownload={onDownload}
-              downloading={downloading}
-              exportColumns={exportColumns}
-              setExportColumns={setExportColumns}
-            />
-          </div>
+          <CustomersHeader
+            onDownload={onDownload}
+            downloading={downloading}
+            exportColumns={exportColumns}
+            setExportColumns={setExportColumns}
+          />
         </div>
       </div>
 
@@ -252,6 +239,15 @@ export default function CustomersFilters({
               />
             )}
 
+          {setLastOrder && lastOrderOptions.length > 0 && (
+            <FilterSelect
+              value={lastOrder}
+              onChange={setLastOrder}
+              placeholder="Any last order"
+              options={lastOrderOptions}
+            />
+          )}
+
           {setEmailFlag && emailFlagOptions.length > 0 && (
             <FilterSelect
               value={emailFlag}
@@ -259,6 +255,21 @@ export default function CustomersFilters({
               placeholder="Any email status"
               options={emailFlagOptions}
             />
+          )}
+
+          {setOpenOnly && (
+            <button
+              onClick={() => setOpenOnly(!openOnly)}
+              title="Customers with a live estimate or an order still in flight in Fishbowl"
+              className={clsx(
+                "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
+                openOnly
+                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                  : "bg-white text-gray-500 border-gray-200 hover:border-gray-300",
+              )}
+            >
+              Has open order
+            </button>
           )}
 
           {setRepeatOnly && (
@@ -288,40 +299,6 @@ export default function CustomersFilters({
         </div>
       )}
     </div>
-  );
-}
-
-/* ─── Pill (segmented) ─── */
-
-function Pill({
-  label,
-  title,
-  active,
-  onClick,
-  tone,
-}: {
-  label: string;
-  /** Exact count on hover, since the label rounds to 2.4k. */
-  title?: string;
-  active: boolean;
-  onClick: () => void;
-  tone?: "green" | "amber" | "gray";
-}) {
-  let activeClass = "bg-gray-900 text-white";
-  if (tone === "green") activeClass = "bg-green-100 text-green-800";
-  if (tone === "amber") activeClass = "bg-amber-100 text-amber-800";
-  if (tone === "gray") activeClass = "bg-gray-200 text-gray-700";
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={clsx(
-        "inline-flex min-h-[40px] items-center whitespace-nowrap rounded-md px-3 text-xs font-medium transition md:min-h-0 md:px-2.5 md:py-1",
-        active ? activeClass : "text-gray-600 hover:text-gray-900",
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  MapPin,
-  Hash,
   Mail,
   Phone,
   ChevronLeft,
@@ -14,8 +12,6 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  Users,
-  Plus,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -23,28 +19,21 @@ import { supabase } from "@/lib/supabaseClient";
 import DetailsTab from "./modal/tabs/DetailsTab";
 import OrdersTab from "./modal/tabs/OrdersTab";
 import SalesAnalysisTab from "./modal/tabs/SalesAnalysisTab";
-import ActivitySection, { type ActivitySectionHandle } from "./modal/tabs/ActivitySection";
 import EmailsTab from "./modal/tabs/EmailsTab";
 
 import useCustomerSummary from "./modal/hooks/useCustomerSummary";
-import useCustomerOrders from "./modal/hooks/useCustomerOrders";
+import useCustomerOrders, {
+  ORDER_PAGE_SIZE,
+  type OrderSortKey,
+} from "./modal/hooks/useCustomerOrders";
 import useOrderItems from "./modal/hooks/useOrderItems";
 import useCustomerMonthlyOrders from "./modal/hooks/useCustomerMonthlyOrders";
 import useCustomerSalesAnalysis from "./modal/hooks/useCustomerSalesAnalysis";
 import useCustomerContact from "./modal/hooks/useCustomerContact";
-import useCustomerActivities from "./modal/hooks/useCustomerActivities";
 import useCustomerCustomFields from "./modal/hooks/useCustomerCustomFields";
 import type { Customer } from "./types";
 
-type Tab = "details" | "orders" | "analysis" | "touchpoints" | "emails";
-
-type RelatedCustomer = {
-  customerid: string;
-  name: string;
-  channel: string;
-  lifetime_revenue: number | null;
-  last_order_date: string | null;
-};
+type Tab = "details" | "orders" | "analysis" | "emails";
 
 type NavNeighbor = { customerid: string; name: string } | null;
 
@@ -57,7 +46,6 @@ export default function CustomerDetailPage({
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("details");
-  const activityRef = useRef<ActivitySectionHandle>(null);
 
   /* ─── Data hooks ─── */
 
@@ -71,25 +59,27 @@ export default function CustomerDetailPage({
     isD2C
   );
 
+  /* Orders table sort — server-side, since the list is paginated: sorting the
+     25 rows in hand would silently reorder a slice, not the history. */
+  const [orderSort, setOrderSort] = useState<{
+    key: OrderSortKey;
+    dir: "asc" | "desc";
+  }>({ key: "completed", dir: "desc" });
+
   const {
     orders,
     setOrders,
     loading: ordersLoading,
-  } = useCustomerOrders(customerId, tab === "orders", isD2C);
+    orderPage,
+    setOrderPage,
+    totalCount: ordersTotalCount,
+    totalPages: ordersTotalPages,
+  } = useCustomerOrders(customerId, tab === "orders", isD2C, orderSort);
 
   const items = useOrderItems({ orders, setOrders });
 
   const { data: analysisData, loading: analysisLoading } =
     useCustomerSalesAnalysis(customerId, tab === "analysis", isD2C);
-
-  const {
-    activities,
-    loading: activitiesLoading,
-    addActivity,
-    updateActivity,
-    toggleComplete,
-    deleteActivity,
-  } = useCustomerActivities(customerId);
 
   const { fields: customFields, loading: customFieldsLoading } =
     useCustomerCustomFields(customerId, isD2C);
@@ -97,6 +87,25 @@ export default function CustomerDetailPage({
   useEffect(() => {
     if (tab !== "orders") items.reset();
   }, [tab]);
+
+  /* Date and number columns open descending; text columns ascending. Either
+     way the rows change, so page 1 again and collapse any open expansion. */
+  const ORDER_DESC_FIRST: OrderSortKey[] = ["order", "placed", "completed", "total"];
+
+  function toggleOrderSort(key: OrderSortKey) {
+    setOrderSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: ORDER_DESC_FIRST.includes(key) ? "desc" : "asc" }
+    );
+    setOrderPage(1);
+    items.reset();
+  }
+
+  function changeOrderPage(page: number) {
+    setOrderPage(page);
+    items.reset();
+  }
 
   /* ─── Prev / Next customer navigation ─── */
 
@@ -149,60 +158,6 @@ export default function CustomerDetailPage({
     };
   }, [summary?.name]);
 
-  /* ─── Related customers (same state + same channel) ─── */
-
-  const [relatedByState, setRelatedByState] = useState<RelatedCustomer[]>([]);
-  const [relatedByChannel, setRelatedByChannel] = useState<RelatedCustomer[]>([]);
-  const [relatedLoaded, setRelatedLoaded] = useState(false);
-
-  const loadRelated = useCallback(async () => {
-    if (!contact) return;
-
-    const state = contact.billto_state;
-    const channel = contact.primary_channel;
-
-    const queries: Promise<void>[] = [];
-
-    if (state) {
-      queries.push(
-        Promise.resolve(
-          supabase
-            .from("customer_summary")
-            .select("customerid, name, channel, lifetime_revenue, last_order_date")
-            .eq("bill_to_state", state)
-            .neq("customerid", customerId)
-            .order("lifetime_revenue", { ascending: false })
-            .limit(5)
-        ).then(({ data }) => {
-          setRelatedByState((data as RelatedCustomer[]) ?? []);
-        })
-      );
-    }
-
-    if (channel) {
-      queries.push(
-        Promise.resolve(
-          supabase
-            .from("customer_summary")
-            .select("customerid, name, channel, lifetime_revenue, last_order_date")
-            .eq("channel", channel)
-            .neq("customerid", customerId)
-            .order("lifetime_revenue", { ascending: false })
-            .limit(5)
-        ).then(({ data }) => {
-          setRelatedByChannel((data as RelatedCustomer[]) ?? []);
-        })
-      );
-    }
-
-    await Promise.all(queries);
-    setRelatedLoaded(true);
-  }, [contact, customerId]);
-
-  useEffect(() => {
-    loadRelated();
-  }, [loadRelated]);
-
   /* ─── Derived ─── */
 
   const customerName = summary?.name ?? contact?.customer_name ?? customerId;
@@ -246,20 +201,12 @@ export default function CustomerDetailPage({
   // Order count for tab badge
   const orderCount = summary?.lifetime_orders ?? contact?.order_count ?? null;
 
-  // Check if right panel has content
-  const hasRelatedContent =
-    (relatedByState.length > 0 && contact?.billto_state) ||
-    (relatedByChannel.length > 0 && contact?.primary_channel);
-
   /* ─── Tab config with badges ─── */
-
-  const activityCount = activities.length || null;
 
   const tabConfig: { value: Tab; label: string; badge?: string | number | null }[] = [
     { value: "details", label: "Details" },
     { value: "orders", label: "Orders", badge: orderCount },
     { value: "analysis", label: "Sales Analysis" },
-    { value: "touchpoints", label: "Touchpoints", badge: activityCount },
     { value: "emails", label: "Emails" },
   ];
 
@@ -322,18 +269,6 @@ export default function CustomerDetailPage({
 
           <div className="flex items-center gap-3 mt-1.5">
             <p className="text-sm text-gray-500 font-mono">{customerId}</p>
-
-            <button
-              onClick={() => {
-                setTab("touchpoints");
-                // Small delay so ActivitySection mounts before we call openForm
-                setTimeout(() => activityRef.current?.openForm("task"), 50);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 hover:shadow-sm transition"
-            >
-              <Plus size={13} />
-              Action
-            </button>
           </div>
         </div>
 
@@ -382,7 +317,7 @@ export default function CustomerDetailPage({
               This customer hasn&apos;t ordered in over a year
             </div>
             <div className="text-xs text-amber-600 mt-0.5">
-              Re-engage with a personal touchpoint to win them back.
+              Re-engage to win them back.
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -442,10 +377,8 @@ export default function CustomerDetailPage({
         </div>
       )}
 
-      {/* ─── Two-Panel Layout ─── */}
-      <div className="flex gap-6 items-start">
-        {/* LEFT PANEL (larger) */}
-        <div className="flex-1 min-w-0 space-y-5">
+      {/* ─── Main content ─── */}
+      <div className="min-w-0 space-y-5">
           {/* Tab nav */}
           <nav className="flex gap-1 rounded-lg bg-white border border-gray-200 p-1">
             {tabConfig.map((t) => (
@@ -494,6 +427,14 @@ export default function CustomerDetailPage({
                 expandedOrder={items.expandedOrder}
                 toggleOrder={items.toggleOrder}
                 getItemMeta={items.getItemMeta}
+                sortKey={orderSort.key}
+                sortDir={orderSort.dir}
+                onSort={toggleOrderSort}
+                page={orderPage}
+                pageCount={ordersTotalPages}
+                totalCount={ordersTotalCount}
+                pageSize={ORDER_PAGE_SIZE}
+                onPageChange={changeOrderPage}
               />
             )}
 
@@ -504,110 +445,10 @@ export default function CustomerDetailPage({
               />
             )}
 
-            {tab === "touchpoints" && (
-              <ActivitySection
-                ref={activityRef}
-                activities={activities}
-                loading={activitiesLoading}
-                onAdd={addActivity}
-                onUpdate={updateActivity}
-                onToggleComplete={toggleComplete}
-                onDelete={deleteActivity}
-              />
-            )}
-
             {tab === "emails" && (
               <EmailsTab customerId={customerId} isD2C={isD2C} />
             )}
           </div>
-        </div>
-
-        {/* RIGHT PANEL — desktop */}
-        <div className="hidden lg:block w-80 shrink-0 space-y-4">
-          {relatedByState.length > 0 && contact?.billto_state && (
-            <RelatedCard
-              title={`Customers in ${contact.billto_state}`}
-              customers={relatedByState}
-              icon={<MapPin size={14} className="text-gray-400" />}
-            />
-          )}
-
-          {relatedByChannel.length > 0 && contact?.primary_channel && (
-            <RelatedCard
-              title={`${contact.primary_channel} Customers`}
-              customers={relatedByChannel}
-              icon={<Hash size={14} className="text-gray-400" />}
-            />
-          )}
-
-          {/* Empty state when no related customers */}
-          {relatedLoaded && !hasRelatedContent && (
-            <div className="rounded-xl border border-gray-200 bg-white p-5 text-center">
-              <Users size={20} className="mx-auto text-gray-300 mb-2" />
-              <div className="text-xs text-gray-400">No related customers found</div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ─── Mobile Related Customers (below main content) ─── */}
-      <div className="lg:hidden space-y-4">
-        {relatedByState.length > 0 && contact?.billto_state && (
-          <RelatedCard
-            title={`Customers in ${contact.billto_state}`}
-            customers={relatedByState}
-            icon={<MapPin size={14} className="text-gray-400" />}
-          />
-        )}
-
-        {relatedByChannel.length > 0 && contact?.primary_channel && (
-          <RelatedCard
-            title={`${contact.primary_channel} Customers`}
-            customers={relatedByChannel}
-            icon={<Hash size={14} className="text-gray-400" />}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Related Customers Card ─── */
-
-function RelatedCard({
-  title,
-  customers,
-  icon,
-}: {
-  title: string;
-  customers: RelatedCustomer[];
-  icon: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-        {icon}
-        <h3 className="text-xs font-medium text-gray-700">{title}</h3>
-      </div>
-
-      <div className="divide-y divide-gray-100">
-        {customers.map((c) => (
-          <Link
-            key={c.customerid}
-            href={`/customers/${encodeURIComponent(c.customerid)}`}
-            className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 transition"
-          >
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-gray-900 truncate">{c.name}</div>
-              <div className="text-[10px] text-gray-400">{c.channel}</div>
-            </div>
-            {c.lifetime_revenue != null && (
-              <span className="text-xs font-medium text-gray-500 tabular-nums shrink-0 ml-3">
-                ${c.lifetime_revenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-              </span>
-            )}
-          </Link>
-        ))}
       </div>
     </div>
   );
