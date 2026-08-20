@@ -1,8 +1,16 @@
 "use client";
 
-import { useState } from "react";
-
-type MatrixMode = "products" | "fragrances";
+import { Fragment, useState } from "react";
+import {
+  ALLOWED_FRAGRANCES,
+  OTHER_LABEL,
+  TOP_PRODUCT_LIMIT,
+  getTrailingMonths,
+  formatMonthLabel,
+  rowTTM,
+  fmtMoney as fmt,
+  type MatrixMode,
+} from "./constants";
 
 type Row = {
   month: string;
@@ -11,59 +19,6 @@ type Row = {
   fragrance: string | null;
   revenue: number;
 };
-
-/* ---------- FRAGRANCE WHITELIST ---------- */
-
-const ALLOWED_FRAGRANCES = new Set([
-  "Sea Salt",
-  "Grapefruit",
-  "Lavender",
-  "Eucalyptus",
-  "Coconut",
-  "Agave Pear",
-  "Cypres",
-]);
-
-/* ---------- HELPERS ---------- */
-
-function ym(year: number, jsMonth: number) {
-  return `${year}-${String(jsMonth + 1).padStart(2, "0")}-01`;
-}
-
-function getTrailingMonths(endYear: number, endMonth: number) {
-  const months: string[] = [];
-  let y = endYear;
-  let m = endMonth - 1;
-
-  for (let i = 0; i < 12; i++) {
-    months.push(ym(y, m));
-    m--;
-    if (m < 0) {
-      m = 11;
-      y--;
-    }
-  }
-
-  return months.reverse();
-}
-
-function formatMonthLabel(ym: string) {
-  const [year, month] = ym.split("-").map(Number);
-  return new Date(year, month - 1, 1).toLocaleString("en-US", {
-    month: "short",
-    year: "2-digit",
-  });
-}
-
-function rowTTM(months: string[], byMonth: Record<string, number>) {
-  return months.reduce((sum, m) => sum + (byMonth[m] ?? 0), 0);
-}
-
-function fmt(n: number) {
-  return n.toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  });
-}
 
 /* ---------- COMPONENT ---------- */
 
@@ -86,7 +41,7 @@ export function Trailing12MonthMatrix({
   const primaryKey = (r: Row) => {
     if (mode === "products") return r.display_name ?? "Unknown";
     const f = r.fragrance ?? "—";
-    return ALLOWED_FRAGRANCES.has(f) ? f : "Other";
+    return ALLOWED_FRAGRANCES.has(f) ? f : OTHER_LABEL;
   };
 
   const detailKey = (r: Row) =>
@@ -98,7 +53,7 @@ export function Trailing12MonthMatrix({
     mode === "products" ? "Sales by Product" : "Sales by Fragrance";
 
   // Products uses top 15; Fragrances uses whitelist (no top-N)
-  const topLimit = mode === "products" ? 15 : Infinity;
+  const topLimit = mode === "products" ? TOP_PRODUCT_LIMIT : Infinity;
 
   /* ---------- TOP-LEVEL AGGREGATION ---------- */
 
@@ -119,7 +74,7 @@ export function Trailing12MonthMatrix({
             .slice(0, topLimit)
             .map((p) => p.key)
         )
-      : new Set(Array.from(ALLOWED_FRAGRANCES).concat(["Other"]));
+      : new Set(Array.from(ALLOWED_FRAGRANCES).concat([OTHER_LABEL]));
 
   const primaryRows = rows.reduce<Record<string, { key: string; label: string; byMonth: Record<string, number> }>>((acc, r) => {
     const key = primaryKey(r);
@@ -161,9 +116,9 @@ export function Trailing12MonthMatrix({
   const otherRow =
     mode === "products"
       ? primaryList.find((p) => p.key === "__OTHER__")
-      : primaryList.find((p) => p.label === "Other") ?? {
-          key: "Other",
-          label: "Other",
+      : primaryList.find((p) => p.label === OTHER_LABEL) ?? {
+          key: OTHER_LABEL,
+          label: OTHER_LABEL,
           byMonth: {},
         };
 
@@ -178,11 +133,11 @@ export function Trailing12MonthMatrix({
   /* ---------- RENDER ---------- */
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-      <table className="min-w-max w-full text-xs table-fixed">
-        <thead className="bg-gray-50 sticky top-0">
+    <div className="max-h-[70vh] overflow-auto rounded-xl border border-gray-200 bg-white">
+      <table className="w-full min-w-max text-xs">
+        <thead className="sticky top-0 z-20 bg-gray-50">
           <tr>
-            <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider" style={{ width: 260 }}>
+            <th className="sticky left-0 z-30 bg-gray-50 px-3 py-2.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider" style={{ width: 260 }}>
               {headerLabel}
             </th>
 
@@ -203,9 +158,8 @@ export function Trailing12MonthMatrix({
             const ttm = rowTTM(months, p.byMonth);
 
             return (
-              <>
+              <Fragment key={p.key}>
                 <tr
-                  key={p.key}
                   className="hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition-colors"
                   onClick={() => setExpandedKey(isOpen ? null : p.key)}
                 >
@@ -260,7 +214,7 @@ export function Trailing12MonthMatrix({
                         </tr>
                       );
                     })}
-              </>
+              </Fragment>
             );
           })}
 
@@ -282,8 +236,8 @@ export function Trailing12MonthMatrix({
           )}
 
           {/* ---------- TOTAL SALES (ALWAYS LAST) ---------- */}
-          <tr className="bg-gray-900 text-white">
-            <td className="sticky left-0 z-10 bg-gray-900 px-3 py-3 font-semibold rounded-bl-xl" style={{ width: 260 }}>
+          <tr className="sticky bottom-0 z-20 bg-gray-900 text-white">
+            <td className="sticky left-0 z-30 bg-gray-900 px-3 py-3 font-semibold" style={{ width: 260 }}>
               Total Sales
             </td>
 
@@ -293,7 +247,7 @@ export function Trailing12MonthMatrix({
               </td>
             ))}
 
-            <td className="px-3 py-3 text-right tabular-nums font-semibold rounded-br-xl">{fmt(ttmTotal)}</td>
+            <td className="px-3 py-3 text-right tabular-nums font-semibold">{fmt(ttmTotal)}</td>
           </tr>
         </tbody>
       </table>

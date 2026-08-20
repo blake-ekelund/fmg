@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       const errText = await tokenRes.text();
       console.error("Shopify token exchange failed:", errText);
       return NextResponse.redirect(
-        `${APP_URL}/shopify-analytics?error=token_exchange_failed`
+        `${APP_URL}/marketing?section=shopify&error=token_exchange_failed`
       );
     }
 
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
 
     if (!accessToken) {
       return NextResponse.redirect(
-        `${APP_URL}/shopify-analytics?error=no_token`
+        `${APP_URL}/marketing?section=shopify&error=no_token`
       );
     }
 
@@ -85,12 +85,12 @@ export async function GET(req: NextRequest) {
 
     // Redirect back to analytics page with success
     return NextResponse.redirect(
-      `${APP_URL}/shopify-analytics?connected=true&shop=${shop}`
+      `${APP_URL}/marketing?section=shopify&connected=true&shop=${shop}`
     );
   } catch (e) {
     console.error("OAuth callback error:", e);
     return NextResponse.redirect(
-      `${APP_URL}/shopify-analytics?error=callback_failed`
+      `${APP_URL}/marketing?section=shopify&error=callback_failed`
     );
   }
 }

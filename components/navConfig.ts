@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   TrendingUp,
+  Building2,
   Boxes,
   Users,
   ShoppingBag,
@@ -8,7 +9,6 @@ import {
   KanbanSquare,
   PackageSearch,
   ImageIcon,
-  BarChart3,
   Zap,
   Mail,
   MessageSquare,
@@ -120,15 +120,21 @@ export const navSections: readonly NavSection[] = [
     icon: TrendingUp,
     items: [
       {
-        label: "Sales Analysis",
+        label: "Sales Analysis (All)",
         href: "/sales",
         icon: TrendingUp,
         roles: [...FULL_ACCESS, "sales"],
       },
       {
-        label: "Shopify Analytics",
-        href: "/shopify-analytics",
-        icon: BarChart3,
+        label: "Sales Analysis (Wholesale)",
+        href: "/sales/wholesale",
+        icon: Building2,
+        roles: [...FULL_ACCESS, "sales"],
+      },
+      {
+        label: "Sales Analysis (D2C)",
+        href: "/sales/d2c",
+        icon: ShoppingBag,
         roles: [...FULL_ACCESS, "sales"],
       },
     ],

@@ -16,21 +16,16 @@ export const CHART_PALETTE = [
   "#84CC16", // lime
 ];
 
-/** Navy shade palette for treemaps and heatmaps */
-export const CHART_NAVY_PALETTE = [
-  "#1B3C53",
-  "#234C6A",
-  "#456882",
-  "#2F5D7A",
-  "#3E6E8A",
-  "#5A7F98",
-  "#2A475D",
-  "#355D77",
-  "#4B7895",
-  "#6A8FA6",
-  "#2E5168",
-  "#3C6A86",
-  "#517E97",
-  "#6D95AC",
-  "#2B4A60",
-] as const;
+/**
+ * De-emphasis gray for context series — a prior-year line behind current-year
+ * bars, an "Other" bucket, an inactive sparkline. Deliberately NOT a
+ * categorical hue: it marks a series as background, not as its own identity.
+ * 3.59:1 on white, so it clears the 3:1 mark-contrast floor.
+ */
+export const CHART_MUTED = "#898781";
+
+/* CHART_NAVY_PALETTE (15 navy shades) was removed with the sales treemap it
+   served. It was a sequential ramp doing categorical work: adjacent pairs sat
+   at ΔE 4.4 for normal vision and ~4.0 under protanopia, well under the ΔE 15
+   / ΔE 8 floors, so the slices were not tellable apart by anyone. Rank the
+   items and use bar length instead of spending color on identity. */
