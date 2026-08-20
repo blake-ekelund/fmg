@@ -47,6 +47,65 @@ const EXAMPLES: { label: string; sql: string }[] = [
   { label: "▸ Probe: shipcarton (tracking #)", sql: SHIP_PROBE_CARTON },
   { label: "▸ Probe: carrier", sql: SHIP_PROBE_CARRIER },
   { label: "Shipments + tracking (unverified)", sql: SHIPMENTS_SQL },
+  /* Accounting / QuickBooks. Fishbowl posts to QuickBooks Desktop (QBFC) on a
+     nightly 18:00 "Standard Export". `post` is the queue (statusId 10=Entered,
+     20=Posted; typeId -> posttype), `accountingexportlog` is the run history.
+     Start with "export health" — a run can post most records and still be
+     logged as errored, so a red row is not necessarily a full outage.
+     NOTE: post.amount is 0 for ALL Payment rows (even posted ones) — the money
+     lives in postransaction.amount. Don't read that as a $0-payment bug. */
+  {
+    label: "▸ Acct: export health",
+    sql: `SELECT id, dateExportStart, scheduled,
+       CASE WHEN error IS NULL OR error = '' THEN 'OK' ELSE 'ERR' END AS result,
+       SUBSTRING(error, 1, 120) AS errorHead
+  FROM accountingexportlog
+ ORDER BY id DESC
+ LIMIT 30`,
+  },
+  {
+    label: "▸ Acct: unposted queue",
+    sql: `SELECT poststatus.name AS status, posttype.name AS postType, COUNT(*) AS n,
+       MIN(post.dateCreated) AS oldest, MAX(post.dateCreated) AS newest
+  FROM post
+  JOIN poststatus ON post.statusId = poststatus.id
+  JOIN posttype   ON post.typeId   = posttype.id
+ GROUP BY poststatus.name, posttype.name
+ ORDER BY status, n DESC`,
+  },
+  {
+    label: "▸ Acct: stuck records",
+    sql: `SELECT post.id, posttype.name AS postType, post.dateCreated, post.orderId,
+       so.num AS soNum, so.dateIssued, so.totalPrice, customer.name AS customer
+  FROM post
+  JOIN posttype ON post.typeId = posttype.id
+  LEFT JOIN so ON post.orderId = so.id
+  LEFT JOIN customer ON so.customerId = customer.id
+ WHERE post.statusId = 10
+   AND post.dateCreated < CURDATE()
+ ORDER BY post.dateCreated`,
+  },
+  {
+    label: "▸ Acct: recurring errors",
+    sql: `SELECT SUBSTRING(error, 1, 110) AS errorHead, COUNT(*) AS n,
+       MIN(dateExportStart) AS firstSeen, MAX(dateExportStart) AS lastSeen
+  FROM accountingexportlog
+ WHERE error IS NOT NULL AND error <> ''
+ GROUP BY errorHead
+ ORDER BY n DESC`,
+  },
+  {
+    label: "▸ Acct: QB chart of accounts",
+    sql: `SELECT accountNumber, name, typeId, activeFlag, accountingId, dateLastModified
+  FROM asaccount
+ ORDER BY accountNumber, name`,
+  },
+  {
+    label: "▸ Acct: QB classes",
+    sql: `SELECT id, name, accountingId, activeFlag, dateLastModified
+  FROM qbclass
+ ORDER BY name`,
+  },
 ];
 
 export default function FishbowlSandboxPage() {
