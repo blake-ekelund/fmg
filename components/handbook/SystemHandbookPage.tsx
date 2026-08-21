@@ -58,7 +58,7 @@ const SYSTEMS: { name: string; blurb: string }[] = [
   { name: "Point B / Synapse", blurb: "The warehouse that physically ships orders. Sends tracking and freight back into Fishbowl." },
   { name: "Shopify", blurb: "Powers the Natural Inspirations store; feeds catalog and order analytics." },
   { name: "Faire", blurb: "Wholesale marketplace — orders flow in, shipments are confirmed back." },
-  { name: "MarketTime", blurb: "A wholesale order channel — built, currently switched off until keys are set." },
+  { name: "MarketTime", blurb: "A second wholesale marketplace — orders flow in on a schedule, like Faire." },
   { name: "Email (Resend + Outlook)", blurb: "Marketing and automated email go out via Resend; rep 1:1 email via Outlook." },
   { name: "Slack", blurb: "An internal assistant bot that answers questions about company data." },
   { name: "Carrier tracking", blurb: "USPS / FedEx / UPS — used to know when a package is delivered." },
