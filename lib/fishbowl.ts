@@ -25,6 +25,7 @@
  */
 
 import { SALES_ORDERS_SQL, LINE_ITEMS_SQL, INVENTORY_SQL, SHIPMENTS_SQL } from "./fishbowlQueries";
+import { nextFreeSoNumber } from "./fishbowlEstimate";
 
 const APP_NAME = process.env.FISHBOWL_APP_NAME || "FMG Storefront";
 const APP_ID = Number(process.env.FISHBOWL_APP_ID || 47821);
@@ -381,22 +382,32 @@ export async function createEstimate(
     const header = rows[0] ?? [];
     const soCol = header.indexOf("SONum");
     if (soCol >= 0 && rows.slice(1).every((r) => !(r[soCol] ?? "").trim())) {
+      // The baseline deliberately ignores SO numbers carrying a suffix.
+      // Exactly one such number sits above the live sequence — "197504-BO"
+      // from 2025-04-08 — and taking a plain MAX over leading digits would
+      // read it as the high-water mark and jump the whole sequence to 197505.
       const maxRows = await dataQueryWith(
         call,
         `SELECT MAX(CAST(num AS UNSIGNED)) AS maxNum FROM so WHERE num REGEXP '^[0-9]+$'`,
       );
-      let next = Number(maxRows[0]?.maxNum ?? 0) + 1;
-      if (!Number.isFinite(next) || next <= 1) {
+      const base = Number(maxRows[0]?.maxNum ?? 0);
+      if (!Number.isFinite(base) || base < 1) {
         throw new Error("Could not determine the next Fishbowl SO number.");
       }
-      for (;;) {
-        const clash = await dataQueryWith(
-          call,
-          `SELECT id FROM so WHERE num = ${sqlQuote(String(next))}`,
-        );
-        if (clash.length === 0) break;
-        next++;
-      }
+
+      // Suffixed numbers DO count as taken, so pull everything in the window
+      // above the baseline and let nextFreeSoNumber walk past them. CAST
+      // reads the leading digits, so "24702 - SHIP 11.1" arrives as 24702.
+      const neighbours = await dataQueryWith(
+        call,
+        `SELECT num FROM so
+          WHERE num REGEXP '^[0-9]'
+            AND CAST(num AS UNSIGNED) BETWEEN ${base} AND ${base + 1000}`,
+      );
+      const next = nextFreeSoNumber(
+        base,
+        neighbours.map((r) => String(r.num ?? "")),
+      );
       for (const row of rows.slice(1)) row[soCol] = String(next);
     }
 
