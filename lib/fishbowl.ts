@@ -249,6 +249,39 @@ export async function getInventoryAvailability(): Promise<Record<string, unknown
 /** Escape a value for interpolation into a data-query SQL string literal. */
 const sqlQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
+/**
+ * Kit products on the order whose own components include another kit.
+ *
+ * Fishbowl's CSV importer refuses these — "Multi-level kits are not supported
+ * through csv import" — and it is a bad citizen about it in two ways: it names
+ * only ONE offending line even when several are bad, and it reports "only some
+ * information was imported", i.e. it is willing to leave a half-built SO
+ * behind. So we look for every one of them up front and refuse to post at all.
+ *
+ * The shape it trips on (verified against SO 24269): keying 512-03-99 in the
+ * Fishbowl client expands to a $0 Kit line, a nested $0 Kit line for the
+ * "COMPLETE" display, and then the priced component Sale lines. The importer
+ * can do that one level deep, not two.
+ */
+async function findMultiLevelKits(
+  call: Caller,
+  partNums: string[],
+): Promise<Array<{ kit: string; nested: string }>> {
+  const unique = [...new Set(partNums.map((p) => (p ?? "").trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+  const rows = await dataQueryWith(
+    call,
+    `SELECT kp.num AS kit, comp.num AS nested
+       FROM product kp
+       JOIN kititem ki ON ki.kitProductId = kp.id
+       JOIN product comp ON ki.productId = comp.id
+      WHERE kp.num IN (${unique.map(sqlQuote).join(",")})
+        AND EXISTS (SELECT 1 FROM kititem sub WHERE sub.kitProductId = comp.id)
+      ORDER BY kp.num`,
+  );
+  return rows.map((r) => ({ kit: String(r.kit), nested: String(r.nested) }));
+}
+
 export type CreateEstimateResult = {
   /** Fishbowl's internal so.id for the estimate. */
   soId: number;
@@ -297,6 +330,24 @@ export async function createEstimate(
       throw new Error(
         `Fishbowl has no active customer named "${customerName}" — the import would auto-create one, so this is blocked. Add/match the customer in Fishbowl first.`,
       );
+    }
+
+    // Multi-level kits break the importer AFTER it has already committed the
+    // lines it liked, so this check has to happen before anything is posted —
+    // and before an SO number is claimed below.
+    const productCol = (rows[0] ?? []).indexOf("ProductNumber");
+    if (productCol >= 0) {
+      const multiLevel = await findMultiLevelKits(
+        call,
+        rows.slice(1).map((r) => r[productCol] ?? ""),
+      );
+      if (multiLevel.length > 0) {
+        const list = multiLevel.map((k) => `${k.kit} (contains kit ${k.nested})`).join(", ");
+        throw new Error(
+          `Fishbowl's CSV import can't handle multi-level kits, so this order has to be keyed by hand in the Fishbowl client: ${list}. ` +
+            `Nothing was imported — the order is untouched and still shows as needing Fishbowl.`,
+        );
+      }
     }
 
     // The import rejects blank addresses ("Address is required"), but orders
