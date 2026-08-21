@@ -26,6 +26,7 @@
 
 import { SALES_ORDERS_SQL, LINE_ITEMS_SQL, INVENTORY_SQL, SHIPMENTS_SQL } from "./fishbowlQueries";
 import { nextFreeSoNumber } from "./fishbowlEstimate";
+import { expandKitRows, isMultiLevelKit, type KitEdge } from "./fishbowlKits";
 
 const APP_NAME = process.env.FISHBOWL_APP_NAME || "FMG Storefront";
 const APP_ID = Number(process.env.FISHBOWL_APP_ID || 47821);
@@ -251,36 +252,55 @@ export async function getInventoryAvailability(): Promise<Record<string, unknown
 const sqlQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
 /**
- * Kit products on the order whose own components include another kit.
+ * Read the kit tree below `partNums`, following nested kits until the closure
+ * is complete. Returns the edges `lib/fishbowlKits.ts` flattens.
  *
- * Fishbowl's CSV importer refuses these — "Multi-level kits are not supported
- * through csv import" — and it is a bad citizen about it in two ways: it names
- * only ONE offending line even when several are bad, and it reports "only some
- * information was imported", i.e. it is willing to leave a half-built SO
- * behind. So we look for every one of them up front and refuse to post at all.
- *
- * The shape it trips on (verified against SO 24269): keying 512-03-99 in the
- * Fishbowl client expands to a $0 Kit line, a nested $0 Kit line for the
- * "COMPLETE" display, and then the priced component Sale lines. The importer
- * can do that one level deep, not two.
+ * Two levels is all this data actually holds today (PREPACK → COMPLETE →
+ * parts), but the loop doesn't assume that.
  */
-async function findMultiLevelKits(
-  call: Caller,
-  partNums: string[],
-): Promise<Array<{ kit: string; nested: string }>> {
-  const unique = [...new Set(partNums.map((p) => (p ?? "").trim()).filter(Boolean))];
-  if (unique.length === 0) return [];
-  const rows = await dataQueryWith(
-    call,
-    `SELECT kp.num AS kit, comp.num AS nested
-       FROM product kp
-       JOIN kititem ki ON ki.kitProductId = kp.id
-       JOIN product comp ON ki.productId = comp.id
-      WHERE kp.num IN (${unique.map(sqlQuote).join(",")})
-        AND EXISTS (SELECT 1 FROM kititem sub WHERE sub.kitProductId = comp.id)
-      ORDER BY kp.num`,
-  );
-  return rows.map((r) => ({ kit: String(r.kit), nested: String(r.nested) }));
+async function loadKitEdges(call: Caller, partNums: string[]): Promise<KitEdge[]> {
+  const edges: KitEdge[] = [];
+  const seen = new Set<string>();
+  let frontier = [...new Set(partNums.map((p) => (p ?? "").trim()).filter(Boolean))];
+
+  for (let depth = 0; frontier.length > 0 && depth < 10; depth++) {
+    // defaultQty > 0 on BOTH the edge and the is-it-a-kit subquery, because
+    // this data contains dead zero-quantity kit rows — and one outright cycle:
+    // 500-02-99 (Body Butter BASE) points at retired "505-11-99.old", which
+    // points back. Fishbowl ignores those itself; its export of SO 24043 shows
+    // 500-02-99 as a priced leaf line, never expanded. Filtering on quantity
+    // reproduces that exactly and dissolves the cycle at the source.
+    const rows = await dataQueryWith(
+      call,
+      `SELECT kp.num AS kit, comp.num AS component, comp.description AS descr,
+              comp.price AS price, ki.defaultQty AS qty,
+              (SELECT COUNT(*) FROM kititem sub
+                WHERE sub.kitProductId = comp.id AND sub.defaultQty > 0) AS childCount
+         FROM product kp
+         JOIN kititem ki ON ki.kitProductId = kp.id
+         JOIN product comp ON ki.productId = comp.id
+        WHERE kp.num IN (${frontier.map(sqlQuote).join(",")})
+          AND ki.defaultQty > 0
+        ORDER BY kp.num, ki.sortOrder`,
+    );
+    frontier.forEach((p) => seen.add(p));
+
+    const next: string[] = [];
+    for (const r of rows) {
+      const isKit = Number(r.childCount ?? 0) > 0;
+      edges.push({
+        kit: String(r.kit),
+        component: String(r.component),
+        description: String(r.descr ?? ""),
+        price: Number(r.price ?? 0),
+        qty: Number(r.qty ?? 1),
+        isKit,
+      });
+      if (isKit && !seen.has(String(r.component))) next.push(String(r.component));
+    }
+    frontier = [...new Set(next)];
+  }
+  return edges;
 }
 
 export type CreateEstimateResult = {
@@ -333,22 +353,17 @@ export async function createEstimate(
       );
     }
 
-    // Multi-level kits break the importer AFTER it has already committed the
-    // lines it liked, so this check has to happen before anything is posted —
-    // and before an SO number is claimed below.
+    // Multi-level kits break the importer AFTER it has committed the lines it
+    // liked, so they have to be dealt with before anything is posted — and
+    // before an SO number is claimed below. We expand them ourselves rather
+    // than asking Fishbowl to; see lib/fishbowlKits.ts for the shape and why
+    // it costs nothing in pricing.
     const productCol = (rows[0] ?? []).indexOf("ProductNumber");
     if (productCol >= 0) {
-      const multiLevel = await findMultiLevelKits(
-        call,
-        rows.slice(1).map((r) => r[productCol] ?? ""),
-      );
-      if (multiLevel.length > 0) {
-        const list = multiLevel.map((k) => `${k.kit} (contains kit ${k.nested})`).join(", ");
-        throw new Error(
-          `Fishbowl's CSV import can't handle multi-level kits, so this order has to be keyed by hand in the Fishbowl client: ${list}. ` +
-            `Nothing was imported — the order is untouched and still shows as needing Fishbowl.`,
-        );
-      }
+      const parts = rows.slice(1).map((r) => r[productCol] ?? "");
+      const edges = await loadKitEdges(call, parts);
+      const needsExpansion = parts.some((p) => isMultiLevelKit(p, edges));
+      if (needsExpansion) rows = expandKitRows(rows, edges);
     }
 
     // The import rejects blank addresses ("Address is required"), but orders
