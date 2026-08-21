@@ -7,6 +7,7 @@
  */
 
 import { MERGE_KEYS, properCase, stateCase, type MergeKey } from "./mergeFields";
+import { rewriteEmailImageUrls } from "./imageUrls";
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
@@ -76,9 +77,10 @@ export async function sendEmail(
   accessToken: string,
   input: SendEmailInput,
 ): Promise<SendEmailResult> {
+  // Images must be served from our own domain, not raw Supabase storage.
   const body =
     input.bodyHtml !== undefined
-      ? { contentType: "HTML", content: input.bodyHtml }
+      ? { contentType: "HTML", content: rewriteEmailImageUrls(input.bodyHtml) }
       : { contentType: "Text", content: input.bodyText ?? "" };
 
   const baseDraft = {

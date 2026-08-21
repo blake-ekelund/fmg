@@ -7,6 +7,8 @@
  * Env: RESEND_API_KEY (secret). The From/Reply-To are resolved by lib/email/sender.
  */
 
+import { rewriteEmailImageUrls } from "./imageUrls";
+
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
 export type ResendSendInput = {
@@ -41,7 +43,8 @@ export async function sendResendEmail(input: ResendSendInput): Promise<{ id: str
       to: input.to,
       cc: input.cc && input.cc.length > 0 ? input.cc : undefined,
       subject: input.subject,
-      html: input.html,
+      // Images served from our own domain, not raw Supabase storage.
+      html: rewriteEmailImageUrls(input.html),
       reply_to: input.replyTo || undefined,
       headers: input.headers && Object.keys(input.headers).length > 0 ? input.headers : undefined,
     }),
