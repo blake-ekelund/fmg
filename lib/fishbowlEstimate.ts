@@ -148,6 +148,58 @@ function flattenAddress(
   };
 }
 
+/**
+ * The leading number of a Fishbowl SO number, or null when it doesn't start
+ * with digits.
+ *
+ * Customer service appends ship dates and other tags to SO numbers — "24700 -
+ * 10.26 SHIP", "24688 - SHIP 10/1", "24684 BARS", "24699-BO - SHIP 10/1" —
+ * so the number and its label have to be separated before any arithmetic.
+ *
+ * Length varies (1 to 6 digits live in this DB), so this reads digits rather
+ * than a fixed-width prefix: a 5-char slice would misread the 3,600-odd 3- and
+ * 4-digit numbers, and would break outright once the sequence reaches 100000.
+ */
+export function soNumBase(num: string): number | null {
+  const match = /^(\d+)/.exec((num ?? "").trim());
+  return match ? Number(match[1]) : null;
+}
+
+/** Guards against an unbounded scan if the numbering is ever badly mangled. */
+const SO_NUMBER_SCAN_LIMIT = 1000;
+
+/**
+ * The next free SO number at or above `base + 1`.
+ *
+ * A base number counts as TAKEN when any SO starts with it, suffix or not:
+ * "24702 - SHIP 11.1" occupies 24702 just as surely as a bare "24702" does.
+ * Missing that is the bug this exists to fix — the old check compared for
+ * exact equality, so a ship-date suffix made the number look free and we'd
+ * mint a second SO on the same base.
+ *
+ * Note that sharing a base is legitimate for Fishbowl's own siblings (24699
+ * alongside "24699-BO", 24667 alongside "24667-CR") — which is exactly why a
+ * new order must never be handed one of those numbers.
+ */
+export function nextFreeSoNumber(base: number, existingNums: string[]): number {
+  const taken = new Set<number>();
+  for (const num of existingNums) {
+    const n = soNumBase(num);
+    if (n !== null) taken.add(n);
+  }
+  let next = base + 1;
+  const ceiling = base + SO_NUMBER_SCAN_LIMIT;
+  while (taken.has(next)) {
+    next++;
+    if (next > ceiling) {
+      throw new Error(
+        `Could not find a free Fishbowl SO number in ${SO_NUMBER_SCAN_LIMIT} above ${base}.`,
+      );
+    }
+  }
+  return next;
+}
+
 export type EstimatePayload = {
   /** The storefront ref (SASSY-####) — travels as Customer PO, NOT the SO
    *  number. Fishbowl auto-assigns the SO number (next in its 24xxx sequence)
@@ -209,17 +261,11 @@ export function estimateRowsForOrder(
         ? "MARKETTIME"
         : CF_DEFAULTS.orderSource;
 
-  // The SO's Note carries a HUMAN's note or nothing at all. We used to prepend
-  // "pushed automatically from the FMG site" plus the customer's email; the
-  // Details tab is ops' scratch space, and provenance already lives in Customer
-  // PO and CF-Order Source.
-  //
-  // Marketplace orders get nothing: their `note` is written by our own importer
-  // ("MarketTime order 32653873 (PO …, TRANSMITTED / OPEN) — imported by
-  // markettime sync."), so it is our text too. A storefront order's note is
-  // whatever the customer typed at checkout, which ops does want.
+  // We put NOTHING in the SO's Note. The Details tab is ops' scratch space —
+  // the boilerplate preamble, the customer's email, and the order note all used
+  // to land here and none of it earned the room. Provenance rides in Customer
+  // PO and CF-Order Source instead.
   const isMarketplaceSource = order.source === "faire" || order.source === "markettime";
-  const noteParts = !isMarketplaceSource && order.note ? [order.note] : [];
 
   // The STORE (Stripe Tax) is the source of truth for tax, not Fishbowl — so
   // the SO's own rate is ".COM Tax" (0%, taxrate id 3) and never auto-computes.
@@ -259,7 +305,7 @@ export function estimateRowsForOrder(
     ShippingTerms: "Prepaid",
     PaymentTerms: "NET 30",
     FOB: "Origin",
-    Note: noteParts.join("\n"),
+    Note: "",
     QuickBooksClassName: "WEB",
     LocationGroupName: "Point B Solutions",
     OrderDateScheduled: created,
