@@ -8,9 +8,14 @@
  *    ITEM with the SO header columns repeated (that's how the matching
  *    /api/export/SalesOrderDetails emits it).
  *  - Status 10 = Estimate (SOSTATUS table).
- *  - Line types (SOITEMTYPE): 10 Sale, 31 Discount Amount, 60 Shipping.
- *    Shipping lines use ProductNumber "Shipping"; web-order discounts use the
- *    ".COM DISCOUNTS" discount name (the existing convention in this DB).
+ *  - Line types (SOITEMTYPE): 10 Sale, 31 Discount Amount, 40 Subtotal,
+ *    60 Shipping, 70 Tax. Shipping lines use ProductNumber "Shipping";
+ *    web-order discounts use the ".COM DISCOUNTS" discount name (the existing
+ *    convention in this DB). Subtotal lines carry no product at all.
+ *  - Storefront orders end with a Shipping line; marketplace (Faire /
+ *    MarketTime) orders end with a Subtotal line instead — those channels
+ *    bill freight themselves, and ops adds the real shipping line when the
+ *    order is rated.
  *  - Six SO custom fields are REQUIRED (customfield.required): Territory
  *    Agency / Territory Code / Territory Sales Rep Name / Order Agency /
  *    Order Rep / Order Source — the import 400s if any is blank.
@@ -204,11 +209,17 @@ export function estimateRowsForOrder(
         ? "MARKETTIME"
         : CF_DEFAULTS.orderSource;
 
-  const noteParts = [
-    `Storefront order ${poNum} — pushed automatically from the FMG site as an estimate.`,
-  ];
-  if (order.email) noteParts.push(`Customer email: ${order.email}`);
-  if (order.note) noteParts.push(`Order note: ${order.note}`);
+  // The SO's Note carries a HUMAN's note or nothing at all. We used to prepend
+  // "pushed automatically from the FMG site" plus the customer's email; the
+  // Details tab is ops' scratch space, and provenance already lives in Customer
+  // PO and CF-Order Source.
+  //
+  // Marketplace orders get nothing: their `note` is written by our own importer
+  // ("MarketTime order 32653873 (PO …, TRANSMITTED / OPEN) — imported by
+  // markettime sync."), so it is our text too. A storefront order's note is
+  // whatever the customer typed at checkout, which ops does want.
+  const isMarketplaceSource = order.source === "faire" || order.source === "markettime";
+  const noteParts = !isMarketplaceSource && order.note ? [order.note] : [];
 
   // The STORE (Stripe Tax) is the source of truth for tax, not Fishbowl — so
   // the SO's own rate is ".COM Tax" (0%, taxrate id 3) and never auto-computes.
@@ -313,17 +324,40 @@ export function estimateRowsForOrder(
     });
   }
 
-  // A Shipping line is ALWAYS present — even free ($0.00) — so every SO has a
-  // consistent shape for ops and downstream reporting.
-  itemRows.push({
-    ...itemDefaults,
-    SOItemTypeID: "60",
-    ProductNumber: "Shipping",
-    ProductDescription: "Shipping",
-    ProductQuantity: "1",
-    ProductPrice: money(order.shipping ?? 0),
-    Taxable: "false",
-  });
+  // Marketplace orders get a Subtotal line instead of a Shipping line.
+  //
+  // Faire and MarketTime bill the retailer for freight themselves, so our
+  // $0.00 Shipping line was never real money — and ops adds the actual
+  // shipping line when the order is rated, leaving SOs with two Shipping
+  // lines (e.g. SO 24684, Faire PO SJRDU4TYYS-FAIRE: our $0 plus a $31.13).
+  //
+  // A Subtotal line (SOITEMTYPE 40) is the useful thing in its place: it is
+  // Fishbowl's own running-total line — blank product, qty 1, price 0 — and
+  // Fishbowl fills in the value. Sending a price would be guessing at a field
+  // it computes.
+  if (isMarketplaceSource) {
+    itemRows.push({
+      ...itemDefaults,
+      SOItemTypeID: "40",
+      ProductNumber: "",
+      ProductDescription: "Subtotal",
+      ProductQuantity: "1",
+      ProductPrice: money(0),
+      Taxable: "false",
+    });
+  } else {
+    // Storefront orders DO collect shipping, so their line stays — always
+    // present even at $0.00, so every storefront SO has a consistent shape.
+    itemRows.push({
+      ...itemDefaults,
+      SOItemTypeID: "60",
+      ProductNumber: "Shipping",
+      ProductDescription: "Shipping",
+      ProductQuantity: "1",
+      ProductPrice: money(order.shipping ?? 0),
+      Taxable: "false",
+    });
+  }
 
   // Store-collected tax (really just MN) as an explicit ".COM Tax" line
   // (SOITEMTYPE 70 = Tax) — the amount Stripe actually charged, so the SO
