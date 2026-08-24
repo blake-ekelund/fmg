@@ -124,6 +124,64 @@ const country = (c?: string | null): string => {
 
 const money = (n: number): string => n.toFixed(2);
 
+/** ###-###-#### is the house convention: of the 1,992 phones on 2026 orders,
+ *  826 are dashed against 299 parenthesized. Flip to "parens" for the
+ *  "(###) ###-####" shape. */
+const PHONE_STYLE: "parens" | "dashed" = "dashed";
+
+/** A trailing extension — "x12", "Ext. 0000", "/8477" — all of which live in
+ *  this DB's phone column today. */
+const PHONE_EXT = /\s*(?:ext\.?|x\.?|#|\/)\s*(\d{1,6})\s*$/i;
+
+/**
+ * Punch a captured phone into one shape for the SO import.
+ *
+ * Every channel hands us a different one: Faire and MarketTime pass E.164
+ * ("+19104095874"), the storefront passes bare digits ("3617298778"), and
+ * everything CS keys by hand is punctuated. Bare digits are the odd ones out
+ * — 2026 orders in Fishbowl are 98% punctuated — so an imported order reads
+ * as obviously machine-entered next to the rest of the SO list.
+ *
+ * Only an unambiguous North American number is reformatted: ten digits, or
+ * eleven behind the "1" country code. Everything else passes through with its
+ * whitespace collapsed and nothing else touched — a foreign number whose
+ * grouping we can't know, a too-short number, or the free text that ends up in
+ * this field anyway ("NA", a contact's name, an email address). Reformatting
+ * those would either invent a wrong number or destroy the note someone left.
+ */
+export function formatPhone(raw: string | null | undefined): string {
+  const trimmed = (raw ?? "").trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+
+  const extMatch = PHONE_EXT.exec(trimmed);
+  const ext = extMatch ? extMatch[1] : "";
+  const base = extMatch ? trimmed.slice(0, extMatch.index) : trimmed;
+
+  // Letters left over once the extension is split off mean this isn't a plain
+  // phone number — leave whatever someone wrote intact.
+  if (/[A-Za-z]/.test(base)) return trimmed;
+
+  const digits = base.replace(/\D/g, "");
+  // A leading "+" on anything but country code 1 is a foreign number.
+  if (base.startsWith("+") && !digits.startsWith("1")) return trimmed;
+
+  let local = "";
+  if (digits.length === 10) local = digits;
+  else if (digits.length === 11 && digits.startsWith("1")) local = digits.slice(1);
+  if (!local) return trimmed;
+
+  const area = local.slice(0, 3);
+  const prefix = local.slice(3, 6);
+  const line = local.slice(6);
+  const formatted =
+    PHONE_STYLE === "parens"
+      ? `(${area}) ${prefix}-${line}`
+      : `${area}-${prefix}-${line}`;
+
+  // "Ext. 0000" is a placeholder some feeds fill in, not a real extension.
+  return ext && Number(ext) > 0 ? `${formatted} x${ext}` : formatted;
+}
+
 type FlatAddress = {
   name: string;
   street: string;
@@ -312,7 +370,7 @@ export function estimateRowsForOrder(
     URL: "",
     CarrierService: "DOMESTIC",
     DateExpired: "",
-    Phone: order.phone ?? "",
+    Phone: formatPhone(order.phone),
     Email: order.email ?? "",
     Category: "",
     "CF-Territory Agency": CF_DEFAULTS.agency,

@@ -4,6 +4,7 @@ import {
   nextFreeSoNumber,
   soNumBase,
   SALES_ORDER_IMPORT_HEADER,
+  formatPhone,
 } from "../fishbowlEstimate";
 import type { StorefrontOrder } from "../storefrontOrder";
 
@@ -169,6 +170,65 @@ describe("SO number allocation", () => {
     it("throws rather than scanning forever", () => {
       const wall = Array.from({ length: 1200 }, (_, i) => String(24701 + i + 1));
       expect(() => nextFreeSoNumber(24701, wall)).toThrow(/free Fishbowl SO number/);
+    });
+  });
+
+  describe("formatPhone", () => {
+    // The three shapes the channels actually hand us.
+    it("punctuates the bare digits the storefront sends", () => {
+      expect(formatPhone("3617298778")).toBe("361-729-8778");
+    });
+
+    it("drops the country code off Faire/MarketTime E.164", () => {
+      expect(formatPhone("+19104095874")).toBe("910-409-5874");
+      expect(formatPhone("17016803007")).toBe("701-680-3007");
+    });
+
+    // Every one of these punctuations is in the DB today, including the
+    // unbalanced paren someone fat-fingered.
+    it("restyles what CS already punctuated", () => {
+      expect(formatPhone("(952) 466-7417")).toBe("952-466-7417");
+      expect(formatPhone("612.805.1966")).toBe("612-805-1966");
+      expect(formatPhone("612 236 3036")).toBe("612-236-3036");
+      expect(formatPhone("206) 234-7678")).toBe("206-234-7678");
+      expect(formatPhone("+1 210-347-2453")).toBe("210-347-2453");
+    });
+
+    it("leaves an already-canonical number untouched", () => {
+      expect(formatPhone("952-466-7417")).toBe("952-466-7417");
+    });
+
+    it("keeps a real extension and drops a placeholder one", () => {
+      expect(formatPhone("7404228480/8477")).toBe("740-422-8480 x8477");
+      expect(formatPhone("(229) 794-8129  Ext. 0000")).toBe("229-794-8129");
+    });
+
+    // Free text lands in this column constantly — mangling it would destroy
+    // the only note someone left on the order.
+    it("leaves anything that isn't a plain number alone", () => {
+      expect(formatPhone("NA")).toBe("NA");
+      expect(formatPhone("GEORGE BANO")).toBe("GEORGE BANO");
+      expect(formatPhone("BARB@SWFYACHTS.COM")).toBe("BARB@SWFYACHTS.COM");
+      expect(formatPhone("443465267")).toBe("443465267");
+      expect(formatPhone("  612   236  3036  x2 ")).toBe("612-236-3036 x2");
+    });
+
+    it("won't guess the grouping of a foreign number", () => {
+      expect(formatPhone("+44 20 7946 0958")).toBe("+44 20 7946 0958");
+      expect(formatPhone("+33 6 12 34 56 78")).toBe("+33 6 12 34 56 78");
+    });
+
+    it("is empty for a missing phone", () => {
+      expect(formatPhone(null)).toBe("");
+      expect(formatPhone("   ")).toBe("");
+    });
+
+    it("reaches the SO import row", () => {
+      const { rows } = estimateRowsForOrder(
+        makeOrder({ phone: "3617298778" }),
+        "MARTIN BOOT CO",
+      );
+      expect(rows[1][col("Phone")]).toBe("361-729-8778");
     });
   });
 });
