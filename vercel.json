@@ -45,6 +45,10 @@
       "schedule": "0 0,1,8,9,16,17 * * *"
     },
     {
+      "path": "/api/cron/faire-inventory-sync",
+      "schedule": "0 1,2,9,10,17,18 * * *"
+    },
+    {
       "path": "/api/cron/pointb-monitor",
       "schedule": "0 11,12 * * *"
     },
