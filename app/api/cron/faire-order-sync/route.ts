@@ -3,6 +3,7 @@ import { getAuthUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { faireConfigured, getFaireOrders, type FaireOrder } from "@/lib/faire";
 import { loadCustomerIndex, matchCustomer } from "@/lib/customerMatch";
+import { expandTesterLines, resolveTesterParts } from "@/lib/faireTester";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -24,6 +25,12 @@ export const maxDuration = 300;
  *    Faire owns retailer communication; we must not email around them.
  *  - channel='wholesale', payment_status='paid' — Faire guarantees payment,
  *    and the estimate sweep auto-pushes wholesale orders.
+ *  - Testers get their own line. Faire flags them on the regular product line
+ *    (includes_tester + tester_price_cents) instead of sending a line, so
+ *    lib/faireTester.ts expands them onto the real Fishbowl tester part
+ *    (110-00-05 → 110-01-05). Fix-forward only: already-imported orders keep
+ *    their original short lines, because ops hand-keyed most of them into
+ *    Fishbowl WITH the testers and a backfill would double-count.
  *
  * No-ops cleanly (with a note) until FAIRE_ACCESS_TOKEN and the source/
  * external_ref migration are in place, so it can ship dark.
@@ -89,27 +96,31 @@ export async function GET(request: Request) {
   // No match → fishbowl_customer stays null and the Purchases list flags it.
   const customerIndex = await loadCustomerIndex();
 
+  // Faire flags testers on the regular product line instead of sending them as
+  // their own line (lib/faireTester.ts). Resolve every flagged SKU to its
+  // Fishbowl tester part up front — one query for the whole batch rather than
+  // one per order.
+  const fresh = faireOrders.filter((o) => !seen.has(o.displayId));
+  const testerParts = await resolveTesterParts(
+    admin,
+    fresh.flatMap((o) => o.items.filter((it) => it.includesTester).map((it) => it.sku)),
+  );
+
   const imported: Array<Record<string, unknown>> = [];
   const skippedNoSku: Array<Record<string, unknown>> = [];
+  const testersUnmapped: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
 
-  for (const o of faireOrders) {
-    if (seen.has(o.displayId)) continue;
-
-    const items = o.items.map((it, i) => ({
-      line_no: i + 1,
-      type: "sale",
-      part: it.sku ?? undefined,
-      name: it.name ?? "Faire item",
-      form: it.variant,
-      price: it.price,
-      quantity: it.quantity,
-      total: it.price * it.quantity,
-    }));
+  for (const o of fresh) {
+    // Testers become real lines here — one per flagged line, qty 1, at the
+    // tester price Faire sent. `subtotal` therefore includes them.
+    const expanded = expandTesterLines(o.items, testerParts);
+    const items = expanded.items;
     // An order whose items carry no SKUs can't be keyed into Fishbowl —
     // import it anyway (visible in Purchases) but flag it in the report so
-    // the SKU mapping gets fixed in Faire.
-    const skuless = items.filter((it) => !it.part).length;
+    // the SKU mapping gets fixed in Faire. Counted off the Faire items, not
+    // the expanded lines, so unmapped testers report separately below.
+    const skuless = o.items.filter((it) => !it.sku).length;
 
     const addr = o.address;
     const orderAddress = addr
@@ -149,24 +160,32 @@ export async function GET(request: Request) {
       ship_to: orderAddress,
       bill_to: orderAddress,
       items,
-      subtotal: o.subtotal,
+      // From the expanded lines, so the stored total always equals what the
+      // line items add up to — testers included.
+      subtotal: expanded.subtotal,
       shipping: 0,
       tax: 0,
       discount: 0,
-      total: o.subtotal,
+      total: expanded.subtotal,
       note: `Faire order ${o.displayId} (${o.state}) — imported by faire-order-sync.`,
       fishbowl_customer: match?.name ?? null,
       fishbowl_customer_id: match?.customerId ?? null,
     };
 
+    const testerCount = o.items.filter((it) => it.includesTester).length;
+
     if (dry) {
       imported.push({
         ref: `${o.displayId}-FAIRE`,
         items: items.length,
-        subtotal: o.subtotal,
+        testers: testerCount,
+        subtotal: expanded.subtotal,
         customer: match ? `${match.name} (${match.via})` : "NO MATCH",
         dry: true,
       });
+      if (expanded.unmapped.length) {
+        testersUnmapped.push({ ref: `${o.displayId}-FAIRE`, testers: expanded.unmapped });
+      }
       continue;
     }
     let { error } = await admin.from("orders").insert(row);
@@ -183,10 +202,17 @@ export async function GET(request: Request) {
     imported.push({
       ref: `${o.displayId}-FAIRE`,
       items: items.length,
-      subtotal: o.subtotal,
+      testers: testerCount,
+      subtotal: expanded.subtotal,
       customer: match ? `${match.name} (${match.via})` : "NO MATCH",
     });
     if (skuless > 0) skippedNoSku.push({ ref: `${o.displayId}-FAIRE`, itemsWithoutSku: skuless });
+    // A tester with no Fishbowl part still rides on the order (the dollars are
+    // real) but carries no part, so it won't reach the SO. Report it loudly —
+    // the fix is a tester part in Fishbowl, not a code change.
+    if (expanded.unmapped.length) {
+      testersUnmapped.push({ ref: `${o.displayId}-FAIRE`, testers: expanded.unmapped });
+    }
   }
 
   // Self-heal: stamp any previously-imported marketplace order that still has
@@ -223,6 +249,7 @@ export async function GET(request: Request) {
     imported,
     rematched,
     itemsMissingSku: skippedNoSku,
+    testersUnmapped,
     failed,
     dry,
   });

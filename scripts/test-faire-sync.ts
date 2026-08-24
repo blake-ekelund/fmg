@@ -17,6 +17,7 @@ for (const line of readFileSync(path.join(process.cwd(), ".env.local"), "utf8").
 
 async function main() {
   const { faireConfigured, getFaireOrders } = await import("../lib/faire");
+  const { testerPartFor } = await import("../lib/faireTester");
   if (!faireConfigured()) {
     console.log("FAIRE_ACCESS_TOKEN is not set in .env.local — nothing to test yet.");
     return;
@@ -31,6 +32,13 @@ async function main() {
     for (const it of o.items) {
       console.log(`   ${(it.sku ?? "(NO SKU)").padEnd(14)} ×${String(it.quantity).padEnd(4)} $${it.price.toFixed(2).padEnd(8)} ${it.name ?? ""}${it.variant ? ` · ${it.variant}` : ""}`);
       if (it.sku) allSkus.add(it.sku);
+      // Faire flags the tester on the regular line; the import expands it onto
+      // the Fishbowl tester part (see lib/faireTester.ts).
+      if (it.includesTester) {
+        const tp = testerPartFor(it.sku);
+        console.log(`   ${(tp ?? "(NO TESTER PART)").padEnd(14)} ×1    $${it.testerPrice.toFixed(2).padEnd(8)} └ TESTER`);
+        if (tp) allSkus.add(tp);
+      }
     }
   }
 

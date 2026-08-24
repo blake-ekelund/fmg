@@ -61,6 +61,15 @@ export type FaireOrderItem = {
   quantity: number;
   /** Wholesale unit price in dollars. */
   price: number;
+  /**
+   * Faire ships testers as a FLAG on the regular line, never as a line of
+   * their own — see lib/faireTester.ts, which turns this into a real line so
+   * the tester reaches Fishbowl. One tester per flagged line, whatever the
+   * line's quantity.
+   */
+  includesTester: boolean;
+  /** Tester unit price in dollars, as Faire sent it. Never derive this. */
+  testerPrice: number;
 };
 
 export type FaireOrder = {
@@ -126,6 +135,8 @@ function parseOrder(raw: unknown): FaireOrder | null {
       variant: str(r.variant_name),
       quantity: Number(r.quantity) || 0,
       price: centsToDollars(r.price_cents),
+      includesTester: r.includes_tester === true,
+      testerPrice: centsToDollars(r.tester_price_cents),
     };
   });
   return {
@@ -137,7 +148,13 @@ function parseOrder(raw: unknown): FaireOrder | null {
       str(asRecord(o.retailer).name) ?? str(o.retailer_name) ?? parseAddress(o.address)?.company ?? null,
     address: parseAddress(o.address),
     items,
-    subtotal: items.reduce((s, it) => s + it.price * it.quantity, 0),
+    // Testers count toward the subtotal — they are billed, not free (zero $0
+    // testers across 251 in a 90-day sample). Omitting them is what left every
+    // affected order short of what Faire actually charged the retailer.
+    subtotal: items.reduce(
+      (s, it) => s + it.price * it.quantity + (it.includesTester ? it.testerPrice : 0),
+      0,
+    ),
   };
 }
 
