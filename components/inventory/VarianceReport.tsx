@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { RefreshCw, AlertTriangle, Download } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 import type { VarianceRow, VarianceSummary, VarianceFlag } from "@/lib/inventoryVariance";
 
 type Payload = {
@@ -46,7 +47,14 @@ export default function VarianceReport() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/inventory/variance", { cache: "no-store" });
+      // Internal API routes authenticate off an Authorization header, NOT the
+      // session cookie — a bare fetch() here is always a 401.
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const res = await fetch("/api/inventory/variance", {
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `Request failed (${res.status})`);
       setData(json as Payload);
