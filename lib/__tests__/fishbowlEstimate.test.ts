@@ -5,6 +5,10 @@ import {
   soNumBase,
   SALES_ORDER_IMPORT_HEADER,
   formatPhone,
+  parseCustomerTerritory,
+  applyTerritory,
+  paymentTermsFor,
+  FB_TERMS,
 } from "../fishbowlEstimate";
 import type { StorefrontOrder } from "../storefrontOrder";
 
@@ -73,6 +77,30 @@ describe("estimateRowsForOrder", () => {
         const types = rows.slice(1).map((r) => r[col("SOItemTypeID")]);
         expect(types.filter((t) => t === "40" || t === "60")).toHaveLength(1);
       }
+    });
+  });
+
+  describe("TaxRateName", () => {
+    // Faire and MarketTime remit sales tax themselves, so the SO must not imply
+    // we collected any. "None" is also Fishbowl's default rate.
+    it.each(["faire", "markettime"])("%s orders take None", (source) => {
+      const { rows } = estimateRowsForOrder(makeOrder({ source } as never), "MARTIN BOOT CO");
+      expect(rows[1][col("TaxRateName")]).toBe("None");
+    });
+
+    // The storefront collects MN tax through Stripe and rides the exact amount
+    // as its own line, so it keeps the 0% ".COM Tax" rate.
+    it("storefront orders keep .COM Tax", () => {
+      const { rows } = estimateRowsForOrder(makeOrder({ source: null } as never), "MARTIN BOOT CO");
+      expect(rows[1][col("TaxRateName")]).toBe(".COM Tax");
+    });
+
+    it("marketplace orders carry no tax line at all", () => {
+      const { rows } = estimateRowsForOrder(
+        makeOrder({ source: "faire", tax: 0 } as never),
+        "MARTIN BOOT CO",
+      );
+      expect(rows.slice(1).map((r) => r[col("SOItemTypeID")])).not.toContain("70");
     });
   });
 
@@ -229,6 +257,146 @@ describe("SO number allocation", () => {
         "MARTIN BOOT CO",
       );
       expect(rows[1][col("Phone")]).toBe("361-729-8778");
+    });
+  });
+
+  // Real customFields blobs copied off this instance's customer records.
+  const CF_FULL = JSON.stringify({
+    "1": { name: "Territory Agency", type: "Text", value: "BLONDE COMET" },
+    "2": { name: "Customer Since", type: "Text", value: "5/2/2019" },
+    "4": { name: "Territory Code", type: "Text", value: "101" },
+    "5": { name: "Territory Sales Rep Name", type: "Text", value: "CRAIG SEWARD" },
+  });
+
+  describe("parseCustomerTerritory", () => {
+    it("reads agency, code and rep off the blob", () => {
+      expect(parseCustomerTerritory(CF_FULL)).toEqual({
+        agency: "BLONDE COMET",
+        code: "101",
+        rep: "CRAIG SEWARD",
+      });
+    });
+
+    // Fishbowl stores "NA" in a field nobody filled in — 1 of the 400 sampled
+    // customers has exactly this shape.
+    it("treats Fishbowl's \"NA\" filler as empty", () => {
+      const cf = JSON.stringify({
+        "1": { name: "Territory Agency", type: "Text", value: "BLONDE COMET" },
+        "4": { name: "Territory Code", type: "Text", value: "101" },
+        "5": { name: "Territory Sales Rep Name", type: "Text", value: "NA" },
+      });
+      expect(parseCustomerTerritory(cf)).toEqual({
+        agency: "BLONDE COMET",
+        code: "101",
+        rep: null,
+      });
+    });
+
+    it("matches on field name, not the numeric key", () => {
+      const renumbered = JSON.stringify({
+        "77": { name: "Territory Agency", type: "Text", value: "SEWARD" },
+        "88": { name: "Territory Code", type: "Text", value: "200" },
+      });
+      const t = parseCustomerTerritory(renumbered);
+      expect(t.agency).toBe("SEWARD");
+      expect(t.code).toBe("200");
+    });
+
+    it("is all-null for junk, empty or missing input", () => {
+      const none = { agency: null, code: null, rep: null };
+      expect(parseCustomerTerritory(null)).toEqual(none);
+      expect(parseCustomerTerritory("")).toEqual(none);
+      expect(parseCustomerTerritory("not json")).toEqual(none);
+      expect(parseCustomerTerritory("[1,2,3]")).toEqual(none);
+      expect(parseCustomerTerritory('{"1":null}')).toEqual(none);
+    });
+  });
+
+  describe("applyTerritory", () => {
+    const build = () => estimateRowsForOrder(makeOrder(), "MARTIN BOOT CO").rows;
+
+    it("stamps all six custom fields plus Salesman", () => {
+      const rows = applyTerritory(
+        build(),
+        parseCustomerTerritory(CF_FULL),
+        new Set(["BLONDE COMET"]),
+      );
+      const r = rows[1];
+      expect(r[col("CF-Territory Agency")]).toBe("BLONDE COMET");
+      expect(r[col("CF-Order Agency")]).toBe("BLONDE COMET");
+      expect(r[col("CF-Territory Code")]).toBe("101");
+      expect(r[col("CF-Order Agency Code")]).toBe("101");
+      expect(r[col("CF-Territory Sales Rep Name")]).toBe("CRAIG SEWARD");
+      expect(r[col("CF-Order Rep")]).toBe("CRAIG SEWARD");
+      expect(r[col("Salesman")]).toBe("BLONDE COMET");
+    });
+
+    // Salesman must match a Fishbowl username exactly or the import rejects
+    // the row, so an agency with no user of its own keeps "admin".
+    it("leaves Salesman alone when the agency has no Fishbowl user", () => {
+      const rows = applyTerritory(build(), parseCustomerTerritory(CF_FULL), new Set(["SEWARD"]));
+      expect(rows[1][col("Salesman")]).toBe("admin");
+      expect(rows[1][col("CF-Territory Agency")]).toBe("BLONDE COMET");
+    });
+
+    it("falls back per field, not all-or-nothing", () => {
+      const partial = { agency: "SEWARD", code: null, rep: null };
+      const rows = applyTerritory(build(), partial, new Set(["SEWARD"]));
+      expect(rows[1][col("CF-Territory Agency")]).toBe("SEWARD");
+      expect(rows[1][col("CF-Territory Code")]).toBe("100"); // house default kept
+      expect(rows[1][col("CF-Territory Sales Rep Name")]).toBe("JULIE EKELUND");
+    });
+
+    it("is a no-op for a customer with no territory at all", () => {
+      const before = build();
+      const after = applyTerritory(build(), { agency: null, code: null, rep: null });
+      expect(after).toEqual(before);
+    });
+
+    it("stamps every line, not just the first", () => {
+      const order = makeOrder({
+        items: [
+          { line_no: 1, part: "A", name: "A", quantity: 1, price: 1, total: 1 },
+          { line_no: 2, part: "B", name: "B", quantity: 1, price: 1, total: 1 },
+        ],
+      } as Partial<StorefrontOrder>);
+      const rows = applyTerritory(
+        estimateRowsForOrder(order, "MARTIN BOOT CO").rows,
+        parseCustomerTerritory(CF_FULL),
+      );
+      for (const r of rows.slice(1)) expect(r[col("CF-Order Agency")]).toBe("BLONDE COMET");
+      expect(rows[0][col("CF-Order Agency")]).toBe("CF-Order Agency"); // header intact
+    });
+  });
+
+  describe("paymentTermsFor", () => {
+    it("books Faire under its own terms, never plain NET 30", () => {
+      expect(paymentTermsFor(makeOrder({ source: "faire" } as Partial<StorefrontOrder>)))
+        .toBe(FB_TERMS.faireNet30);
+    });
+
+    it("Faire's own terms win over anything captured on the order", () => {
+      const o = makeOrder({ source: "faire", payment_terms: "CREDIT CARD" } as Partial<StorefrontOrder>);
+      expect(paymentTermsFor(o)).toBe(FB_TERMS.faireNet30);
+    });
+
+    it("honours terms captured on the order", () => {
+      const o = makeOrder({ source: "markettime", payment_terms: "CREDIT CARD" } as Partial<StorefrontOrder>);
+      expect(paymentTermsFor(o)).toBe(FB_TERMS.creditCard);
+    });
+
+    // Unclassified MarketTime text stores null; NET 30 is the recoverable error.
+    it("falls back to NET 30 when nothing was captured", () => {
+      expect(paymentTermsFor(makeOrder({ payment_terms: null } as Partial<StorefrontOrder>)))
+        .toBe(FB_TERMS.net30);
+      expect(paymentTermsFor(makeOrder({ payment_terms: "  " } as Partial<StorefrontOrder>)))
+        .toBe(FB_TERMS.net30);
+    });
+
+    it("reaches the SO import row", () => {
+      const o = makeOrder({ source: "markettime", payment_terms: "CREDIT CARD" } as Partial<StorefrontOrder>);
+      const { rows } = estimateRowsForOrder(o, "MARTIN BOOT CO");
+      expect(rows[1][col("PaymentTerms")]).toBe("CREDIT CARD");
     });
   });
 });

@@ -20,6 +20,9 @@ export type MarketTimeImportResult = {
   imported: Array<Record<string, unknown>>;
   rematched: Array<Record<string, unknown>>;
   failed: Array<Record<string, unknown>>;
+  /** Orders whose MarketTime payment text couldn't be classified — they book
+   *  NET 30 by fallback and want a human eye. */
+  termsUnclassified: Array<Record<string, unknown>>;
   dry: boolean;
   note?: string;
 };
@@ -32,7 +35,7 @@ export async function importMarketTimeOrders(
 
   const orders = await getMarketTimeOrders();
   if (orders.length === 0) {
-    return { checked: 0, imported: [], rematched: [], failed: [], dry };
+    return { checked: 0, imported: [], rematched: [], failed: [], termsUnclassified: [], dry };
   }
 
   const refs = orders.map((o) => o.displayId);
@@ -46,6 +49,7 @@ export async function importMarketTimeOrders(
       return {
         checked: orders.length,
         imported: [],
+        termsUnclassified: [],
         rematched: [],
         failed: [],
         dry,
@@ -59,6 +63,7 @@ export async function importMarketTimeOrders(
   const customerIndex = await loadCustomerIndex();
   const imported: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
+  const termsUnclassified: Array<Record<string, unknown>> = [];
 
   for (const o of orders) {
     if (seen.has(o.displayId)) continue;
@@ -104,7 +109,13 @@ export async function importMarketTimeOrders(
       channel: "wholesale",
       status: "new",
       payment_status: "paid",
-      payment_terms: "MARKETTIME",
+      // The Fishbowl terms name MarketTime's payment fields resolve to, so the
+      // estimate books card orders as CREDIT CARD instead of invoicing money
+      // that's already collected. Null when the free text couldn't be
+      // classified — the estimate then falls back to NET 30 and the sync
+      // reports it under termsUnclassified. This used to be the literal
+      // "MARKETTIME", which matches no Fishbowl payment term at all.
+      payment_terms: o.paymentTerms,
       business_name: businessName,
       contact_name: o.contactName ?? businessName,
       email: o.email,
@@ -128,8 +139,12 @@ export async function importMarketTimeOrders(
         items: items.length,
         subtotal: o.subtotal,
         customer: match ? `${match.name} (${match.via})` : "NO MATCH",
+        terms: o.paymentTerms ?? `? (${o.paymentTermRaw ?? "blank"})`,
         dry: true,
       });
+      if (!o.paymentTerms) {
+        termsUnclassified.push({ ref: `${o.displayId}-MKTTIME`, raw: o.paymentTermRaw });
+      }
       continue;
     }
     let { error } = await admin.from("orders").insert(row);
@@ -147,7 +162,11 @@ export async function importMarketTimeOrders(
       items: items.length,
       subtotal: o.subtotal,
       customer: match ? `${match.name} (${match.via})` : "NO MATCH",
+      terms: o.paymentTerms ?? `? (${o.paymentTermRaw ?? "blank"})`,
     });
+    if (!o.paymentTerms) {
+      termsUnclassified.push({ ref: `${o.displayId}-MKTTIME`, raw: o.paymentTermRaw });
+    }
   }
 
   // Self-heal: stamp any previously-imported unmatched MarketTime order.
@@ -177,5 +196,5 @@ export async function importMarketTimeOrders(
     }
   }
 
-  return { checked: orders.length, imported, rematched, failed, dry };
+  return { checked: orders.length, imported, rematched, failed, termsUnclassified, dry };
 }

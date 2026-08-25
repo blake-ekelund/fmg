@@ -25,7 +25,7 @@
  */
 
 import { SALES_ORDERS_SQL, LINE_ITEMS_SQL, INVENTORY_SQL, SHIPMENTS_SQL } from "./fishbowlQueries";
-import { nextFreeSoNumber } from "./fishbowlEstimate";
+import { applyTerritory, nextFreeSoNumber, parseCustomerTerritory } from "./fishbowlEstimate";
 import { expandKitRows, isMultiLevelKit, type KitEdge } from "./fishbowlKits";
 
 const APP_NAME = process.env.FISHBOWL_APP_NAME || "FMG Storefront";
@@ -345,12 +345,34 @@ export async function createEstimate(
   return withSession(async (call) => {
     const customers = await dataQueryWith(
       call,
-      `SELECT id, accountId FROM customer WHERE name = ${sqlQuote(customerName)} AND activeFlag = 1`,
+      `SELECT id, accountId, customFields FROM customer WHERE name = ${sqlQuote(customerName)} AND activeFlag = 1`,
     );
     if (customers.length === 0) {
       throw new Error(
         `Fishbowl has no active customer named "${customerName}" — the import would auto-create one, so this is blocked. Add/match the customer in Fishbowl first.`,
       );
+    }
+
+    // Real territory attribution. The customer record carries Territory Agency
+    // / Code / Sales Rep Name, and the rows were built with house defaults
+    // because estimateRowsForOrder() is pure and never saw the customer — so
+    // stamp the customer's own values over them now, on the session we already
+    // have open. A customer with no territory keeps the defaults.
+    const territory = parseCustomerTerritory(
+      customers[0].customFields as string | null,
+    );
+    if (territory.agency || territory.code || territory.rep) {
+      // Salesman must match an existing Fishbowl username exactly or the import
+      // rejects the row; each agency has its own user (sysuser "SEWARD" carries
+      // territory code 200), but not every one does.
+      const users = await dataQueryWith(
+        call,
+        `SELECT userName FROM sysuser WHERE activeFlag = 1`,
+      );
+      const salesmanUsers = new Set(
+        users.map((u) => String(u.userName ?? "").trim().toUpperCase()).filter(Boolean),
+      );
+      rows = applyTerritory(rows, territory, salesmanUsers);
     }
 
     // Multi-level kits break the importer AFTER it has committed the lines it

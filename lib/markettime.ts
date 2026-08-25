@@ -23,6 +23,8 @@
  * built here yet — import + Fishbowl push is the current scope.
  */
 
+import { ACTIVE_NET_TERMS, FB_TERMS } from "./fishbowlEstimate";
+
 const BASE = "https://publicapi.markettime.com";
 
 function apiKey(): string | null {
@@ -117,6 +119,14 @@ export type MarketTimeOrder = {
   subtotal: number;
   shipping: number;
   discount: number;
+  /** Fishbowl payment-terms name, or null when MarketTime's free text couldn't
+   *  be classified. See classifyMarketTimeTerms(). */
+  paymentTerms: string | null;
+  /** MarketTime's raw `paymentTerm` text, kept for the sync report so an
+   *  unclassified value is visible rather than silently defaulted. */
+  paymentTermRaw: string | null;
+  /** True when MarketTime has a card on the order (isCCAttached / a token). */
+  cardOnOrder: boolean;
 };
 
 async function marketTimePost(path: string, body: unknown): Promise<Rec> {
@@ -151,6 +161,47 @@ function shipAddress(o: Rec): MarketTimeAddress | null {
     phone: str(o.shipToPhone),
     email: str(o.shipToEmail),
   };
+}
+
+/** Card brands that show up in MarketTime's free-text `paymentTerm`. */
+const CARD_TEXT = /\b(credit\s*card|visa|master\s*card|mastercard|amex|american\s*express|discover|cc)\b/i;
+/**
+ * Net-day terms, however the writer abbreviated them. Real values in this
+ * account: "Net 30", "Net 30 Days", "NET 30 HOSPITAL ONLY", "NET30", "N30 HOSP
+ * ONLY", "N/30", "N30 - CASINO", "Net 45", "NET60". The day count is captured
+ * rather than matched against 30 alone — reading a Net 45 as NET 30 would put
+ * the invoice-chase 15 days early, which is exactly the kind of quiet wrongness
+ * this whole classifier exists to stop.
+ */
+const NET_TEXT = /\bn(?:et)?\s*\/?\s*(\d{2,3})\b/i;
+
+/**
+ * Decide which Fishbowl payment terms a MarketTime order books under.
+ *
+ * MarketTime sends three payment signals and we used to read none of them, so
+ * every imported order booked as NET 30 — including the card orders, which is
+ * an invoice you'd chase for money already collected. Over a 600-order sample
+ * this resolves 285 to CREDIT CARD and 264 to a net term, leaving 48.
+ *
+ * `isCCAttached` and `paymentToken` are structured and trusted first; the free
+ * text is only pattern-matched after. Anything left — "SEE NOTES" (36), a blank
+ * field (12), a value nobody has seen yet — returns null rather than a guess.
+ *
+ * Null deliberately falls back to NET 30 downstream, not to CREDIT CARD. The
+ * two errors are not symmetric: a NET 30 order mislabelled CREDIT CARD reads as
+ * already paid and never gets collected, while a card order mislabelled NET 30
+ * surfaces the moment someone looks at AR. Guess toward the recoverable one.
+ */
+export function classifyMarketTimeTerms(o: Rec): string | null {
+  if (o.isCCAttached === true || str(o.paymentToken)) return FB_TERMS.creditCard;
+  const text = str(o.paymentTerm);
+  if (!text) return null;
+  if (CARD_TEXT.test(text)) return FB_TERMS.creditCard;
+  const net = NET_TEXT.exec(text);
+  // An unknown day count (NET 90, NET 10 — both switched off in Fishbowl) is
+  // left unclassified rather than rounded to the nearest term we do have.
+  if (net) return ACTIVE_NET_TERMS[net[1]] ?? null;
+  return null;
 }
 
 function parseItem(raw: unknown): MarketTimeOrderItem {
@@ -202,6 +253,9 @@ function parseOrder(raw: unknown): MarketTimeOrder | null {
     subtotal: items.reduce((s, it) => s + it.price * it.quantity, 0),
     shipping: num(o.estimatedShippingCost),
     discount: num(o.orderDiscount),
+    paymentTerms: classifyMarketTimeTerms(o),
+    paymentTermRaw: str(o.paymentTerm),
+    cardOnOrder: o.isCCAttached === true || !!str(o.paymentToken),
   };
 }
 

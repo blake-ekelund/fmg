@@ -97,16 +97,111 @@ export const SALES_ORDER_IMPORT_HEADER = [
 type HeaderColumn = (typeof SALES_ORDER_IMPORT_HEADER)[number];
 type RowValues = Partial<Record<HeaderColumn, string>>;
 
-/** Defaults for the required SO custom fields until real rep attribution is
- *  wired up. All four agency fields — Territory Agency, Territory Code,
- *  Order Agency, Order Agency Code — are "100" per the order-entry spec
- *  (2026-08-01). */
+/** Fallbacks for the required SO custom fields, used only when the customer
+ *  carries no territory of its own. House is agency "100" per the order-entry
+ *  spec (2026-08-01); real attribution now comes off the customer record, see
+ *  parseCustomerTerritory(). */
 const CF_DEFAULTS = {
   agency: "100",
   agencyCode: "100",
   rep: "JULIE EKELUND",
   orderSource: "WEB",
 };
+
+/** Fishbowl writes "NA" into a custom field that was never filled in, so an
+ *  empty territory arrives as the string "NA" rather than null. */
+const isBlankCf = (v: string | null | undefined): boolean => {
+  const s = (v ?? "").trim();
+  return !s || s.toUpperCase() === "NA";
+};
+
+export type CustomerTerritory = {
+  agency: string | null;
+  code: string | null;
+  rep: string | null;
+};
+
+/**
+ * Pull territory attribution off a Fishbowl customer's `customFields` blob.
+ *
+ * Every active customer in this instance carries Territory Agency, Territory
+ * Code and Territory Sales Rep Name (400/400 sampled had a code, 399/400 had
+ * an agency and a rep), which is what the SO's six required custom fields are
+ * supposed to echo. We used to hardcode agency "100" / JULIE EKELUND on every
+ * pushed estimate, which misattributed every order that wasn't house.
+ *
+ * Read by field NAME, not by the numeric key — the keys are per-instance and
+ * would silently point at the wrong field if this DB were ever rebuilt.
+ */
+export function parseCustomerTerritory(
+  customFields: string | null | undefined,
+): CustomerTerritory {
+  const empty: CustomerTerritory = { agency: null, code: null, rep: null };
+  if (!customFields) return empty;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(customFields);
+  } catch {
+    return empty;
+  }
+  if (!parsed || typeof parsed !== "object") return empty;
+
+  const byName = new Map<string, string>();
+  for (const entry of Object.values(parsed as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    const { name, value } = entry as { name?: unknown; value?: unknown };
+    if (typeof name === "string" && typeof value === "string") {
+      byName.set(name.trim().toLowerCase(), value.trim());
+    }
+  }
+  const pick = (name: string): string | null => {
+    const v = byName.get(name);
+    return isBlankCf(v) ? null : (v as string).toUpperCase();
+  };
+  return {
+    agency: pick("territory agency"),
+    code: pick("territory code"),
+    rep: pick("territory sales rep name"),
+  };
+}
+
+/**
+ * Fishbowl payment-terms names, which the import matches by exact string.
+ * Verified active against this instance 2026-08-25; the counts are 2026 SOs.
+ */
+export const FB_TERMS = {
+  net30: "NET 30", // 1,246
+  creditCard: "CREDIT CARD", // 437
+  faireNet30: "FAIRE NET 30", // 253 — Faire's own terms, not plain NET 30
+  net45: "NET 45",
+  net60: "NET 60",
+} as const;
+
+/**
+ * The net-day terms Fishbowl still has switched on. NET 10/15/90/180 exist in
+ * the table but are all inactive, so resolving a term to one of those would
+ * hand the import a name it rejects — better to leave it unclassified and let
+ * a human place it.
+ */
+export const ACTIVE_NET_TERMS: Record<string, string> = {
+  "30": FB_TERMS.net30,
+  "45": FB_TERMS.net45,
+  "60": FB_TERMS.net60,
+};
+
+/**
+ * Which Fishbowl payment terms an order books under.
+ *
+ * Faire settles on its own schedule and has a dedicated terms name in this DB,
+ * so Faire orders always take it. Everything else honours the terms captured on
+ * the order (MarketTime sends them per-order; see classifyMarketTimeTerms) and
+ * falls back to NET 30 — the historical default and still 2 of every 3 SOs.
+ */
+export function paymentTermsFor(order: StorefrontOrder): string {
+  if (order.source === "faire") return FB_TERMS.faireNet30;
+  const captured = (order.payment_terms ?? "").trim();
+  return captured || FB_TERMS.net30;
+}
 
 const usDate = (iso: string): string => {
   const d = new Date(iso);
@@ -325,12 +420,16 @@ export function estimateRowsForOrder(
   // PO and CF-Order Source instead.
   const isMarketplaceSource = order.source === "faire" || order.source === "markettime";
 
-  // The STORE (Stripe Tax) is the source of truth for tax, not Fishbowl — so
-  // the SO's own rate is ".COM Tax" (0%, taxrate id 3) and never auto-computes.
-  // The exact amount the store collected rides as an explicit ".COM Tax" line
-  // (SOITEMTYPE 70), matching the established convention (185 existing SOs).
-  // This keeps the SO total reconciled to the Stripe charge to the penny.
-  const taxRateName = ".COM Tax";
+  // Marketplace orders take "None" (taxrate id 1, Fishbowl's own default and
+  // what 2,011 of 2,026 SOs this year carry). Faire and MarketTime remit sales
+  // tax themselves, so we never collect a cent on those and the SO should not
+  // imply we did.
+  //
+  // Storefront orders keep ".COM Tax" (0%, id 3), which never auto-computes:
+  // the STORE (Stripe Tax) is the source of truth there, and the exact amount
+  // it collected rides as an explicit ".COM Tax" line (SOITEMTYPE 70) so the SO
+  // reconciles to the Stripe charge to the penny.
+  const taxRateName = isMarketplaceSource ? "None" : ".COM Tax";
 
   const header: RowValues = {
     // Blank SONum → Fishbowl assigns the next number in its own sequence.
@@ -361,7 +460,7 @@ export function estimateRowsForOrder(
     // Must match an existing Fishbowl user — "admin" verified active 2026-07-31.
     Salesman: "admin",
     ShippingTerms: "Prepaid",
-    PaymentTerms: "NET 30",
+    PaymentTerms: paymentTermsFor(order),
     FOB: "Origin",
     Note: "",
     QuickBooksClassName: "WEB",
@@ -488,4 +587,56 @@ export function estimateRowsForOrder(
       ...itemRows.map((item) => toRow({ ...header, ...item })),
     ],
   };
+}
+
+/**
+ * Stamp a customer's real territory onto already-built import rows.
+ *
+ * The rows are built before the customer is looked up (estimateRowsForOrder is
+ * pure and does no I/O), so this patches them in place afterwards — the same
+ * shape as the kit expansion and address backfill that already run inside
+ * createEstimate against the open Fishbowl session.
+ *
+ * Each field falls back independently: a customer with an agency but no rep
+ * name keeps its agency and takes the default rep, rather than losing both.
+ * `salesmanUsers` is the set of active Fishbowl usernames — the Salesman column
+ * must match one exactly or the import rejects the row, so an agency with no
+ * user of its own leaves Salesman alone.
+ */
+export function applyTerritory(
+  rows: string[][],
+  territory: CustomerTerritory,
+  salesmanUsers?: ReadonlySet<string>,
+): string[][] {
+  if (!territory.agency && !territory.code && !territory.rep) return rows;
+  const header = rows[0] ?? [];
+  const at = (name: string) => header.indexOf(name);
+  const cols = {
+    territoryAgency: at("CF-Territory Agency"),
+    territoryCode: at("CF-Territory Code"),
+    territoryRep: at("CF-Territory Sales Rep Name"),
+    orderAgency: at("CF-Order Agency"),
+    orderAgencyCode: at("CF-Order Agency Code"),
+    orderRep: at("CF-Order Rep"),
+    salesman: at("Salesman"),
+  };
+
+  // Salesman is the agency's own Fishbowl user (sysuser "BLONDE COMET" carries
+  // territory code 101 in lastName). Only swap it for a user that exists.
+  const salesman =
+    territory.agency && salesmanUsers?.has(territory.agency) ? territory.agency : null;
+
+  const set = (row: string[], col: number, value: string | null) => {
+    if (col >= 0 && value) row[col] = value;
+  };
+  for (const row of rows.slice(1)) {
+    set(row, cols.territoryAgency, territory.agency);
+    set(row, cols.orderAgency, territory.agency);
+    set(row, cols.territoryCode, territory.code);
+    set(row, cols.orderAgencyCode, territory.code);
+    set(row, cols.territoryRep, territory.rep);
+    set(row, cols.orderRep, territory.rep);
+    set(row, cols.salesman, salesman);
+  }
+  return rows;
 }
