@@ -434,3 +434,94 @@ export async function getOrderFeesMany(orderIds: number[]): Promise<Map<number, 
 }
 
 export const POINTB_MARKUP = 1.25; // <ShipPercent>0.25</ShipPercent> from LilyPad config
+
+/* ── Synapse inventory ────────────────────────────────────────────────── */
+
+/** One Synapse stock row, exactly as the WMS returns it: per item PER LOT and
+ *  per status, so an item appears several times. */
+export type SynapseInventoryRow = {
+  item: string;
+  lot: string;
+  uom: string;
+  qty: number;
+  /** AV Available / QC QC-Hold / SU Suspense. */
+  inventoryStatus: string;
+  inventoryStatusDesc: string;
+  /** A Available / PN PickNotShipd / CM Committed. CM rows carry NEGATIVE qty. */
+  status: string;
+  statusDesc: string;
+};
+
+/** Per-item rollup of the raw rows — what a comparison against Fishbowl uses. */
+export type SynapseItemStock = {
+  item: string;
+  /** Every row summed, commitments included. Compare against Fishbowl's
+   *  `available`, since the negative CM rows have already been netted out. */
+  net: number;
+  /** Physically in the building: everything except the negative Committed
+   *  rows. This is the figure to compare against Fishbowl `on_hand`. */
+  physical: number;
+  /** inventory_status AV only. */
+  available: number;
+  /** Held back from selling — QC Hold + Suspense. */
+  held: number;
+  /** Negated Committed rows, as a positive number. */
+  committed: number;
+  /** Distinct UOMs seen. Anything other than a lone "EA" means the quantities
+   *  are not all in the same unit and must not be compared naively. */
+  uoms: string[];
+  lots: number;
+};
+
+/**
+ * Every stock row Point B holds for us, straight from the WMS.
+ *
+ * `POST /inventory/by-customer` takes `{ custid }` as a STRING and rejects a
+ * `facilityid` alongside it (verified live 2026-08-25) — the response is
+ * already scoped to our single facility, PB1.
+ */
+export async function getSynapseInventoryRows(): Promise<SynapseInventoryRow[]> {
+  const s = await synapseLogin();
+  const data = await synapsePost(s, "/inventory/by-customer", { custid: String(CUST_ID()) });
+  const rows = (data.inventory as Array<Record<string, unknown>>) || [];
+  return rows.map((r) => ({
+    item: String(r.item ?? "").trim(),
+    lot: String(r.lot_number ?? ""),
+    uom: String(r.uom ?? ""),
+    qty: numOf(r.qty),
+    inventoryStatus: String(r.inventory_status ?? ""),
+    inventoryStatusDesc: String(r.inventory_status_desc ?? ""),
+    status: String(r.status ?? ""),
+    statusDesc: String(r.status_desc ?? ""),
+  })).filter((r) => r.item);
+}
+
+/**
+ * Roll the per-lot rows up to one line per item.
+ *
+ * Two traps live in this data and both are handled here rather than by the
+ * caller. Committed rows carry a NEGATIVE qty, so a plain sum silently reports
+ * stock net of allocations — fine against Fishbowl's `available`, wrong against
+ * its `on_hand`. And a handful of rows are in Cases rather than Each, which
+ * cannot be added to an Each total at all; `uoms` carries that forward so the
+ * report can flag the line instead of quietly comparing apples to cases.
+ */
+export function rollUpSynapseInventory(
+  rows: SynapseInventoryRow[],
+): Map<string, SynapseItemStock> {
+  const out = new Map<string, SynapseItemStock>();
+  for (const r of rows) {
+    const cur =
+      out.get(r.item) ??
+      { item: r.item, net: 0, physical: 0, available: 0, held: 0, committed: 0, uoms: [], lots: 0 };
+    cur.net += r.qty;
+    if (r.status === "CM") cur.committed += -r.qty;
+    else cur.physical += r.qty;
+    if (r.inventoryStatus === "AV") cur.available += r.qty;
+    else cur.held += r.qty;
+    if (r.uom && !cur.uoms.includes(r.uom)) cur.uoms.push(r.uom);
+    if (r.lot && r.lot !== "(none)") cur.lots++;
+    out.set(r.item, cur);
+  }
+  return out;
+}

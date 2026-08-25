@@ -51,6 +51,7 @@ const PAGE_RESULTS: SearchResult[] = [
   { id: "p-overview", category: "pages", title: "Overview", subtitle: "Dashboard home", href: "/dashboard", icon: LayoutDashboard },
   { id: "p-products", category: "pages", title: "Products", subtitle: "View and manage all products", href: "/products", icon: PackageSearch },
   { id: "p-inventory", category: "pages", title: "Inventory", subtitle: "Forecast and current stock", href: "/inventory", icon: Boxes },
+  { id: "p-inventory-variance", category: "pages", title: "Variance Report", subtitle: "Fishbowl vs Point B stock counts", href: "/inventory/variance", icon: Boxes },
   { id: "p-customers", category: "pages", title: "Customer List", subtitle: "View all customers", href: "/customers", icon: Users },
   { id: "p-sales", category: "pages", title: "Sales Analysis", subtitle: "Revenue and trend data", href: "/sales", icon: TrendingUp },
   { id: "p-marketing", category: "pages", title: "Social Media", subtitle: "Content calendar and planning", href: "/marketing", icon: Hash },
