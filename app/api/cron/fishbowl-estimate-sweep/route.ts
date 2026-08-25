@@ -97,16 +97,18 @@ export async function GET(request: Request) {
   // unpaid checkout (abandoned-cart material), not an order. The targeted
   // ping DOES push it: checkout only pings when the order truly completed
   // (wholesale submit, test-mode completion, or Stripe payment landed).
+  // Marketplace orders auto-push again (Blake, 2026-08-25). They were held back
+  // from 2026-08-01 because every estimate booked under house agency 100 /
+  // JULIE EKELUND on NET 30 terms regardless of the real territory or how the
+  // retailer paid; the customer record now supplies the territory and
+  // MarketTime's own payment fields supply the terms, so auto-pushing no longer
+  // means auto-misattributing. An order with no matched Fishbowl customer is
+  // still never pushed — it falls through to noCustomerMatch below.
   const eligible = (orders ?? []).filter(
     (o) =>
-      // Marketplace orders are view-only again (Blake, 2026-08-01) —
-      // pushOrderEstimate refuses them too; filtering here keeps the
-      // sweep report clean instead of listing them as failures.
-      o.source !== "faire" &&
-      o.source !== "markettime" &&
-      (targetNumber != null ||
-        o.channel === "wholesale" ||
-        o.payment_status === "paid"),
+      targetNumber != null ||
+      o.channel === "wholesale" ||
+      o.payment_status === "paid",
   );
   const pushable = eligible.filter((o) =>
     (o.items ?? []).some((it) => it.part && (it.quantity ?? 0) > 0),

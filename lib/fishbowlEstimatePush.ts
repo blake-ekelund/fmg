@@ -40,10 +40,11 @@ export async function pushOrderEstimate(
   if (order.fishbowl_entered_at) {
     throw new Error("Order is already marked as entered into Fishbowl.");
   }
-  // Marketplace policy (Blake, 2026-08-01): Faire/MarketTime orders NEVER
-  // auto-push — the estimate sweep filters them out entirely. Pushing one is
-  // a deliberate human action (the order page's button → the estimate route),
-  // and only under the matched/assigned real customer.
+  // Marketplace policy (Blake, 2026-08-25): Faire/MarketTime orders auto-push
+  // again, now that territory comes off the customer record and payment terms
+  // off the order rather than both being hardcoded to house defaults. The one
+  // rule that never relaxed: a marketplace order books ONLY under its matched
+  // or assigned real customer, never under the pilot/storefront customer.
   const isMarketplace = order.source === "faire" || order.source === "markettime";
   if (isMarketplace && !order.fishbowl_customer?.trim()) {
     throw new Error(
