@@ -29,11 +29,17 @@ export const maxDuration = 300;
  * createEstimate is idempotent on the SO number, so ping + cron overlapping
  * can't double-enter an order.
  *
- * PILOT SWITCH: does nothing until FISHBOWL_ESTIMATE_CUSTOMER is set (e.g.
- * "TEST CUSTOMER #1"). Every auto-pushed estimate books under that one
- * Fishbowl customer, so the pilot can't touch real accounts. When the test
+ * PILOT SWITCH — STOREFRONT ONLY: storefront orders have no real account
+ * mapping yet, so every one of them books under the single Fishbowl customer
+ * named by FISHBOWL_ESTIMATE_CUSTOMER (e.g. "TEST CUSTOMER #1") and none push
+ * at all until it's set. That keeps the pilot off real accounts. When the test
  * phase ends, replace this env-customer scheme with real mapping (wholesale
  * account_number → Fishbowl customer; D2C → the house account).
+ *
+ * Marketplace orders are NOT gated on it (Blake, 2026-08-26). They were never
+ * part of the pilot — a Faire/MarketTime order books under its own matched real
+ * customer, so it needs no stand-in. Sharing the switch just meant marketplace
+ * auto-push was silently off in production.
  *
  * Auth: Vercel cron Bearer CRON_SECRET, the storefronts' shared
  * STOREFRONT_NOTIFY_SECRET (for the checkout ping), or a signed-in user (so
@@ -48,6 +54,10 @@ export const maxDuration = 300;
 
 const LOOKBACK_DAYS = 7;
 
+/** Faire / MarketTime — the orders that carry their own real customer. */
+const isMarketplace = (o: StorefrontOrder): boolean =>
+  o.source === "faire" || o.source === "markettime";
+
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const storefrontSecret = process.env.STOREFRONT_NOTIFY_SECRET;
@@ -59,13 +69,13 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const customerName = process.env.FISHBOWL_ESTIMATE_CUSTOMER?.trim();
-  if (!customerName) {
-    return NextResponse.json({
-      disabled: true,
-      reason: "FISHBOWL_ESTIMATE_CUSTOMER is not set — auto-push is off.",
-    });
-  }
+  // The pilot customer covers STOREFRONT orders only — they have no real
+  // account mapping yet, so they all book under this one Fishbowl customer and
+  // must stay switched off until someone opts in. Marketplace orders were never
+  // part of that pilot: each books under its own matched real customer, so it
+  // needs no stand-in and is not gated on this. Leaving them behind the same
+  // switch meant marketplace auto-push shipped inert.
+  const pilotCustomer = process.env.FISHBOWL_ESTIMATE_CUSTOMER?.trim() || null;
   if (!fishbowlConfigured()) {
     return NextResponse.json(
       { error: "Fishbowl isn't configured (FISHBOWL_API_URL / _USER / _PASS)." },
@@ -104,12 +114,15 @@ export async function GET(request: Request) {
   // MarketTime's own payment fields supply the terms, so auto-pushing no longer
   // means auto-misattributing. An order with no matched Fishbowl customer is
   // still never pushed — it falls through to noCustomerMatch below.
-  const eligible = (orders ?? []).filter(
+  const ready = (orders ?? []).filter(
     (o) =>
       targetNumber != null ||
       o.channel === "wholesale" ||
       o.payment_status === "paid",
   );
+  // Storefront orders wait for the pilot customer; marketplace orders don't.
+  const eligible = ready.filter((o) => isMarketplace(o) || !!pilotCustomer);
+  const storefrontGated = ready.length - eligible.length;
   const pushable = eligible.filter((o) =>
     (o.items ?? []).some((it) => it.part && (it.quantity ?? 0) > 0),
   );
@@ -118,9 +131,10 @@ export async function GET(request: Request) {
   if (dry || pushable.length === 0) {
     return NextResponse.json({
       dry,
-      customer: customerName,
+      pilotCustomer,
       pending: pushable.map((o) => orderRef(o)),
       skippedWithoutParts: skipped,
+      storefrontGated,
       pushed: [],
     });
   }
@@ -135,10 +149,9 @@ export async function GET(request: Request) {
     // Customer selection: storefront orders ride the pilot env customer;
     // marketplace orders (Faire/MarketTime) book under their MATCHED real
     // customer — no match on file means no push, just the Purchases flag.
-    const isMarketplace = order.source === "faire" || order.source === "markettime";
-    const bookUnder = isMarketplace
+    const bookUnder = isMarketplace(order)
       ? (order.fishbowl_customer as string | null | undefined)?.trim()
-      : customerName;
+      : pilotCustomer;
     if (!bookUnder) {
       noCustomerMatch.push(ref);
       continue;
@@ -157,10 +170,11 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
-    customer: customerName,
+    pilotCustomer,
     pushed,
     failed,
     noCustomerMatch,
     skippedWithoutParts: skipped,
+    storefrontGated,
   });
 }
