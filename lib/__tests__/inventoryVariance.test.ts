@@ -157,6 +157,75 @@ describe("buildVarianceRows", () => {
   });
 });
 
+describe("uom-mismatch", () => {
+  // The real case: Fishbowl counts 23,400 pumps, Point B counts 24 cases of
+  // them. Subtracting gives a 23,376-unit "hole" that does not exist.
+  it("refuses to subtract cases from eaches", () => {
+    const rows = buildVarianceRows(
+      [fb("1912-40-00", 23400, { uom: "ea" })],
+      rollup([syn("1912-40-00", 24, { uom: "CS" })]),
+    );
+    const r = rowFor(rows, "1912-40-00");
+    expect(r.flags).toContain("uom-mismatch");
+    expect(r.variance).toBeNull();
+    // Both counts still show — neither system is wrong, they just differ.
+    expect(r.fishbowl).toBe(23400);
+    expect(r.synapse).toBe(24);
+    expect(r.fishbowlUom).toBe("EA");
+    expect(r.synapseUom).toBe("CS");
+  });
+
+  it("matches units case-insensitively", () => {
+    // Fishbowl writes "ea", Synapse writes "EA" — the same unit.
+    const rows = buildVarianceRows([fb("A", 100, { uom: "ea" })], rollup([syn("A", 90)]));
+    expect(rowFor(rows, "A").flags).not.toContain("uom-mismatch");
+    expect(rowFor(rows, "A").variance).toBe(-10);
+  });
+
+  // The whole point: a same-unit gap is a REAL discrepancy and must survive.
+  // 912-50-00 is 15,000 ea in Fishbowl against 8 ea at Point B.
+  it("still reports a huge gap when the units agree", () => {
+    const rows = buildVarianceRows(
+      [fb("912-50-00", 15000, { uom: "ea" })],
+      rollup([syn("912-50-00", 8, { uom: "EA" })]),
+    );
+    const r = rowFor(rows, "912-50-00");
+    expect(r.flags).not.toContain("uom-mismatch");
+    expect(r.variance).toBe(-14992);
+  });
+
+  // "bx" and "CS" both mean "more than one", but not the same more-than-one.
+  it("does not assume box and case are equivalent", () => {
+    const rows = buildVarianceRows([fb("A", 10, { uom: "bx" })], rollup([syn("A", 10, { uom: "CS" })]));
+    expect(rowFor(rows, "A").flags).toContain("uom-mismatch");
+  });
+
+  // A blank unit is missing information, not a conflict — flagging it would
+  // bury the three real cases under hundreds of empty ones.
+  it("treats an unknown unit as no evidence, not a mismatch", () => {
+    expect(rowFor(buildVarianceRows([fb("A", 10, { uom: null })], rollup([syn("A", 10)])), "A").flags)
+      .not.toContain("uom-mismatch");
+    expect(rowFor(buildVarianceRows([fb("A", 10, { uom: "  " })], rollup([syn("A", 10)])), "A").flags)
+      .not.toContain("uom-mismatch");
+  });
+
+  it("doesn't pile a unit complaint onto a part only one system has", () => {
+    const rows = buildVarianceRows([fb("A", 10, { uom: "ea" })], rollup([]));
+    expect(rowFor(rows, "A").flags).toEqual(["missing-in-synapse"]);
+  });
+
+  it("keeps mismatched parts out of the totals", () => {
+    const rows = buildVarianceRows(
+      [fb("REAL", 100, { uom: "ea" }), fb("UNITS", 23400, { uom: "ea" })],
+      rollup([syn("REAL", 90), syn("UNITS", 24, { uom: "CS" })]),
+    );
+    const s = summarize(rows);
+    expect(s.uomMismatch).toBe(1);
+    expect(s.compared).toBe(1); // only REAL is comparable
+    expect(s.totalAbsVariance).toBe(10); // NOT 10 + 23,376
+  });
+});
+
 describe("sortByMagnitude", () => {
   it("puts the biggest disagreement first and agreements last", () => {
     const rows = buildVarianceRows(

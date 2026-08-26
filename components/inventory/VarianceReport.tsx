@@ -22,6 +22,7 @@ const FLAG_LABEL: Record<VarianceFlag, string> = {
   "missing-in-synapse": "Not at Point B",
   "missing-in-fishbowl": "Not in Fishbowl",
   "mixed-uom": "Mixed UOM",
+  "uom-mismatch": "Unit mismatch",
   "held-stock": "Held stock",
 };
 
@@ -29,6 +30,7 @@ const FLAG_STYLE: Record<VarianceFlag, string> = {
   "missing-in-synapse": "bg-amber-50 text-amber-700 border-amber-200",
   "missing-in-fishbowl": "bg-purple-50 text-purple-700 border-purple-200",
   "mixed-uom": "bg-blue-50 text-blue-700 border-blue-200",
+  "uom-mismatch": "bg-blue-50 text-blue-700 border-blue-200",
   "held-stock": "bg-gray-50 text-gray-600 border-gray-200",
 };
 
@@ -84,11 +86,13 @@ export default function VarianceReport() {
   const exportCsv = () => {
     if (!data) return;
     const head = [
-      "Part", "Description", "Fishbowl On Hand", "Synapse Physical", "Variance",
-      "Variance %", "Synapse Available", "Synapse Held", "Synapse Committed", "Flags",
+      "Part", "Description", "Fishbowl On Hand", "Fishbowl UOM", "Synapse Physical",
+      "Synapse UOM", "Variance", "Variance %", "Synapse Available", "Synapse Held",
+      "Synapse Committed", "Flags",
     ];
     const body = rows.map((r) => [
-      r.part, r.description, r.fishbowl ?? "", r.synapse ?? "", r.variance ?? "",
+      r.part, r.description, r.fishbowl ?? "", r.fishbowlUom ?? "", r.synapse ?? "",
+      r.synapseUom ?? "", r.variance ?? "",
       r.variancePct === null ? "" : r.variancePct.toFixed(1),
       r.synapseAvailable ?? "", r.synapseHeld ?? "", r.synapseCommitted ?? "",
       r.flags.map((f) => FLAG_LABEL[f]).join(" | "),
@@ -161,7 +165,11 @@ export default function VarianceReport() {
             sub={s.compared ? `${Math.round((s.differing / s.compared) * 100)}% of compared` : ""}
             tone={s.differing > 0 ? "warn" : "ok"}
           />
-          <Stat label="Total gap" value={s.totalAbsVariance.toLocaleString()} sub="units, absolute" />
+          <Stat
+            label="Total gap"
+            value={s.totalAbsVariance.toLocaleString()}
+            sub={s.uomMismatch ? `excl. ${s.uomMismatch} unit-mismatched` : "units, absolute"}
+          />
           <Stat label="Fishbowl" value={s.fishbowlTotal.toLocaleString()} sub="units on hand" />
           <Stat label="Point B" value={s.synapseTotal.toLocaleString()} sub="units physical" />
         </div>
@@ -209,6 +217,7 @@ export default function VarianceReport() {
               <th className="px-4 py-3 text-left font-medium">Part</th>
               <th className="px-4 py-3 text-right font-medium">Fishbowl</th>
               <th className="px-4 py-3 text-right font-medium">Point B</th>
+              <th className="px-4 py-3 text-center font-medium">Units</th>
               <th className="px-4 py-3 text-right font-medium">Variance</th>
               <th className="px-4 py-3 text-right font-medium">%</th>
               <th className="px-4 py-3 text-right font-medium">Held</th>
@@ -219,14 +228,14 @@ export default function VarianceReport() {
           <tbody>
             {loading && !data && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">
                   Reading Fishbowl and Point B…
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">
+                <td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">
                   {view === "differences"
                     ? "Every comparable part agrees. Nothing to reconcile."
                     : "Nothing matches that search."}
@@ -246,6 +255,18 @@ export default function VarianceReport() {
                 </td>
                 <td className="px-4 py-2.5 text-right tabular-nums text-gray-700">
                   {n(r.synapse)}
+                </td>
+                <td
+                  className={clsx(
+                    "px-4 py-2.5 text-center text-xs",
+                    r.flags.includes("uom-mismatch") ? "text-blue-700" : "text-gray-400",
+                  )}
+                >
+                  {r.fishbowlUom || r.synapseUom
+                    ? r.fishbowlUom === r.synapseUom
+                      ? r.fishbowlUom
+                      : `${r.fishbowlUom ?? "?"} / ${r.synapseUom ?? "?"}`
+                    : "—"}
                 </td>
                 <td
                   className={clsx(
@@ -292,8 +313,9 @@ export default function VarianceReport() {
         Fishbowl is its on-hand for the Point B location group; Point B is physical stock,
         with committed allocations excluded so both sides mean the same thing. A part missing
         from one system shows &ldquo;—&rdquo; rather than 0 — no row and a count of zero are
-        different facts. Mixed-UOM parts get no variance because their quantities aren&apos;t
-        in one unit.
+        different facts. A part the two systems count in different units (Fishbowl in eaches,
+        Point B in cases) gets no variance and is left out of the totals: both numbers are
+        right, and subtracting one from the other is not.
       </p>
     </div>
   );

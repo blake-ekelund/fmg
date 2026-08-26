@@ -34,6 +34,9 @@ export type VarianceFlag =
   /** Synapse holds this item in more than one unit of measure (e.g. EA and CS),
    *  so its quantities do not add up to a single comparable number. */
   | "mixed-uom"
+  /** The two systems count this part in DIFFERENT units — Fishbowl in eaches,
+   *  Synapse in cases. The numbers are both right and not comparable. */
+  | "uom-mismatch"
   /** Synapse is holding stock back (QC Hold / Suspense) that Fishbowl counts as on hand. */
   | "held-stock";
 
@@ -54,6 +57,10 @@ export type VarianceRow = {
   synapseHeld: number | null;
   synapseCommitted: number | null;
   fishbowlAvailable: number | null;
+  /** The unit each side counts in, shown so a mismatch is legible rather than
+   *  just asserted. Normalized to upper case. */
+  fishbowlUom: string | null;
+  synapseUom: string | null;
   flags: VarianceFlag[];
 };
 
@@ -66,6 +73,9 @@ export type VarianceSummary = {
   differing: number;
   missingInSynapse: number;
   missingInFishbowl: number;
+  /** Parts the two systems count in different units — excluded from every
+   *  variance figure above, because their quantities aren't comparable. */
+  uomMismatch: number;
   /** Sum of |variance| over comparable lines — one number for "how far apart". */
   totalAbsVariance: number;
   fishbowlTotal: number;
@@ -74,6 +84,24 @@ export type VarianceSummary = {
 };
 
 const norm = (part: string): string => part.trim().toUpperCase();
+
+/**
+ * Do the two systems count this part in the same unit?
+ *
+ * Fishbowl writes "ea" / "bx"; Synapse writes "EA" / "CS" — so the comparison
+ * is case-insensitive, but nothing beyond that. It is tempting to treat "bx"
+ * (box) and "CS" (case) as the same thing; they are not reliably the same, and
+ * quietly equating them would reintroduce exactly the silent wrong number this
+ * flag exists to catch. Anything that isn't a plain match is a mismatch for a
+ * human to resolve.
+ *
+ * A blank unit on either side is NOT a mismatch — it's an absence of
+ * information, and flagging it would bury the real cases in noise.
+ */
+function unitsAgree(fishbowlUom: string | null, synapseUoms: string[]): boolean {
+  if (!fishbowlUom || synapseUoms.length === 0) return true;
+  return synapseUoms.every((u) => u === fishbowlUom);
+}
 
 /**
  * Build one row per part across the union of both systems.
@@ -116,17 +144,29 @@ export function buildVarianceRows(
     const sy = synByPart.get(part);
     const flags: VarianceFlag[] = [];
 
+    const fishbowlUom = fb?.uom?.trim().toUpperCase() || null;
+    const synapseUoms = sy ? sy.uoms.map((u) => u.trim().toUpperCase()) : [];
+
     if (fb && !sy) flags.push("missing-in-synapse");
     if (!fb && sy) flags.push("missing-in-fishbowl");
     if (sy && sy.uoms.length > 1) flags.push("mixed-uom");
+    // Only meaningful when both sides are present — a part in one system alone
+    // is already flagged, and adding a unit complaint on top is just noise.
+    if (fb && sy && !unitsAgree(fishbowlUom, synapseUoms)) flags.push("uom-mismatch");
     if (sy && sy.held > 0) flags.push("held-stock");
 
     const fishbowlQty = fb ? fb.on_hand : null;
     const synapseQty = sy ? sy.physical : null;
-    // Only a part both systems know about has a meaningful variance. A mixed-UOM
-    // line has no single comparable quantity, so it gets no number either.
+    // Only a part both systems know about has a meaningful variance — and only
+    // when both count it the same way. Subtracting cases from eaches produces a
+    // confident, enormous, entirely fictional number (23,400 ea vs 24 CS reads
+    // as a 23,376-unit hole), which also inflates the totals, so those lines get
+    // no variance rather than a wrong one.
     const comparable =
-      fishbowlQty !== null && synapseQty !== null && !flags.includes("mixed-uom");
+      fishbowlQty !== null &&
+      synapseQty !== null &&
+      !flags.includes("mixed-uom") &&
+      !flags.includes("uom-mismatch");
     const variance = comparable ? synapseQty - fishbowlQty : null;
 
     rows.push({
@@ -142,6 +182,8 @@ export function buildVarianceRows(
       synapseHeld: sy ? sy.held : null,
       synapseCommitted: sy ? sy.committed : null,
       fishbowlAvailable: fb?.available ?? null,
+      fishbowlUom,
+      synapseUom: synapseUoms.length ? synapseUoms.join("+") : null,
       flags,
     });
   }
@@ -167,6 +209,7 @@ export function summarize(rows: VarianceRow[]): VarianceSummary {
   let differing = 0;
   let missingInSynapse = 0;
   let missingInFishbowl = 0;
+  let uomMismatch = 0;
   let totalAbsVariance = 0;
   let fishbowlTotal = 0;
   let synapseTotal = 0;
@@ -175,6 +218,7 @@ export function summarize(rows: VarianceRow[]): VarianceSummary {
   for (const r of rows) {
     if (r.flags.includes("missing-in-synapse")) missingInSynapse++;
     if (r.flags.includes("missing-in-fishbowl")) missingInFishbowl++;
+    if (r.flags.includes("uom-mismatch")) uomMismatch++;
     if (r.flags.length) flagged++;
     if (r.fishbowl !== null) fishbowlTotal += r.fishbowl;
     if (r.synapse !== null) synapseTotal += r.synapse;
@@ -192,6 +236,7 @@ export function summarize(rows: VarianceRow[]): VarianceSummary {
     differing,
     missingInSynapse,
     missingInFishbowl,
+    uomMismatch,
     totalAbsVariance,
     fishbowlTotal,
     synapseTotal,
