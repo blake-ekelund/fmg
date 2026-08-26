@@ -25,6 +25,15 @@ export type FishbowlStock = {
   allocated?: number | null;
 };
 
+/** A person's standing decision about one part — see the migration. */
+export type VarianceOverride = {
+  part: string;
+  archived: boolean;
+  /** The unit Fishbowl's quantity is really in, when its own label is wrong. */
+  uom_override?: string | null;
+  note?: string | null;
+};
+
 /** Why a line can't be compared straight across, or is worth a human look. */
 export type VarianceFlag =
   /** In Fishbowl's snapshot, absent from Synapse entirely. */
@@ -61,6 +70,12 @@ export type VarianceRow = {
    *  just asserted. Normalized to upper case. */
   fishbowlUom: string | null;
   synapseUom: string | null;
+  /** True when someone has archived this part — excluded from every count and
+   *  total, and hidden unless the reader asks to see archived lines. */
+  archived: boolean;
+  /** Set when fishbowlUom came from an override rather than from Fishbowl. */
+  uomOverridden: boolean;
+  note: string | null;
   flags: VarianceFlag[];
 };
 
@@ -76,6 +91,8 @@ export type VarianceSummary = {
   /** Parts the two systems count in different units — excluded from every
    *  variance figure above, because their quantities aren't comparable. */
   uomMismatch: number;
+  /** Parts a person has archived — excluded from every figure above. */
+  archived: number;
   /** Sum of |variance| over comparable lines — one number for "how far apart". */
   totalAbsVariance: number;
   fishbowlTotal: number;
@@ -118,7 +135,13 @@ function unitsAgree(fishbowlUom: string | null, synapseUoms: string[]): boolean 
 export function buildVarianceRows(
   fishbowl: FishbowlStock[],
   synapse: Map<string, SynapseItemStock>,
+  overrides: VarianceOverride[] = [],
 ): VarianceRow[] {
+  const overrideByPart = new Map<string, VarianceOverride>();
+  for (const o of overrides) {
+    const key = norm(o.part);
+    if (key) overrideByPart.set(key, o);
+  }
   const fbByPart = new Map<string, FishbowlStock>();
   for (const f of fishbowl) {
     const key = norm(f.part);
@@ -144,7 +167,11 @@ export function buildVarianceRows(
     const sy = synByPart.get(part);
     const flags: VarianceFlag[] = [];
 
-    const fishbowlUom = fb?.uom?.trim().toUpperCase() || null;
+    const ov = overrideByPart.get(part);
+    // An override replaces Fishbowl's label BEFORE the units are compared, so
+    // correcting a bad label clears the mismatch and lets the line compare.
+    const overrideUom = ov?.uom_override?.trim().toUpperCase() || null;
+    const fishbowlUom = overrideUom ?? (fb?.uom?.trim().toUpperCase() || null);
     const synapseUoms = sy ? sy.uoms.map((u) => u.trim().toUpperCase()) : [];
 
     if (fb && !sy) flags.push("missing-in-synapse");
@@ -184,6 +211,9 @@ export function buildVarianceRows(
       fishbowlAvailable: fb?.available ?? null,
       fishbowlUom,
       synapseUom: synapseUoms.length ? synapseUoms.join("+") : null,
+      archived: ov?.archived === true,
+      uomOverridden: overrideUom !== null,
+      note: ov?.note?.trim() || null,
       flags,
     });
   }
@@ -194,6 +224,8 @@ export function buildVarianceRows(
 /** Biggest disagreements first — that's the only order worth opening this in. */
 export function sortByMagnitude(rows: VarianceRow[]): VarianceRow[] {
   return [...rows].sort((a, b) => {
+    // Archived lines sink below everything live, whatever their numbers say.
+    if (a.archived !== b.archived) return a.archived ? 1 : -1;
     if (b.magnitude !== a.magnitude) return b.magnitude - a.magnitude;
     // Unmatched parts carry no magnitude, so surface them above the quiet
     // in-agreement lines rather than burying them at the bottom.
@@ -203,6 +235,14 @@ export function sortByMagnitude(rows: VarianceRow[]): VarianceRow[] {
   });
 }
 
+/**
+ * Roll the rows up.
+ *
+ * Archived parts are excluded from EVERY figure, not just hidden in the table —
+ * archiving is someone saying "this line is settled", and a settled line that
+ * still inflates the headline gap would make the whole exercise pointless. They
+ * are counted on their own so the exclusion is visible rather than silent.
+ */
 export function summarize(rows: VarianceRow[]): VarianceSummary {
   let compared = 0;
   let inAgreement = 0;
@@ -214,8 +254,13 @@ export function summarize(rows: VarianceRow[]): VarianceSummary {
   let fishbowlTotal = 0;
   let synapseTotal = 0;
   let flagged = 0;
+  let archived = 0;
 
   for (const r of rows) {
+    if (r.archived) {
+      archived++;
+      continue;
+    }
     if (r.flags.includes("missing-in-synapse")) missingInSynapse++;
     if (r.flags.includes("missing-in-fishbowl")) missingInFishbowl++;
     if (r.flags.includes("uom-mismatch")) uomMismatch++;
@@ -237,6 +282,7 @@ export function summarize(rows: VarianceRow[]): VarianceSummary {
     missingInSynapse,
     missingInFishbowl,
     uomMismatch,
+    archived,
     totalAbsVariance,
     fishbowlTotal,
     synapseTotal,

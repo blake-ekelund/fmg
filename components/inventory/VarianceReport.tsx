@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { RefreshCw, AlertTriangle, Download } from "lucide-react";
+import { RefreshCw, AlertTriangle, Download, Archive, ArchiveRestore, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import type { VarianceRow, VarianceSummary, VarianceFlag } from "@/lib/inventoryVariance";
 
@@ -12,6 +12,8 @@ type Payload = {
   synapseRowCount: number;
   summary: VarianceSummary;
   rows: VarianceRow[];
+  /** False until migration 20260826000000 is applied. */
+  overridesReady: boolean;
 };
 
 /** Beyond this the Fishbowl snapshot is too old to draw conclusions from — it
@@ -34,7 +36,7 @@ const FLAG_STYLE: Record<VarianceFlag, string> = {
   "held-stock": "bg-gray-50 text-gray-600 border-gray-200",
 };
 
-type View = "differences" | "all" | "flagged";
+type View = "differences" | "all" | "flagged" | "archived";
 
 const n = (v: number | null) => (v === null ? "—" : v.toLocaleString());
 
@@ -44,6 +46,9 @@ export default function VarianceReport() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("differences");
   const [q, setQ] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draftUom, setDraftUom] = useState("");
+  const [saving, setSaving] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -71,10 +76,44 @@ export default function VarianceReport() {
     void load();
   }, []);
 
+  /**
+   * Record a decision, then reload. A reload rather than a local patch because
+   * archiving changes every summary figure, and recomputing those in the client
+   * would be a second implementation of summarize() waiting to drift.
+   */
+  const saveOverride = async (part: string, patch: { archived?: boolean; uom?: string }) => {
+    setSaving(part);
+    setError(null);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      const res = await fetch("/api/inventory/variance", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ part, ...patch }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `Failed (${res.status})`);
+      setEditing(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(null);
+    }
+  };
+
   const rows = useMemo(() => {
     if (!data) return [];
     const term = q.trim().toUpperCase();
     return data.rows.filter((r) => {
+      // Archived lines are a deliberate "settled" — they only appear when asked for.
+      if (view === "archived") {
+        if (!r.archived) return false;
+      } else if (r.archived) return false;
       if (view === "differences" && r.variance === 0) return false;
       if (view === "differences" && r.variance === null && !r.flags.length) return false;
       if (view === "flagged" && !r.flags.length) return false;
@@ -145,6 +184,18 @@ export default function VarianceReport() {
         </div>
       )}
 
+      {data && !data.overridesReady && (
+        <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            Archiving and unit overrides need migration{" "}
+            <code className="rounded bg-blue-100 px-1">20260826000000</code> — run{" "}
+            <code className="rounded bg-blue-100 px-1">supabase db push</code>. The report
+            works without it; saving a change won&apos;t.
+          </span>
+        </div>
+      )}
+
       {stale && data && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -171,7 +222,11 @@ export default function VarianceReport() {
             sub={s.uomMismatch ? `excl. ${s.uomMismatch} unit-mismatched` : "units, absolute"}
           />
           <Stat label="Fishbowl" value={s.fishbowlTotal.toLocaleString()} sub="units on hand" />
-          <Stat label="Point B" value={s.synapseTotal.toLocaleString()} sub="units physical" />
+          <Stat
+            label="Point B"
+            value={s.synapseTotal.toLocaleString()}
+            sub={s.archived ? `${s.archived} archived, excluded` : "units physical"}
+          />
         </div>
       )}
 
@@ -182,6 +237,7 @@ export default function VarianceReport() {
               ["differences", "Differences"],
               ["flagged", "Needs a look"],
               ["all", "All parts"],
+              ["archived", "Archived"],
             ] as [View, string][]
           ).map(([v, label]) => (
             <button
@@ -223,22 +279,25 @@ export default function VarianceReport() {
               <th className="px-4 py-3 text-right font-medium">Held</th>
               <th className="px-4 py-3 text-right font-medium">Committed</th>
               <th className="px-4 py-3 text-left font-medium">Notes</th>
+              <th className="px-4 py-3 text-right font-medium"></th>
             </tr>
           </thead>
           <tbody>
             {loading && !data && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">
+                <td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">
                   Reading Fishbowl and Point B…
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">
-                  {view === "differences"
-                    ? "Every comparable part agrees. Nothing to reconcile."
-                    : "Nothing matches that search."}
+                <td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-400">
+                  {view === "archived"
+                    ? "Nothing archived yet."
+                    : view === "differences"
+                      ? "Every comparable part agrees. Nothing to reconcile."
+                      : "Nothing matches that search."}
                 </td>
               </tr>
             )}
@@ -256,17 +315,48 @@ export default function VarianceReport() {
                 <td className="px-4 py-2.5 text-right tabular-nums text-gray-700">
                   {n(r.synapse)}
                 </td>
-                <td
-                  className={clsx(
-                    "px-4 py-2.5 text-center text-xs",
-                    r.flags.includes("uom-mismatch") ? "text-blue-700" : "text-gray-400",
+                <td className="px-4 py-2.5 text-center text-xs">
+                  {editing === r.part ? (
+                    <div className="flex items-center justify-center gap-1">
+                      <input
+                        autoFocus
+                        value={draftUom}
+                        onChange={(e) => setDraftUom(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void saveOverride(r.part, { uom: draftUom });
+                          if (e.key === "Escape") setEditing(null);
+                        }}
+                        placeholder={r.synapseUom ?? "EA"}
+                        className="w-14 rounded border border-gray-300 px-1 py-0.5 text-center uppercase outline-none focus:border-gray-500"
+                      />
+                      <button
+                        onClick={() => void saveOverride(r.part, { uom: draftUom })}
+                        className="text-emerald-600 hover:text-emerald-700"
+                        title="Save (Enter). Blank clears the override."
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setEditing(r.part); setDraftUom(r.fishbowlUom ?? ""); }}
+                      title="Click to correct the unit Fishbowl records for this part"
+                      className={clsx(
+                        "rounded px-1.5 py-0.5 hover:bg-gray-100",
+                        r.flags.includes("uom-mismatch") ? "text-blue-700" : "text-gray-400",
+                        r.uomOverridden && "underline decoration-dotted",
+                      )}
+                    >
+                      {r.fishbowlUom || r.synapseUom
+                        ? r.fishbowlUom === r.synapseUom
+                          ? r.fishbowlUom
+                          : `${r.fishbowlUom ?? "?"} / ${r.synapseUom ?? "?"}`
+                        : "—"}
+                    </button>
                   )}
-                >
-                  {r.fishbowlUom || r.synapseUom
-                    ? r.fishbowlUom === r.synapseUom
-                      ? r.fishbowlUom
-                      : `${r.fishbowlUom ?? "?"} / ${r.synapseUom ?? "?"}`
-                    : "—"}
                 </td>
                 <td
                   className={clsx(
@@ -301,7 +391,18 @@ export default function VarianceReport() {
                         {FLAG_LABEL[f]}
                       </span>
                     ))}
+                    {r.note && <span className="text-[11px] text-gray-400">{r.note}</span>}
                   </div>
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <button
+                    onClick={() => void saveOverride(r.part, { archived: !r.archived })}
+                    disabled={saving === r.part}
+                    title={r.archived ? "Bring this part back into the report" : "Archive — drops out of the report and its totals"}
+                    className="text-gray-300 hover:text-gray-600 disabled:opacity-40"
+                  >
+                    {r.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -315,7 +416,10 @@ export default function VarianceReport() {
         from one system shows &ldquo;—&rdquo; rather than 0 — no row and a count of zero are
         different facts. A part the two systems count in different units (Fishbowl in eaches,
         Point B in cases) gets no variance and is left out of the totals: both numbers are
-        right, and subtracting one from the other is not.
+        right, and subtracting one from the other is not. Click a unit to correct what
+        Fishbowl records for that part — that only helps where the LABEL was wrong, not
+        where the two genuinely pack differently; archive those instead. Archived parts
+        leave the report and every total in it.
       </p>
     </div>
   );

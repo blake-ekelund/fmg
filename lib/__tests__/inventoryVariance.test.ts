@@ -269,3 +269,93 @@ describe("summarize", () => {
     expect(s.totalAbsVariance).toBe(0);
   });
 });
+
+describe("overrides", () => {
+  it("archives a part out of every figure, not just out of sight", () => {
+    const rows = buildVarianceRows(
+      [fb("KEEP", 100), fb("SETTLED", 5000)],
+      rollup([syn("KEEP", 90), syn("SETTLED", 3)]),
+      [{ part: "SETTLED", archived: true }],
+    );
+    expect(rowFor(rows, "SETTLED").archived).toBe(true);
+    const s = summarize(rows);
+    expect(s.archived).toBe(1);
+    expect(s.compared).toBe(1);
+    // The archived part's 4,997-unit gap must not survive in the total.
+    expect(s.totalAbsVariance).toBe(10);
+    expect(s.fishbowlTotal).toBe(100);
+  });
+
+  it("sinks archived rows below live ones however big their numbers", () => {
+    const rows = sortByMagnitude(
+      buildVarianceRows(
+        [fb("HUGE", 9000), fb("SMALL", 10)],
+        rollup([syn("HUGE", 1), syn("SMALL", 8)]),
+        [{ part: "HUGE", archived: true }],
+      ),
+    );
+    expect(rows.map((r) => r.part)).toEqual(["SMALL", "HUGE"]);
+  });
+
+  // The point of the unit override: Fishbowl's LABEL was wrong. Correcting it
+  // clears the mismatch and lets the line compare again.
+  it("uses an overridden unit when comparing", () => {
+    const before = buildVarianceRows(
+      [fb("A", 24, { uom: "ea" })],
+      rollup([syn("A", 24, { uom: "CS" })]),
+    );
+    expect(rowFor(before, "A").flags).toContain("uom-mismatch");
+    expect(rowFor(before, "A").variance).toBeNull();
+
+    const after = buildVarianceRows(
+      [fb("A", 24, { uom: "ea" })],
+      rollup([syn("A", 24, { uom: "CS" })]),
+      [{ part: "A", archived: false, uom_override: "CS" }],
+    );
+    expect(rowFor(after, "A").flags).not.toContain("uom-mismatch");
+    expect(rowFor(after, "A").variance).toBe(0);
+    expect(rowFor(after, "A").fishbowlUom).toBe("CS");
+    expect(rowFor(after, "A").uomOverridden).toBe(true);
+  });
+
+  it("normalizes an override's part and unit", () => {
+    const rows = buildVarianceRows(
+      [fb("100-00-01", 5, { uom: "ea" })],
+      rollup([syn("100-00-01", 5, { uom: "CS" })]),
+      [{ part: " 100-00-01 ", archived: false, uom_override: " cs " }],
+    );
+    expect(rowFor(rows, "100-00-01").fishbowlUom).toBe("CS");
+    expect(rowFor(rows, "100-00-01").flags).not.toContain("uom-mismatch");
+  });
+
+  it("falls back to Fishbowl's own unit when the override is blank", () => {
+    const rows = buildVarianceRows(
+      [fb("A", 5, { uom: "ea" })],
+      rollup([syn("A", 5)]),
+      [{ part: "A", archived: false, uom_override: "" }],
+    );
+    expect(rowFor(rows, "A").fishbowlUom).toBe("EA");
+    expect(rowFor(rows, "A").uomOverridden).toBe(false);
+  });
+
+  it("carries the note through", () => {
+    const rows = buildVarianceRows([fb("A", 5)], rollup([syn("A", 5)]), [
+      { part: "A", archived: false, note: "  consumed in kitting  " },
+    ]);
+    expect(rowFor(rows, "A").note).toBe("consumed in kitting");
+  });
+
+  it("is unchanged when no overrides are supplied", () => {
+    const withNone = buildVarianceRows([fb("A", 10)], rollup([syn("A", 8)]), []);
+    const withDefault = buildVarianceRows([fb("A", 10)], rollup([syn("A", 8)]));
+    expect(withNone).toEqual(withDefault);
+    expect(rowFor(withNone, "A").archived).toBe(false);
+  });
+
+  it("ignores an override for a part neither system has", () => {
+    const rows = buildVarianceRows([fb("A", 1)], rollup([syn("A", 1)]), [
+      { part: "GHOST", archived: true },
+    ]);
+    expect(rows.map((r) => r.part)).toEqual(["A"]);
+  });
+});
