@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyMarketTimeTerms } from "../markettime";
+import { classifyMarketTimeTerms, isCancelled } from "../markettime";
 import { FB_TERMS } from "../fishbowlEstimate";
 
 /** Every string below is a real `paymentTerm` value from this account's
@@ -86,5 +86,31 @@ describe("classifyMarketTimeTerms", () => {
     expect(classifyMarketTimeTerms({ isCCAttached: false, paymentTerm: "Visa" })).toBe(
       FB_TERMS.creditCard,
     );
+  });
+});
+
+describe("isCancelled", () => {
+  // The bug this replaces: any cancelDate counted as a cancellation. In
+  // wholesale a cancel date is the retailer's ship-by date and sits on plenty
+  // of live orders — one SHIPPED and eight PROCESSED orders in the last 90 days
+  // carry one. Peppermill's PO P260934 was dropped for exactly this.
+  it("does not treat a ship-by cancelDate as a cancellation", () => {
+    expect(isCancelled({ cancelDate: "2026-09-30T00:00:00.000Z" }, "TRANSMITTED / RECEIVED")).toBe(false);
+    expect(isCancelled({ cancelDate: "2026-07-30T00:00:00.000Z" }, "TRANSMITTED / SHIPPED")).toBe(false);
+  });
+
+  it("believes the status when it says cancelled", () => {
+    expect(isCancelled({}, "TRANSMITTED / CANCELLED")).toBe(true);
+    expect(isCancelled({}, "CANCELLED / CANCELLED")).toBe(true);
+    expect(isCancelled({ cancelDate: null }, "cancelled")).toBe(true);
+  });
+
+  it("treats a deleted record as gone", () => {
+    expect(isCancelled({ recordDeleted: true }, "TRANSMITTED / OPEN")).toBe(true);
+  });
+
+  it("leaves a normal live order alone", () => {
+    expect(isCancelled({ recordDeleted: false }, "TRANSMITTED / OPEN")).toBe(false);
+    expect(isCancelled({}, "PAID / RECEIVED")).toBe(false);
   });
 });

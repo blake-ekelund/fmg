@@ -10,17 +10,27 @@
  *
  * Endpoint used:
  *   POST /mtpublic/api/v1/{whoAmI}/orders/get   list orders (paginated)
- *     • body is a QueryFilter[] — `[]` = no filter; we filter by
- *       manufacturerOrderStatus = OPEN to get only unfulfilled orders.
+ *     • body is a QueryFilter[] — `[]` = no filter; we filter by orderDate and
+ *       decide on status ourselves (see getMarketTimeOrders for why).
  *     • NO sortField/sortType params — they 500 this endpoint.
  *     • response: { success, response: Order[], total, error, timeStamp }.
  *
- * Live gotchas that bit us: the account holds 6,500+ orders back to 2021 with a
- * NON-chronological default order (offset 0 = 2021, the tail ≠ newest), so an
- * offset walk can't find open orders — server-side status filtering is the only
- * reliable path. There is no `publicOrderID`-as-number; we key on recordID.
- * Ship-back-sync (POST .../orders/{id}/trackingdetails) is documented but not
- * built here yet — import + Fishbowl push is the current scope.
+ * Live gotchas that bit us, all three found by orders that never arrived:
+ *  - A STATUS-FILTERED query is unreliable. Eight identical calls in one second
+ *    returned 0, 2, 0, 2, 2, 0, 2, 2 — empty about a third of the time, with the
+ *    orders plainly there. A DATE-filtered query is stable (eight calls, 100
+ *    rows each), so that is what we send.
+ *  - An order is only ours to import for part of its life: OPEN -> RECEIVED ->
+ *    PROCESSED -> SHIPPED. Watching OPEN alone missed everything that advanced
+ *    between polls.
+ *  - `cancelDate` is a SHIP-BY date, not a cancellation, and sits on plenty of
+ *    live orders. Reading it as "cancelled" silently dropped them.
+ *
+ * The account holds 6,500+ orders back to 2016 in NON-chronological order
+ * (offset 0 = 2016, the tail is not the newest), so an unfiltered offset walk
+ * never reaches current business — the date bound is doing real work. There is
+ * no `publicOrderID`-as-number; we key on recordID. Ship-back-sync (POST
+ * .../orders/{id}/trackingdetails) is documented but not built here yet.
  */
 
 import { ACTIVE_NET_TERMS, FB_TERMS } from "./fishbowlEstimate";
@@ -242,8 +252,7 @@ function parseOrder(raw: unknown): MarketTimeOrder | null {
     publicOrderId: str(o.publicOrderID),
     poNumber: str(o.poNumber),
     state: status,
-    // Cancelled if a cancelDate is present or a status says so.
-    cancelled: !!str(o.cancelDate) || /cancel/i.test(status),
+    cancelled: isCancelled(o, status),
     orderDate: str(o.orderDate),
     retailerName: str(o.retailerName),
     email,
@@ -266,20 +275,62 @@ function parseOrder(raw: unknown): MarketTimeOrder | null {
 type QueryFilter = { field: string; operator: string; value: string };
 
 /**
- * manufacturerOrderStatus values that mean "still needs fulfillment" — the ones
- * this import exists for. Confirmed live values are OPEN (unfulfilled), SHIPPED,
- * and CANCELLED; only OPEN should flow into the portal + Fishbowl. Kept as a set
- * so a new open-ish status (e.g. a HOLD/BACKORDER) is a one-line addition.
+ * manufacturerOrderStatus values that still need entering into Fishbowl.
+ *
+ * An order moves OPEN -> RECEIVED -> PROCESSED -> SHIPPED. RECEIVED means it has
+ * been transmitted to us and is waiting to be keyed, which is exactly what this
+ * import is for; it used to be excluded, and any order that advanced past OPEN
+ * before a poll caught it was simply never imported (PO P260934, Peppermill
+ * Casino, sat in RECEIVED and never arrived).
+ *
+ * PROCESSED and SHIPPED are deliberately out: those are already handled.
+ * BACKORDER exists too and is left out for now — it may already be in Fishbowl
+ * awaiting stock, and importing it could duplicate.
  */
-const IMPORTABLE_MFR_STATUSES = ["OPEN"];
+const IMPORTABLE_MFR_STATUSES = new Set(["OPEN", "RECEIVED"]);
 
 /**
- * Current importable MarketTime orders: those with an open manufacturer status.
+ * How far back to look. The date filter is what makes the query reliable (see
+ * getMarketTimeOrders), so it needs SOME bound; 90 days covers anything still
+ * unshipped without dragging in the 3,500-order RECEIVED archive going back to
+ * 2016. Over the last 90 days this window holds ~140 orders, of which a handful
+ * are importable.
+ */
+const LOOKBACK_DAYS = 90;
+
+/**
+ * Is this order actually cancelled?
  *
- * Filtering is SERVER-SIDE via QueryFilter — the account holds 6,500+ orders
- * back to 2021 and /orders/get has no working sort (the documented sort params
- * 500), so an offset walk never reliably reaches the open ones. We ask the API
- * directly for manufacturerOrderStatus = OPEN and paginate that small set.
+ * NOT "does it have a cancelDate". In wholesale a cancel date is the ship-by
+ * date the retailer sets — cancel if it hasn't shipped by then — and it is a
+ * routine field on a live order. Reading it as a cancellation is what dropped
+ * Peppermill's PO P260934, which carried a cancelDate two months out. Proof it
+ * means nothing of the sort: in the last 90 days one SHIPPED order and eight
+ * PROCESSED ones carry cancelDates, and none of them were cancelled.
+ *
+ * A cancellation is the STATUS saying so, or the record being deleted.
+ */
+export function isCancelled(o: Rec, status: string): boolean {
+  if (o.recordDeleted === true) return true;
+  return /cancel/i.test(status);
+}
+
+/**
+ * Current importable MarketTime orders.
+ *
+ * Filtered SERVER-SIDE by ORDER DATE, then by status in our own code — which is
+ * the opposite of the obvious approach, for a specific reason. Asking the API to
+ * filter on manufacturerOrderStatus returns an EMPTY result roughly a third of
+ * the time: eight identical status-filtered calls in one second returned 0, 2,
+ * 0, 2, 2, 0, 2, 2. The sync cannot import what the API declines to return, and
+ * that is why Artisan Center sat unimported for 64 hours across ~128 polls while
+ * plainly OPEN.
+ *
+ * The same query filtered by orderDate is stable — eight calls, 100 rows every
+ * time — so the date bound is what makes this reliable, and the status decision
+ * moves into code where it can't flap. An offset walk with no filter is not an
+ * option either: the account holds 6,500+ orders back to 2016 and /orders/get
+ * has no working sort (the documented sort params 500 the endpoint).
  */
 export async function getMarketTimeOrders(): Promise<MarketTimeOrder[]> {
   const who = whoAmI();
@@ -289,32 +340,47 @@ export async function getMarketTimeOrders(): Promise<MarketTimeOrder[]> {
     );
   }
 
-  const out: MarketTimeOrder[] = [];
+  const since = new Date(Date.now() - LOOKBACK_DAYS * 86400_000)
+    .toISOString()
+    .slice(0, 10);
+  const filter: QueryFilter[] = [
+    { field: "orderDate", operator: "gte", value: since },
+  ];
+
   const size = 100;
-  for (const status of IMPORTABLE_MFR_STATUSES) {
-    const filter: QueryFilter[] = [
-      { field: "manufacturerOrderStatus", operator: "eq", value: status },
-    ];
-    for (let offset = 0; offset < 5000; offset += size) {
-      // NB: no sortField/sortType — those trigger a 500 on this endpoint.
-      const data = await marketTimePost(
-        `/mtpublic/api/v1/${encodeURIComponent(who)}/orders/get?offset=${offset}&recordSize=${size}`,
+  const raw: Rec[] = [];
+  for (let offset = 0; offset < 5000; offset += size) {
+    // NB: no sortField/sortType — those trigger a 500 on this endpoint.
+    const data = await marketTimePost(
+      `/mtpublic/api/v1/${encodeURIComponent(who)}/orders/get?offset=${offset}&recordSize=${size}`,
+      filter,
+    );
+    let rows = asArray(data.response ?? data.successResponse);
+    // This API returns an empty page under load even when rows exist. The date
+    // filter makes that rare rather than impossible, so an empty FIRST page is
+    // retried once before being believed — the difference between importing an
+    // order now and leaving it for the next run.
+    if (rows.length === 0 && offset === 0) {
+      const retry = await marketTimePost(
+        `/mtpublic/api/v1/${encodeURIComponent(who)}/orders/get?offset=0&recordSize=${size}`,
         filter,
       );
-      const rows = asArray(data.response ?? data.successResponse);
-      const parsed = rows.map(parseOrder).filter((o): o is MarketTimeOrder => o !== null);
-      out.push(...parsed);
-      if (rows.length < size) break;
+      rows = asArray(retry.response ?? retry.successResponse);
     }
+    raw.push(...rows.map(asRecord));
+    if (rows.length < size) break;
   }
 
-  // Belt-and-suspenders: never import a cancelled order even if it slips the
-  // status filter, and de-dupe by recordID across status passes.
   const seen = new Set<string>();
-  return out.filter((o) => {
-    if (o.cancelled) return false;
-    if (seen.has(o.id)) return false;
-    seen.add(o.id);
-    return true;
-  });
+  const out: MarketTimeOrder[] = [];
+  for (const r of raw) {
+    const status = String(r.manufacturerOrderStatus ?? "").trim().toUpperCase();
+    if (!IMPORTABLE_MFR_STATUSES.has(status)) continue;
+    const parsed = parseOrder(r);
+    if (!parsed || parsed.cancelled) continue;
+    if (seen.has(parsed.id)) continue;
+    seen.add(parsed.id);
+    out.push(parsed);
+  }
+  return out;
 }

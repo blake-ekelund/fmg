@@ -47,6 +47,28 @@ export async function GET(request: Request) {
 
   try {
     const result = await importMarketTimeOrders(admin, { dry });
+    // A cron's JSON response goes to Vercel and is discarded, so a failed
+    // insert used to vanish into the `failed` array unseen — an order silently
+    // not arriving, with nothing anywhere to say so. Log it, so it lands in the
+    // function logs where someone can actually find it.
+    if (result.failed.length > 0) {
+      console.error(
+        `[markettime-order-sync] ${result.failed.length} order(s) FAILED to import:`,
+        JSON.stringify(result.failed),
+      );
+    }
+    if (result.termsUnclassified.length > 0) {
+      console.warn(
+        `[markettime-order-sync] ${result.termsUnclassified.length} order(s) booked NET 30 by fallback — payment terms unreadable:`,
+        JSON.stringify(result.termsUnclassified),
+      );
+    }
+    if (!dry && result.imported.length > 0) {
+      console.log(
+        `[markettime-order-sync] imported ${result.imported.length} order(s):`,
+        JSON.stringify(result.imported.map((i) => i.ref)),
+      );
+    }
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
