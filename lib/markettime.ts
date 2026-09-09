@@ -293,6 +293,36 @@ type QueryFilter = { field: string; operator: string; value: string };
 const IMPORTABLE_MFR_STATUSES = new Set(["OPEN", "RECEIVED"]);
 
 /**
+ * Is this a real order for us to fill, or a rep-commission record?
+ *
+ * A rep group can log an order that the retailer placed with FMG DIRECTLY, so
+ * the writing salesperson still gets paid on it. MarketTime marks those
+ * `origin: "Direct"` and never transmits them — `manufacturerDateSent` stays
+ * -1 — and their only line is the "None" / "Direct Order Entry" placeholder
+ * carrying the order value, because there are no products to send: we already
+ * have the order.
+ *
+ * Importing one produces a phantom. St. Joseph's Hospital South (recordID
+ * 32698933, PO CF4CFH49XR) shipped as Fishbowl SO 24280 on 2026-07-08, then
+ * arrived here two months later looking like unentered business — and Blake
+ * couldn't find it in MarketTime at all, because as an order it isn't there.
+ *
+ * BOTH signals are required, deliberately. Over the 90-day window the split is
+ * exact — 139 real orders (mtPlay 116, WebApp 15, B2B 8) all carry a real
+ * `manufacturerDateSent`, and the single Direct record does not — but the two
+ * failure modes are not symmetric. Letting a commission record through costs a
+ * phantom row that isRealPart already blocks from Fishbowl; dropping a real
+ * order costs an order nobody ever hears about again, which is the mistake this
+ * integration has made repeatedly. So a genuine order that simply hasn't been
+ * transmitted yet (origin mtPlay, sent -1) still imports.
+ */
+export function isCommissionRecord(o: Rec): boolean {
+  const direct = String(o.origin ?? "").trim().toLowerCase() === "direct";
+  const neverSent = Number(o.manufacturerDateSent) === -1;
+  return direct && neverSent;
+}
+
+/**
  * How far back to look. The date filter is what makes the query reliable (see
  * getMarketTimeOrders), so it needs SOME bound; 90 days covers anything still
  * unshipped without dragging in the 3,500-order RECEIVED archive going back to
@@ -379,6 +409,14 @@ export async function getMarketTimeOrders(): Promise<MarketTimeOrder[]> {
   for (const r of raw) {
     const status = String(r.manufacturerOrderStatus ?? "").trim().toUpperCase();
     if (!IMPORTABLE_MFR_STATUSES.has(status)) continue;
+    // Named in the log rather than dropped quietly: if this filter ever turns
+    // out to be wrong, the skipped order should be findable, not invisible.
+    if (isCommissionRecord(r)) {
+      console.log(
+        `[markettime] skipping ${r.recordID} "${r.retailerName}" — direct/commission record, never transmitted to us.`,
+      );
+      continue;
+    }
     const parsed = parseOrder(r);
     if (!parsed || parsed.cancelled) continue;
     if (seen.has(parsed.id)) continue;

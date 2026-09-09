@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyMarketTimeTerms, isCancelled } from "../markettime";
+import { classifyMarketTimeTerms, isCancelled, isCommissionRecord } from "../markettime";
 import { FB_TERMS } from "../fishbowlEstimate";
 
 /** Every string below is a real `paymentTerm` value from this account's
@@ -112,5 +112,61 @@ describe("isCancelled", () => {
   it("leaves a normal live order alone", () => {
     expect(isCancelled({ recordDeleted: false }, "TRANSMITTED / OPEN")).toBe(false);
     expect(isCancelled({}, "PAID / RECEIVED")).toBe(false);
+  });
+});
+
+/**
+ * A rep group can log an order the retailer placed with FMG directly, so the
+ * writing salesperson still gets paid. MarketTime marks those `origin:
+ * "Direct"` and never transmits them (`manufacturerDateSent: -1`), and they
+ * carry no real products — importing one puts a phantom on the Purchases page.
+ *
+ * The asymmetry these tests exist to protect: letting a commission record
+ * through costs a phantom row, but dropping a real order costs an order nobody
+ * hears about again. So BOTH signals are required, and every ambiguous shape
+ * must fall through to "import it".
+ */
+describe("isCommissionRecord", () => {
+  it("catches the real one — St. Joseph's, PO CF4CFH49XR", () => {
+    expect(
+      isCommissionRecord({
+        recordID: 32698933,
+        origin: "Direct",
+        manufacturerDateSent: -1,
+        manufacturerOrderStatus: "RECEIVED",
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["mtPlay", 116],
+    ["WebApp", 15],
+    ["B2B", 8],
+  ])("leaves a transmitted %s order alone", (origin) => {
+    expect(isCommissionRecord({ origin, manufacturerDateSent: 1783036800000 })).toBe(false);
+  });
+
+  it("needs BOTH signals — a transmitted Direct order is still ours to fill", () => {
+    expect(
+      isCommissionRecord({ origin: "Direct", manufacturerDateSent: 1783036800000 }),
+    ).toBe(false);
+  });
+
+  it("imports a real order that simply hasn't been transmitted yet", () => {
+    // The dangerous direction: never drop these.
+    expect(isCommissionRecord({ origin: "mtPlay", manufacturerDateSent: -1 })).toBe(false);
+    expect(isCommissionRecord({ origin: "B2B", manufacturerDateSent: -1 })).toBe(false);
+  });
+
+  it("falls through to importing when the fields are missing or odd", () => {
+    expect(isCommissionRecord({})).toBe(false);
+    expect(isCommissionRecord({ origin: null, manufacturerDateSent: null })).toBe(false);
+    expect(isCommissionRecord({ origin: "Direct" })).toBe(false);
+    expect(isCommissionRecord({ manufacturerDateSent: -1 })).toBe(false);
+  });
+
+  it("reads the origin case- and space-insensitively", () => {
+    expect(isCommissionRecord({ origin: " DIRECT ", manufacturerDateSent: -1 })).toBe(true);
+    expect(isCommissionRecord({ origin: "direct", manufacturerDateSent: "-1" })).toBe(true);
   });
 });
