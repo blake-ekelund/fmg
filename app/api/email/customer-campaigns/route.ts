@@ -236,10 +236,23 @@ export async function GET(request: Request) {
       const templateIds = [...new Set(steps.map((s) => s.template_id).filter(Boolean))] as string[];
       const names = new Map<string, string>();
       if (templateIds.length > 0) {
-        const { data: tplRows } = await supabaseServer
-          .from("user_email_templates")
+        // `email_templates`, not `user_email_templates`. The latter was the
+        // per-user compose-modal table from the two-system era; it was never
+        // created in this database, so this lookup returned PGRST205 every time
+        // and the error was dropped on the floor with the row names — every step
+        // fell back to "Step N" and nothing said why. automation_steps.template_id
+        // points at `email_templates`, which is what the automation cron itself
+        // reads when it actually sends the thing.
+        const { data: tplRows, error: tplError } = await supabaseServer
+          .from("email_templates")
           .select("id, name")
           .in("id", templateIds);
+        // A missing name is degraded output, not a failed request — so log and
+        // carry on rather than failing the whole history. But do NOT swallow it
+        // silently again.
+        if (tplError) {
+          console.error("[customer-campaigns] template name lookup failed:", tplError.message);
+        }
         for (const t of ((tplRows as Array<{ id: string; name: string }> | null) ?? [])) {
           names.set(t.id, t.name);
         }
