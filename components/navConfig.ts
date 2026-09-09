@@ -13,6 +13,7 @@ import {
   Zap,
   Mail,
   MessageSquare,
+  Headphones,
   UserCheck,
   Globe,
   TicketPercent,
@@ -164,6 +165,15 @@ export const navSections: readonly NavSection[] = [
         label: "Prebookings",
         href: "/storefronts/prebookings",
         icon: ClipboardList,
+        roles: [...FULL_ACCESS, "sales", "marketing"],
+      },
+      {
+        // Storefront chat conversations (support_conversations): the concierge
+        // transcript, and where a human takes a thread over. Replying here
+        // silences the bot and lands in the shopper's chat widget.
+        label: "Customer Service",
+        href: "/storefronts/conversations",
+        icon: Headphones,
         roles: [...FULL_ACCESS, "sales", "marketing"],
       },
       {
