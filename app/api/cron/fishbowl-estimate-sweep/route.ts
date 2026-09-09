@@ -3,7 +3,7 @@ import { getAuthUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { fishbowlConfigured } from "@/lib/fishbowl";
 import { pushOrderEstimate } from "@/lib/fishbowlEstimatePush";
-import { orderRef, type StorefrontOrder } from "@/lib/storefrontOrder";
+import { isRealPart, orderRef, type StorefrontOrder } from "@/lib/storefrontOrder";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -123,8 +123,11 @@ export async function GET(request: Request) {
   // Storefront orders wait for the pilot customer; marketplace orders don't.
   const eligible = ready.filter((o) => isMarketplace(o) || !!pilotCustomer);
   const storefrontGated = ready.length - eligible.length;
+  // `it.part` alone was the test, and a MarketTime Direct Order Entry line
+  // passes it with the literal string "None" — see isRealPart. Such an order
+  // has no SKUs to import and must stay on the manual button.
   const pushable = eligible.filter((o) =>
-    (o.items ?? []).some((it) => it.part && (it.quantity ?? 0) > 0),
+    (o.items ?? []).some((it) => isRealPart(it.part) && (it.quantity ?? 0) > 0),
   );
   const skipped = eligible.length - pushable.length;
 

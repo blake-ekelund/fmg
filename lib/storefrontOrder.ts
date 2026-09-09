@@ -31,6 +31,25 @@ export type OrderLineItem = {
 
 export type OrderDiscount = { type?: string; label?: string; amount?: number };
 
+/**
+ * Placeholder "part numbers" that marketplaces send in place of a real SKU.
+ *
+ * MarketTime's Direct Order Entry lines carry the literal string "None" as the
+ * item number with the whole order value on one line — a rep keyed a dollar
+ * amount, not products. It reads as a part number to any truthiness check
+ * (`"None"` is a non-empty string), so such an order looked pushable and would
+ * have gone to Fishbowl as a line with ProductNumber "None", which is not a
+ * part in this instance. An order like that has to be hand-keyed against real
+ * SKUs; the right behaviour is to hold it back, not to import a fiction.
+ */
+const PLACEHOLDER_PARTS = new Set(["none", "n/a", "na", "-", "--", "tbd", "null"]);
+
+export function isRealPart(part: string | null | undefined): boolean {
+  const p = (part ?? "").trim();
+  return p.length > 0 && !PLACEHOLDER_PARTS.has(p.toLowerCase());
+}
+
+
 export type StorefrontOrder = {
   id: string;
   created_at: string;

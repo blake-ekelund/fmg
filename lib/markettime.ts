@@ -34,6 +34,7 @@
  */
 
 import { ACTIVE_NET_TERMS, FB_TERMS } from "./fishbowlEstimate";
+import { isRealPart } from "./storefrontOrder";
 
 const BASE = "https://publicapi.markettime.com";
 
@@ -218,7 +219,9 @@ function parseItem(raw: unknown): MarketTimeOrderItem {
   const d = asRecord(raw);
   const variant = [str(d.size), str(d.color), str(d.style)].filter(Boolean).join(" / ") || null;
   return {
-    sku: str(d.itemNumber) ?? str(d.scsItemNumber),
+    // A Direct Order Entry line sends the literal "None" as its item number;
+    // treating that as a SKU is how a bogus ProductNumber reaches Fishbowl.
+    sku: [str(d.itemNumber), str(d.scsItemNumber)].find((v) => isRealPart(v)) ?? null,
     name: str(d.name) ?? str(d.description),
     variant,
     quantity: Math.round(num(d.quantity)),

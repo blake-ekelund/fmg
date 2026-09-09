@@ -14,6 +14,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getMarketTimeOrders } from "./markettime";
 import { loadCustomerIndex, matchCustomer } from "./customerMatch";
+import { FB_TERMS } from "./fishbowlEstimate";
 
 export type MarketTimeImportResult = {
   checked: number;
@@ -111,11 +112,25 @@ export async function importMarketTimeOrders(
       payment_status: "paid",
       // The Fishbowl terms name MarketTime's payment fields resolve to, so the
       // estimate books card orders as CREDIT CARD instead of invoicing money
-      // that's already collected. Null when the free text couldn't be
-      // classified — the estimate then falls back to NET 30 and the sync
-      // reports it under termsUnclassified. This used to be the literal
-      // "MARKETTIME", which matches no Fishbowl payment term at all.
-      payment_terms: o.paymentTerms,
+      // that's already collected. This used to be the literal "MARKETTIME",
+      // which matches no Fishbowl payment term at all.
+      //
+      // An unclassifiable term (classifyMarketTimeTerms returning null) is
+      // written as the NET 30 fallback rather than left null, because
+      // `orders.payment_terms` is NOT NULL in the live database — the repo
+      // migration declares it nullable, so the constraint was added by hand and
+      // the code never knew. Inserting null failed the whole row, which meant
+      // an order with terms like "See Special Instructions" was rejected on
+      // every single poll and simply never arrived: no order in the app, no
+      // estimate in Fishbowl, and nothing to see but a line in the `failed`
+      // array. MARSHALL RETAIL GROUP and FIRESIDE sat unimported for days that
+      // way (Blake, 2026-09-08).
+      //
+      // NET 30 is not a guess bolted on here — it is exactly what
+      // paymentTermsFor() already applies to a blank term, so the estimate
+      // books identically either way. The "a human should read this" signal is
+      // not lost: it still rides in termsUnclassified and now in the note too.
+      payment_terms: o.paymentTerms ?? FB_TERMS.net30,
       business_name: businessName,
       contact_name: o.contactName ?? businessName,
       email: o.email,
@@ -128,7 +143,11 @@ export async function importMarketTimeOrders(
       tax: 0,
       discount: o.discount,
       total: o.subtotal + o.shipping - o.discount,
-      note: `MarketTime order ${o.displayId} (PO ${o.poNumber ?? "—"}, ${o.state}) — imported by markettime sync.`,
+      note: `MarketTime order ${o.displayId} (PO ${o.poNumber ?? "—"}, ${o.state}) — imported by markettime sync.${
+        o.paymentTerms
+          ? ""
+          : ` Payment terms unreadable ("${o.paymentTermRaw ?? "blank"}") — booked NET 30 by fallback; confirm before invoicing.`
+      }`,
       fishbowl_customer: match?.name ?? null,
       fishbowl_customer_id: match?.customerId ?? null,
     };
