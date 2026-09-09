@@ -120,6 +120,13 @@ create index if not exists support_messages_thread_idx
 create index if not exists support_messages_seq_idx
   on public.support_messages (seq);
 
+-- entry_preset was added after this file had already been run once, so the
+-- create table above can't be the only place it appears — an existing database
+-- would never see it. Idempotent either way: a no-op on a fresh create, the
+-- actual fix on a database that predates the column.
+alter table public.support_conversations
+  add column if not exists entry_preset text;
+
 alter table public.support_conversations enable row level security;
 alter table public.support_messages enable row level security;
 

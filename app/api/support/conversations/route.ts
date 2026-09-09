@@ -18,7 +18,16 @@ export const runtime = "nodejs";
 const STATUSES = ["bot", "needs_human", "human", "closed"] as const;
 
 function tableMissing(message: string): boolean {
-  return /schema cache|does not exist/i.test(message);
+  // Deliberately narrow. "does not exist" on its own also fires for a missing
+  // COLUMN, and reporting that as "run the migration" sends someone to re-run
+  // a migration that already ran while the real cause — a column added to the
+  // file after it was applied — stays invisible. Match the relation, not the
+  // phrase.
+  return (
+    /relation \"?[a-z_.]*support_(conversations|messages)\"? does not exist/i.test(
+      message
+    ) || /schema cache/i.test(message)
+  );
 }
 
 const MIGRATION_HINT =
