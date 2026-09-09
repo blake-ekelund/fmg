@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   let query = supabaseServer
     .from("support_conversations")
     .select(
-      "id, store, session_key, profile_id, email, name, channel, status, assigned_to, subject, message_count, last_message_at, agent_unread, page_url, created_at"
+      "id, store, session_key, profile_id, email, name, channel, status, assigned_to, subject, entry_preset, message_count, last_message_at, agent_unread, page_url, created_at"
     )
     .order("last_message_at", { ascending: false })
     .limit(200);

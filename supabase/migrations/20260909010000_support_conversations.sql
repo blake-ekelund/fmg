@@ -48,6 +48,13 @@ create table if not exists public.support_conversations (
   -- line without loading every message.
   subject text,
 
+  -- Set when the conversation began by tapping one of the widget's suggested
+  -- questions, holding the exact prompt text. Null means they typed their own
+  -- opener. Two uses: an agent can see how someone arrived, and counting these
+  -- against the total says which suggestions actually pull people in and which
+  -- are taking up space. Stamped on creation only, never overwritten.
+  entry_preset text,
+
   message_count integer not null default 0,
   last_message_at timestamptz not null default now(),
 

@@ -42,6 +42,7 @@ type Conversation = {
   status: Status;
   assigned_to: string | null;
   subject: string | null;
+  entry_preset: string | null;
   message_count: number;
   last_message_at: string;
   agent_unread: boolean;
@@ -402,6 +403,11 @@ export default function ConversationsPage() {
                       <p className="mt-1.5 line-clamp-2 text-sm text-gray-800">
                         {c.subject || "(no message yet)"}
                       </p>
+                      {c.entry_preset ? (
+                        <p className="mt-1 truncate text-[11px] text-gray-400">
+                          started from the &ldquo;{c.entry_preset}&rdquo; chip
+                        </p>
+                      ) : null}
                       <p className="mt-1 truncate text-[11px] text-gray-400">
                         {c.email || c.name || "Anonymous shopper"} ·{" "}
                         {c.message_count} messages
