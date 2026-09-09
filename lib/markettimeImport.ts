@@ -141,6 +141,10 @@ export async function importMarketTimeOrders(
       // books identically either way. The "a human should read this" signal is
       // not lost: it still rides in termsUnclassified and now in the note too.
       payment_terms: o.paymentTerms ?? FB_TERMS.net30,
+      // The PO the retailer/rep put on the order. Ops keys THIS into Fishbowl
+      // when they enter an order by hand, so it is the second key reconcile
+      // matches on — see migration 20260909020000.
+      external_po: o.poNumber,
       business_name: businessName,
       contact_name: o.contactName ?? businessName,
       email: o.email,
@@ -176,7 +180,14 @@ export async function importMarketTimeOrders(
       }
       continue;
     }
+    // Both column groups are migrations that may not be pushed yet. Drop them
+    // and retry rather than losing the order — an order that fails to insert is
+    // an order that never arrives, and nothing downstream would say so.
     let { error } = await admin.from("orders").insert(row);
+    if (error && /external_po|schema cache/i.test(error.message)) {
+      delete row.external_po;
+      ({ error } = await admin.from("orders").insert(row));
+    }
     if (error && /fishbowl_customer|schema cache/i.test(error.message)) {
       delete row.fishbowl_customer;
       delete row.fishbowl_customer_id;
