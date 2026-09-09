@@ -7,8 +7,10 @@ import {
   ArrowLeft,
   CheckCircle2,
   ExternalLink,
+  Eye,
   Loader2,
   Printer,
+  Send,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
@@ -37,6 +39,9 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Fishbowl push test-harness state.
+  const [fbBusy, setFbBusy] = useState<"preview" | "push" | null>(null);
+  const [fbResult, setFbResult] = useState<{ kind: "ok" | "dry" | "error"; data: unknown } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -127,6 +132,33 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
   const saveTracking = (carrier: string, tracking_code: string) =>
     patchOrder({ action: "set-tracking", carrier, tracking_code });
   const clearTracking = () => patchOrder({ action: "clear-tracking" });
+
+  /** Test-harness: build the SO payload (dry) or actually create it in Fishbowl.
+   *  Surfaces the raw Fishbowl response either way so we can iterate the mapping. */
+  const callFishbowl = useCallback(
+    async (dry: boolean) => {
+      setFbBusy(dry ? "preview" : "push");
+      setFbResult(null);
+      try {
+        const res = await fetch(
+          `/api/storefront-orders/${orderId}/fishbowl${dry ? "?dry=1" : ""}`,
+          { method: "POST", headers: await authHeader() },
+        );
+        const json = await res.json();
+        if (!res.ok) {
+          setFbResult({ kind: "error", data: json });
+        } else {
+          setFbResult({ kind: dry ? "dry" : "ok", data: json });
+          if (!dry) await load(); // refresh the entered stamp
+        }
+      } catch (e) {
+        setFbResult({ kind: "error", data: { error: e instanceof Error ? e.message : String(e) } });
+      } finally {
+        setFbBusy(null);
+      }
+    },
+    [orderId, load],
+  );
 
   if (loading) {
     return (
@@ -229,6 +261,28 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
               </button>
             </>
           )}
+
+          {/* Test harness: build/preview + actually create the SO in Fishbowl */}
+          <button
+            type="button"
+            onClick={() => callFishbowl(true)}
+            disabled={fbBusy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            title="Build the Fishbowl payload without posting"
+          >
+            {fbBusy === "preview" ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+            Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => callFishbowl(false)}
+            disabled={fbBusy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+            title="Create this order as a sales order in Fishbowl"
+          >
+            {fbBusy === "push" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            Push to Fishbowl
+          </button>
         </div>
       </div>
 
@@ -239,9 +293,45 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
         </div>
       ) : null}
 
+<<<<<<< Updated upstream
       {/* Marketplace orders: which Fishbowl customer the estimate books under */}
       {order.source === "faire" || order.source === "markettime" ? (
         <MarketplaceCustomerCard order={order} busy={saving} onPatch={patchOrder} />
+=======
+      {/* Fishbowl push result — shows the raw request/response so we can iterate
+          the payload mapping against the live API's validation errors. */}
+      {fbResult ? (
+        <div
+          className={
+            "rounded-xl border px-4 py-3 print:hidden " +
+            (fbResult.kind === "ok"
+              ? "border-emerald-200 bg-emerald-50"
+              : fbResult.kind === "dry"
+                ? "border-indigo-200 bg-indigo-50"
+                : "border-red-200 bg-red-50")
+          }
+        >
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-gray-600">
+              {fbResult.kind === "ok"
+                ? "Created in Fishbowl"
+                : fbResult.kind === "dry"
+                  ? "Payload preview (not posted)"
+                  : "Fishbowl rejected the request"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFbResult(null)}
+              className="text-xs text-gray-400 hover:text-gray-600"
+            >
+              Dismiss
+            </button>
+          </div>
+          <pre className="max-h-80 overflow-auto rounded-lg bg-white/70 p-3 text-[11px] leading-relaxed text-gray-800">
+            {JSON.stringify(fbResult.data, null, 2)}
+          </pre>
+        </div>
+>>>>>>> Stashed changes
       ) : null}
 
       {/* Invoice — `print-document` is the only thing that prints (globals.css) */}

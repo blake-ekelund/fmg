@@ -11,8 +11,12 @@ import {
   ChevronDown,
   Save,
   Trash2,
+<<<<<<< Updated upstream
   LayoutTemplate,
   Eye,
+=======
+  Code2,
+>>>>>>> Stashed changes
 } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -63,11 +67,15 @@ type OutlookStatus =
   | { state: "disconnected" }
   | { state: "connected"; email: string };
 
+type BodyFormat = "text" | "html";
+
 type Template = {
   id: string;
   name: string;
   subject: string;
   body: string;
+  body_format: BodyFormat;
+  source_filename: string | null;
   updated_at: string;
 };
 
@@ -104,6 +112,10 @@ export default function ComposeEmailModal({
   const [subject, setSubject] = useState("");
   const [cc, setCc] = useState("");
   const [body, setBody] = useState("");
+  /* Set by the template picker, never by hand — this modal composes plain text;
+     HTML only ever arrives by applying an uploaded template. */
+  const [format, setFormat] = useState<BodyFormat>("text");
+  const [appliedTemplate, setAppliedTemplate] = useState<Template | null>(null);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -282,6 +294,8 @@ export default function ComposeEmailModal({
       setSubject("");
       setCc("");
       setBody("");
+      setFormat("text");
+      setAppliedTemplate(null);
       setResult(null);
       setError(null);
       setSending(false);
@@ -303,9 +317,20 @@ export default function ComposeEmailModal({
 
   const previewName = ids[0] ? customerNames[ids[0]] ?? ids[0] : "";
 
+  const isHtmlBody = format === "html";
+
+  /** Drop an applied HTML template and go back to composing plain text. */
+  function clearTemplate() {
+    setBody("");
+    setFormat("text");
+    setAppliedTemplate(null);
+  }
+
   async function applyTemplate(t: Template) {
     setSubject(t.subject);
     setBody(t.body);
+    setFormat(t.body_format ?? "text");
+    setAppliedTemplate(t);
     setTemplatesOpen(false);
     // Fire-and-forget: bump last_used_at so MRU sorting works.
     fetch(`/api/email/templates/${t.id}`, {
@@ -333,7 +358,13 @@ export default function ComposeEmailModal({
       const res = await fetch("/api/email/templates", {
         method: "POST",
         headers: { ...(await authHeader()), "Content-Type": "application/json" },
-        body: JSON.stringify({ name, subject, body }),
+        body: JSON.stringify({
+          name,
+          subject,
+          body,
+          body_format: format,
+          source_filename: appliedTemplate?.source_filename ?? null,
+        }),
       });
       if (res.ok) {
         await loadTemplates();
@@ -389,7 +420,7 @@ export default function ComposeEmailModal({
           recipients,
           subject_template: subject,
           body_template: body,
-          body_format: "text",
+          body_format: format,
           cc: cc.trim() || undefined,
         }),
       });
@@ -745,10 +776,26 @@ export default function ComposeEmailModal({
                     Message
                   </label>
                   <span className="text-[10px] text-gray-400">
+<<<<<<< Updated upstream
                     Plain text · type “/” for merge fields
                   </span>
                 </div>
                 <MergeFieldTextarea
+=======
+                    {isHtmlBody
+                      ? "HTML template — sent as designed."
+                      : "Plain text. Line breaks preserved."}
+                  </span>
+                </div>
+                {isHtmlBody ? (
+                  <HtmlTemplateBody
+                    html={body}
+                    templateName={appliedTemplate?.name ?? "HTML template"}
+                    onClear={clearTemplate}
+                  />
+                ) : (
+                <textarea
+>>>>>>> Stashed changes
                   value={body}
                   onValueChange={setBody}
                   channel={customerType}
@@ -758,7 +805,9 @@ export default function ComposeEmailModal({
                   }
                   className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 resize-y font-mono"
                 />
+                )}
                 <div className="flex items-start justify-between mt-1 gap-3">
+<<<<<<< Updated upstream
                   <div className="text-[10px] text-gray-400 leading-relaxed">
                     {mergeGroupsFor(customerType).map(({ group, fields }, i) => (
                       <span key={group}>
@@ -772,11 +821,20 @@ export default function ComposeEmailModal({
                       </span>
                     ))}
                   </div>
+=======
+                  {isHtmlBody ? (
+                    <span className="text-[10px] text-gray-400 leading-relaxed">
+                      Merge fields in the design are filled in per recipient.
+                    </span>
+                  ) : (
+                    <MergeFieldHints className="text-[10px] text-gray-400 leading-relaxed" />
+                  )}
+>>>>>>> Stashed changes
                   {!saveOpen ? (
                     <button
                       onClick={() => setSaveOpen(true)}
                       disabled={!subject.trim() && !body.trim()}
-                      className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 hover:text-gray-900 transition disabled:opacity-40"
+                      className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 hover:text-gray-900 transition disabled:opacity-40 shrink-0"
                     >
                       <Save size={11} />
                       Save as template
@@ -829,8 +887,14 @@ export default function ComposeEmailModal({
                   </div>
                   <div className="text-xs text-gray-700 whitespace-pre-wrap">
                     <strong>Subject:</strong> {previewFill(subject, previewName) || "(empty)"}
-                    {"\n"}
-                    {previewFill(body, previewName) || "(empty)"}
+                    {/* The HTML body has its own rendered preview above; dumping
+                        the markup here as text would just be noise. */}
+                    {!isHtmlBody && (
+                      <>
+                        {"\n"}
+                        {previewFill(body, previewName) || "(empty)"}
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -1036,6 +1100,48 @@ function BulkProgressPanel({
           Stop sending
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * An applied HTML template: rendered, not editable.
+ *
+ * Read-only on purpose — hand-editing a marketing export in a 10-row textarea
+ * is how you break a merge field or a table layout without noticing. Authoring
+ * lives on /email-templates, which has the validator and the full-size preview.
+ */
+function HtmlTemplateBody({
+  html,
+  templateName,
+  onClear,
+}: {
+  html: string;
+  templateName: string;
+  onClear: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2">
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-gray-600 min-w-0">
+          <Code2 size={11} className="shrink-0 text-gray-400" />
+          <span className="font-medium truncate">{templateName}</span>
+          <span className="text-gray-400 shrink-0">· preview</span>
+        </div>
+        <button
+          onClick={onClear}
+          className="text-[10px] font-medium text-gray-500 hover:text-gray-900 transition shrink-0"
+        >
+          Remove and write plain text
+        </button>
+      </div>
+      <iframe
+        // Untrusted authored markup: no scripts, no parent access.
+        sandbox=""
+        srcDoc={html}
+        title={`${templateName} preview`}
+        className="w-full h-[300px] bg-white"
+      />
     </div>
   );
 }

@@ -21,9 +21,15 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
+<<<<<<< Updated upstream
 import InventoryCategory from "./categories/InventoryCategory";
 import AssetLibraryCategory from "./categories/AssetLibraryCategory";
 import WorkflowCategory from "./categories/WorkflowCategory";
+=======
+import GeneratePostModal from "@/components/blog-posts/GeneratePostModal";
+import GenerateSocialPostModal from "@/components/social-media/GenerateSocialPostModal";
+import InventoryCategory from "./categories/InventoryCategory";
+>>>>>>> Stashed changes
 import WholesaleCategory from "./categories/WholesaleCategory";
 import D2CCategory from "./categories/D2CCategory";
 import MonthlySalesCategory from "./categories/MonthlySalesCategory";
@@ -147,9 +153,9 @@ function FloatingActionButton({
 /* ═══════════════════════════════════════════════════
    Main Page — Zoned Layout
    Zone A: Header (greeting + summary sentence)
-   Zone B: Primary row — Wholesale | D2C (2-col on lg)
-   Zone C: Secondary row — Content | Inventory (2-col on lg)
-   Zone D: Reference — Promotions, Assets, Workflows (collapsed)
+   Zone B: Monthly Sales (full-width; drills into daily log)
+   Zone C: Primary row — Wholesale | D2C (2-col on lg)
+   Zone D: Reference — Inventory (collapsed)
    + Floating Action Button (bottom-right)
    ═══════════════════════════════════════════════════ */
 export default function DashboardPage() {
@@ -234,7 +240,20 @@ export default function DashboardPage() {
           />
         </motion.div>
 
+<<<<<<< Updated upstream
         {/* ═══ Zone C: Do today — at most five ranked moves ═══ */}
+=======
+        {/* ═══ Zone C: Primary — Wholesale | D2C ═══ */}
+        <motion.div
+          variants={itemVariants}
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start"
+        >
+          <WholesaleCategory />
+          <D2CCategory />
+        </motion.div>
+
+        {/* ═══ Zone D: Reference — collapsed by default ═══ */}
+>>>>>>> Stashed changes
         <motion.div variants={itemVariants}>
           <TodaysMoves
             alerts={alerts}
@@ -266,6 +285,7 @@ export default function DashboardPage() {
               />
               {showAll ? "Hide detail" : "Full dashboard"}
             </span>
+<<<<<<< Updated upstream
             <span className="h-px flex-1 bg-gray-200" />
           </button>
 
@@ -285,6 +305,13 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+=======
+            <div className="h-px flex-1 bg-gray-200" />
+          </div>
+          <div className="space-y-4">
+            <InventoryCategory />
+          </div>
+>>>>>>> Stashed changes
         </motion.div>
       </motion.div>
 

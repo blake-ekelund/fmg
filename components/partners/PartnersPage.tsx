@@ -108,7 +108,18 @@ export default function PartnersPage() {
     })();
   }, [reload]);
 
+<<<<<<< Updated upstream
   async function patchPartner(id: string, patch: PartnerPatch) {
+=======
+  async function patchPartner(
+    id: string,
+    patch: {
+      status?: PartnerStatus;
+      sales_rep?: string | null;
+      fishbowl_customer?: string | null;
+    }
+  ) {
+>>>>>>> Stashed changes
     setBusyId(id);
     try {
       const res = await fetch("/api/partners", {
@@ -365,9 +376,16 @@ export default function PartnersPage() {
                 <th className="px-3 py-2 text-left font-medium">Type</th>
                 <th className="px-3 py-2 text-left font-medium">Store</th>
                 <th className="px-3 py-2 text-left font-medium">Contact</th>
+<<<<<<< Updated upstream
                 <th className="px-3 py-2 text-left font-medium">Rep &amp; group</th>
                 <th className="px-3 py-2 text-left font-medium">Account #</th>
                 <th className="px-3 py-2 text-left font-medium">Joined</th>
+=======
+                <th className="px-3 py-2 text-left font-medium">Details</th>
+                <th className="px-3 py-2 text-left font-medium">Sales rep</th>
+                <th className="px-3 py-2 text-left font-medium">Fishbowl customer</th>
+                <th className="px-3 py-2 text-left font-medium">Applied</th>
+>>>>>>> Stashed changes
                 <th className="px-3 py-2 text-left font-medium">Status</th>
                 <th className="px-3 py-2 text-right font-medium">Actions</th>
               </tr>
@@ -460,11 +478,28 @@ function PartnerRow({
   partner: PartnerProfile;
   last: boolean;
   busy: boolean;
+<<<<<<< Updated upstream
   onPatch: (id: string, patch: PartnerPatch) => void;
+=======
+  repOptions: string[];
+  onPatch: (
+    id: string,
+    patch: {
+      status?: PartnerStatus;
+      sales_rep?: string | null;
+      fishbowl_customer?: string | null;
+    }
+  ) => void;
+>>>>>>> Stashed changes
 }) {
   const wholesale = isWholesale(p);
   const meta = STATUS_META[p.wholesale_status];
+<<<<<<< Updated upstream
   const joined = p.created_at
+=======
+  const [fbValue, setFbValue] = useState(p.fishbowl_customer ?? "");
+  const applied = p.created_at
+>>>>>>> Stashed changes
     ? new Date(p.created_at).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -571,8 +606,35 @@ function PartnerRow({
           onCommit={(next) => onPatch(p.id, { account_number: next })}
         />
       </td>
+<<<<<<< Updated upstream
 
       {/* Joined */}
+=======
+      <td className="px-3 py-2.5">
+        <input
+          value={fbValue}
+          disabled={busy}
+          onChange={(e) => setFbValue(e.target.value)}
+          onBlur={() => {
+            const next = fbValue.trim();
+            if (next !== (p.fishbowl_customer ?? "").trim()) {
+              onPatch(p.id, { fishbowl_customer: next || null });
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          placeholder="Fishbowl customer…"
+          title="The Fishbowl customer this partner's orders post under"
+          className={clsx(
+            "w-full max-w-[150px] rounded-lg border bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-300",
+            fbValue.trim()
+              ? "border-gray-200 font-medium text-gray-900"
+              : "border-dashed border-gray-300 text-gray-400"
+          )}
+        />
+      </td>
+>>>>>>> Stashed changes
       <td className="whitespace-nowrap px-3 py-2.5 text-gray-500 tabular-nums">
         {joined}
       </td>

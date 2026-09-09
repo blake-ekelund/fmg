@@ -62,7 +62,9 @@ describe("safePoNeedle", () => {
     expect(safePoNeedle("  cf4cfh49xr ")).toBe("CF4CFH49XR");
   });
 
-  it.each([
+  // One tuple type, not a union of them — `it.each` types the callback off the
+  // array, and a mixed [string,…] | [null,…] makes the one-arg form unassignable.
+  const REJECTED: Array<[string | null, string]> = [
     ["", "empty"],
     [null, "null"],
     ["1234", "too short to be distinctive"],
@@ -71,7 +73,8 @@ describe("safePoNeedle", () => {
     ["ABC_DEF", "LIKE wildcard _"],
     ["PO 12345", "a space"],
     ["-12345", "leading dash"],
-  ])("rejects %j (%s)", (po) => {
-    expect(safePoNeedle(po as string | null)).toBeNull();
+  ];
+  it.each(REJECTED)("rejects %j (%s)", (po) => {
+    expect(safePoNeedle(po)).toBeNull();
   });
 });
