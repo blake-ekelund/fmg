@@ -11,6 +11,7 @@ import {
   ChevronUp,
   Loader2,
   Receipt,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -158,15 +159,17 @@ export default function PurchasesPage() {
     setPage(0);
   }, []);
   /** "orders" = completed business; "abandoned" = unpaid D2C checkout-starts
-   *  (the abandoned-cart material — win-back targets, not real orders). */
-  const [view, setView] = useState<"orders" | "abandoned">("orders");
+   *  (the abandoned-cart material — win-back targets, not real orders);
+   *  "archived" = taken off the page, kept on file. A marketplace order comes
+   *  back out of the archive on the next Sync if it's still open. */
+  const [view, setView] = useState<"orders" | "abandoned" | "archived">("orders");
 
   const reload = useCallback(async () => {
     try {
       const res = await fetch(
-        view === "abandoned"
-          ? "/api/storefront-orders?view=abandoned"
-          : "/api/storefront-orders",
+        view === "orders"
+          ? "/api/storefront-orders"
+          : `/api/storefront-orders?view=${view}`,
         {
           headers: await authHeader(),
         },
@@ -192,10 +195,68 @@ export default function PurchasesPage() {
     })();
   }, [reload]);
 
+  /**
+   * Manual "Sync <marketplace>" — pull open orders on demand instead of waiting
+   * for the cron. Both sync routes accept a signed-in user as well as the cron
+   * Bearer, and both answer with the same envelope ({ checked, imported[],
+   * failed[], note? }), so one handler covers them.
+   *
+   * Import only: a sync writes `orders` rows and never touches Fishbowl. It
+   * pulls whatever the marketplace still calls open, so clicking twice is
+   * harmless — the unique index on (source, external_ref) makes a re-run a
+   * no-op for anything already here.
+   */
+  const [syncing, setSyncing] = useState<null | "markettime" | "faire">(null);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+
+  const runSync = useCallback(
+    async (which: "markettime" | "faire") => {
+      const label = which === "markettime" ? "MarketTime" : "Faire";
+      setSyncing(which);
+      setSyncNote(null);
+      try {
+        const res = await fetch(`/api/cron/${which}-order-sync`, {
+          headers: await authHeader(),
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? `Failed (${res.status})`);
+
+        const imported = Array.isArray(json?.imported) ? json.imported.length : 0;
+        const failed = Array.isArray(json?.failed) ? json.failed.length : 0;
+        const checked = typeof json?.checked === "number" ? json.checked : null;
+        const restored = typeof json?.restored === "number" ? json.restored : 0;
+        // A route that is switched off answers with a note and no orders — say
+        // that, rather than reporting a cheerful "nothing new".
+        if (json?.note && imported === 0) {
+          setSyncNote(`${label}: ${json.note}`);
+        } else {
+          const parts = [
+            imported === 0
+              ? "nothing new"
+              : `${imported} new order${imported === 1 ? "" : "s"}`,
+          ];
+          // Restored = still open on the marketplace, so pulled back out of the
+          // archive. Worth saying: the row reappears without being re-imported.
+          if (restored > 0) parts.push(`${restored} restored from archive`);
+          if (checked !== null) parts.push(`${checked} open on ${label}`);
+          if (failed > 0) parts.push(`${failed} failed to import — check the logs`);
+          setSyncNote(`${label}: ${parts.join(" · ")}`);
+        }
+        if (imported > 0 || restored > 0) await reload();
+      } catch (e) {
+        setSyncNote(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setSyncing(null);
+      }
+    },
+    [reload],
+  );
+
   // Everything matching search + source + channel (but NOT the state tab), so
   // the tab counts reflect the other active filters. Marketplace orders arrive
-  // via their crons (faire-order-sync / markettime-order-sync); there are no
-  // manual pull buttons here.
+  // via their crons (faire-order-sync / markettime-order-sync) and via the Sync
+  // buttons in the header, which call those same routes on demand.
   const base = useMemo(() => {
     const q = query.trim().toLowerCase();
     return orders.filter((o) => {
@@ -269,33 +330,61 @@ export default function PurchasesPage() {
         <p className="max-w-2xl text-sm text-gray-500">
           {view === "abandoned"
             ? "Checkouts that were started but never paid — abandoned-cart material, not real orders."
-            : "Orders from sassyandco.com, naturalinspirations.com, Faire, and MarketTime — D2C and wholesale."}
+            : view === "archived"
+              ? "Taken off the page but kept on file. A Faire or MarketTime order still open on the marketplace comes back here on the next Sync, with its Fishbowl entry intact."
+              : "Orders from sassyandco.com, naturalinspirations.com, Faire, and MarketTime — D2C and wholesale."}
         </p>
-        <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-0.5">
+        <div className="flex flex-wrap items-center gap-2">
           {(
             [
-              { key: "orders", label: "Orders" },
-              { key: "abandoned", label: "Abandoned carts" },
+              { key: "markettime", label: "Sync MarketTime" },
+              { key: "faire", label: "Sync Faire" },
             ] as const
-          ).map((t) => (
+          ).map((b) => (
             <button
-              key={t.key}
+              key={b.key}
               type="button"
-              onClick={() => {
-                setView(t.key);
-                setPage(0);
-              }}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
-                view === t.key
-                  ? "bg-gray-900 text-white"
-                  : "text-gray-600 hover:bg-gray-50"
-              }`}
+              onClick={() => void runSync(b.key)}
+              disabled={syncing !== null}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {t.label}
+              <RefreshCw
+                size={13}
+                className={syncing === b.key ? "animate-spin" : undefined}
+              />
+              {b.label}
             </button>
           ))}
+
+          <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-0.5">
+            {(
+              [
+                { key: "orders", label: "Orders" },
+                { key: "abandoned", label: "Abandoned carts" },
+                { key: "archived", label: "Archived" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => {
+                  setView(t.key);
+                  setPage(0);
+                }}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                  view === t.key
+                    ? "bg-gray-900 text-white"
+                    : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {syncNote ? <p className="text-xs text-gray-500">{syncNote}</p> : null}
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -15,11 +15,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getMarketTimeOrders } from "./markettime";
 import { loadCustomerIndex, matchCustomer } from "./customerMatch";
 import { FB_TERMS } from "./fishbowlEstimate";
+import { unarchiveOpenOrders } from "./orderArchive";
 
 export type MarketTimeImportResult = {
   checked: number;
   imported: Array<Record<string, unknown>>;
   rematched: Array<Record<string, unknown>>;
+  /** Archived orders the marketplace still calls open, brought back onto the
+   *  page by this run (see lib/orderArchive.ts). */
+  restored: number;
   failed: Array<Record<string, unknown>>;
   /** Orders whose MarketTime payment text couldn't be classified — they book
    *  NET 30 by fallback and want a human eye. */
@@ -36,7 +40,7 @@ export async function importMarketTimeOrders(
 
   const orders = await getMarketTimeOrders();
   if (orders.length === 0) {
-    return { checked: 0, imported: [], rematched: [], failed: [], termsUnclassified: [], dry };
+    return { checked: 0, imported: [], rematched: [], failed: [], termsUnclassified: [], restored: 0, dry };
   }
 
   const refs = orders.map((o) => o.displayId);
@@ -53,6 +57,7 @@ export async function importMarketTimeOrders(
         termsUnclassified: [],
         rematched: [],
         failed: [],
+        restored: 0,
         dry,
         note: "orders.source/external_ref missing — push migration 20260801000000.",
       };
@@ -60,6 +65,11 @@ export async function importMarketTimeOrders(
     throw new Error(exErr.message);
   }
   const seen = new Set((existing ?? []).map((r) => r.external_ref as string));
+
+  // An order the marketplace still calls open belongs on the page, archived or
+  // not — restore before the import loop, so a row that is merely archived
+  // reappears rather than being skipped as "already seen".
+  const restored = dry ? 0 : await unarchiveOpenOrders(admin, "markettime", refs);
 
   const customerIndex = await loadCustomerIndex();
   const imported: Array<Record<string, unknown>> = [];
@@ -215,5 +225,5 @@ export async function importMarketTimeOrders(
     }
   }
 
-  return { checked: orders.length, imported, rematched, failed, termsUnclassified, dry };
+  return { checked: orders.length, imported, rematched, failed, termsUnclassified, restored, dry };
 }

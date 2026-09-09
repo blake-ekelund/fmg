@@ -22,11 +22,31 @@ export async function GET(request: Request) {
     );
   }
 
-  const { data, error } = await admin
-    .from("orders")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const view = new URL(request.url).searchParams.get("view");
+
+  // Archived rows are off the page. `archived_at` is a fresh column (migration
+  // 20260909000000) — until it's pushed the filter would 400 every request, so
+  // fall back to the unfiltered list and let the page show everything rather
+  // than nothing.
+  const listOrders = async (filterArchived: boolean) => {
+    let q = admin
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (filterArchived) {
+      q = view === "archived" ? q.not("archived_at", "is", null) : q.is("archived_at", null);
+    }
+    return q;
+  };
+
+  let { data, error } = await listOrders(true);
+  if (error && /archived_at/i.test(error.message)) {
+    // Migration not pushed yet: nothing is archived, so "archived" is empty and
+    // every other view is the whole list.
+    if (view === "archived") return NextResponse.json({ orders: [], notReady: false });
+    ({ data, error } = await listOrders(false));
+  }
 
   if (error) {
     if (/schema cache|does not exist/i.test(error.message)) {
@@ -49,9 +69,13 @@ export async function GET(request: Request) {
     (o.source ?? "storefront") === "storefront" &&
     o.payment_status !== "paid";
 
-  const view = new URL(request.url).searchParams.get("view");
-  const orders = (data ?? []).filter((o) =>
-    view === "abandoned" ? isCheckoutStart(o) : !isCheckoutStart(o),
-  );
+  // The archived view is a straight record of what was taken off the page, so
+  // it is not split into orders vs checkout-starts the way the live views are.
+  const orders =
+    view === "archived"
+      ? (data ?? [])
+      : (data ?? []).filter((o) =>
+          view === "abandoned" ? isCheckoutStart(o) : !isCheckoutStart(o),
+        );
   return NextResponse.json({ orders, notReady: false });
 }

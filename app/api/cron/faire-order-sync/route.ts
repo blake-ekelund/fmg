@@ -4,6 +4,7 @@ import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { faireConfigured, getFaireOrders, type FaireOrder } from "@/lib/faire";
 import { loadCustomerIndex, matchCustomer } from "@/lib/customerMatch";
 import { expandTesterLines, resolveTesterParts } from "@/lib/faireTester";
+import { unarchiveOpenOrders } from "@/lib/orderArchive";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -70,7 +71,7 @@ export async function GET(request: Request) {
     );
   }
   if (faireOrders.length === 0) {
-    return NextResponse.json({ checked: 0, imported: [], dry });
+    return NextResponse.json({ checked: 0, imported: [], restored: 0, dry });
   }
 
   // Which are already in? One query on the dedupe key.
@@ -90,6 +91,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: exErr.message }, { status: 500 });
   }
   const seen = new Set((existing ?? []).map((r) => r.external_ref as string));
+
+  // An order Faire still calls unfulfilled belongs on the page, archived or
+  // not — restore before the import loop, so a row that is merely archived
+  // reappears rather than being skipped as "already seen".
+  const restored = dry ? 0 : await unarchiveOpenOrders(admin, "faire", refs);
 
   // Customer matching: marketplace orders book under their REAL Fishbowl
   // customer when we can identify it (email → normalized business name).
@@ -247,6 +253,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     checked: faireOrders.length,
     imported,
+    restored,
     rematched,
     itemsMissingSku: skippedNoSku,
     testersUnmapped,
