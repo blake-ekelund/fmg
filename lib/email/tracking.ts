@@ -1,16 +1,16 @@
 import { randomUUID } from "crypto";
 
 /**
- * Turn an email body into tracked HTML, ready for Graph.
+ * Convert a user's plain-text email body into tracked HTML.
  *
- * Two entry points, one per body_format:
- *   - buildTrackedHtmlBody  — plain text authored in our editor. We own all the
- *     markup, so everything gets escaped and wrapped.
- *   - buildTrackedHtmlDocument — an uploaded HTML document. The author owns the
- *     markup; we only rewrite hrefs and inject the pixel.
+ * Steps:
+ *   1. Detect http(s) URLs and allocate a tracking link id for each.
+ *   2. HTML-escape all surrounding text and the link display text.
+ *   3. Convert newlines to <br>.
+ *   4. Append an invisible 1x1 pixel that hits our pixel endpoint.
  *
- * Both return the HTML body plus the links we registered, so the caller can
- * persist them in email_message_links for click attribution.
+ * Returns the HTML body and the list of links we registered, so the caller
+ * can persist them in email_message_links for click attribution.
  */
 
 export type TrackedLink = {
@@ -26,7 +26,7 @@ export type TrackedBody = {
 
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 
-export function escapeHtml(s: string): string {
+function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -164,71 +164,4 @@ export function buildTrackedHtmlBody(opts: {
     `</body></html>`;
 
   return { html, links };
-}
-
-/* ─── Uploaded HTML documents ─────────────────────────────────────────────── */
-
-/** href="..." | href='...' — captures the quote so we can put it back. */
-const HREF_RE = /\bhref\s*=\s*(["'])(.*?)\1/gi;
-
-/** Attribute values arrive HTML-escaped; the redirect needs the real URL. */
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&amp;/g, "&"); // last: otherwise "&amp;lt;" double-decodes
-}
-
-/**
- * Add click + open tracking to an already-authored HTML document.
- *
- * Unlike the plain-text path this does NOT escape the body — the author's
- * markup is the point. It rewrites http(s) hrefs into tracked redirects and
- * injects the pixel before </body>.
- *
- * Why an href scan rather than the plain-text path's URL_RE: URL_RE matches the
- * URL *inside* an existing <a href="…">, so running it over real markup would
- * nest an anchor in an anchor and corrupt the document. Anchors are also the
- * only clicks worth attributing — a URL sitting in bare text of an HTML email
- * isn't clickable anyway.
- *
- * Left alone deliberately: mailto:/tel:/#fragment/cid: hrefs (nothing to
- * attribute), and any URL still carrying an unsubstituted {{token}} — those are
- * caught at upload time by validateHtmlTemplate.
- */
-export function buildTrackedHtmlDocument(opts: {
-  html: string;
-  origin: string;
-  messageId: string;
-}): TrackedBody {
-  const { html, origin, messageId } = opts;
-  const links: TrackedLink[] = [];
-  let linkIndex = 0;
-
-  const rewritten = html.replace(HREF_RE, (whole, quote: string, rawValue: string) => {
-    const url = decodeEntities(rawValue.trim());
-    if (!/^https?:\/\//i.test(url)) return whole;
-
-    // Don't double-wrap a link that already points at our redirect endpoint.
-    if (url.startsWith(`${origin}/api/email/link/`)) return whole;
-
-    const id = randomUUID();
-    links.push({ id, link_index: linkIndex++, original_url: url });
-    return `href=${quote}${escapeHtml(`${origin}/api/email/link/${id}`)}${quote}`;
-  });
-
-  const pixelUrl = `${origin}/api/email/pixel/${messageId}.gif`;
-  const pixel = `<img src="${escapeHtml(pixelUrl)}" width="1" height="1" alt="" style="border:0;outline:none;text-decoration:none;display:block;">`;
-
-  // Prefer just inside </body>; some exports ship a fragment with no body tag,
-  // in which case appending is the best we can do.
-  const closingBody = rewritten.toLowerCase().lastIndexOf("</body>");
-  const withPixel =
-    closingBody === -1
-      ? rewritten + pixel
-      : rewritten.slice(0, closingBody) + pixel + rewritten.slice(closingBody);
-
-  return { html: withPixel, links };
 }

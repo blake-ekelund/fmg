@@ -51,17 +51,12 @@ export async function PATCH(request: Request) {
     id?: string;
     status?: string;
     sales_rep?: string | null;
-<<<<<<< Updated upstream
     rep_group?: string | null;
     account_number?: string | null;
-=======
-    fishbowl_customer?: string | null;
->>>>>>> Stashed changes
   } | null;
   const id = body?.id;
   const status = body?.status as PartnerStatus | undefined;
   const hasRep = body != null && "sales_rep" in body;
-<<<<<<< Updated upstream
   const hasRepGroup = body != null && "rep_group" in body;
   const hasAccountNumber = body != null && "account_number" in body;
 
@@ -70,15 +65,6 @@ export async function PATCH(request: Request) {
       {
         error:
           "expected { id, status?: pending | approved | denied, sales_rep?, rep_group?, account_number? } with at least one field",
-=======
-  const hasFishbowl = body != null && "fishbowl_customer" in body;
-
-  if (!id || (!status && !hasRep && !hasFishbowl)) {
-    return NextResponse.json(
-      {
-        error:
-          "expected { id, status?: pending | approved | denied, sales_rep?: string | null, fishbowl_customer?: string | null } with at least one field",
->>>>>>> Stashed changes
       },
       { status: 400 }
     );
@@ -96,21 +82,9 @@ export async function PATCH(request: Request) {
 
   const update: Record<string, unknown> = {};
   if (status) update.wholesale_status = status;
-<<<<<<< Updated upstream
   if (hasRep) update.sales_rep = text(body!.sales_rep);
   if (hasRepGroup) update.rep_group = text(body!.rep_group);
   if (hasAccountNumber) update.account_number = text(body!.account_number);
-=======
-  if (hasRep) {
-    const rep = typeof body!.sales_rep === "string" ? body!.sales_rep.trim() : null;
-    update.sales_rep = rep || null;
-  }
-  if (hasFishbowl) {
-    const fb =
-      typeof body!.fishbowl_customer === "string" ? body!.fishbowl_customer.trim() : null;
-    update.fishbowl_customer = fb || null;
-  }
->>>>>>> Stashed changes
 
   const admin = wholesalePortalAdmin();
   if (!admin) return configError();

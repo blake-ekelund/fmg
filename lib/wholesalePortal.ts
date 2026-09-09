@@ -45,10 +45,6 @@ export type PartnerProfile = {
   account_number?: string | null;
   /** Storefront the account signed up on: 'sassy' | 'ni'. Null = predates tracking. */
   signup_store?: string | null;
-  /** Fishbowl customer name/account this partner maps to — manually maintained
-   *  on the /storefronts/partners page. Used to post their storefront orders as
-   *  Fishbowl sales orders under the right customer. */
-  fishbowl_customer?: string | null;
   created_at?: string;
 };
 

@@ -10,7 +10,6 @@ import {
   daysSince,
   firstNameOf,
   type MergeVars,
-<<<<<<< Updated upstream
 } from "@/lib/email/send";
 import { dispatchEmail, willUseResend } from "@/lib/email/dispatch";
 import { resolveSender } from "@/lib/email/sender";
@@ -27,15 +26,6 @@ import {
   unsubscribeUrl,
   unsubscribeFooterHtml,
 } from "@/lib/email/unsubscribe";
-=======
-} from "@/lib/email/mergeFields";
-import {
-  buildTrackedHtmlBody,
-  buildTrackedHtmlDocument,
-  escapeHtml,
-} from "@/lib/email/tracking";
-import { parseEmailAddresses } from "@/lib/email/addresses";
->>>>>>> Stashed changes
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -157,7 +147,6 @@ function stepSendAt(step: Step | undefined, base: Date): string {
 
 type Template = {
   id: string;
-<<<<<<< Updated upstream
   subject: string | null;
   body: string | null;
   source: "text" | "blocks" | "html";
@@ -167,11 +156,6 @@ type Template = {
   brand: Brand | null;
   from_name: string | null;
   reply_to: string | null;
-=======
-  subject: string;
-  body: string;
-  body_format: "text" | "html";
->>>>>>> Stashed changes
 };
 
 type Enrollment = {
@@ -455,13 +439,8 @@ export async function GET(request: Request) {
     }
   }
   const { data: tplRows } = await supabaseServer
-<<<<<<< Updated upstream
     .from("email_templates")
     .select("id, subject, body:text_body, source, blocks, raw_html, preview_text, brand, from_name, reply_to")
-=======
-    .from("user_email_templates")
-    .select("id, subject, body, body_format")
->>>>>>> Stashed changes
     .in("id", Array.from(templateIds));
   const templates = new Map<string, Template>();
   for (const t of (tplRows as Template[] | null) ?? []) {
@@ -651,7 +630,6 @@ export async function GET(request: Request) {
           ? { senderName: sender.fromName, senderFirstName: firstNameOf(sender.fromName), senderEmail: sender.fromEmail }
           : {}),
       };
-<<<<<<< Updated upstream
       /* Test batch: everything about the send is real — the customer's merge
          fields, the step timing, the tracking — except the recipient. The
          address comes from the ENROLLMENT's is_test flag rather than the
@@ -724,23 +702,6 @@ export async function GET(request: Request) {
         tracked = buildTrackedHtmlBody({ plainText: bodyText, origin, messageId });
         bodyHtmlWithFooter = tracked.html + unsubscribeFooterHtml(unsubLink);
       }
-=======
-      // Drip templates can be uploaded HTML. Nobody is watching this run, so
-      // the format branch matters more here than anywhere: sending an HTML
-      // template down the plain-text path would escape the markup and mail the
-      // customer a wall of visible <table> tags.
-      const isHtml = tpl.body_format === "html";
-      const subject = applyMergeFields(tpl.subject, vars);
-      const bodyContent = applyMergeFields(
-        tpl.body,
-        vars,
-        isHtml ? { escapeValue: escapeHtml } : {},
-      );
-      const messageId = randomUUID();
-      const tracked = isHtml
-        ? buildTrackedHtmlDocument({ html: bodyContent, origin, messageId })
-        : buildTrackedHtmlBody({ plainText: bodyContent, origin, messageId });
->>>>>>> Stashed changes
 
       try {
         const sent = await dispatchEmail({
@@ -770,7 +731,7 @@ export async function GET(request: Request) {
               subject,
               last_message_at: sent.sentAt,
               last_direction: "sent",
-              last_preview: sent.bodyPreview ?? bodyContent.slice(0, 200),
+              last_preview: sent.bodyPreview ?? bodyText.slice(0, 200),
             },
             { onConflict: "account_id,conversation_id" },
           )
@@ -791,9 +752,9 @@ export async function GET(request: Request) {
             from_address: sent.fromAddress ?? senderEmail,
             to_addresses: [{ address: e.customer_email, name: e.customer_name }],
             subject,
-            body_text: bodyContent,
+            body_text: bodyText,
             body_html: tracked.html,
-            body_preview: sent.bodyPreview ?? bodyContent.slice(0, 200),
+            body_preview: sent.bodyPreview ?? bodyText.slice(0, 200),
             sent_at: sent.sentAt,
           })
           .select("id")

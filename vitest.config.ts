@@ -8,15 +8,11 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, ".") },
   },
   test: {
-<<<<<<< Updated upstream
     include: [
       "scripts/**/*.test.ts",
       "components/**/*.test.ts",
       "lib/**/*.test.ts",
     ],
-=======
-    include: ["scripts/**/*.test.ts", "components/**/*.test.ts", "lib/**/*.test.ts"],
->>>>>>> Stashed changes
     environment: "node",
   },
 });

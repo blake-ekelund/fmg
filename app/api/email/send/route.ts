@@ -14,15 +14,8 @@ import {
 import { publicOriginFromRequest } from "@/lib/email/origin";
 import {
   buildTrackedHtmlBody,
-<<<<<<< Updated upstream
   buildTrackedHtmlFromHtml,
 } from "@/lib/email/tracking";
-=======
-  buildTrackedHtmlDocument,
-  escapeHtml,
-} from "@/lib/email/tracking";
-import { validateTemplateBody } from "@/lib/email/htmlTemplate";
->>>>>>> Stashed changes
 import { primaryEmail, parseEmailAddresses } from "@/lib/email/addresses";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
@@ -269,22 +262,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const isHtml = body.body_format === "html";
-
-  // Last gate before this goes to real customers. The editor validates on
-  // upload, but a template can be edited afterwards and automations send
-  // without a human present — so re-check rather than trust the caller.
-  const validation = validateTemplateBody(body.body_template, isHtml ? "html" : "text");
-  if (!validation.ok) {
-    return NextResponse.json(
-      {
-        error: "Template has unresolved merge-field problems; nothing was sent.",
-        issues: validation.issues,
-      },
-      { status: 400 },
-    );
-  }
-
   // Parse the optional CC list once — applied to every recipient's email.
   const ccList = parseEmailAddresses(body.cc ?? null);
   if (ccList.length > 20) {
@@ -437,30 +414,14 @@ export async function POST(request: Request) {
       unsubscribeUrl: unsubLink,
       ...senderVars,
     };
-<<<<<<< Updated upstream
     const subject = applyMergeFields(subjectTemplate, vars);
     const bodyContent = applyMergeFields(bodyTemplate, vars);
-=======
-    // Subject is always plain text — it lands in a header, not the document —
-    // so it never wants HTML escaping regardless of body_format.
-    const subject = applyMergeFields(body.subject_template, vars);
-
-    // For HTML bodies the surrounding markup is NOT escaped downstream, so each
-    // substituted value has to be escaped as it goes in. Otherwise a customer
-    // named "Smith & Sons" emits a bare ampersand into the document.
-    const bodyContent = applyMergeFields(
-      body.body_template,
-      vars,
-      isHtml ? { escapeValue: escapeHtml } : {},
-    );
->>>>>>> Stashed changes
     recipientRow.personalized_subject = subject;
     recipientRow.personalized_body = bodyContent;
 
     // Pre-generate the message id so the tracking pixel URL we embed in the
     // outbound HTML matches the row we'll insert below.
     const messageId = randomUUID();
-<<<<<<< Updated upstream
     // body_format was declared on this endpoint from the start but never read,
     // so every send went through the plain-text escaper. Block templates
     // arrive as finished HTML from lib/email/renderBlocks and must skip it.
@@ -472,11 +433,6 @@ export async function POST(request: Request) {
       bodyFormat === "html"
         ? buildTrackedHtmlFromHtml({ html: bodyContent, origin, messageId, footerHtml })
         : buildTrackedHtmlBody({ plainText: bodyContent, origin, messageId, footerHtml });
-=======
-    const tracked = isHtml
-      ? buildTrackedHtmlDocument({ html: bodyContent, origin, messageId })
-      : buildTrackedHtmlBody({ plainText: bodyContent, origin, messageId });
->>>>>>> Stashed changes
 
     try {
       const sent = await sendEmail(accessToken, {

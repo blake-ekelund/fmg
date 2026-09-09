@@ -248,7 +248,6 @@ export async function getInventoryAvailability(): Promise<Record<string, unknown
   return runDataQuery(INVENTORY_SQL);
 }
 
-<<<<<<< Updated upstream
 /** Escape a value for interpolation into a data-query SQL string literal. */
 const sqlQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
@@ -450,64 +449,10 @@ export async function createEstimate(
     }
 
     const res = await call(`/api/import/SalesOrderDetails`, {
-=======
-/* ------------------------------------------------------------------ *
- * WRITES — sales-order creation (POST /api/sales-orders).            *
- *                                                                    *
- * These are the FIRST writes to Fishbowl. Every other call in this   *
- * file is read-only. Creating a sales order mutates the live ERP, so *
- * always test against a disposable order/customer and be ready to    *
- * void or DELETE /api/sales-orders/:id afterward. Errors carry the   *
- * raw Fishbowl response body so the caller can see exactly which     *
- * fields the API rejected (we iterate the payload from that).        *
- * ------------------------------------------------------------------ */
-
-/** A Fishbowl API error that preserves the HTTP status + response body, plus
- *  the `Allow` header (which methods the URL accepts — the key clue on a 405). */
-export class FishbowlApiError extends Error {
-  status: number;
-  body: unknown;
-  allow: string | null;
-  constructor(message: string, status: number, body: unknown, allow: string | null = null) {
-    super(message);
-    this.name = "FishbowlApiError";
-    this.status = status;
-    this.body = body;
-    this.allow = allow;
-  }
-}
-
-async function parseBody(res: Response): Promise<unknown> {
-  const text = await res.text().catch(() => "");
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-/**
- * Run a Fishbowl CSV import via POST /api/import/:name — this is how the
- * Advanced REST API CREATES records (the resource collections themselves are
- * read-only). `name` is the import's name with spaces → hyphens (e.g. a "Sales
- * Order" import → "Sales-Order"). `rows` is the CSV as a JSON array of arrays:
- * the FIRST row is the column headers, the rest are data rows. Returns whatever
- * Fishbowl echoes (often per-row results); throws FishbowlApiError with the
- * body on non-2xx so the caller can see which columns/rows it rejected.
- */
-export async function runImport(
-  name: string,
-  rows: (string | number | null)[][],
-): Promise<Record<string, unknown>> {
-  return withSession(async (call) => {
-    const res = await call(`/api/import/${encodeURIComponent(name)}`, {
->>>>>>> Stashed changes
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(rows),
     });
-<<<<<<< Updated upstream
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       let message = body.slice(0, 500);
@@ -527,23 +472,10 @@ export async function runImport(
       );
     }
     return { soId: Number(check[0].id), soNum: String(check[0].num), created: true };
-=======
-    const body = await parseBody(res);
-    if (!res.ok) {
-      throw new FishbowlApiError(
-        `Fishbowl import '${name}' failed (${res.status})`,
-        res.status,
-        body,
-        res.headers.get("allow"),
-      );
-    }
-    return (body ?? {}) as Record<string, unknown>;
->>>>>>> Stashed changes
   });
 }
 
 /**
-<<<<<<< Updated upstream
  * Fill blank BillTo/ShipTo column groups in SalesOrderDetails import rows
  * with the account's default address. Mutates `rows` in place; no-op when
  * every row already has both cities or the account has no default address.
@@ -587,51 +519,4 @@ async function backfillAddresses(
       row[g.country] = String(d.country ?? "UNITED STATES");
     }
   }
-=======
- * Low-level Fishbowl API explorer for the sandbox: send any method/path inside
- * a session and return the status, `Allow` header, and parsed body WITHOUT
- * throwing on non-2xx. Used to discover endpoints/shapes (e.g. GET an export
- * template or an existing sales order). `path` must start with "/api/".
- */
-export async function fishbowlRequest(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<{ status: number; ok: boolean; allow: string | null; body: unknown }> {
-  return withSession(async (call) => {
-    const init: RequestInit = { method: method.toUpperCase() };
-    if (body != null && init.method !== "GET" && init.method !== "HEAD") {
-      init.headers = { "Content-Type": "application/json" };
-      init.body = typeof body === "string" ? body : JSON.stringify(body);
-    }
-    const res = await call(path, init);
-    return {
-      status: res.status,
-      ok: res.ok,
-      allow: res.headers.get("allow"),
-      body: await parseBody(res),
-    };
-  });
-}
-
-/**
- * Fetch an existing sales order by its Fishbowl id or number (read-only).
- * Used to learn the exact SO JSON shape from a real order so createSalesOrder's
- * payload can be built to match. Throws FishbowlApiError on non-2xx.
- */
-export async function getSalesOrder(idOrNumber: string): Promise<unknown> {
-  return withSession(async (call) => {
-    const res = await call(`/api/sales-orders/${encodeURIComponent(idOrNumber)}`);
-    const body = await parseBody(res);
-    if (!res.ok) {
-      throw new FishbowlApiError(
-        `Fishbowl sales-order fetch failed (${res.status})`,
-        res.status,
-        body,
-        res.headers.get("allow"),
-      );
-    }
-    return body;
-  });
->>>>>>> Stashed changes
 }

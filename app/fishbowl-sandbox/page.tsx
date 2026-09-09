@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Database, Play, Boxes, AlertTriangle, Send } from "lucide-react";
+import { Loader2, Database, Play, Boxes, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
   SALES_ORDERS_SQL,
@@ -119,159 +119,9 @@ export default function FishbowlSandboxPage() {
         </p>
       </div>
 
-      <ApiSection />
       <InventorySection />
       <QuerySection />
     </div>
-  );
-}
-
-const EX_PATHS = [
-  "/api/export/Sales-Order",
-  "/api/sales-orders",
-  "/api/sales-orders/1",
-  "/api/import/Sales-Order",
-];
-
-/** Raw Fishbowl HTTP explorer — hit any endpoint, see status + Allow + body.
- *  Used to discover the sales-order import/export shape. */
-function ApiSection() {
-  const [method, setMethod] = useState("GET");
-  const [path, setPath] = useState("/api/export/Sales-Order");
-  const [body, setBody] = useState("");
-  const [result, setResult] = useState<{
-    status: number;
-    ok: boolean;
-    allow: string | null;
-    body: unknown;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function send() {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      let parsedBody: unknown = undefined;
-      if (body.trim()) {
-        try {
-          parsedBody = JSON.parse(body);
-        } catch {
-          throw new Error("Body must be valid JSON (or left empty).");
-        }
-      }
-      const r = await fetch("/api/fishbowl/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ method, path, body: parsedBody }),
-      });
-      const json = await r.json();
-      if (!r.ok) throw new Error(json.error ?? `HTTP ${r.status}`);
-      setResult(json);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
-      <div className="flex items-center gap-2">
-        <Send size={16} className="text-gray-400" />
-        <h2 className="text-sm font-semibold text-gray-900">API explorer</h2>
-      </div>
-      <p className="text-xs text-gray-500">
-        Raw Fishbowl HTTP. <span className="font-medium text-gray-700">GET is read-only</span> —
-        use it to see an export template or an existing sales order.{" "}
-        <span className="text-amber-700">POST/PUT/DELETE will write to the live ERP</span>, so only
-        use those deliberately.
-      </p>
-
-      <div className="flex flex-wrap gap-1.5">
-        {EX_PATHS.map((ex) => (
-          <button
-            key={ex}
-            onClick={() => {
-              setMethod("GET");
-              setPath(ex);
-            }}
-            className="rounded-md border border-gray-200 px-2.5 py-1 font-mono text-[11px] text-gray-600 hover:bg-gray-50 transition"
-          >
-            {ex}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex gap-2">
-        <select
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-          className="rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-        >
-          {["GET", "POST", "PUT", "DELETE"].map((m) => (
-            <option key={m}>{m}</option>
-          ))}
-        </select>
-        <input
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          spellCheck={false}
-          className="flex-1 rounded-lg border border-gray-200 px-3 py-2 font-mono text-[13px] text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-          placeholder="/api/..."
-        />
-        <button
-          onClick={send}
-          disabled={loading || !path.trim()}
-          className="inline-flex items-center gap-2 rounded-lg bg-gray-900 text-white px-3.5 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-50 transition"
-        >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-          Send
-        </button>
-      </div>
-
-      {method !== "GET" && (
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          spellCheck={false}
-          rows={4}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-[13px] text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-          placeholder='Optional JSON body, e.g. [["Header1","Header2"],["v1","v2"]]'
-        />
-      )}
-
-      {error ? (
-        <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-100 px-3 py-2.5 text-sm text-red-700">
-          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-          <span className="break-all">{error}</span>
-        </div>
-      ) : null}
-
-      {result ? (
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            <span
-              className={
-                "rounded-md px-2 py-0.5 font-semibold tabular-nums " +
-                (result.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")
-              }
-            >
-              HTTP {result.status}
-            </span>
-            {result.allow ? (
-              <span className="text-gray-500">
-                Allow: <span className="font-mono text-gray-700">{result.allow}</span>
-              </span>
-            ) : null}
-          </div>
-          <pre className="max-h-[480px] overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-[12px] leading-relaxed text-gray-800">
-            {JSON.stringify(result.body, null, 2)}
-          </pre>
-        </div>
-      ) : null}
-    </section>
   );
 }
 
