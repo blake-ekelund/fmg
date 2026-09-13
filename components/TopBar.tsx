@@ -27,6 +27,7 @@ function usePageTitle(): string {
     if (pathname === base) return item.label;
   }
 
+  if (pathname.startsWith("/marketing/blog/")) return "Blog Post";
   if (pathname.startsWith("/products/")) return "Product Detail";
   if (pathname.startsWith("/sales-team/")) return "Rep Detail";
   if (pathname === "/customers/d2c") return "D2C Customers";
