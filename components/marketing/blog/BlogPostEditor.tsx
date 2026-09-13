@@ -44,6 +44,7 @@ type Mode = "edit" | "html" | "preview";
 export default function BlogPostEditor({ id }: { id: string }) {
   const router = useRouter();
   const [post, setPost] = useState<BlogPostRow | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -82,8 +83,10 @@ export default function BlogPostEditor({ id }: { id: string }) {
   useEffect(() => {
     let alive = true;
     getPost(id)
-      .then((p) => {
-        if (alive) seed(p);
+      .then(({ post: p, previewUrl: url }) => {
+        if (!alive) return;
+        seed(p);
+        setPreviewUrl(url);
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : "Couldn't load the post."))
       .finally(() => alive && setLoading(false));
@@ -123,8 +126,12 @@ export default function BlogPostEditor({ id }: { id: string }) {
     setError(null);
     setNotice(null);
     try {
-      const updated = await updatePost(id, { ...currentPatch(), ...extra });
+      const { post: updated, previewUrl: url } = await updatePost(id, {
+        ...currentPatch(),
+        ...extra,
+      });
       seed(updated);
+      setPreviewUrl(url);
       setNotice(done ?? "Saved.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save.");
@@ -252,6 +259,25 @@ export default function BlogPostEditor({ id }: { id: string }) {
               </button>
             ))}
           </div>
+          {previewUrl ? (
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={
+                dirty
+                  ? "Save first — the preview shows what is saved"
+                  : "Open this post on the real site, in its current status"
+              }
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium transition",
+                dirty ? "text-gray-400" : "text-gray-800 hover:bg-gray-50",
+              )}
+            >
+              <ExternalLink size={13} />
+              Preview on site
+            </a>
+          ) : null}
           <button
             onClick={() => commit("save")}
             disabled={busy !== null}
@@ -384,15 +410,33 @@ export default function BlogPostEditor({ id }: { id: string }) {
                 )}
               </div>
 
-              {isLive && (
-                <a
-                  href={liveUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
-                >
-                  View on site <ExternalLink size={12} />
-                </a>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                {isLive && (
+                  <a
+                    href={liveUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    View on site <ExternalLink size={12} />
+                  </a>
+                )}
+                {previewUrl && (
+                  <a
+                    href={previewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    Preview on site <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+              {previewUrl && (
+                <p className="mt-1.5 text-[11px] text-gray-400">
+                  The preview shows the last saved version on the real site, whatever the status.
+                  Anyone with the link can view this post, so share it only with the team.
+                </p>
               )}
             </section>
 

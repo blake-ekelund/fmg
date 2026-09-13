@@ -36,12 +36,16 @@ export async function createPost(brand: BlogBrand, title?: string): Promise<Blog
   return (await readJson<{ post: BlogPostRow }>(res)).post;
 }
 
-export async function getPost(id: string): Promise<BlogPostRow> {
+/** A post plus its "Preview on site" link (null when the server can't sign one). */
+export type PostWithPreview = { post: BlogPostRow; previewUrl: string | null };
+
+export async function getPost(id: string): Promise<PostWithPreview> {
   const res = await fetch(`/api/marketing/blog/${id}`, {
     headers: await authHeader(),
     cache: "no-store",
   });
-  return (await readJson<{ post: BlogPostRow }>(res)).post;
+  const json = await readJson<{ post: BlogPostRow; previewUrl?: string | null }>(res);
+  return { post: json.post, previewUrl: json.previewUrl ?? null };
 }
 
 export type PostPatch = Partial<{
@@ -56,13 +60,14 @@ export type PostPatch = Partial<{
   publish_at: string | null;
 }>;
 
-export async function updatePost(id: string, patch: PostPatch): Promise<BlogPostRow> {
+export async function updatePost(id: string, patch: PostPatch): Promise<PostWithPreview> {
   const res = await fetch(`/api/marketing/blog/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...(await authHeader()) },
     body: JSON.stringify(patch),
   });
-  return (await readJson<{ post: BlogPostRow }>(res)).post;
+  const json = await readJson<{ post: BlogPostRow; previewUrl?: string | null }>(res);
+  return { post: json.post, previewUrl: json.previewUrl ?? null };
 }
 
 export async function deletePost(id: string): Promise<void> {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
+import { blogPreviewUrl } from "@/lib/blogPreview";
 import {
   isBlogBrand,
   isBlogStatus,
@@ -83,7 +84,8 @@ export async function GET(
   if (!data || data.status === "deleted") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json({ post: data as unknown as BlogPostRow });
+  const post = data as unknown as BlogPostRow;
+  return NextResponse.json({ post, previewUrl: blogPreviewUrl(post.brand, post.id) });
 }
 
 export async function PATCH(
@@ -204,7 +206,8 @@ export async function PATCH(
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ post: data as unknown as BlogPostRow });
+  const saved = data as unknown as BlogPostRow;
+  return NextResponse.json({ post: saved, previewUrl: blogPreviewUrl(saved.brand, saved.id) });
 }
 
 export async function DELETE(
