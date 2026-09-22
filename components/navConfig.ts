@@ -77,7 +77,7 @@ export const navSections: readonly NavSection[] = [
         label: "Task List",
         href: "/task-list",
         icon: KanbanSquare,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
     ],
   },
@@ -107,19 +107,19 @@ export const navSections: readonly NavSection[] = [
         label: "Products",
         href: "/products",
         icon: PackageSearch,
-        roles: FULL_ACCESS,
+        roles: [...FULL_ACCESS, "operations"],
       },
       {
         label: "Inventory",
         href: "/inventory",
         icon: Boxes,
-        roles: FULL_ACCESS,
+        roles: [...FULL_ACCESS, "operations"],
       },
       {
         label: "Variance Report",
         href: "/inventory/variance",
         icon: Scale,
-        roles: FULL_ACCESS,
+        roles: [...FULL_ACCESS, "operations"],
       },
     ],
   },
@@ -157,7 +157,7 @@ export const navSections: readonly NavSection[] = [
         label: "Orders",
         href: "/storefronts/purchases",
         icon: Receipt,
-        roles: [...FULL_ACCESS, "sales"],
+        roles: [...FULL_ACCESS, "sales", "operations"],
       },
       {
         // Holiday prebook reservations (holiday_prebook_requests) — what buyers
@@ -165,7 +165,7 @@ export const navSections: readonly NavSection[] = [
         label: "Prebookings",
         href: "/storefronts/prebookings",
         icon: ClipboardList,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {
         // Storefront chat conversations (support_conversations): the concierge
@@ -174,13 +174,13 @@ export const navSections: readonly NavSection[] = [
         label: "Customer Service",
         href: "/storefronts/conversations",
         icon: Headphones,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {
         label: "Discounts",
         href: "/storefronts/discounts",
         icon: TicketPercent,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {
         // Pre-purchase reviews of the storefront itself, traded for a reward
@@ -188,7 +188,7 @@ export const navSections: readonly NavSection[] = [
         label: "Feedback & Testimonials",
         href: "/storefronts/feedback",
         icon: MessageSquare,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {
         // Every storefront account — D2C and wholesale — with rep assignment
@@ -196,13 +196,13 @@ export const navSections: readonly NavSection[] = [
         label: "Accounts",
         href: "/storefronts/accounts",
         icon: UserCheck,
-        roles: [...FULL_ACCESS, "sales"],
+        roles: [...FULL_ACCESS, "sales", "operations"],
       },
       {
         label: "Analytics",
         href: "/storefronts/analytics",
         icon: Activity,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
     ],
   },
@@ -266,19 +266,19 @@ export const navSections: readonly NavSection[] = [
         label: "Image Library",
         href: "/marketing/assets",
         icon: ImageIcon,
-        roles: [...FULL_ACCESS, "sales", "marketing"],
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {
         label: "Social Media Posts",
         href: "/marketing/social",
         icon: Share2,
-        roles: [...FULL_ACCESS, "marketing"],
+        roles: [...FULL_ACCESS, "marketing", "operations"],
       },
       {
         label: "Blog Posts",
         href: "/marketing/blog",
         icon: Newspaper,
-        roles: [...FULL_ACCESS, "marketing"],
+        roles: [...FULL_ACCESS, "marketing", "operations"],
       },
     ],
   },
@@ -410,6 +410,7 @@ export function activeSectionLabel(
 export function getDefaultRoute(role: UserRole | null): string {
   if (role === "rep") return "/portal";
   if (role === "sales") return "/customers";
+  if (role === "operations") return "/task-list";
   if (role === "marketing") return "/dashboard";
   return "/dashboard";
 }
@@ -434,7 +435,7 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   { href: "/portal", roles: ["owner", "admin"] },
   // Reached from inside another page rather than the sidebar:
   // (/templates moved into the Email section as "Designed Templates")
-  { href: "/marketing", roles: [...FULL_ACCESS, "marketing"] }, // legacy tabbed marketing page
+  { href: "/marketing", roles: [...FULL_ACCESS, "marketing", "operations"] }, // legacy tabbed marketing page
   { href: "/amazon-payments", roles: ["owner", "admin"] }, // placeholder, spec TBD
 ];
 

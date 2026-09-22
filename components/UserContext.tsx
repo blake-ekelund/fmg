@@ -11,6 +11,9 @@ export type UserRole =
   | "sales"
   | "marketing"
   | "investor"
+  // Ecommerce operations — the day-to-day storefront, catalog, and marketing
+  // surface. No financials, no customer/sales analysis, no team admin.
+  | "operations"
   // External independent sales reps. Isolated to /portal (no internal chrome);
   // scoped to their own agency via profiles.rep_agency_code.
   | "rep";

@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Megaphone,
   Briefcase,
+  Store,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -19,7 +20,14 @@ import { supabase } from "@/lib/supabaseClient";
 
 /* ─── Types ─── */
 
-export type AccessLevel = "owner" | "admin" | "user" | "sales" | "marketing" | "investor";
+export type AccessLevel =
+  | "owner"
+  | "admin"
+  | "user"
+  | "sales"
+  | "marketing"
+  | "investor"
+  | "operations";
 
 type TeamMember = {
   id: string;
@@ -60,6 +68,12 @@ const ACCESS_CONFIG: Record<AccessLevel, { label: string; icon: React.ReactNode;
     color: "bg-purple-50 text-purple-700 border-purple-200",
     description: "Access to marketing tools and content management.",
   },
+  operations: {
+    label: "Operations",
+    icon: <Store size={12} />,
+    color: "bg-teal-50 text-teal-700 border-teal-200",
+    description: "Task list, catalog, storefronts, and marketing. No sales or financials.",
+  },
   investor: {
     label: "Investor",
     icon: <Briefcase size={12} />,
@@ -68,10 +82,10 @@ const ACCESS_CONFIG: Record<AccessLevel, { label: string; icon: React.ReactNode;
   },
 };
 
-const ACCESS_LEVELS: AccessLevel[] = ["owner", "admin", "user", "sales", "marketing", "investor"];
+const ACCESS_LEVELS: AccessLevel[] = ["owner", "admin", "user", "sales", "marketing", "operations", "investor"];
 
 /** Roles available when inviting someone (can't invite as owner) */
-const INVITE_ROLES: AccessLevel[] = ["user", "admin", "sales", "marketing", "investor"];
+const INVITE_ROLES: AccessLevel[] = ["user", "admin", "sales", "marketing", "operations", "investor"];
 
 /* ─── Main Component ─── */
 
@@ -174,7 +188,7 @@ export default function TeamSection() {
       </div>
 
       {/* Roles overview */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
         {ACCESS_LEVELS.map((level) => {
           const cfg = ACCESS_CONFIG[level];
           const count = members.filter((m) => m.access === level).length;
@@ -435,7 +449,7 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
 /* ─── Helpers ─── */
 
 function sortByAccess(members: TeamMember[]): TeamMember[] {
-  const order: Record<AccessLevel, number> = { owner: 0, admin: 1, user: 2, sales: 3, marketing: 4, investor: 5 };
+  const order: Record<AccessLevel, number> = { owner: 0, admin: 1, user: 2, sales: 3, marketing: 4, operations: 5, investor: 6 };
   return [...members].sort((a, b) => {
     const diff = (order[a.access] ?? 9) - (order[b.access] ?? 9);
     if (diff !== 0) return diff;
