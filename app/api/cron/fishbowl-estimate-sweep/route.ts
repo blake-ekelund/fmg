@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { fishbowlConfigured } from "@/lib/fishbowl";
-import { pushOrderEstimate } from "@/lib/fishbowlEstimatePush";
+import { pushOrderEstimate, recordStockHold, StockHoldError } from "@/lib/fishbowlEstimatePush";
 import { isRealPart, orderRef, type StorefrontOrder } from "@/lib/storefrontOrder";
 
 export const runtime = "nodejs";
@@ -28,6 +28,11 @@ export const maxDuration = 300;
  *
  * createEstimate is idempotent on the SO number, so ping + cron overlapping
  * can't double-enter an order.
+ *
+ * STOCK GATE: an order Point B can't fill is not pushed (lib/orderStockCheck.ts).
+ * It stays "Needs Fishbowl" with the reason on the order, and the next sweep
+ * tries again — so it enters by itself once the warehouse receives, with no
+ * queue to drain by hand. Only the manual button can override.
  *
  * PILOT SWITCH — STOREFRONT ONLY: storefront orders have no real account
  * mapping yet, so every one of them books under the single Fishbowl customer
@@ -147,6 +152,10 @@ export async function GET(request: Request) {
   const pushed: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
   const noCustomerMatch: string[] = [];
+  /** Held back because Point B doesn't hold the stock. Not a failure — the
+   *  order stays "Needs Fishbowl" and the next sweep tries again, so an order
+   *  enters by itself the moment the warehouse receives. */
+  const stockHeld: Array<Record<string, unknown>> = [];
   for (const order of pushable) {
     const ref = orderRef(order);
     // Customer selection: storefront orders ride the pilot env customer;
@@ -168,6 +177,11 @@ export async function GET(request: Request) {
       );
       pushed.push({ ref, customer: bookUnder, ...result });
     } catch (e) {
+      if (e instanceof StockHoldError) {
+        await recordStockHold(admin, order.id, e.check).catch(() => {});
+        stockHeld.push({ ref, customer: bookUnder, short: e.check.blocking });
+        continue;
+      }
       failed.push({ ref, error: e instanceof Error ? e.message : String(e) });
     }
   }
@@ -176,6 +190,7 @@ export async function GET(request: Request) {
     pilotCustomer,
     pushed,
     failed,
+    stockHeld,
     noCustomerMatch,
     skippedWithoutParts: skipped,
     storefrontGated,

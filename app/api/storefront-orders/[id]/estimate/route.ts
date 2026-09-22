@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
 import { fishbowlConfigured } from "@/lib/fishbowl";
-import { pushOrderEstimate } from "@/lib/fishbowlEstimatePush";
+import { pushOrderEstimate, recordStockHold, StockHoldError } from "@/lib/fishbowlEstimatePush";
 import { type StorefrontOrder } from "@/lib/storefrontOrder";
 
 export const runtime = "nodejs";
@@ -51,6 +51,9 @@ export async function POST(
 
   const body = (await request.json().catch(() => ({}))) as {
     customerName?: string;
+    /** Push although Point B is short — a person's deliberate override, sent
+     *  by the "Push anyway" button after the hold has been shown to them. */
+    ignoreStock?: boolean;
   };
 
   const { id } = await params;
@@ -98,8 +101,19 @@ export async function POST(
       order,
       customerName,
       user.email ?? user.id,
+      { ignoreStock: body.ignoreStock === true },
     );
   } catch (e) {
+    // A stock hold is not a failure — it's an answer. 409 with the detail, so
+    // the UI can show which lines are short and offer "Push anyway" rather
+    // than dumping a red error the person can do nothing with.
+    if (e instanceof StockHoldError) {
+      await recordStockHold(admin, order.id, e.check).catch(() => {});
+      return NextResponse.json(
+        { error: e.message, stockHold: e.check, canOverride: true },
+        { status: 409 },
+      );
+    }
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 502 });
   }

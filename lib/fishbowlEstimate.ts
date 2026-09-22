@@ -24,7 +24,7 @@
  */
 
 import {
-  orderRef,
+  fishbowlCustomerPo,
   type OrderAddress,
   type StorefrontOrder,
 } from "./storefrontOrder";
@@ -120,6 +120,54 @@ export type CustomerTerritory = {
   code: string | null;
   rep: string | null;
 };
+
+/**
+ * The QuickBooks class a pushed estimate falls back to when its Fishbowl
+ * customer carries none.
+ *
+ * It is a FALLBACK, not a policy: the real class comes off the customer record
+ * (`customer.qbClassId` → `qbclass.name`, applied by applyQuickBooksClass).
+ * Every active customer in this instance has one today, so this is only ever
+ * reached if a class is deleted or a customer is created without one — and
+ * "WEB" is the safest stand-in because it is what the three web customers
+ * (SHOPIFY CUSTOMER / SquareSpace Customer / WEB ORDERS) carry.
+ */
+export const QB_CLASS_FALLBACK = "WEB";
+
+/**
+ * Stamp the customer's own QuickBooks class onto already-built import rows.
+ *
+ * Same shape as applyTerritory: the rows are built before the customer is
+ * looked up, so createEstimate patches the real class in on the session it
+ * already has open.
+ *
+ * Why this exists: every estimate we pushed booked under the hardcoded class
+ * "WEB" regardless of who the customer was. Read live 2026-09-22, that had
+ * misclassed 25 of the last 49 marketplace pushes — CHINOOK WINDS CASINO
+ * (CASINOS) and KANAB DRUG (PHARMACY) both landed on the SO as WEB, which is
+ * the class QuickBooks reports revenue by. Ops was fixing these by hand.
+ *
+ * Both the header class and the LINE class are set. Fishbowl does not derive
+ * `soitem.qbClassId` from the SO header on import: the lines on our pushed SOs
+ * come in as class "None" while hand-keyed SOs carry the header class on every
+ * line (44 of the 49 sampled SOs had line classes that disagreed with their own
+ * header). Leaving `ItemQuickBooksClassName` blank is what caused that.
+ */
+export function applyQuickBooksClass(
+  rows: string[][],
+  className: string | null | undefined,
+): string[][] {
+  const name = (className ?? "").trim();
+  if (!name) return rows;
+  const header = rows[0] ?? [];
+  const soClass = header.indexOf("QuickBooksClassName");
+  const itemClass = header.indexOf("ItemQuickBooksClassName");
+  for (const row of rows.slice(1)) {
+    if (soClass >= 0) row[soClass] = name;
+    if (itemClass >= 0) row[itemClass] = name;
+  }
+  return rows;
+}
 
 /**
  * Pull territory attribution off a Fishbowl customer's `customFields` blob.
@@ -354,9 +402,11 @@ export function nextFreeSoNumber(base: number, existingNums: string[]): number {
 }
 
 export type EstimatePayload = {
-  /** The storefront ref (SASSY-####) — travels as Customer PO, NOT the SO
-   *  number. Fishbowl auto-assigns the SO number (next in its 24xxx sequence)
-   *  because SONum is sent blank; dedupe + lookup key on customerPO. */
+  /** What goes in the Customer PO box, NOT the SO number — Fishbowl
+   *  auto-assigns the SO number (next in its 24xxx sequence) because SONum is
+   *  sent blank. A storefront ref (SASSY-####), a Faire id, or for MarketTime
+   *  the RETAILER's own PO; see fishbowlCustomerPo(). Also the exact-match
+   *  dedupe key on customerPO. */
   poNum: string;
   /** Header + item rows, ready for createEstimate(). */
   rows: string[][];
@@ -378,7 +428,7 @@ export function estimateRowsForOrder(
    *  an entry render without a UPC suffix. */
   upcByPart: Record<string, string> = {},
 ): EstimatePayload {
-  const poNum = orderRef(order);
+  const poNum = fishbowlCustomerPo(order);
   const items = (order.items ?? []).filter((it) => it.part && (it.quantity ?? 0) > 0);
   if (items.length === 0) {
     throw new Error("Order has no line items with a Fishbowl product number.");
@@ -463,7 +513,9 @@ export function estimateRowsForOrder(
     PaymentTerms: paymentTermsFor(order),
     FOB: "Origin",
     Note: "",
-    QuickBooksClassName: "WEB",
+    // Overwritten with the customer's own class by applyQuickBooksClass()
+    // inside createEstimate — this is only the fallback (see QB_CLASS_FALLBACK).
+    QuickBooksClassName: QB_CLASS_FALLBACK,
     LocationGroupName: "Point B Solutions",
     OrderDateScheduled: created,
     URL: "",

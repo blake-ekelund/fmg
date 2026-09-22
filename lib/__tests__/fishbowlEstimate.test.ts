@@ -8,6 +8,8 @@ import {
   parseCustomerTerritory,
   applyTerritory,
   paymentTermsFor,
+  applyQuickBooksClass,
+  QB_CLASS_FALLBACK,
   FB_TERMS,
 } from "../fishbowlEstimate";
 import type { StorefrontOrder } from "../storefrontOrder";
@@ -398,5 +400,80 @@ describe("SO number allocation", () => {
       const { rows } = estimateRowsForOrder(o, "MARTIN BOOT CO");
       expect(rows[1][col("PaymentTerms")]).toBe("CREDIT CARD");
     });
+  });
+});
+
+describe("QuickBooks class", () => {
+  const order = makeOrder();
+
+  it("builds rows with the WEB fallback before the customer is known", () => {
+    const { rows } = estimateRowsForOrder(order, "MARTIN BOOT CO");
+    expect(rows[1][col("QuickBooksClassName")]).toBe(QB_CLASS_FALLBACK);
+  });
+
+  it("stamps the customer's own class over the fallback", () => {
+    const { rows } = estimateRowsForOrder(order, "CHINOOK WINDS CASINO");
+    applyQuickBooksClass(rows, "CASINOS");
+    for (const row of rows.slice(1)) {
+      expect(row[col("QuickBooksClassName")]).toBe("CASINOS");
+    }
+  });
+
+  it("stamps the LINE class too — Fishbowl does not inherit it on import", () => {
+    const { rows } = estimateRowsForOrder(order, "CHINOOK WINDS CASINO");
+    expect(rows[1][col("ItemQuickBooksClassName")]).toBe("");
+    applyQuickBooksClass(rows, "CASINOS");
+    for (const row of rows.slice(1)) {
+      expect(row[col("ItemQuickBooksClassName")]).toBe("CASINOS");
+    }
+  });
+
+  it("covers every line, including shipping and tax", () => {
+    const { rows } = estimateRowsForOrder(
+      makeOrder({ shipping: 12, tax: 3.5, discount: 5 }),
+      "MARTIN BOOT CO",
+    );
+    applyQuickBooksClass(rows, "GIFT");
+    expect(rows.length).toBeGreaterThan(3);
+    expect(rows.slice(1).every((r) => r[col("QuickBooksClassName")] === "GIFT")).toBe(true);
+  });
+
+  it("leaves the rows alone when the customer carries no class", () => {
+    const { rows } = estimateRowsForOrder(order, "MARTIN BOOT CO");
+    applyQuickBooksClass(rows, null);
+    applyQuickBooksClass(rows, "  ");
+    expect(rows[1][col("QuickBooksClassName")]).toBe(QB_CLASS_FALLBACK);
+  });
+
+  it("passes 'None' through — it is a real class in this instance", () => {
+    const { rows } = estimateRowsForOrder(order, "MARTIN BOOT CO");
+    applyQuickBooksClass(rows, "None");
+    expect(rows[1][col("QuickBooksClassName")]).toBe("None");
+  });
+});
+
+describe("Customer PO on the import rows", () => {
+  const poOf = (order: StorefrontOrder) => {
+    const { poNum, rows } = estimateRowsForOrder(order, "MARTIN BOOT CO");
+    // The column and the returned dedupe key must never disagree.
+    expect(rows[1][col("PONum")]).toBe(poNum);
+    return poNum;
+  };
+
+  it("sends the RETAILER's PO for a MarketTime order", () => {
+    expect(
+      poOf(makeOrder({ source: "markettime", external_ref: "32850850", external_po: "22604073" })),
+    ).toBe("22604073-MKTTIME");
+  });
+
+  it("falls back to the MarketTime recordID when no retailer PO came through", () => {
+    expect(
+      poOf(makeOrder({ source: "markettime", external_ref: "32850850", external_po: null })),
+    ).toBe("32850850-MKTTIME");
+  });
+
+  it("leaves Faire and storefront orders on their own ref", () => {
+    expect(poOf(makeOrder({ source: "faire", external_ref: "WV7RMBPNK4" }))).toBe("WV7RMBPNK4-FAIRE");
+    expect(poOf(makeOrder({ store: "sassy", number: 1042 }))).toBe("SASSY-1042");
   });
 });

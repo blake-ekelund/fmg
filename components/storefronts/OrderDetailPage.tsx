@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  PackageX,
   Printer,
+  ShieldCheck,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
@@ -18,6 +20,8 @@ import {
   type OrderAddress,
   type StorefrontOrder,
 } from "@/lib/storefrontOrder";
+import { describeStockIssue, type StockCheck } from "@/lib/orderStockCheck";
+import type { Divergence } from "@/lib/fishbowlDivergence";
 import { CARRIER_OPTIONS, carrierLabel, trackingUrl } from "@/lib/tracking";
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -103,20 +107,29 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
    *  of the two TEST customers (the API allowlists them). */
   const [estimateCustomer, setEstimateCustomer] = useState("TEST CUSTOMER #1");
   const [pushing, setPushing] = useState(false);
-  const pushEstimate = async () => {
+  /** Set when Point B is short — the push was refused, and this is what the
+   *  person needs to see before deciding to override it. */
+  const [stockHold, setStockHold] = useState<StockCheck | null>(null);
+  const pushEstimate = async (ignoreStock = false) => {
     setPushing(true);
     try {
       const res = await fetch(`/api/storefront-orders/${orderId}/estimate`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ customerName: estimateCustomer }),
+        body: JSON.stringify({ customerName: estimateCustomer, ignoreStock }),
       });
       const json = await res.json();
+      if (res.status === 409 && json?.stockHold) {
+        setStockHold(json.stockHold as StockCheck);
+        setError(null);
+        return;
+      }
       if (!res.ok) {
         setError(json?.error ?? `Failed (${res.status})`);
         return;
       }
       setError(null);
+      setStockHold(null);
       setOrder(json.order as StorefrontOrder);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -196,7 +209,7 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
               ) : null}
               <button
                 type="button"
-                onClick={pushEstimate}
+                onClick={() => pushEstimate()}
                 disabled={
                   pushing ||
                   saving ||
@@ -239,10 +252,23 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
         </div>
       ) : null}
 
+      {/* Point B is short — the push was refused, with the way out. */}
+      {stockHold ? (
+        <StockHoldCard
+          check={stockHold}
+          busy={pushing}
+          onOverride={() => pushEstimate(true)}
+          onDismiss={() => setStockHold(null)}
+        />
+      ) : null}
+
       {/* Marketplace orders: which Fishbowl customer the estimate books under */}
       {order.source === "faire" || order.source === "markettime" ? (
         <MarketplaceCustomerCard order={order} busy={saving} onPatch={patchOrder} />
       ) : null}
+
+      {/* Does Fishbowl still say what the marketplace said? Nothing else asks. */}
+      {isMarketplace ? <FishbowlCheckCard orderId={orderId} inFishbowl={inFishbowl} /> : null}
 
       {/* Invoice — `print-document` is the only thing that prints (globals.css) */}
       <div className="print-document rounded-2xl border border-gray-200 bg-white p-8">
@@ -836,6 +862,220 @@ function AddressBlock({
       ) : (
         <div className="mt-1 text-sm text-gray-400">{fallback ?? "—"}</div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Point B doesn't hold enough to fill this order, so it was not pushed.
+ *
+ * Shown instead of a red error because a stock hold is a decision waiting to
+ * be made, not a fault: wait for the receipt, cut the order, or push anyway
+ * and ship short. Ops used to make that decision AFTER the SO existed, by
+ * deleting lines out of it (SO 24817, SO 24872) — this moves it before.
+ */
+function StockHoldCard({
+  check,
+  busy,
+  onOverride,
+  onDismiss,
+}: {
+  check: StockCheck;
+  busy: boolean;
+  onOverride: () => void;
+  onDismiss: () => void;
+}) {
+  const warnings = check.issues.filter((i) => !i.blocking);
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 print:hidden">
+      <div className="flex items-start gap-2.5">
+        <PackageX size={16} className="mt-0.5 shrink-0 text-amber-600" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-amber-900">
+            Not pushed — Point B is short on {check.blocking.length} line
+            {check.blocking.length === 1 ? "" : "s"}
+          </div>
+          <ul className="mt-2 space-y-1 text-sm text-amber-800">
+            {check.blocking.map((issue) => (
+              <li key={issue.part} className="font-mono text-xs">
+                {describeStockIssue(issue)}
+              </li>
+            ))}
+          </ul>
+          {warnings.length > 0 ? (
+            <div className="mt-2 text-xs text-amber-700">
+              {warnings.length} line{warnings.length === 1 ? "" : "s"} couldn&apos;t be
+              checked against Point B ({warnings.map((w) => w.part).join(", ")}).
+            </div>
+          ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onOverride}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {busy ? <Loader2 size={14} className="animate-spin" /> : null}
+              Push anyway
+            </button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={busy}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+            >
+              Leave it
+            </button>
+            <span className="text-xs text-amber-600">
+              Stock read {new Date(check.checkedAt).toLocaleTimeString()}. The sweep
+              retries on its own once Point B receives.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SEVERITY_STYLE: Record<Divergence["severity"], string> = {
+  error: "border-red-200 bg-red-50 text-red-800",
+  warning: "border-amber-200 bg-amber-50 text-amber-800",
+  info: "border-gray-200 bg-gray-50 text-gray-600",
+};
+
+type FishbowlCheckData = {
+  so: { num: string; customerPO: string | null; status: string | null } | null;
+  divergences: Divergence[];
+  summary: string;
+  stock: StockCheck | { error: string } | null;
+};
+
+/**
+ * Where the Fishbowl SO and the marketplace order disagree.
+ *
+ * On demand rather than on load: each run costs a Fishbowl license seat (of
+ * three) and a Synapse login, which is not a price worth paying every time
+ * someone opens an order to read an address.
+ */
+function FishbowlCheckCard({ orderId, inFishbowl }: { orderId: string; inFishbowl: boolean }) {
+  const [loading, setLoading] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [data, setData] = useState<FishbowlCheckData | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    setCheckError(null);
+    try {
+      const res = await fetch(`/api/storefront-orders/${orderId}/fishbowl-check`, {
+        headers: await authHeader(),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setCheckError(json?.error ?? `Failed (${res.status})`);
+        setData(null);
+        return;
+      }
+      setData(json as FishbowlCheckData);
+    } catch (e) {
+      setCheckError(e instanceof Error ? e.message : String(e));
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stock = data?.stock ?? null;
+  const stockIssues = stock && "issues" in stock ? stock.issues.filter((i) => i.blocking) : [];
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 print:hidden">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-800">
+            <ShieldCheck size={15} className="text-gray-400" />
+            Fishbowl check
+          </div>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Compares the Fishbowl SO against what the marketplace sent, and the order
+            against Point B stock.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={loading}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {loading ? <Loader2 size={14} className="animate-spin" /> : null}
+          {data ? "Re-check" : "Run check"}
+        </button>
+      </div>
+
+      {!inFishbowl && !data ? (
+        <p className="mt-3 text-xs text-gray-400">
+          Not entered into Fishbowl yet — a check will only report stock.
+        </p>
+      ) : null}
+
+      {checkError ? (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {checkError}
+        </div>
+      ) : null}
+
+      {data ? (
+        <div className="mt-4 space-y-3">
+          <div className="text-xs text-gray-500">
+            {data.so ? (
+              <span>
+                SO <span className="font-mono text-gray-700">{data.so.num}</span>
+                {data.so.status ? ` · ${data.so.status}` : ""}
+                {data.so.customerPO ? ` · PO ${data.so.customerPO}` : ""}
+              </span>
+            ) : (
+              <span>No matching sales order in Fishbowl.</span>
+            )}
+          </div>
+
+          {data.so && data.divergences.length === 0 ? (
+            <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              <CheckCircle2 size={14} /> Fishbowl matches the marketplace order.
+            </div>
+          ) : null}
+
+          {data.divergences.map((d, i) => (
+            <div
+              key={`${d.code}-${i}`}
+              className={`rounded-lg border px-3 py-2 text-xs ${SEVERITY_STYLE[d.severity]}`}
+            >
+              <div className="font-semibold">{d.field}</div>
+              <div className="mt-1 font-mono">
+                marketplace: {d.expected || "—"} · fishbowl: {d.actual || "—"}
+              </div>
+              <div className="mt-1 opacity-80">{d.detail}</div>
+            </div>
+          ))}
+
+          {stock && "error" in stock ? (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              Point B stock unavailable: {stock.error}
+            </div>
+          ) : stockIssues.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="font-semibold">Point B is short</div>
+              <ul className="mt-1 space-y-0.5 font-mono">
+                {stockIssues.map((issue) => (
+                  <li key={issue.part}>{describeStockIssue(issue)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : stock ? (
+            <div className="text-xs text-gray-400">
+              Point B can fill every line it counts ({stock.verified} checked).
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

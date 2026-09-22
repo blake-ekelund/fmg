@@ -5,7 +5,11 @@ import { fishbowlConfigured, runDataQuery } from "@/lib/fishbowl";
 import { resolveCarrier } from "@/lib/tracking";
 import { notifyStorefrontShipped } from "@/lib/storefrontShipped";
 import { markFaireOrderShipped } from "@/lib/faire";
-import { orderRef, type StorefrontOrder } from "@/lib/storefrontOrder";
+import {
+  fishbowlCustomerPo,
+  orderRef,
+  type StorefrontOrder,
+} from "@/lib/storefrontOrder";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -85,21 +89,28 @@ export async function GET(request: Request) {
   // Customer PO — so match on BOTH: fishbowl_estimate_num holds the real SO
   // number for new pushes, while the ref (SASSY-####) matches customerPO (new)
   // or so.num (orders pushed before the auto-number switch).
-  /** Marketplace orders (Faire/MarketTime) sit in Fishbowl under their BARE ref
-   *  as customerPO (e.g. `ZJUHGM7VPR`, sometimes `#`-prefixed) — never the
-   *  "-FAIRE"/"-MKTTIME" form orderRef() builds — so they match on a substring
-   *  of customerPO, not an exact SO num / PO key. */
-  const bareMarketplaceRef = (o: StorefrontOrder): string | null => {
-    if (o.source !== "faire" && o.source !== "markettime") return null;
-    const bare = String(o.external_ref ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    return bare.length >= 6 ? bare : null;
+  /** Marketplace orders (Faire/MarketTime) sit in Fishbowl under a BARE ref as
+   *  customerPO (e.g. `ZJUHGM7VPR`, sometimes `#`-prefixed) — never the
+   *  "-FAIRE"/"-MKTTIME" form — so they match on a substring of customerPO,
+   *  not an exact SO num / PO key.
+   *
+   *  TWO refs for MarketTime, because two identifiers are in play: the
+   *  recordID (what we used to write) and the RETAILER's own PO (what ops
+   *  keys, and what we write now — see fishbowlCustomerPo). Searching only the
+   *  recordID missed every hand-keyed MarketTime SO, so tracking never landed
+   *  on those orders and the customer never got a shipped email. */
+  const bareMarketplaceRefs = (o: StorefrontOrder): string[] => {
+    if (o.source !== "faire" && o.source !== "markettime") return [];
+    return [o.external_ref, o.external_po]
+      .map((v) => String(v ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase())
+      .filter((v) => v.length >= 6);
   };
 
   const waiting = (orders ?? []).map((o) => ({
     order: o,
     soNum: o.fishbowl_estimate_num ?? orderRef(o),
-    poRef: orderRef(o),
-    bareRef: bareMarketplaceRef(o),
+    poRef: fishbowlCustomerPo(o),
+    bareRefs: bareMarketplaceRefs(o),
   }));
   if (waiting.length === 0) {
     return NextResponse.json({ watched: 0, shipped: [] });
@@ -111,7 +122,7 @@ export async function GET(request: Request) {
   const keys = Array.from(
     new Set(waiting.flatMap((w) => [sqlQuote(w.soNum), sqlQuote(w.poRef)])),
   ).join(",");
-  const likeClause = Array.from(new Set(waiting.map((w) => w.bareRef).filter((r): r is string => !!r)))
+  const likeClause = Array.from(new Set(waiting.flatMap((w) => w.bareRefs)))
     .map((ref) => `so.customerPO LIKE '%${ref}%'`) // ref is [A-Z0-9] only → injection-safe
     .join(" OR ");
   const cartons = await runDataQuery(
@@ -148,11 +159,14 @@ export async function GET(request: Request) {
 
   const shipped: Array<Record<string, unknown>> = [];
   const failed: Array<Record<string, unknown>> = [];
-  for (const { order, soNum, poRef, bareRef } of waiting) {
+  for (const { order, soNum, poRef, bareRefs } of waiting) {
     const hit =
       bySo.get(soNum) ??
       bySo.get(poRef) ??
-      (bareRef ? byPoAlnum.find((c) => c.poAlnum.includes(bareRef))?.hit : undefined);
+      bareRefs.reduce<Hit | undefined>(
+        (found, ref) => found ?? byPoAlnum.find((c) => c.poAlnum.includes(ref))?.hit,
+        undefined,
+      );
     if (!hit) continue;
     const carrier = resolveCarrier(hit.carrier, hit.trackingNum);
     const entry = {

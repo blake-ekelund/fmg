@@ -100,6 +100,14 @@ export type StorefrontOrder = {
   source?: string | null;
   /** Marketplace order id (Faire display id) — the sync cron's dedupe key. */
   external_ref?: string | null;
+  /** The RETAILER's own PO, as the marketplace printed it — a different
+   *  identifier from external_ref, and the one a human types when keying the
+   *  order into Fishbowl by hand (migration 20260909020000). */
+  external_po?: string | null;
+  /** Why the Fishbowl push was held back on Point B stock, or pushed over a
+   *  hold anyway. Null = no stock problem at the last attempt. Migration
+   *  20260922010000 — treat as optional. */
+  fishbowl_stock_hold?: string | null;
   /** Marketplace orders: the exact Fishbowl customer name the estimate books
    *  under (matcher-stamped). Null = no match on file → flagged, not pushed. */
   fishbowl_customer?: string | null;
@@ -123,6 +131,53 @@ export function orderRef(
   if (o.number == null) return o.id ? o.id.slice(0, 8) : "—";
   const prefix = o.store === "ni" ? "NI" : o.store === "sassy" ? "SASSY" : "SO";
   return `${prefix}-${o.number}`;
+}
+
+/**
+ * A retailer PO we are willing to put on a Fishbowl SO.
+ *
+ * Long enough not to collide, and restricted to the characters real POs use —
+ * all 41 MarketTime POs on file are 5–12 characters of letters, digits and
+ * dashes (`LK7057716H`, `219-6258218N`, `JD917`). Anything outside that is
+ * free text someone typed into the PO box, and belongs nowhere near an
+ * identifier we dedupe on.
+ */
+const safeRetailerPo = (po: string | null | undefined): string | null => {
+  const v = (po ?? "").trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]{3,24}$/.test(v) ? v : null;
+};
+
+/**
+ * The Customer PO an order carries INTO Fishbowl — which is not always the
+ * app's own reference.
+ *
+ * MarketTime hands us two different identifiers and we were writing the wrong
+ * one. `external_ref` is MarketTime's internal recordID (32850850); the
+ * retailer's own PO (22604073) is what the retailer wrote on the order, what
+ * they will look for on their invoice, and — read live 2026-09-22 — what ops
+ * actually keys when they enter one of these by hand: all nine hand-keyed
+ * MarketTime SOs in the recent window carry `<retailerPO>-MKTTIME`
+ * (LK7057716H-MKTTIME, JD917-MKTTIME, CP3195584B-MKTTIME), against 31 of ours
+ * carrying the recordID. The house convention is the retailer's PO; our pushes
+ * were the exception.
+ *
+ * The recordID doesn't stop being useful — it is globally unique where a PO is
+ * only probably unique — so it stays the dedupe anchor (`dedupeContains` in
+ * createEstimate) and the app's own display ref. It simply isn't what belongs
+ * in the Customer PO box.
+ *
+ * Faire is unchanged: its display id IS the retailer-facing order id, and it's
+ * what ops keys too.
+ */
+export function fishbowlCustomerPo(
+  o: Pick<StorefrontOrder, "store" | "number" | "id"> &
+    Partial<Pick<StorefrontOrder, "source" | "external_ref" | "external_po">>,
+): string {
+  if (o.source === "markettime" && o.external_ref) {
+    const po = safeRetailerPo(o.external_po);
+    return `${po ?? o.external_ref}-MKTTIME`;
+  }
+  return orderRef(o);
 }
 
 /** The order's origin, unified across the two columns that carry it: marketplace

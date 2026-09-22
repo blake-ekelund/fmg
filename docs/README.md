@@ -60,6 +60,7 @@ it's the same build Vercel runs), `npm run lint`, `npm run test` (vitest).
 |-----|--------|--------|
 | [integrations.md](./integrations.md) | External systems + scheduled jobs | ✅ Written |
 | [pointb-connector.md](./pointb-connector.md) | Design spec: the in-house Point B / Synapse connector (replaces LilyPad) | ✅ Written |
+| [fishbowl-marketplace-field-map.md](./fishbowl-marketplace-field-map.md) | Faire/MarketTime → Fishbowl field contract, the known divergences, and the stock gate | ✅ Written |
 | architecture.md | App structure, routing, auth/roles, Supabase schema | ⬜ To write |
 | email-system.md | Templates, automations, bulk send, deliverability | ⬜ To write |
 | storefronts.md | Sassy + Natural Inspirations, order flow into Fishbowl | ⬜ To write |
