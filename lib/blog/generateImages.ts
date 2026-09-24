@@ -1,4 +1,4 @@
-import type { LibraryImage } from "@/lib/email/generatePrompt";
+import type { ImageCandidate } from "@/lib/generatorImages";
 import type { BlogBlock, BlogContentBlock } from "./blocks";
 
 /**
@@ -11,13 +11,7 @@ import type { BlogBlock, BlogContentBlock } from "./blocks";
  * our products), and each Unsplash photo used gets its photographer credit.
  */
 
-export type BlogImageCandidate = LibraryImage & {
-  source: "library" | "unsplash";
-  /** Unsplash only: "Photo by <name> on Unsplash". */
-  credit?: string;
-  /** Unsplash only: ping when the photo is used (API guideline). */
-  downloadLocation?: string;
-};
+export type BlogImageCandidate = ImageCandidate;
 
 export type ImageCheckResult = {
   blocks: BlogBlock[];

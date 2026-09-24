@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { fetchLibraryImages } from "@/lib/email/libraryImages";
 import { normalizeBlocks } from "@/lib/email/normalizeBlocks";
+import { checkEmailImages } from "@/lib/email/generateImages";
+import { gatherImageCandidates } from "@/lib/generatorImages";
+import { trackUnsplashDownload } from "@/lib/unsplash";
 import { buildGeneratePrompt, type GenerateInput } from "@/lib/email/generatePrompt";
 import type { Brand, Channel, TemplatePurpose } from "@/components/templates/types";
 
@@ -50,13 +52,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Describe the email you want to generate." }, { status: 400 });
   }
 
+  const brand = (["ni", "sassy", "both"].includes(body.brand ?? "") ? body.brand : "both") as Brand;
   const input: GenerateInput = {
-    brand: (["ni", "sassy", "both"].includes(body.brand ?? "") ? body.brand : "both") as Brand,
+    brand,
     channel: (["wholesale", "d2c", "both"].includes(body.channel ?? "") ? body.channel : "both") as Channel,
     purpose: (Array.isArray(body.purpose) ? body.purpose.filter((p) => typeof p === "string") : []) as TemplatePurpose[],
     prompt,
     name: typeof body.name === "string" ? body.name.slice(0, 120) : undefined,
-    images: await fetchLibraryImages(),
+    // Tagged Image Library photos + the brand's Unsplash collection ("both" = both).
+    images: await gatherImageCandidates([brand]),
   };
 
   let text: string;
@@ -90,13 +94,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "The generated email wasn't valid. Try again." }, { status: 502 });
   }
 
-  const blocks = normalizeBlocks(parsed.blocks);
-  if (blocks.length === 0) {
+  const normalized = normalizeBlocks(parsed.blocks);
+  if (normalized.length === 0) {
     return NextResponse.json(
       { error: "The AI didn't produce any usable blocks. Try rephrasing your description." },
       { status: 422 },
     );
   }
+
+  // Every image URL must be one we offered; Unsplash photos get a credit line
+  // and are reported as used.
+  const { blocks, usedUnsplash } = checkEmailImages(normalized, input.images ?? []);
+  await Promise.allSettled(
+    usedUnsplash.flatMap((p) => (p.downloadLocation ? [trackUnsplashDownload(p.downloadLocation)] : [])),
+  );
 
   return NextResponse.json({
     subject: typeof parsed.subject === "string" ? parsed.subject : "",

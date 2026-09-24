@@ -12,6 +12,7 @@
 
 import { BRAND_PRESETS, type Brand, type Channel, type TemplatePurpose } from "@/components/templates/types";
 import { mergeGroupsFor } from "./mergeFields";
+import type { ImageCandidate } from "@/lib/generatorImages";
 
 const BRAND_VOICE: Record<"ni" | "sassy", string> = {
   ni: "Warm, spa-inspired, luxurious but approachable — women 35-65 who value clean beauty and self-care rituals. Nurturing and elegant, never pretentious.",
@@ -28,8 +29,8 @@ export type GenerateInput = {
   prompt: string;
   /** Optional working title for context. */
   name?: string;
-  /** Brand images the model may place (from the Image Library). */
-  images?: LibraryImage[];
+  /** Images the model may place: Image Library + the brand's Unsplash collection. */
+  images?: ImageCandidate[];
 };
 
 function brandBlock(brand: Brand): string {
@@ -76,15 +77,26 @@ Common section shapes: image + text (two columns, an image block beside a header
 SPACING: any block or section may include "marginTop"/"marginBottom" (px, may be negative to tuck closer). Positive space renders in every inbox; negative overlap is best-effort.
 `.trim();
 
-function imagesBlock(images: LibraryImage[]): string {
+function imagesBlock(images: ImageCandidate[]): string {
   if (!images.length) {
     return `No hosted brand images are available. Leave every "src"/"imageUrl" as "" (the user adds images later). Prefer CAPTION blocks with a brand bgColor over empty image/hero blocks, since a caption still reads with no image.`;
   }
-  const list = images
-    .slice(0, 30)
-    .map((im) => `- ${im.url}  (${[im.title, im.description || im.alt].filter(Boolean).join(" — ") || "no description"})`)
-    .join("\n");
-  return `AVAILABLE BRAND IMAGES — you MAY use these exact URLs in image/hero/caption/product blocks when they fit. Do NOT invent other image URLs; if none fit, leave the field "" or use a caption block on a brand colour.\n${list}`;
+  const line = (im: ImageCandidate) =>
+    `- ${im.url}  (${[im.title, im.description || im.alt].filter(Boolean).join(" — ") || "no description"})`;
+  const ours = images.filter((i) => i.source === "library");
+  const stock = images.filter((i) => i.source === "unsplash");
+  const parts = [
+    `AVAILABLE BRAND IMAGES — copy URLs exactly, character for character; any other URL is discarded. Use them where they fit; if none fit, leave the field "" or use a caption block on a brand colour.`,
+  ];
+  if (ours.length) {
+    parts.push(`OUR BRAND IMAGES (products, packaging, logos — the only images allowed in product, columns and header blocks):\n${ours.map(line).join("\n")}`);
+  }
+  if (stock.length) {
+    parts.push(
+      `BRAND MOOD PHOTOGRAPHY from our Unsplash collection (lifestyle and atmosphere — for image, hero, caption and section backgrounds; NEVER in product, columns or header blocks; the photographer credit is added to the footer automatically):\n${stock.map(line).join("\n")}`,
+    );
+  }
+  return parts.join("\n\n");
 }
 
 export function buildGeneratePrompt(input: GenerateInput): string {

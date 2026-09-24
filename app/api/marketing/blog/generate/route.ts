@@ -1,48 +1,19 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { fetchLibraryImages } from "@/lib/email/libraryImages";
 import { isBlogBrand, normalizeTags } from "@/lib/blogPosts";
 import { buildBlogGeneratePrompt } from "@/lib/blog/generatePrompt";
 import { isBlogAudience, isBlogPurpose, starterTags } from "@/lib/blog/meta";
 import { normalizeBlogBlocks } from "@/lib/blog/normalize";
-import { checkGeneratedImages, type BlogImageCandidate } from "@/lib/blog/generateImages";
-import { brandCollection, listPhotos, trackUnsplashDownload, unsplashConfigured } from "@/lib/unsplash";
+import { checkGeneratedImages } from "@/lib/blog/generateImages";
+import { gatherImageCandidates } from "@/lib/generatorImages";
+import { trackUnsplashDownload } from "@/lib/unsplash";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 const MODEL = "claude-opus-5";
 const MAX_PROMPT_CHARS = 4000;
-
-/**
- * What the model may place: our tagged Image Library photos, plus the brand's
- * Unsplash collection (first page, 30 photos). Either half can come back empty
- * (no metadata rows yet, no Unsplash key) and generation still works.
- */
-async function gatherImages(brand: string): Promise<BlogImageCandidate[]> {
-  const collection = brandCollection(brand);
-  const [library, stock] = await Promise.all([
-    fetchLibraryImages(20),
-    collection && unsplashConfigured()
-      ? listPhotos(1, [collection]).then((r) => r.photos).catch(() => [])
-      : Promise.resolve([]),
-  ]);
-  return [
-    ...library.map((i): BlogImageCandidate => ({ ...i, source: "library" })),
-    ...stock.map(
-      (p): BlogImageCandidate => ({
-        url: p.url,
-        title: null,
-        alt: p.alt,
-        description: p.description,
-        source: "unsplash",
-        credit: `Photo by ${p.photographer.name} on Unsplash`,
-        downloadLocation: p.downloadLocation,
-      }),
-    ),
-  ];
-}
 
 /**
  * POST /api/marketing/blog/generate
@@ -84,7 +55,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Describe the post you want written." }, { status: 400 });
   }
 
-  const images = await gatherImages(brand);
+  // Tagged Image Library photos + the brand's Unsplash collection.
+  const images = await gatherImageCandidates([brand]);
 
   let message: Anthropic.Beta.BetaMessage;
   try {
