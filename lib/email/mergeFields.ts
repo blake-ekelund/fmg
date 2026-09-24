@@ -89,6 +89,71 @@ export const SAMPLE_VARS: Record<string, string> = Object.fromEntries(
   MERGE_FIELDS.map((f) => [f.key, f.sample]),
 );
 
+/* ─── Token checking (upload-time validation, lib/email/htmlTemplate.ts) ─── */
+
+/** Any `{{token}}`, known or not. `:` admits `{{discountCode:BATCH}}`. */
+const ANY_TOKEN_RE = /\{\{\s*([A-Za-z0-9_.:-]+)\s*\}\}/g;
+const KNOWN_KEYS = new Set<string>(MERGE_KEYS);
+
+/**
+ * Is this a token the send pipeline substitutes? The fixed fields above, plus
+ * the per-recipient discount code `discountCode:BATCH` (lib/email/discountTokens).
+ */
+export function isKnownToken(key: string): boolean {
+  return KNOWN_KEYS.has(key) || /^discountCode:[A-Za-z0-9_-]+$/.test(key);
+}
+
+/** Distinct unrecognized token names, in first-seen order. */
+export function unknownTokens(text: string): string[] {
+  const seen = new Set<string>();
+  for (const m of text.matchAll(ANY_TOKEN_RE)) {
+    if (!isKnownToken(m[1])) seen.add(m[1]);
+  }
+  return [...seen];
+}
+
+function normalizeKey(k: string): string {
+  return k.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const NORMALIZED_TO_KEY = new Map(MERGE_KEYS.map((k) => [normalizeKey(k), k as string]));
+
+/** Levenshtein over one row — inputs are short token names. */
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Best-guess correction for an unrecognized token, or null if nothing is close.
+ *
+ * Two cases, in order: a foreign naming convention ({{first_name}} from a
+ * Mailchimp export vs. our {{firstName}}), then an outright typo. The distance
+ * ceiling scales with length so "city" can't match "state" but "custmerName"
+ * still finds "customerName".
+ */
+export function suggestToken(key: string): string | null {
+  const norm = normalizeKey(key);
+  const exact = NORMALIZED_TO_KEY.get(norm);
+  if (exact) return exact;
+
+  let best: { key: string; dist: number } | null = null;
+  for (const [candidateNorm, candidateKey] of NORMALIZED_TO_KEY) {
+    const dist = editDistance(norm, candidateNorm);
+    if (best == null || dist < best.dist) best = { key: candidateKey, dist };
+  }
+  if (!best) return null;
+  const ceiling = Math.min(3, Math.floor(norm.length / 4) + 1);
+  return best.dist <= ceiling ? best.key : null;
+}
+
 export type MergePickerGroup = { group: MergeGroup; fields: { key: string; label: string }[] };
 
 /**

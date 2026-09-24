@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Upload,
   Code2,
@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mergeGroupsFor } from "@/lib/email/mergeFields";
+import { validateTemplateBody } from "@/lib/email/htmlTemplate";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 import type { Brand, Channel, EmailTemplate } from "./types";
 import { formatHtml } from "./formatHtml";
@@ -75,6 +76,9 @@ export default function HtmlTemplateEditor({
   const codeRef = useRef<HTMLTextAreaElement>(null);
 
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Mistyped, URL-encoded, split or unclosed merge fields in the uploaded
+  // document. Errors block Save (see TemplateEditorPage.handleSave).
+  const check = useMemo(() => validateTemplateBody(rawHtml, "html"), [rawHtml]);
   const [assets, setAssets] = useState<UploadedAsset[]>([]);
   const [imgBusy, setImgBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -216,6 +220,36 @@ export default function HtmlTemplateEditor({
             Sent exactly as uploaded. Scripts and forms are stripped for safety.
           </p>
           {uploadError && <p className="mt-2 text-[11px] text-rose-600">{uploadError}</p>}
+        </div>
+
+        {/* Merge-field check — the same validation that gates Save */}
+        <div className="p-3 border-b border-gray-100">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Merge field check</div>
+          {check.issues.length === 0 ? (
+            <p className="inline-flex items-center gap-1.5 text-[11px] text-emerald-700">
+              <Check size={12} /> Every merge field will fill in.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {check.issues.map((issue, i) => (
+                <li
+                  key={i}
+                  className={
+                    issue.severity === "error"
+                      ? "rounded-md bg-rose-50 px-2 py-1.5 text-[11px] leading-snug text-rose-700"
+                      : "rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800"
+                  }
+                >
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+          )}
+          {!check.ok && (
+            <p className="mt-2 text-[10px] leading-relaxed text-gray-400">
+              Fix the red items to save. Amber notes don&apos;t block saving.
+            </p>
+          )}
         </div>
 
         {/* Images */}

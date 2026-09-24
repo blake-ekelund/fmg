@@ -49,6 +49,7 @@ import type {
 import { createDefaultBlock, createSectionPreset, SECTION_PRESETS, TEMPLATE_PURPOSES, toPurposeArray } from "./types";
 import type { SectionPreset } from "./types";
 import { useTemplates } from "./useTemplates";
+import { validateTemplateBody } from "@/lib/email/htmlTemplate";
 import { findBlock, updateBlockInTree, removeBlockFromTree, moveBlockAnywhere, addBlockToColumn, reorderBlocks, insertNewBlock } from "./blockTree";
 import EmailCanvas, { NEW_BLOCK_MIME } from "./EmailCanvas";
 import BlockEditor from "./BlockEditor";
@@ -153,6 +154,7 @@ function SmsEditor({
 /* ─── Main Template Editor ─── */
 export default function TemplateEditorPage() {
   const { templates, loading, save, saveError, remove, duplicate, refresh } = useTemplates();
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // List vs editor mode
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -181,6 +183,8 @@ export default function TemplateEditorPage() {
   // `rawHtml` holds the document. `htmlView` toggles code vs rendered preview.
   const [source, setSource] = useState<TemplateSource>("blocks");
   const [rawHtml, setRawHtml] = useState("");
+  // Any edit to the document may have fixed it — drop the stale banner.
+  useEffect(() => setValidationError(null), [rawHtml, source]);
   const [textBody, setTextBody] = useState("");
   const [htmlView, setHtmlView] = useState<"preview" | "code">("preview");
 
@@ -539,6 +543,18 @@ export default function TemplateEditorPage() {
 
   // Save
   async function handleSave(): Promise<EmailTemplate | null> {
+    // An uploaded document with a broken merge field would send the literal
+    // {{token}} to customers — refuse the save while any error stands (the
+    // HTML editor's "Merge field check" panel lists them).
+    if (source === "html") {
+      const check = validateTemplateBody(rawHtml, "html");
+      if (!check.ok) {
+        const n = check.issues.filter((i) => i.severity === "error").length;
+        setValidationError(`${n} merge field problem${n === 1 ? "" : "s"} in the HTML. See "Merge field check" in the sidebar.`);
+        return null;
+      }
+    }
+    setValidationError(null);
     setSaving(true);
     const payload: Partial<EmailTemplate> = {
       name: name || "Untitled Template",
@@ -956,9 +972,9 @@ export default function TemplateEditorPage() {
         </div>
       </div>
 
-      {saveError && (
+      {(validationError || saveError) && (
         <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
-          <span className="font-medium">Save failed:</span> {saveError}
+          <span className="font-medium">{validationError ? "Can't save yet:" : "Save failed:"}</span> {validationError ?? saveError}
         </div>
       )}
 
