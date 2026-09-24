@@ -1,11 +1,16 @@
 /**
- * Unsplash — photos from the photographers we work with, for the image picker.
+ * Unsplash — our brands' collections and our photographers' work, for the
+ * image pickers and Marketing → Photography.
  *
+ * Sources: the brand collections below, plus any photographer accounts in env.
  * Config (server env):
- *   UNSPLASH_ACCESS_KEY    — the app's Access Key (unsplash.com/oauth/applications)
- *   UNSPLASH_PHOTOGRAPHERS — comma-separated Unsplash usernames, e.g. "jane,joe"
+ *   UNSPLASH_ACCESS_KEY    — the "FMG Portal" app's Access Key (unsplash.com/oauth/applications)
+ *   UNSPLASH_PHOTOGRAPHERS — optional comma-separated Unsplash usernames, e.g. "jane,joe"
  *
- * API-guideline obligations this module (and the picker) keep:
+ * The Access Key is public-scope only, so a collection must be PUBLIC on
+ * Unsplash — a private one 404s here even though its share link works.
+ *
+ * API-guideline obligations this module (and its callers) keep:
  *   - hotlink the images.unsplash.com URL (never re-host it)
  *   - ping the photo's download_location when someone actually uses it
  *   - credit "Photo by <name> on Unsplash", both linked with utm params
@@ -14,6 +19,27 @@
 const API = "https://api.unsplash.com";
 const APP_NAME = "fmg_portal"; // must match the registered Unsplash app ("FMG Portal")
 const PER_PAGE = 30;
+
+/** Brand photo collections on Unsplash (id = the segment after /collections/). */
+const BRAND_COLLECTIONS: { key: string; label: string; id: string }[] = [
+  { key: "sassy", label: "Sassy", id: "deBXpNW6csY" },
+  { key: "ni", label: "Natural Inspirations", id: "4839527" },
+];
+
+export type UnsplashSource = { key: string; label: string; kind: "collection" | "user"; id: string };
+
+/** Header-card details for a source (collection or photographer). */
+export type UnsplashSourceInfo = {
+  key: string;
+  label: string;
+  kind: "collection" | "user";
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  image: string | null;
+  totalPhotos: number;
+  url: string;
+};
 
 export type UnsplashPhoto = {
   id: string;
@@ -47,25 +73,22 @@ type ApiPhoto = {
   user: { name: string; username: string; links: { html: string } };
 };
 
-export type UnsplashProfile = {
-  username: string;
-  name: string;
-  bio: string | null;
-  location: string | null;
-  avatar: string | null;
-  totalPhotos: number;
-  totalDownloads: number | null;
-  profileUrl: string;
-};
-
 type ApiUser = {
   username: string;
   name: string;
   bio: string | null;
   location: string | null;
   total_photos: number;
-  downloads?: number;
   profile_image?: { large?: string };
+  links: { html: string };
+};
+
+type ApiCollection = {
+  title: string;
+  description: string | null;
+  total_photos: number;
+  cover_photo: { urls: { small: string } } | null;
+  user: { name: string };
   links: { html: string };
 };
 
@@ -73,11 +96,15 @@ export function unsplashConfigured(): boolean {
   return Boolean(process.env.UNSPLASH_ACCESS_KEY);
 }
 
-export function unsplashPhotographers(): string[] {
-  return (process.env.UNSPLASH_PHOTOGRAPHERS ?? "")
+export function unsplashSources(): UnsplashSource[] {
+  const photographers = (process.env.UNSPLASH_PHOTOGRAPHERS ?? "")
     .split(",")
     .map((s) => s.trim().replace(/^@/, ""))
     .filter(Boolean);
+  return [
+    ...BRAND_COLLECTIONS.map((c) => ({ ...c, kind: "collection" as const })),
+    ...photographers.map((u) => ({ key: `@${u}`, label: `@${u}`, kind: "user" as const, id: u })),
+  ];
 }
 
 const utm = (url: string) => `${url}${url.includes("?") ? "&" : "?"}utm_source=${APP_NAME}&utm_medium=referral`;
@@ -108,42 +135,86 @@ async function api<T>(path: string): Promise<T> {
     next: { revalidate: 600 },
   });
   if (!res.ok) {
+    if (res.status === 404) throw new Error("Not found — is it public on Unsplash?");
     const body = await res.text().catch(() => "");
     throw new Error(`Unsplash ${res.status}: ${body.slice(0, 200) || res.statusText}`);
   }
   return (await res.json()) as T;
 }
 
+const enc = encodeURIComponent;
+
 /**
- * One page of photos from the given photographers (default: all configured),
- * newest first. Page N is page N of each photographer, merged.
+ * One page of photos from the given sources, newest first (page N is page N
+ * of each source, merged and de-duplicated). A failing source doesn't sink the
+ * rest — it comes back in `errors`.
  */
-export async function listPhotographerPhotos(
+export async function listPhotos(
   page: number,
-  usernames: string[] = unsplashPhotographers(),
-): Promise<{ photos: UnsplashPhoto[]; hasMore: boolean }> {
-  const pages = await Promise.all(
-    usernames.map((u) =>
-      api<ApiPhoto[]>(`/users/${encodeURIComponent(u)}/photos?page=${page}&per_page=${PER_PAGE}&order_by=latest`),
+  sources: UnsplashSource[],
+): Promise<{ photos: UnsplashPhoto[]; hasMore: boolean; errors: { key: string; label: string; message: string }[] }> {
+  const results = await Promise.allSettled(
+    sources.map((s) =>
+      api<ApiPhoto[]>(
+        s.kind === "collection"
+          ? `/collections/${enc(s.id)}/photos?page=${page}&per_page=${PER_PAGE}`
+          : `/users/${enc(s.id)}/photos?page=${page}&per_page=${PER_PAGE}&order_by=latest`,
+      ),
     ),
   );
-  const photos = pages.flat().map(toPhoto).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return { photos, hasMore: pages.some((p) => p.length === PER_PAGE) };
+  const seen = new Set<string>();
+  const photos: UnsplashPhoto[] = [];
+  const errors: { key: string; label: string; message: string }[] = [];
+  let hasMore = false;
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      errors.push({ key: sources[i].key, label: sources[i].label, message: String(r.reason?.message ?? r.reason) });
+      return;
+    }
+    if (r.value.length === PER_PAGE) hasMore = true;
+    for (const p of r.value) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      photos.push(toPhoto(p));
+    }
+  });
+  photos.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { photos, hasMore, errors };
 }
 
-/** Public profile + stats for each configured photographer. */
-export async function getPhotographerProfiles(usernames: string[] = unsplashPhotographers()): Promise<UnsplashProfile[]> {
-  const users = await Promise.all(usernames.map((u) => api<ApiUser>(`/users/${encodeURIComponent(u)}`)));
-  return users.map((u) => ({
-    username: u.username,
-    name: u.name,
-    bio: u.bio,
-    location: u.location,
-    avatar: u.profile_image?.large ?? null,
-    totalPhotos: u.total_photos,
-    totalDownloads: u.downloads ?? null,
-    profileUrl: utm(u.links.html),
-  }));
+/** Header-card details per source; sources that fail are simply left out. */
+export async function getSourceInfo(sources: UnsplashSource[]): Promise<UnsplashSourceInfo[]> {
+  const results = await Promise.allSettled(
+    sources.map(async (s): Promise<UnsplashSourceInfo> => {
+      if (s.kind === "collection") {
+        const c = await api<ApiCollection>(`/collections/${enc(s.id)}`);
+        return {
+          key: s.key,
+          label: s.label,
+          kind: s.kind,
+          title: c.title,
+          subtitle: `Curated by ${c.user.name}`,
+          description: c.description,
+          image: c.cover_photo?.urls.small ?? null,
+          totalPhotos: c.total_photos,
+          url: utm(c.links.html),
+        };
+      }
+      const u = await api<ApiUser>(`/users/${enc(s.id)}`);
+      return {
+        key: s.key,
+        label: s.label,
+        kind: s.kind,
+        title: u.name,
+        subtitle: [`@${u.username}`, u.location].filter(Boolean).join(" · "),
+        description: u.bio,
+        image: u.profile_image?.large ?? null,
+        totalPhotos: u.total_photos,
+        url: utm(u.links.html),
+      };
+    }),
+  );
+  return results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
 }
 
 /** Required by the API guidelines whenever a photo is actually used. */

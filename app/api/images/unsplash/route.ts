@@ -1,21 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import {
-  getPhotographerProfiles,
-  listPhotographerPhotos,
-  trackUnsplashDownload,
-  unsplashConfigured,
-  unsplashPhotographers,
-} from "@/lib/unsplash";
+import { getSourceInfo, listPhotos, trackUnsplashDownload, unsplashConfigured, unsplashSources } from "@/lib/unsplash";
 
 export const runtime = "nodejs";
 
 /**
- * Unsplash photos from our photographers, for the image picker (lib/unsplash.ts).
+ * Unsplash photos from our brand collections + photographers (lib/unsplash.ts),
+ * for the image pickers and Marketing → Photography.
  *
- *  GET  ?page=1&photographer=<username> — one page, newest first. Omit
- *       `photographer` for everyone in UNSPLASH_PHOTOGRAPHERS. Add `profiles=1`
- *       for each photographer's public profile + stats (the Photography page).
+ *  GET  ?page=1&source=<key> — one page, newest first. Omit `source` for every
+ *       source. Add `info=1` for each source's header-card details.
  *  POST { downloadLocation } — record a use with Unsplash (guideline-required).
  */
 
@@ -23,24 +17,25 @@ export async function GET(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const photographers = unsplashPhotographers();
-  if (!unsplashConfigured() || photographers.length === 0) {
-    return NextResponse.json({ configured: false, photographers, photos: [], hasMore: false });
+  const all = unsplashSources();
+  const sources = all.map(({ key, label }) => ({ key, label }));
+  if (!unsplashConfigured() || all.length === 0) {
+    return NextResponse.json({ configured: false, sources, photos: [], hasMore: false, errors: [] });
   }
 
   const params = new URL(request.url).searchParams;
   const page = Math.max(1, Number(params.get("page")) || 1);
-  const only = params.get("photographer");
-  // Only the configured photographers are browsable, never an arbitrary account.
-  const usernames = only ? photographers.filter((u) => u.toLowerCase() === only.toLowerCase()) : photographers;
-  if (usernames.length === 0) return NextResponse.json({ error: "Unknown photographer" }, { status: 400 });
+  const only = params.get("source");
+  // Only configured sources are browsable, never an arbitrary account/collection.
+  const selected = only ? all.filter((s) => s.key === only) : all;
+  if (selected.length === 0) return NextResponse.json({ error: "Unknown source" }, { status: 400 });
 
   try {
-    const [{ photos, hasMore }, profiles] = await Promise.all([
-      listPhotographerPhotos(page, usernames),
-      params.get("profiles") ? getPhotographerProfiles(usernames) : Promise.resolve(undefined),
+    const [{ photos, hasMore, errors }, info] = await Promise.all([
+      listPhotos(page, selected),
+      params.get("info") ? getSourceInfo(selected) : Promise.resolve(undefined),
     ]);
-    return NextResponse.json({ configured: true, photographers, photos, hasMore, profiles });
+    return NextResponse.json({ configured: true, sources, photos, hasMore, errors, info });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Unsplash request failed" }, { status: 502 });
   }

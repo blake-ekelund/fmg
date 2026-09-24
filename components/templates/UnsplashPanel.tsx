@@ -12,9 +12,11 @@ export type UnsplashPick = {
   credit: { name: string; profileUrl: string; unsplashUrl: string };
 };
 
+type Source = { key: string; label: string };
 type Resp = {
   configured?: boolean;
-  photographers?: string[];
+  sources?: Source[];
+  errors?: { key: string; label: string; message: string }[];
   photos?: UnsplashPhoto[];
   hasMore?: boolean;
   error?: string;
@@ -27,13 +29,14 @@ async function authHeader(): Promise<Record<string, string>> {
 }
 
 /**
- * The Unsplash tab of MediaLibraryModal: our photographers' photos, filterable
- * by photographer and by the photo's own description. Choosing one pings
+ * The Unsplash tab of MediaLibraryModal: our brand collections + photographers,
+ * filterable by source and by the photo's own description. Choosing one pings
  * Unsplash's download tracker (guideline-required) and returns a hotlink URL.
  */
 export default function UnsplashPanel({ query, onSelect }: { query: string; onSelect: (url: string, pick: UnsplashPick) => void }) {
-  const [photographer, setPhotographer] = useState<string>("");
-  const [photographers, setPhotographers] = useState<string[]>([]);
+  const [source, setSource] = useState<string>("");
+  const [sources, setSources] = useState<Source[]>([]);
+  const [sourceErrors, setSourceErrors] = useState<string[]>([]);
   const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -48,7 +51,7 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
       setError(null);
       try {
         const qs = new URLSearchParams({ page: String(page) });
-        if (photographer) qs.set("photographer", photographer);
+        if (source) qs.set("source", source);
         const res = await fetch(`/api/images/unsplash?${qs}`, { headers: await authHeader() });
         const json = (await res.json().catch(() => ({}))) as Resp;
         if (cancelled) return;
@@ -57,7 +60,8 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
           return;
         }
         setConfigured(json.configured !== false);
-        setPhotographers(json.photographers ?? []);
+        setSources(json.sources ?? []);
+        setSourceErrors((json.errors ?? []).map((e) => `${e.label}: ${e.message}`));
         setPhotos((prev) => (page === 1 ? (json.photos ?? []) : [...prev, ...(json.photos ?? [])]));
         setHasMore(Boolean(json.hasMore));
       } catch (e) {
@@ -69,7 +73,7 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
     return () => {
       cancelled = true;
     };
-  }, [page, photographer]);
+  }, [page, source]);
 
   async function choose(p: UnsplashPhoto) {
     // Fire-and-forget: a tracking hiccup shouldn't block using the photo.
@@ -92,7 +96,7 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
         <ImageIcon size={32} className="mx-auto mb-3 text-gray-200" />
         <p className="text-sm font-medium text-gray-600">Unsplash isn&apos;t connected yet</p>
         <p className="mx-auto mt-1 max-w-sm text-xs text-gray-400">
-          Set UNSPLASH_ACCESS_KEY and UNSPLASH_PHOTOGRAPHERS (comma-separated usernames) in the server environment.
+          Set UNSPLASH_ACCESS_KEY in the server environment.
         </p>
       </div>
     );
@@ -105,26 +109,29 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
 
   return (
     <div>
-      {photographers.length > 1 && (
+      {sources.length > 1 && (
         <div className="mb-3 flex flex-wrap gap-1.5">
-          {["", ...photographers].map((u) => (
+          {[{ key: "", label: "All" }, ...sources].map((s) => (
             <button
-              key={u || "all"}
+              key={s.key || "all"}
               onClick={() => {
-                setPhotographer(u);
+                setSource(s.key);
                 setPage(1);
               }}
               className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
-                photographer === u
+                source === s.key
                   ? "border-gray-900 bg-gray-900 text-white"
                   : "border-gray-200 text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {u ? `@${u}` : "All photographers"}
+              {s.label}
             </button>
           ))}
         </div>
       )}
+      {sourceErrors.map((m) => (
+        <div key={m} className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{m}</div>
+      ))}
       {error && <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>}
       {loading && photos.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-16 text-sm text-gray-400">
@@ -135,7 +142,7 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
           <ImageIcon size={32} className="mx-auto mb-3 text-gray-200" />
           <p className="text-sm font-medium text-gray-600">{photos.length === 0 ? "No photos yet" : "No matches"}</p>
           <p className="mt-1 text-xs text-gray-400">
-            {photos.length === 0 ? "These photographers haven't published anything." : "Search covers the photos loaded so far — try loading more."}
+            {photos.length === 0 ? "Nothing published in these sources yet." : "Search covers the photos loaded so far — try loading more."}
           </p>
         </div>
       ) : (

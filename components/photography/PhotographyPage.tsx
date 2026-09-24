@@ -3,21 +3,22 @@
 import { useEffect, useState } from "react";
 import { Camera, Check, Copy, ExternalLink, Heart, Loader2, MapPin, Search, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import type { UnsplashPhoto, UnsplashProfile } from "@/lib/unsplash";
+import type { UnsplashPhoto, UnsplashSourceInfo } from "@/lib/unsplash";
 
 /**
- * Marketing → Photography: everything our photographers have published on
- * Unsplash (UNSPLASH_PHOTOGRAPHERS), browsable in one place. Same API as the
+ * Marketing → Photography: our brand collections on Unsplash (Sassy, NI) plus
+ * any photographers in UNSPLASH_PHOTOGRAPHERS, browsable in one place. Same API as the
  * image picker's Unsplash tab (/api/images/unsplash); copying a photo's URL
  * counts as a use, so it pings Unsplash's download tracker like a pick does.
  */
 
 type Resp = {
   configured?: boolean;
-  photographers?: string[];
+  sources?: { key: string; label: string }[];
   photos?: UnsplashPhoto[];
   hasMore?: boolean;
-  profiles?: UnsplashProfile[];
+  info?: UnsplashSourceInfo[];
+  errors?: { key: string; label: string; message: string }[];
   error?: string;
 };
 
@@ -40,9 +41,10 @@ function trackUse(p: UnsplashPhoto) {
 const fmt = (n: number) => n.toLocaleString();
 
 export default function PhotographyPage() {
-  const [profiles, setProfiles] = useState<UnsplashProfile[]>([]);
-  const [photographers, setPhotographers] = useState<string[]>([]);
-  const [photographer, setPhotographer] = useState("");
+  const [info, setInfo] = useState<UnsplashSourceInfo[]>([]);
+  const [sources, setSources] = useState<{ key: string; label: string }[]>([]);
+  const [source, setSource] = useState("");
+  const [sourceErrors, setSourceErrors] = useState<string[]>([]);
   const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -59,9 +61,9 @@ export default function PhotographyPage() {
       setError(null);
       try {
         const qs = new URLSearchParams({ page: String(page) });
-        if (photographer) qs.set("photographer", photographer);
-        // Profiles only on the first unfiltered load — they don't change per page.
-        if (page === 1 && !photographer && profiles.length === 0) qs.set("profiles", "1");
+        if (source) qs.set("source", source);
+        // Source cards only on the first unfiltered load — they don't change per page.
+        if (page === 1 && !source && info.length === 0) qs.set("info", "1");
         const res = await fetch(`/api/images/unsplash?${qs}`, { headers: await authHeader() });
         const json = (await res.json().catch(() => ({}))) as Resp;
         if (cancelled) return;
@@ -70,8 +72,9 @@ export default function PhotographyPage() {
           return;
         }
         setConfigured(json.configured !== false);
-        setPhotographers(json.photographers ?? []);
-        if (json.profiles) setProfiles(json.profiles);
+        setSources(json.sources ?? []);
+        setSourceErrors((json.errors ?? []).map((e) => `${e.label}: ${e.message}`));
+        if (json.info) setInfo(json.info);
         setPhotos((prev) => (page === 1 ? (json.photos ?? []) : [...prev, ...(json.photos ?? [])]));
         setHasMore(Boolean(json.hasMore));
       } catch (e) {
@@ -83,8 +86,8 @@ export default function PhotographyPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- profiles is a load-once cache
-  }, [page, photographer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- info is a load-once cache
+  }, [page, source]);
 
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -97,8 +100,8 @@ export default function PhotographyPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Photography</h1>
         <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-          Everything our photographers have published on Unsplash — the same photos the email and blog
-          image pickers offer under “Unsplash”. Copy a photo&apos;s URL to use it anywhere; always credit
+          Our Sassy and Natural Inspirations photo collections on Unsplash — the same photos the email
+          and blog image pickers offer under “Unsplash”. Copy a photo&apos;s URL to use it anywhere; always credit
           the photographer where it appears.
         </p>
       </div>
@@ -108,47 +111,62 @@ export default function PhotographyPage() {
           <Camera size={32} className="mx-auto mb-3 text-gray-200" />
           <p className="text-sm font-medium text-gray-600">Unsplash isn&apos;t connected yet</p>
           <p className="mx-auto mt-1 max-w-sm text-xs text-gray-400">
-            Set UNSPLASH_ACCESS_KEY and UNSPLASH_PHOTOGRAPHERS (comma-separated usernames) in the server environment.
+            Set UNSPLASH_ACCESS_KEY in the server environment.
           </p>
         </div>
       ) : (
         <>
-          {/* Photographers */}
-          {profiles.length > 0 && (
+          {/* Sources — click a card to show only its photos */}
+          {info.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {profiles.map((p) => (
-                <div key={p.username} className="flex gap-3 rounded-2xl border border-gray-200 bg-white p-4">
-                  {p.avatar ? (
+              {info.map((s) => (
+                <div
+                  key={s.key}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setSource(source === s.key ? "" : s.key);
+                    setPage(1);
+                  }}
+                  className={`flex cursor-pointer gap-3 rounded-2xl border bg-white p-4 text-left transition ${
+                    source === s.key ? "border-gray-900 ring-1 ring-gray-900" : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  {s.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.avatar} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover" />
+                    <img
+                      src={s.image}
+                      alt=""
+                      className={`h-14 w-14 shrink-0 object-cover ${s.kind === "user" ? "rounded-full" : "rounded-xl"}`}
+                    />
                   ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gray-100">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gray-100">
                       <Camera size={20} className="text-gray-400" />
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <p className="truncate text-sm font-semibold text-gray-900">{p.name}</p>
-                      <a href={p.profileUrl} target="_blank" rel="noreferrer" className="text-gray-400 hover:text-gray-700" title="Unsplash profile">
+                      <p className="truncate text-sm font-semibold text-gray-900">{s.label}</p>
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-gray-400 hover:text-gray-700"
+                        title="Open on Unsplash"
+                      >
                         <ExternalLink size={12} />
                       </a>
                     </div>
-                    <p className="text-xs text-gray-500">@{p.username}</p>
-                    {p.location && (
-                      <p className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-400">
-                        <MapPin size={10} /> {p.location}
+                    {s.subtitle && (
+                      <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-gray-500">
+                        {s.kind === "user" && <MapPin size={10} />} {s.subtitle}
                       </p>
                     )}
                     <p className="mt-1.5 text-xs text-gray-600">
-                      <span className="font-medium text-gray-900">{fmt(p.totalPhotos)}</span> photos
-                      {p.totalDownloads != null && (
-                        <>
-                          {" · "}
-                          <span className="font-medium text-gray-900">{fmt(p.totalDownloads)}</span> downloads
-                        </>
-                      )}
+                      <span className="font-medium text-gray-900">{fmt(s.totalPhotos)}</span> photos
                     </p>
-                    {p.bio && <p className="mt-1.5 line-clamp-2 text-xs text-gray-500">{p.bio}</p>}
+                    {s.description && <p className="mt-1.5 line-clamp-2 text-xs text-gray-500">{s.description}</p>}
                   </div>
                 </div>
               ))}
@@ -167,19 +185,19 @@ export default function PhotographyPage() {
                 className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
               />
             </div>
-            {photographers.length > 1 &&
-              ["", ...photographers].map((u) => (
+            {sources.length > 1 &&
+              [{ key: "", label: "All" }, ...sources].map((s) => (
                 <button
-                  key={u || "all"}
+                  key={s.key || "all"}
                   onClick={() => {
-                    setPhotographer(u);
+                    setSource(s.key);
                     setPage(1);
                   }}
                   className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                    photographer === u ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                    source === s.key ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50"
                   }`}
                 >
-                  {u ? `@${u}` : "All photographers"}
+                  {s.label}
                 </button>
               ))}
             <span className="ml-auto text-xs text-gray-400">
@@ -187,6 +205,9 @@ export default function PhotographyPage() {
             </span>
           </div>
 
+          {sourceErrors.map((m) => (
+            <div key={m} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{m}</div>
+          ))}
           {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           {/* Grid */}

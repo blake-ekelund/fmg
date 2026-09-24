@@ -270,7 +270,7 @@ export const navSections: readonly NavSection[] = [
         roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {
-        /* Our photographers' Unsplash work (UNSPLASH_PHOTOGRAPHERS) — the same
+        /* Brand photo collections on Unsplash (Sassy, NI) + UNSPLASH_PHOTOGRAPHERS — the same
            photos the image pickers' "Unsplash" tab offers. See lib/unsplash.ts. */
         label: "Photography",
         href: "/marketing/photography",
