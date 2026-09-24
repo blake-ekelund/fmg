@@ -173,9 +173,9 @@ const nav = (): EmailBlock =>
   );
 const footer = (): EmailBlock => ({
   id: id("footer"), type: "footer",
-  // TODO(Blake): replace the placeholder with the mailing address — CAN-SPAM
-  // requires a physical postal address in every marketing email.
-  text: "You're getting this because you ordered from Sassy+Co. Sassy+Co by Fragrance Marketing Group · [ADD MAILING ADDRESS]. Unsubscribing is allowed but emotionally devastating.",
+  // CAN-SPAM requires a postal address in every marketing email; this is the
+  // company letterhead address (a USPS-registered PO box qualifies).
+  text: "You're getting this because you ordered from Sassy+Co. Sassy+Co by Fragrance Marketing Group, LLC · PO Box 762, Excelsior, MN 55331. Unsubscribing is allowed but emotionally devastating.",
   unsubscribeLabel: "Unsubscribe",
   bgColor: BLUSH, textColor: BURGUNDY, linkColor: ROSE, fontSize: 12, textAlign: "center", padding: 24,
 });

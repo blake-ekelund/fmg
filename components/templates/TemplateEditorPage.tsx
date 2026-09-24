@@ -397,6 +397,21 @@ export default function TemplateEditorPage() {
     }
   }
 
+  // Deep link: /templates?edit=<id> opens that template straight into the
+  // editor (the automation journey's "Edit email" uses it). Read once, after
+  // the list has loaded, then dropped from the URL so Back returns to the list.
+  const deepLinkDone = useRef(false);
+  useEffect(() => {
+    if (deepLinkDone.current || loading) return;
+    deepLinkDone.current = true;
+    const id = new URLSearchParams(window.location.search).get("edit");
+    const target = id ? templates.find((t) => t.id === id) : undefined;
+    if (target) {
+      openEditor(target);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [loading, templates]);
+
   // Load template into editor. For a brand-new template, `blankSource` picks
   // which editor opens (blocks builder by default, or a plain-text body).
   function openEditor(template?: EmailTemplate, blankSource: TemplateSource = "blocks") {

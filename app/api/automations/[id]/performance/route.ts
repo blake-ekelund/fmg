@@ -16,8 +16,7 @@ const DEFAULT_ATTRIBUTION_DAYS = 7;
  *
  * Everything the automation Overview needs in one call: each step's email
  * (subject, preview text, any offer it carries) with its real results —
- * delivered, opened, clicked, and orders/revenue attributed to it — plus the
- * audience's average order value to anchor a revenue-per-email target.
+ * delivered, opened, clicked, and orders/revenue attributed to it.
  *
  * Attribution (last touch, within this automation): an order from an enrolled
  * customer counts toward the most recent email this automation sent them, if
@@ -48,7 +47,6 @@ export async function GET(
   if (!automation) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const cfg = (automation.trigger_config ?? {}) as Record<string, unknown>;
   const windowDays = Number(cfg.attribution_days) > 0 ? Number(cfg.attribution_days) : DEFAULT_ATTRIBUTION_DAYS;
-  const audience = (cfg.audience as string) ?? "d2c";
 
   /* 1. Steps + their templates. */
   const { data: stepRows } = await supabaseServer
@@ -196,11 +194,6 @@ export async function GET(
     attribution_days: windowDays,
     enrolled: enrollments.length,
     steps: perStep,
-    aov: await audienceAov(audience, typeof cfg.brand === "string" && cfg.brand ? cfg.brand : null),
-    aov_basis:
-      audience === "wholesale"
-        ? "wholesale accounts, lifetime"
-        : (typeof cfg.brand === "string" && cfg.brand ? cfg.brand : null) ? `orders from ${cfg.brand} buyers, last 12 months` : "D2C orders, last 12 months",
   });
 }
 
@@ -226,79 +219,4 @@ function offerOf(blocks: unknown): { label: string; code: string; unique: boolea
     };
   }
   return null;
-}
-
-/**
- * Average order value for the automation's audience, which anchors the
- * suggested RPE target (AOV × the share of recipients you expect to buy).
- *
- * D2C: the last 12 months of storefront orders from real shoppers — the
- * Amazon aggregate account (12345) and in-house addresses are left out, since
- * neither is someone this flow mails — narrowed to the brand's buyers when the
- * flow is brand-scoped. Wholesale: lifetime revenue over lifetime orders
- * across the account view.
- */
-async function audienceAov(audience: string, brand: string | null): Promise<number | null> {
-  if (audience === "wholesale") {
-    let revenue = 0;
-    let count = 0;
-    for (let from = 0; from < 20000; from += 1000) {
-      const { data, error } = await supabaseServer
-        .from("customer_contact_summary")
-        .select("lifetime_revenue, order_count")
-        .order("customerid", { ascending: true })
-        .range(from, from + 999);
-      if (error) return null;
-      const rows = (data as Array<{ lifetime_revenue: number | null; order_count: number | null }> | null) ?? [];
-      for (const r of rows) {
-        revenue += Number(r.lifetime_revenue) || 0;
-        count += Number(r.order_count) || 0;
-      }
-      if (rows.length < 1000) break;
-    }
-    return count > 0 ? Math.round((revenue / count) * 100) / 100 : null;
-  }
-
-  let buyers: Set<string> | null = null;
-  if (brand) {
-    buyers = new Set();
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await supabaseServer
-        .from("d2c_customer_brand_activity")
-        .select("person_key")
-        .eq("brand", brand)
-        .order("person_key", { ascending: true })
-        .range(from, from + 999);
-      if (error) return null;
-      const rows = (data as Array<{ person_key: string }> | null) ?? [];
-      for (const r of rows) buyers.add(r.person_key);
-      if (rows.length < 1000) break;
-    }
-  }
-
-  const since = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
-  let revenue = 0;
-  let count = 0;
-  for (let from = 0; from < 50000; from += 1000) {
-    const { data, error } = await supabaseServer
-      .from("sales_orders_current")
-      .select("id, email, totalprice")
-      .in("customerid", D2C_CUSTOMER_IDS.filter((c) => c !== "12345"))
-      .gte("datecompleted", since)
-      .order("id", { ascending: true })
-      .range(from, from + 999);
-    if (error) return null;
-    const rows = (data as Array<{ email: string | null; totalprice: number | null }> | null) ?? [];
-    for (const r of rows) {
-      const email = (r.email ?? "").trim().toLowerCase();
-      if (email.endsWith("@fragrancemarketinggroup.com")) continue;
-      if (buyers && !buyers.has(email)) continue;
-      const total = Number(r.totalprice) || 0;
-      if (total <= 0) continue;
-      revenue += total;
-      count++;
-    }
-    if (rows.length < 1000) break;
-  }
-  return count > 0 ? Math.round((revenue / count) * 100) / 100 : null;
 }

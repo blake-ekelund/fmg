@@ -7,7 +7,6 @@ import {
   Plus,
   AlertTriangle,
   Mail,
-  ArrowDown,
   Clock,
   Users,
   Eye,
@@ -15,18 +14,18 @@ import {
   Check,
   X,
   ChevronDown,
-  ArrowUp,
-  ArrowDown as ArrowDownIcon,
   Send,
   Layers,
   FlaskConical,
   Play,
   Calendar,
+  Zap,
+  LogOut,
 } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import AutomationOverview from "./AutomationOverview";
+import { JourneyStrip, EmailInspector, type StepResult } from "./Journey";
 
 type TriggerType = "status_change" | "order_event" | "date" | "manual";
 
@@ -74,11 +73,6 @@ type Automation = {
     brand?: string;
     /** order_event only: a customer who orders again restarts at step 1. */
     reenroll_on_new_order?: boolean;
-    /** Overview benchmark: target revenue per delivered email ($), the buyer
-     *  rate the suggested target assumes (%), and the attribution window. */
-    rpe_target?: number;
-    rpe_conversion_pct?: number;
-    attribution_days?: number;
     /** Batching — see the cron runner for the release semantics. */
     batch_mode?: "continuous" | "cohort";
     batch_weekday?: number;
@@ -182,13 +176,11 @@ export default function AutomationEditor({
   const [automation, setAutomation] = useState<Automation | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
   const [allTemplates, setAllTemplates] = useState<Template[]>([]);
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [, setEnrollments] = useState<Enrollment[]>([]);
   const [recent, setRecent] = useState<StepSend[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  // Opens on the at-a-glance Overview; editing lives on Build.
-  const [view, setView] = useState<"overview" | "build">("overview");
   const [testEmail, setTestEmail] = useState(DEFAULT_TEST_EMAIL);
   /** "" = built-in sample; otherwise "<type>:<ref>" from the preview list. */
   const [testCustomer, setTestCustomer] = useState("");
@@ -523,7 +515,9 @@ export default function AutomationEditor({
       setError(json?.error ?? `Add failed (${res.status})`);
       return;
     }
+    const created = await res.json().catch(() => null);
     await reload();
+    if (created?.step?.id) setSelectedStepId(created.step.id);
     await onChanged();
     flashSaved();
   }
@@ -607,6 +601,43 @@ export default function AutomationEditor({
     }
   }
 
+  /* ── Journey state: per-email results, the selected email, open panels ── */
+
+  const [results, setResults] = useState<Map<number, StepResult>>(new Map());
+  const [resultTotals, setResultTotals] = useState({ enrolled: 0, delivered: 0, orders: 0, revenue: 0 });
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  /** Which setup panel is expanded under the Who / Starts / Stops strip. */
+  const [openPanel, setOpenPanel] = useState<"who" | "starts" | "stops" | null>(null);
+  const [showTestSend, setShowTestSend] = useState(false);
+
+  // Results are keyed by step order, so refetch whenever the steps change.
+  const stepsKey = steps.map((s) => `${s.id}:${s.step_order}:${s.template_id}`).join("|");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/automations/${automationId}/performance`, { headers: await authHeader() });
+      if (!res.ok || cancelled) return;
+      const json = (await res.json()) as { enrolled: number; steps: StepResult[] };
+      const map = new Map(json.steps.map((s) => [s.step_order, s]));
+      setResults(map);
+      setResultTotals({
+        enrolled: json.enrolled,
+        delivered: json.steps.reduce((a, s) => a + s.delivered, 0),
+        orders: json.steps.reduce((a, s) => a + s.orders, 0),
+        revenue: json.steps.reduce((a, s) => a + s.revenue, 0),
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [automationId, stepsKey]);
+
+  // Keep a valid selection: the first email by default, and never a deleted one.
+  useEffect(() => {
+    if (steps.length === 0) setSelectedStepId(null);
+    else if (!steps.some((s) => s.id === selectedStepId)) setSelectedStepId(steps[0].id);
+  }, [steps, selectedStepId]);
+
   /* ── Render ─────────────────────────────────────────────────────────── */
 
   if (loading) {
@@ -684,884 +715,97 @@ export default function AutomationEditor({
       })
     : null;
 
+  /* ── Journey derived values ── */
+  const baseDay = t === "order_event" ? cfg.days_after ?? 7 : 0;
+  const stepDays: number[] = [];
+  steps.forEach((s, i) => stepDays.push((i === 0 ? baseDay : stepDays[i - 1]) + s.delay_days));
+  const selectedIndex = steps.findIndex((s) => s.id === selectedStepId);
+  const selectedStep = selectedIndex >= 0 ? steps[selectedIndex] : null;
+
+  const whoSummary = [
+    cfg.audience === "wholesale" ? "Wholesale accounts" : cfg.audience === "both" ? "All customers" : "D2C shoppers",
+    cfg.audience !== "wholesale" && cfg.brand ? `who bought ${cfg.brand}` : null,
+    cfg.min_spend ? `$${cfg.min_spend.toLocaleString()}+ lifetime` : null,
+    (cfg.states?.length ?? 0) > 0 ? `in ${cfg.states!.length <= 2 ? cfg.states!.join(", ") : `${cfg.states!.length} states`}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const startsSummary = triggerSummaryText(t, cfg);
+  const stopRules = [
+    cfg.exit_on_order ? (cfg.reenroll_on_new_order ? "They order (then restart)" : "They order") : null,
+    cfg.exit_on_click ?? cfg.exit_on_reply ? "They click" : null,
+    cfg.exit_on_reply_inbound ? "They reply" : null,
+    cfg.exit_on_active ? "They're active again" : null,
+    cfg.exit_after_days ? `No clicks in ${cfg.exit_after_days}d` : null,
+    "They unsubscribe",
+  ].filter(Boolean) as string[];
+  const money0 = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
   return (
-    <div className="flex flex-col">
-      {/* Top bar — sticky so the name + delete stay reachable while scrolling */}
-      <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-100 sticky top-0 z-10 bg-white">
-        <InlineEditableTitle
-          value={automation.name}
-          onSave={updateName}
-        />
-        <div className="flex items-center gap-2 shrink-0">
-          {savedFlash && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-green-600">
-              <Check size={11} /> Saved
-            </span>
-          )}
-          <button
-            onClick={deleteAutomation}
-            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition"
-            title="Delete"
-          >
-            <Trash2 size={12} />
-          </button>
-        </div>
-      </div>
-
-      {/* Overview (the drip at a glance) vs Build (the flow editor) */}
-      <div className="flex gap-1 border-b border-gray-100 px-6 pt-2" role="tablist">
-        {(["overview", "build"] as const).map((v) => (
-          <button
-            key={v}
-            role="tab"
-            aria-selected={view === v}
-            onClick={() => setView(v)}
-            className={clsx(
-              "-mb-px border-b-2 px-3 py-2 text-xs font-medium transition",
-              view === v ? "border-brand-700 text-ink" : "border-transparent text-ink-muted hover:text-ink",
-            )}
-          >
-            {v === "overview" ? "Overview" : "Build"}
-          </button>
-        ))}
-      </div>
-
-      {view === "overview" ? (
-        <AutomationOverview
-          automationId={automation.id}
-          description={automation.description}
-          triggerType={t}
-          config={cfg}
-          onConfigChange={updateTriggerConfig}
-        />
-      ) : (
-      /* Body */
-      <div className="px-6 py-6">
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 inline-flex items-start gap-2 mb-4">
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <div className="max-w-xl mx-auto space-y-1">
-          {/* An automation saved with a trigger neither the editor nor the cron
-              runner recognises can sit "Live" and enroll nobody, with no pill
-              selected and a blank trigger sentence to explain why. Legacy rows
-              are migrated, but say so plainly if one ever turns up again. */}
-          {!KNOWN_TRIGGERS.includes(t) && (
-            <div className="mb-3 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning-soft px-3 py-2 text-[11px] text-warning">
-              <AlertTriangle size={13} className="mt-px shrink-0" />
-              <span>
-                This automation has an unrecognized trigger (
-                <code className="font-mono">{String(t)}</code>), so it will never
-                enroll anyone. Pick one below to fix it.
-              </span>
-            </div>
-          )}
-
-          {/* ── 1. Audience ── */}
-          <FlowCard>
-            <FlowLabel>1 · Who is this for</FlowLabel>
-            <div className="flex items-center gap-1 mt-1">
-              <FilterPill
-                active={(cfg.audience ?? "d2c") === "d2c"}
-                onClick={() => updateTriggerConfig({ audience: "d2c" })}
-              >
-                D2C
-              </FilterPill>
-              <FilterPill
-                active={cfg.audience === "wholesale"}
-                onClick={() => updateTriggerConfig({ audience: "wholesale" })}
-              >
-                Wholesale
-              </FilterPill>
-              <FilterPill
-                active={cfg.audience === "both"}
-                onClick={() => updateTriggerConfig({ audience: "both" })}
-              >
-                Both
-              </FilterPill>
-            </div>
-            {(cfg.audience ?? "d2c") !== "wholesale" && (
-              <div className="flex items-center gap-1 mt-2">
-                <span className="text-xs text-gray-500 mr-1">D2C buyers of</span>
-                <FilterPill active={!cfg.brand} onClick={() => updateTriggerConfig({ brand: undefined })}>
-                  Any brand
-                </FilterPill>
-                <FilterPill active={cfg.brand === "Sassy"} onClick={() => updateTriggerConfig({ brand: "Sassy" })}>
-                  Sassy
-                </FilterPill>
-                <FilterPill active={cfg.brand === "NI"} onClick={() => updateTriggerConfig({ brand: "NI" })}>
-                  NI
-                </FilterPill>
-              </div>
-            )}
-          </FlowCard>
-
-          <Arrow />
-
-          {/* ── 2. Trigger ── */}
-          <FlowCard>
-            <FlowLabel>2 · When to enroll</FlowLabel>
-            <div className="text-sm text-gray-800 leading-relaxed space-y-3 mt-1">
-              <div className="flex items-center gap-1 flex-wrap">
-                <FilterPill
-                  active={t === "status_change"}
-                  onClick={() => updateTriggerType("status_change")}
-                >
-                  Status change
-                </FilterPill>
-                <FilterPill
-                  active={t === "order_event"}
-                  onClick={() => updateTriggerType("order_event")}
-                >
-                  Order event
-                </FilterPill>
-                <FilterPill
-                  active={t === "date"}
-                  onClick={() => updateTriggerType("date")}
-                >
-                  Date
-                </FilterPill>
-                <FilterPill
-                  active={t === "manual"}
-                  onClick={() => updateTriggerType("manual")}
-                >
-                  Manual
-                </FilterPill>
-              </div>
-              <div>{renderTriggerSentence(t, cfg, updateTriggerConfig)}</div>
-            </div>
-          </FlowCard>
-
-          <Arrow />
-
-          {/* ── 3. Filters ── */}
-          <FlowCard>
-            <FlowLabel>3 · Narrow it down (optional)</FlowLabel>
-            <div className="mt-1">
-              <FiltersRow cfg={cfg} patchCfg={updateTriggerConfig} />
-            </div>
-          </FlowCard>
-
-          {/* ── 3b. Batching — status-change trickles by nature, so this is
-                 where cohorts matter most. ── */}
-          {t === "status_change" && (
-            <>
-              <Arrow />
-              <FlowCard>
-                <FlowLabel>
-                  <Layers size={11} className="inline -mt-0.5 mr-1" />
-                  How to release them
-                </FlowLabel>
-                <div className="mt-1 space-y-2">
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <FilterPill
-                      active={(cfg.batch_mode ?? "continuous") === "continuous"}
-                      onClick={() => updateTriggerConfig({ batch_mode: "continuous" })}
-                    >
-                      As they qualify
-                    </FilterPill>
-                    <FilterPill
-                      active={cfg.batch_mode === "cohort"}
-                      onClick={() => updateTriggerConfig({ batch_mode: "cohort" })}
-                    >
-                      Weekly batches
-                    </FilterPill>
-                  </div>
-
-                  {cfg.batch_mode === "cohort" ? (
-                    <div className="space-y-2 text-sm text-gray-800">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span>Release every</span>
-                        <Pill>
-                          <select
-                            value={String(cfg.batch_weekday ?? 1)}
-                            onChange={(e) =>
-                              updateTriggerConfig({ batch_weekday: Number(e.target.value) })
-                            }
-                            className="bg-transparent focus:outline-none cursor-pointer pr-4"
-                          >
-                            {WEEKDAYS.map((d, i) => (
-                              <option key={d} value={i}>
-                                {d}
-                              </option>
-                            ))}
-                          </select>
-                        </Pill>
-                        <span>, up to</span>
-                        <Pill>
-                          <select
-                            value={String(cfg.batch_size ?? 0)}
-                            onChange={(e) => {
-                              const v = Number(e.target.value);
-                              updateTriggerConfig({ batch_size: v > 0 ? v : undefined });
-                            }}
-                            className="bg-transparent focus:outline-none cursor-pointer pr-4"
-                          >
-                            <option value="0">everyone waiting</option>
-                            <option value="25">25 customers</option>
-                            <option value="50">50 customers</option>
-                            <option value="100">100 customers</option>
-                            <option value="200">200 customers</option>
-                          </select>
-                        </Pill>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] text-gray-500">Batch name</span>
-                        <input
-                          value={cfg.batch_label_prefix ?? ""}
-                          onChange={(e) =>
-                            updateTriggerConfig({
-                              batch_label_prefix: e.target.value || undefined,
-                            })
-                          }
-                          placeholder={defaultBatchPrefix}
-                          className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-1 text-xs focus:border-gray-400 focus:outline-none sm:flex-none sm:w-48"
-                        />
-                        <span className="text-[11px] text-gray-500">starting at</span>
-                        <input
-                          type="number"
-                          value={String(cfg.batch_start_number ?? 1000)}
-                          onChange={(e) =>
-                            updateTriggerConfig({
-                              batch_start_number: Number(e.target.value) || undefined,
-                            })
-                          }
-                          className="w-20 rounded-lg border border-gray-200 px-2 py-1 text-xs tabular-nums focus:border-gray-400 focus:outline-none"
-                        />
-                      </div>
-
-                      <p className="text-[10px] text-gray-400">
-                        Next batch:{" "}
-                        <span className="font-medium text-gray-600">
-                          {(cfg.batch_label_prefix?.trim() || defaultBatchPrefix)}{" "}
-                          {nextBatchNumber}
-                        </span>
-                        . Customers who qualify meanwhile wait for the next
-                        release — nobody is skipped.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      <p className="text-[10px] text-gray-400">
-                        Customers are enrolled the day they qualify — one today,
-                        three tomorrow. Simple, but no two recipients share
-                        conditions, so results are hard to compare.
-                      </p>
-                      {/* This mode writes no cohort, so the results page has
-                          nothing to group by — say so here rather than leaving
-                          someone staring at an empty page after a run. */}
-                      <p className="inline-flex items-start gap-1 text-[10px] text-amber-700">
-                        <AlertTriangle size={10} className="mt-px shrink-0" />
-                        <span>
-                          Runs in this mode aren&apos;t numbered batches, so they
-                          won&apos;t appear on{" "}
-                          <Link href="/automations/cohorts" className="underline">
-                            Cohort Results
-                          </Link>
-                          . Switch to weekly batches to compare releases.
-                        </span>
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </FlowCard>
-            </>
-          )}
-
-          <Arrow />
-
-          {/* ── 3c. Test batch ── */}
-          <div
-            className={clsx(
-              "rounded-2xl border px-5 py-4 transition-colors",
-              cfg.test_mode
-                ? "border-amber-300 bg-amber-50"
-                : "border-gray-200 bg-white shadow-sm",
-            )}
-          >
-            <label className="flex cursor-pointer items-start gap-2">
-              <input
-                type="checkbox"
-                checked={!!cfg.test_mode}
-                onChange={(e) =>
-                  updateTriggerConfig({
-                    test_mode: e.target.checked || undefined,
-                    // Prefill so enabling it can't leave the address blank.
-                    test_email: e.target.checked
-                      ? cfg.test_email || DEFAULT_TEST_EMAIL
-                      : cfg.test_email,
-                  })
-                }
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-gray-300 accent-amber-600"
-              />
-              <span className="min-w-0">
-                <span className="block text-xs font-semibold text-gray-800">
-                  Run this as a test batch
-                </span>
-                <span className="block text-[11px] text-gray-500">
-                  Real customers are selected and the full sequence runs on
-                  schedule — but every email is delivered to you instead of them.
-                </span>
-              </span>
-            </label>
-
-            {cfg.test_mode && (
-              <div className="mt-3 space-y-2 border-t border-amber-200 pt-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-medium text-amber-900">
-                    Deliver everything to
-                  </span>
-                  <input
-                    type="email"
-                    value={cfg.test_email ?? ""}
-                    onChange={(e) =>
-                      updateTriggerConfig({ test_email: e.target.value || undefined })
-                    }
-                    placeholder={DEFAULT_TEST_EMAIL}
-                    className="min-w-0 flex-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[11px] text-gray-800 focus:border-amber-400 focus:outline-none sm:flex-none sm:w-64"
-                  />
-                </div>
-                <button
-                  onClick={clearTestEnrollments}
-                  disabled={running}
-                  className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-amber-900 transition hover:bg-amber-100 disabled:opacity-50"
-                >
-                  <Trash2 size={11} />
-                  Clear test enrollments &amp; start over
-                </button>
-
-                <p className="text-[10px] leading-relaxed text-amber-800">
-                  Subjects arrive tagged{" "}
-                  <span className="font-mono">[TEST → customer name]</span> so you
-                  can tell whose data produced each one. Test enrollments are kept
-                  separate, so every customer used here is still available for the
-                  real campaign. Turn this off when you&apos;re ready to go live.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <Arrow />
-
-          {/* ── 4. Exit rules ── */}
-          <FlowCard>
-            <FlowLabel>4 · Remove customer if</FlowLabel>
-            <div className="mt-1 space-y-1.5">
-              <ExitToggle
-                checked={!!cfg.exit_on_order}
-                onChange={(v) => updateTriggerConfig({ exit_on_order: v || undefined })}
-                label="They place an order"
-                hint="Stops win-back mail the moment it works."
-              />
-              {t === "order_event" && (
-                <ExitToggle
-                  checked={!!cfg.reenroll_on_new_order}
-                  onChange={(v) => updateTriggerConfig({ reenroll_on_new_order: v || undefined })}
-                  label="…and restart them at step 1 when they do"
-                  hint="Reorder drips: every new order resets the customer to Day 1."
-                />
-              )}
-              <ExitToggle
-                checked={!!(cfg.exit_on_click ?? cfg.exit_on_reply)}
-                onChange={(v) =>
-                  updateTriggerConfig({
-                    exit_on_click: v || undefined,
-                    exit_on_reply: undefined, // retire the legacy key on edit
-                  })
-                }
-                label="They click a link in the email"
-                hint="They're engaged — stop the sequence and let a rep follow up."
-              />
-
-              {/* Reply rule, gated on inbound actually working. */}
-              <ExitToggle
-                checked={!!cfg.exit_on_reply_inbound}
-                disabled={!inbound?.healthy}
-                onChange={(v) =>
-                  updateTriggerConfig({ exit_on_reply_inbound: v || undefined })
-                }
-                label="They reply to any of our emails"
-                hint={
-                  inbound === null
-                    ? "Checking whether inbound mail is syncing…"
-                    : inbound.healthy
-                      ? inbound.everReceived
-                        ? "A real conversation has started — hand it to a human."
-                        : "Inbound sync is live, but no reply has been received yet."
-                      : (inbound.reason ??
-                        "Unavailable — inbound mail isn't syncing, so replies can't be detected.")
-                }
-              />
-              <ExitToggle
-                checked={!!cfg.exit_on_active}
-                onChange={(v) => updateTriggerConfig({ exit_on_active: v || undefined })}
-                label="They're an active customer again"
-                hint="Ordered within the last 180 days."
-              />
-
-              <div className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5">
-                <input
-                  type="checkbox"
-                  checked={!!cfg.exit_after_days}
-                  onChange={(e) =>
-                    updateTriggerConfig({ exit_after_days: e.target.checked ? 30 : undefined })
-                  }
-                  className="h-3.5 w-3.5 shrink-0 cursor-pointer rounded border-gray-300 accent-gray-900"
-                />
-                <span className="text-xs text-gray-700">No clicks after</span>
-                <select
-                  value={String(cfg.exit_after_days ?? 30)}
-                  disabled={!cfg.exit_after_days}
-                  onChange={(e) =>
-                    updateTriggerConfig({ exit_after_days: Number(e.target.value) })
-                  }
-                  className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:outline-none disabled:opacity-40"
-                >
-                  <option value="14">2 weeks</option>
-                  <option value="30">1 month</option>
-                  <option value="60">2 months</option>
-                  <option value="90">3 months</option>
-                </select>
-              </div>
-
-              <p className="px-2 pt-0.5 text-[10px] text-gray-400">
-                Checked before every send. Customers who opt out are always
-                removed, whatever these say.
-              </p>
-            </div>
-          </FlowCard>
-
-          {/* No separator here: each step block below opens with its own
-              <Arrow><WaitRow/></Arrow>, which already draws the connector on
-              both sides of the wait. One here too gave two stacked arrows
-              between "Narrow it down" and the first email. */}
-
-          {/* ── Step cards ── */}
-          {steps.map((s, i) => {
-            const tpl = s.template_id ? templateMap.get(s.template_id) : undefined;
-            return (
-              <div key={s.id}>
-                {/* Wait step — its own row rather than a setting buried on the
-                    email below it. Maps to that email's delay_days, so the
-                    runner is unchanged; this is the same data made visible. */}
-                <Arrow>
-                  <WaitRow
-                    value={s.delay_days}
-                    sendDate={s.send_date ?? null}
-                    isFirst={i === 0}
-                    onChange={(d) =>
-                      patchStep(s.id, { delay_days: d, send_date: null })
-                    }
-                    onSetDate={(date) => patchStep(s.id, { send_date: date })}
-                  />
-                </Arrow>
-                <FlowCard>
-                  <div className="flex items-start justify-between gap-2">
-                    <FlowLabel>
-                      <Mail size={11} className="inline -mt-0.5 mr-1" />
-                      Send · step {i + 1} of {steps.length}
-                    </FlowLabel>
-                    {steps.length > 1 && (
-                      <div className="flex items-center gap-0.5 shrink-0 -mt-1">
-                        <button
-                          onClick={() => moveStep(s.id, -1)}
-                          disabled={i === 0}
-                          title="Move earlier"
-                          className="rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-25 disabled:hover:bg-transparent"
-                        >
-                          <ArrowUp size={12} />
-                        </button>
-                        <button
-                          onClick={() => moveStep(s.id, 1)}
-                          disabled={i === steps.length - 1}
-                          title="Move later"
-                          className="rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-25 disabled:hover:bg-transparent"
-                        >
-                          <ArrowDownIcon size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm text-gray-800 leading-relaxed">
-                        The email{" "}
-                        <Pill>
-                          {/* "" = Add later. A step can be sketched now and its
-                              email written afterwards; Turn on stays blocked
-                              until every step has one. */}
-                          <select
-                            value={s.template_id ?? ""}
-                            onChange={(e) =>
-                              patchStep(s.id, { template_id: e.target.value || null })
-                            }
-                            className="bg-transparent focus:outline-none cursor-pointer pr-4 max-w-[260px] truncate"
-                          >
-                            <option value="">— Add later —</option>
-                            {allTemplates.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.name}
-                                {t.source === "blocks" ? "  · Designed" : t.source === "html" ? "  · HTML" : ""}
-                              </option>
-                            ))}
-                            {s.template_id && !templateMap.has(s.template_id) && (
-                              <option value={s.template_id}>(missing template)</option>
-                            )}
-                          </select>
-                        </Pill>
-                      </div>
-                      {tpl ? (
-                        <div className="text-[11px] text-gray-400 mt-1.5 truncate">
-                          Subject: {tpl.subject}
-                        </div>
-                      ) : (
-                        <div className="mt-1.5 text-[11px] text-amber-700 inline-flex items-center gap-1 flex-wrap">
-                          <AlertTriangle size={10} className="shrink-0" />
-                          No email chosen yet —{" "}
-                          {allTemplates.length === 0 ? (
-                            <Link href="/email-templates" className="underline">
-                              create a template
-                            </Link>
-                          ) : (
-                            "pick one above"
-                          )}{" "}
-                          before turning this on.
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => deleteStep(s.id)}
-                      className="shrink-0 text-gray-300 hover:text-red-500 transition p-1"
-                      title="Remove this email"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                </FlowCard>
-              </div>
-            );
-          })}
-
-          {/* Add step */}
-          <div className="pt-3 flex justify-center">
-            <button
-              onClick={addStep}
-              className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 bg-white px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition"
-            >
-              <Plus size={12} />
-              {steps.length === 0 ? "Add an email" : "Add another email"}
-            </button>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* Bottom action bar — sticky so Turn On is always reachable */}
-      <div className="border-t border-gray-100 px-6 py-4 bg-gray-50/95 backdrop-blur-sm sticky bottom-0 z-10">
-        {/* Preview sample list */}
-        {showSample && previewSample.length > 0 && (
-          <div className="max-w-xl mx-auto mb-3 rounded-lg border border-gray-200 bg-white">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
-              <div className="text-[11px] font-medium text-gray-600 flex items-center gap-2 flex-wrap">
-                <span>
-                  Preview ·{" "}
-                  <span className="text-gray-900">
-                    {previewCount} customer{previewCount === 1 ? "" : "s"}
-                  </span>{" "}
-                  eligible
-                  {previewSample.length < (previewCount ?? 0) && (
-                    <span className="text-gray-400">
-                      {" "}
-                      (showing first {previewSample.length})
-                    </span>
-                  )}
-                </span>
-                {invalidEmailCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 text-red-700 px-2 py-0.5 text-[10px]">
-                    <AlertTriangle size={9} />
-                    {invalidEmailCount} bad email{invalidEmailCount === 1 ? "" : "s"}
-                  </span>
-                )}
-                {suspectEmailCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 text-[10px]">
-                    <AlertTriangle size={9} />
-                    {suspectEmailCount} flagged
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => setShowSample(false)}
-                className="text-gray-400 hover:text-gray-600 transition"
-                title="Hide list"
-              >
-                <X size={12} />
-              </button>
-            </div>
-            <ul className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
-              {previewSample.map((c) => {
-                const warn = c.warning;
-                const isBad =
-                  !!warn &&
-                  (warn === "Missing" ||
-                    warn === "Invalid format" ||
-                    warn.startsWith("Possible typo"));
-                return (
-                  <li
-                    key={`${c.customer_type}:${c.customer_ref}`}
-                    className="px-3 py-1.5 flex items-center gap-2 text-xs"
-                  >
-                    <span className="font-medium text-gray-800 truncate flex-1">
-                      {c.name ?? "(no name)"}
-                    </span>
-                    <span
-                      className={clsx(
-                        "truncate max-w-[200px]",
-                        isBad ? "text-red-600" : "text-gray-500",
-                      )}
-                    >
-                      {c.email}
-                      {c.extra_emails && c.extra_emails > 0 ? (
-                        <span className="ml-1 text-[10px] text-gray-400">
-                          +{c.extra_emails}
-                        </span>
-                      ) : null}
-                    </span>
-                    {warn && (
-                      <span
-                        className={clsx(
-                          "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0",
-                          isBad
-                            ? "bg-red-50 text-red-700 border border-red-200"
-                            : "bg-amber-50 text-amber-700 border border-amber-200",
-                        )}
-                        title={warn}
-                      >
-                        <AlertTriangle size={8} />
-                        {warn.length > 22 ? warn.slice(0, 20) + "…" : warn}
-                      </span>
-                    )}
-                    {c.lifetime_revenue != null && (
-                      <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
-                        ${Math.round(c.lifetime_revenue).toLocaleString()}
-                      </span>
-                    )}
-                    {c.last_order_date && (
-                      <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
-                        {new Date(c.last_order_date).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-
-        {/* Test send — sits above the live controls so it reads as the thing
-            you do *before* turning anything on. */}
-        <div className="max-w-xl mx-auto mb-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <label
-              htmlFor="test-email"
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500"
-            >
-              <Send size={11} className="text-gray-400" />
-              Send a test to
-            </label>
-            <input
-              id="test-email"
-              type="email"
-              value={testEmail}
-              onChange={(e) => setTestEmail(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !testing && steps.length > 0) sendTest();
-              }}
-              placeholder="you@example.com"
-              className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] text-gray-800 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none sm:flex-none sm:w-56"
-            />
-            <button
-              onClick={sendTest}
-              disabled={testing || !testEmail.trim() || steps.length === 0}
-              title={
-                steps.length === 0
-                  ? "Add an email to the sequence first"
-                  : "Send every step to this address now, ignoring the waits"
-              }
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {testing ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
-              {testing ? "Sending…" : "Send test"}
-            </button>
-          </div>
-
-          {/* Whose data fills the merge fields. Sourced from the eligibility
-              preview, so the options are customers this automation would
-              genuinely enroll. */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <label
-              htmlFor="test-customer"
-              className="text-[11px] font-medium text-gray-500"
-            >
-              Using data from
-            </label>
-            <select
-              id="test-customer"
-              value={testCustomer}
-              onChange={(e) => setTestCustomer(e.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[11px] text-gray-800 focus:border-gray-400 focus:outline-none sm:flex-none sm:w-64"
-            >
-              <option value="">Sample customer (made up)</option>
-              {previewSample.map((c) => (
-                <option
-                  key={`${c.customer_type}:${c.customer_ref}`}
-                  value={`${c.customer_type}:${c.customer_ref}`}
-                >
-                  {c.name ?? c.customer_ref} · {c.customer_type === "d2c" ? "D2C" : "Wholesale"}
-                </option>
-              ))}
-            </select>
-            {previewSample.length === 0 && (
-              <button
-                onClick={runPreview}
-                disabled={previewing}
-                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
-              >
-                {previewing ? (
-                  <Loader2 size={11} className="animate-spin" />
-                ) : (
-                  <Users size={11} />
-                )}
-                Load real customers
-              </button>
-            )}
-          </div>
-
-          <p className="mt-1 text-[10px] text-gray-400">
-            Every step is sent at once, to the address above — the selected
-            customer only supplies the merge-field values, and is never
-            emailed. Nothing is recorded against this automation.
-          </p>
-
-          {runResult && (
-            <div
+    <div className="flex flex-col bg-surface-muted">
+      {/* ── Header ── */}
+      <div className="sticky top-0 z-20 border-b border-line bg-surface/95 px-6 py-4 backdrop-blur">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <InlineEditableTitle value={automation.name} onSave={updateName} />
+            <span
               className={clsx(
-                "mt-2 flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px]",
-                runResult.ok
-                  ? "border-green-200 bg-green-50 text-green-700"
-                  : "border-amber-200 bg-amber-50 text-amber-800",
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium",
+                automation.enabled && cfg.test_mode
+                  ? "bg-warning-soft text-warning"
+                  : automation.enabled
+                    ? "bg-positive-soft text-positive"
+                    : "bg-surface-sunken text-ink-muted",
               )}
+              title={automation.enabled ? `Next run ${nextRunLabel()}` : undefined}
             >
-              {runResult.ok ? (
-                <Check size={12} className="mt-px shrink-0" />
-              ) : (
-                <AlertTriangle size={12} className="mt-px shrink-0" />
-              )}
-              <span className="min-w-0">{runResult.text}</span>
-            </div>
-          )}
-
-          {testResult && (
-            <div
-              className={clsx(
-                "mt-2 flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px]",
-                testResult.ok
-                  ? "border-green-200 bg-green-50 text-green-700"
-                  : "border-red-200 bg-red-50 text-red-700",
-              )}
-            >
-              {testResult.ok ? (
-                <Check size={12} className="mt-px shrink-0" />
-              ) : (
-                <AlertTriangle size={12} className="mt-px shrink-0" />
-              )}
-              <span className="min-w-0">{testResult.text}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="max-w-xl mx-auto flex items-center justify-between gap-3">
-          <div className="text-xs text-gray-600 inline-flex items-center gap-3 flex-wrap">
-            {automation.enabled && cfg.test_mode && (
-              /* "Live" would be dangerously misleading here — it is running,
-                 but nothing reaches customers. */
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">
-                <FlaskConical size={11} />
-                Test batch → {cfg.test_email} · next run {nextRunLabel()}
-              </span>
-            )}
-            {automation.enabled && !cfg.test_mode && (
               <span
-                className="inline-flex items-center gap-1"
-                title={`Next run ${nextRunLabel()}`}
-              >
-                <span className="h-2 w-2 rounded-full bg-green-500 inline-block animate-pulse" />
-                Live — next run {nextRunLabel()}
+                className={clsx(
+                  "h-1.5 w-1.5 rounded-full",
+                  automation.enabled ? (cfg.test_mode ? "bg-warning" : "animate-pulse bg-positive") : "bg-ink-subtle",
+                )}
+              />
+              {automation.enabled ? (cfg.test_mode ? "Test batch" : "Live") : "Off"}
+            </span>
+            {savedFlash && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-positive">
+                <Check size={11} /> Saved
               </span>
             )}
-            {/* Closes the feedback loop: "is this thing actually doing
-                anything?" was previously unanswerable without reading the DB. */}
-            {lastSendLabel && (
-              <span className="text-gray-400">Last sent {lastSendLabel}</span>
-            )}
-            <button
-              onClick={runPreview}
-              disabled={previewing}
-              className="inline-flex items-center gap-1 text-gray-500 hover:text-gray-900 transition disabled:opacity-50"
-            >
-              <Eye size={11} />
-              {previewing
-                ? "Checking…"
-                : previewCount !== null
-                  ? `${previewCount} eligible`
-                  : "Preview eligible customers"}
-            </button>
-            {previewCount !== null && previewSample.length > 0 && !showSample && (
-              <button
-                onClick={() => setShowSample(true)}
-                className="text-blue-600 hover:text-blue-800 transition"
-              >
-                View list
-              </button>
-            )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Without this, an enabled automation does nothing visible until
-                the next 14:00 UTC pass — indistinguishable from broken. */}
+
+          <dl className="flex items-center gap-5 text-right">
+            <HeaderStat label="Enrolled" value={resultTotals.enrolled.toLocaleString()} />
+            <HeaderStat label="Sent" value={resultTotals.delivered.toLocaleString()} />
+            <HeaderStat label="Orders" value={resultTotals.orders.toLocaleString()} />
+            <HeaderStat label="Revenue" value={money0(resultTotals.revenue)} />
+          </dl>
+
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setShowTestSend((v) => !v)}
+              aria-expanded={showTestSend}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-xs font-medium text-ink-secondary transition hover:bg-surface-muted"
+            >
+              <Send size={13} /> Send test
+            </button>
             {automation.enabled && (
               <button
                 onClick={runNow}
                 disabled={running}
-                title="Enroll and send the first step immediately, without waiting for the daily run"
-                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[11px] font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+                title="Enroll and send the first step now, without waiting for the scheduled run"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-xs font-medium text-ink-secondary transition hover:bg-surface-muted disabled:opacity-50"
               >
-                {running ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <Play size={12} />
-                )}
-                {running ? "Running…" : "Run now"}
+                {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                Run now
               </button>
-            )}
-            {/* The button used to just go grey with no explanation. */}
-            {blockedReason && !automation.enabled && (
-              <span className="text-[11px] text-amber-700 text-right max-w-[180px]">
-                {blockedReason}
-              </span>
             )}
             <button
               onClick={toggleEnabled}
               disabled={!automation.enabled && !!blockedReason}
               title={blockedReason ?? undefined}
               className={clsx(
-                "inline-flex items-center justify-center rounded-lg px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed",
+                "rounded-lg px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40",
                 automation.enabled
                   ? "border border-line bg-surface text-ink-secondary hover:bg-surface-muted"
                   : "bg-brand-700 text-white hover:bg-brand-800",
@@ -1569,86 +813,471 @@ export default function AutomationEditor({
             >
               {automation.enabled ? "Turn off" : "Turn on"}
             </button>
+            <button
+              onClick={deleteAutomation}
+              title="Delete automation"
+              aria-label="Delete automation"
+              className="rounded-lg p-2 text-ink-subtle transition hover:bg-critical-soft hover:text-critical"
+            >
+              <Trash2 size={14} />
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* Cohort comparison — the payoff of batching: one row per release, so
-          you can read whether batch 1001 outperformed 1000. */}
-      {cohorts.length > 0 && (
-        <div className="border-t border-gray-100 px-6 py-4 bg-white">
-          <div className="max-w-xl mx-auto">
-            <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              <Layers size={11} />
-              Batches
-            </h3>
-            <div className="overflow-hidden rounded-lg border border-gray-100">
-              <table className="w-full text-[11px]">
-                <thead>
-                  <tr className="bg-gray-50 text-left text-[10px] uppercase tracking-wider text-gray-400">
-                    <th className="px-2.5 py-1.5 font-medium">Batch</th>
-                    <th className="px-2.5 py-1.5 text-right font-medium">Size</th>
-                    <th className="px-2.5 py-1.5 text-right font-medium">In flow</th>
-                    <th className="px-2.5 py-1.5 text-right font-medium">Finished</th>
-                    <th className="px-2.5 py-1.5 text-right font-medium">Exited</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {cohorts.map((c) => (
-                    <tr key={c.number}>
-                      <td className="px-2.5 py-1.5 font-medium text-gray-800">{c.label}</td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums text-gray-700">
-                        {c.total}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums text-gray-500">
-                        {c.active}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums text-gray-500">
-                        {c.completed}
-                      </td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums text-gray-500">
-                        {c.exited}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {blockedReason && !automation.enabled && (
+          <p className="mt-2 text-right text-[11px] text-warning">{blockedReason} before this can turn on.</p>
+        )}
+
+        {/* Send test — every email at once, to one address */}
+        {showTestSend && (
+          <div className="mt-3 rounded-xl border border-line bg-surface-muted p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="email"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !testing && steps.length > 0) sendTest();
+                }}
+                placeholder="you@example.com"
+                aria-label="Send the test to"
+                className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink focus:border-brand-400 focus:outline-none sm:max-w-xs"
+              />
+              <select
+                value={testCustomer}
+                onChange={(e) => setTestCustomer(e.target.value)}
+                aria-label="Fill merge fields with"
+                className="min-w-0 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs text-ink focus:border-brand-400 focus:outline-none sm:max-w-xs"
+              >
+                <option value="">Sample customer data</option>
+                {previewSample.map((c) => (
+                  <option key={`${c.customer_type}:${c.customer_ref}`} value={`${c.customer_type}:${c.customer_ref}`}>
+                    {c.name ?? c.customer_ref}&apos;s data · {c.customer_type === "d2c" ? "D2C" : "Wholesale"}
+                  </option>
+                ))}
+              </select>
+              {previewSample.length === 0 && (
+                <button
+                  onClick={runPreview}
+                  disabled={previewing}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-[11px] font-medium text-brand-600 hover:text-brand-800 disabled:opacity-50"
+                >
+                  {previewing ? <Loader2 size={11} className="animate-spin" /> : <Users size={11} />}
+                  Use a real customer&apos;s data
+                </button>
+              )}
+              <button
+                onClick={sendTest}
+                disabled={testing || !testEmail.trim() || steps.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-800 disabled:opacity-40"
+              >
+                {testing ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                {testing ? "Sending…" : `Send all ${steps.length} email${steps.length === 1 ? "" : "s"}`}
+              </button>
             </div>
-            <p className="mt-1.5 text-[10px] text-gray-400">
-              &ldquo;Exited&rdquo; counts customers removed by a rule above —
-              usually because they ordered or replied, which is the outcome you
-              want. A higher exit rate is a better-performing batch.
+            <p className="mt-2 text-[10px] text-ink-muted">
+              Every email goes to this address now, ignoring the waits. A real customer only lends their merge-field
+              values and is never emailed. Nothing is recorded against the automation.
             </p>
           </div>
+        )}
+
+        {[testResult, runResult].map(
+          (r, i) =>
+            r && (
+              <div
+                key={i}
+                className={clsx(
+                  "mt-3 flex items-start gap-1.5 rounded-lg px-3 py-2 text-[11px]",
+                  r.ok ? "bg-positive-soft text-positive" : "bg-critical-soft text-critical",
+                )}
+              >
+                {r.ok ? <Check size={12} className="mt-px shrink-0" /> : <AlertTriangle size={12} className="mt-px shrink-0" />}
+                <span className="min-w-0">{r.text}</span>
+              </div>
+            ),
+        )}
+        {error && (
+          <div className="mt-3 flex items-start gap-1.5 rounded-lg bg-critical-soft px-3 py-2 text-[11px] text-critical">
+            <AlertTriangle size={12} className="mt-px shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+
+      {cfg.test_mode && (
+        <div className="flex items-center gap-2 border-b border-warning/20 bg-warning-soft px-6 py-2 text-[11px] text-warning">
+          <FlaskConical size={12} />
+          Test batch: real customers are picked and the full sequence runs on schedule, but every email goes to{" "}
+          <span className="font-semibold">{cfg.test_email}</span>.
         </div>
       )}
 
-      {/* Activity (collapsed when empty) */}
-      {(enrollments.length > 0 || recent.length > 0) && (
-        <div className="border-t border-gray-100 px-6 py-4 bg-white">
-          <div className="max-w-xl mx-auto grid grid-cols-2 gap-4">
-            <ActivityPanel
-              icon={<Users size={11} />}
-              title="Currently in flow"
-              count={enrollments.filter((e) => e.status === "enrolled").length}
-              detail={`${enrollments.filter((e) => e.status === "completed").length} completed`}
-            />
-            <ActivityPanel
-              icon={<Mail size={11} />}
-              title="Sent in last 30 days"
-              count={recent.filter((r) => r.status === "sent").length}
-              detail={
-                recent.length > 0
-                  ? `Latest: ${new Date(recent[0].sent_at).toLocaleDateString(
-                      "en-US",
-                      { month: "short", day: "numeric" },
-                    )}`
-                  : ""
-              }
-            />
-          </div>
+      {!KNOWN_TRIGGERS.includes(t) && (
+        <div className="flex items-center gap-2 border-b border-warning/20 bg-warning-soft px-6 py-2 text-[11px] text-warning">
+          <AlertTriangle size={12} />
+          This automation has an unrecognized trigger ({String(t)}), so it will never enroll anyone. Pick one under Starts.
         </div>
       )}
+
+      <div className="space-y-6 px-6 py-6">
+        {/* ── Setup: who, when it starts, when it stops ── */}
+        <section>
+          <div className="grid gap-3 md:grid-cols-3">
+            <SetupCard
+              icon={<Users size={14} />}
+              label="Who"
+              summary={whoSummary}
+              open={openPanel === "who"}
+              onClick={() => setOpenPanel(openPanel === "who" ? null : "who")}
+            />
+            <SetupCard
+              icon={<Zap size={14} />}
+              label="Starts"
+              summary={startsSummary}
+              open={openPanel === "starts"}
+              onClick={() => setOpenPanel(openPanel === "starts" ? null : "starts")}
+            />
+            <SetupCard
+              icon={<LogOut size={14} />}
+              label="Stops when"
+              summary={stopRules.join(" · ")}
+              open={openPanel === "stops"}
+              onClick={() => setOpenPanel(openPanel === "stops" ? null : "stops")}
+            />
+          </div>
+
+          {openPanel && (
+            <div className="mt-3 rounded-2xl border border-line bg-surface p-5 shadow-card">
+              {openPanel === "who" && (
+                <div className="space-y-4">
+                  <PanelRow label="Audience">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <FilterPill active={(cfg.audience ?? "d2c") === "d2c"} onClick={() => updateTriggerConfig({ audience: "d2c" })}>D2C</FilterPill>
+                      <FilterPill active={cfg.audience === "wholesale"} onClick={() => updateTriggerConfig({ audience: "wholesale" })}>Wholesale</FilterPill>
+                      <FilterPill active={cfg.audience === "both"} onClick={() => updateTriggerConfig({ audience: "both" })}>Both</FilterPill>
+                    </div>
+                  </PanelRow>
+                  {(cfg.audience ?? "d2c") !== "wholesale" && (
+                    <PanelRow label="D2C buyers of">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <FilterPill active={!cfg.brand} onClick={() => updateTriggerConfig({ brand: undefined })}>Any brand</FilterPill>
+                        <FilterPill active={cfg.brand === "Sassy"} onClick={() => updateTriggerConfig({ brand: "Sassy" })}>Sassy</FilterPill>
+                        <FilterPill active={cfg.brand === "NI"} onClick={() => updateTriggerConfig({ brand: "NI" })}>NI</FilterPill>
+                      </div>
+                    </PanelRow>
+                  )}
+                  <PanelRow label="Narrow it down">
+                    <FiltersRow cfg={cfg} patchCfg={updateTriggerConfig} />
+                  </PanelRow>
+                  <PanelRow label="Who qualifies now">
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                      <button
+                        onClick={runPreview}
+                        disabled={previewing}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 font-medium text-ink-secondary transition hover:bg-surface-muted disabled:opacity-50"
+                      >
+                        {previewing ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+                        {previewCount !== null ? "Check again" : "Check eligible customers"}
+                      </button>
+                      {previewCount !== null && (
+                        <span className="text-ink-secondary">
+                          <b className="font-semibold text-ink">{previewCount}</b> eligible
+                          {invalidEmailCount > 0 && <span className="ml-2 text-critical">{invalidEmailCount} bad email{invalidEmailCount === 1 ? "" : "s"}</span>}
+                          {suspectEmailCount > 0 && <span className="ml-2 text-warning">{suspectEmailCount} flagged</span>}
+                        </span>
+                      )}
+                    </div>
+                    {showSample && previewSample.length > 0 && (
+                      <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto rounded-xl border border-line">
+                        {previewSample.map((c) => (
+                          <li key={`${c.customer_type}:${c.customer_ref}`} className="flex items-center gap-3 px-3 py-1.5 text-xs">
+                            <span className="min-w-0 flex-1 truncate font-medium text-ink">{c.name ?? "(no name)"}</span>
+                            <span className={clsx("max-w-[220px] truncate", c.warning ? "text-warning" : "text-ink-muted")} title={c.warning ?? undefined}>
+                              {c.email}
+                            </span>
+                            {c.last_order_date && (
+                              <span className="shrink-0 tabular-nums text-[10px] text-ink-subtle">
+                                {new Date(c.last_order_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </PanelRow>
+                </div>
+              )}
+
+              {openPanel === "starts" && (
+                <div className="space-y-4">
+                  <PanelRow label="Trigger">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <FilterPill active={t === "status_change"} onClick={() => updateTriggerType("status_change")}>Status change</FilterPill>
+                      <FilterPill active={t === "order_event"} onClick={() => updateTriggerType("order_event")}>Order event</FilterPill>
+                      <FilterPill active={t === "date"} onClick={() => updateTriggerType("date")}>Date</FilterPill>
+                      <FilterPill active={t === "manual"} onClick={() => updateTriggerType("manual")}>Manual</FilterPill>
+                    </div>
+                  </PanelRow>
+                  <PanelRow label="Rule">
+                    <div className="text-sm leading-relaxed text-ink">{renderTriggerSentence(t, cfg, updateTriggerConfig)}</div>
+                  </PanelRow>
+
+                  {t === "status_change" && (
+                    <PanelRow label="Release">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <FilterPill active={(cfg.batch_mode ?? "continuous") === "continuous"} onClick={() => updateTriggerConfig({ batch_mode: "continuous" })}>As they qualify</FilterPill>
+                          <FilterPill active={cfg.batch_mode === "cohort"} onClick={() => updateTriggerConfig({ batch_mode: "cohort" })}>Weekly batches</FilterPill>
+                        </div>
+                        {cfg.batch_mode === "cohort" && (
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-secondary">
+                            <span>Every</span>
+                            <select
+                              value={String(cfg.batch_weekday ?? 1)}
+                              onChange={(e) => updateTriggerConfig({ batch_weekday: Number(e.target.value) })}
+                              className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs"
+                            >
+                              {WEEKDAYS.map((d, i) => (
+                                <option key={d} value={i}>{d}</option>
+                              ))}
+                            </select>
+                            <span>up to</span>
+                            <select
+                              value={String(cfg.batch_size ?? 0)}
+                              onChange={(e) => {
+                                const v = Number(e.target.value);
+                                updateTriggerConfig({ batch_size: v > 0 ? v : undefined });
+                              }}
+                              className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs"
+                            >
+                              <option value="0">everyone waiting</option>
+                              <option value="25">25 customers</option>
+                              <option value="50">50 customers</option>
+                              <option value="100">100 customers</option>
+                              <option value="200">200 customers</option>
+                            </select>
+                            <span>named</span>
+                            <input
+                              value={cfg.batch_label_prefix ?? ""}
+                              onChange={(e) => updateTriggerConfig({ batch_label_prefix: e.target.value || undefined })}
+                              placeholder={defaultBatchPrefix}
+                              className="w-44 rounded-lg border border-line px-2 py-1.5 text-xs"
+                            />
+                            <input
+                              type="number"
+                              value={String(cfg.batch_start_number ?? 1000)}
+                              onChange={(e) => updateTriggerConfig({ batch_start_number: Number(e.target.value) || undefined })}
+                              aria-label="Starting batch number"
+                              className="w-20 rounded-lg border border-line px-2 py-1.5 text-xs tabular-nums"
+                            />
+                            <span className="text-[11px] text-ink-muted">
+                              Next: {(cfg.batch_label_prefix?.trim() || defaultBatchPrefix)} {nextBatchNumber}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </PanelRow>
+                  )}
+
+                  <PanelRow label="Test batch">
+                    <label className="flex cursor-pointer items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!!cfg.test_mode}
+                        onChange={(e) =>
+                          updateTriggerConfig({
+                            test_mode: e.target.checked || undefined,
+                            test_email: e.target.checked ? cfg.test_email || DEFAULT_TEST_EMAIL : cfg.test_email,
+                          })
+                        }
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-amber-600"
+                      />
+                      <span className="text-xs text-ink-secondary">
+                        Run on real customers and the real schedule, but deliver every email to a tester.
+                      </span>
+                    </label>
+                    {cfg.test_mode && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="email"
+                          value={cfg.test_email ?? ""}
+                          onChange={(e) => updateTriggerConfig({ test_email: e.target.value || undefined })}
+                          placeholder={DEFAULT_TEST_EMAIL}
+                          aria-label="Test batch address"
+                          className="w-64 rounded-lg border border-line px-2.5 py-1.5 text-xs"
+                        />
+                        <button
+                          onClick={clearTestEnrollments}
+                          disabled={running}
+                          className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-50"
+                        >
+                          <Trash2 size={11} /> Clear test enrollments
+                        </button>
+                      </div>
+                    )}
+                  </PanelRow>
+                </div>
+              )}
+
+              {openPanel === "stops" && (
+                <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
+                  <ExitToggle checked={!!cfg.exit_on_order} onChange={(v) => updateTriggerConfig({ exit_on_order: v || undefined })} label="They place an order" hint="Stops the sequence the moment it works." />
+                  {t === "order_event" && (
+                    <ExitToggle
+                      checked={!!cfg.reenroll_on_new_order}
+                      onChange={(v) => updateTriggerConfig({ reenroll_on_new_order: v || undefined })}
+                      label="…and restart them at email 1"
+                      hint="Every new order resets the customer to Day 1."
+                    />
+                  )}
+                  <ExitToggle
+                    checked={!!(cfg.exit_on_click ?? cfg.exit_on_reply)}
+                    onChange={(v) => updateTriggerConfig({ exit_on_click: v || undefined, exit_on_reply: undefined })}
+                    label="They click a link"
+                    hint="They're engaged. Let a person follow up."
+                  />
+                  <ExitToggle
+                    checked={!!cfg.exit_on_reply_inbound}
+                    disabled={!inbound?.healthy}
+                    onChange={(v) => updateTriggerConfig({ exit_on_reply_inbound: v || undefined })}
+                    label="They reply"
+                    hint={
+                      inbound === null
+                        ? "Checking whether inbound mail is syncing…"
+                        : inbound.healthy
+                          ? "A real conversation has started."
+                          : inbound.reason ?? "Unavailable: inbound mail isn't syncing, so replies can't be detected."
+                    }
+                  />
+                  <ExitToggle checked={!!cfg.exit_on_active} onChange={(v) => updateTriggerConfig({ exit_on_active: v || undefined })} label="They're active again" hint="Ordered within the last 180 days." />
+                  <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={!!cfg.exit_after_days}
+                      onChange={(e) => updateTriggerConfig({ exit_after_days: e.target.checked ? 30 : undefined })}
+                      aria-label="Exit after no clicks"
+                      className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-gray-900"
+                    />
+                    <span className="text-xs text-ink-secondary">No clicks after</span>
+                    <select
+                      value={String(cfg.exit_after_days ?? 30)}
+                      disabled={!cfg.exit_after_days}
+                      onChange={(e) => updateTriggerConfig({ exit_after_days: Number(e.target.value) })}
+                      className="rounded-lg border border-line bg-surface px-2 py-1 text-xs disabled:opacity-40"
+                    >
+                      <option value="14">2 weeks</option>
+                      <option value="30">1 month</option>
+                      <option value="60">2 months</option>
+                      <option value="90">3 months</option>
+                    </select>
+                  </div>
+                  <p className="px-2 pt-1 text-[10px] text-ink-muted md:col-span-2">
+                    Checked before every send. Anyone who unsubscribes is always removed.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* ── Journey ── */}
+        <section>
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-semibold text-ink">Journey</h3>
+            {steps.length > 0 && (
+              <span className="text-[11px] text-ink-muted">
+                {steps.length} email{steps.length === 1 ? "" : "s"} over {stepDays[stepDays.length - 1] ?? 0} days
+                {lastSendLabel && <> · last sent {lastSendLabel}</>}
+              </span>
+            )}
+          </div>
+          <JourneyStrip
+            steps={steps}
+            days={stepDays}
+            templates={templateMap}
+            results={results}
+            triggerSummary={startsSummary}
+            selectedId={selectedStepId}
+            onSelect={setSelectedStepId}
+            onAdd={addStep}
+          />
+        </section>
+
+        {/* ── The selected email ── */}
+        {selectedStep ? (
+          <EmailInspector
+            key={selectedStep.id}
+            step={selectedStep}
+            index={selectedIndex}
+            count={steps.length}
+            day={stepDays[selectedIndex]}
+            templates={allTemplates}
+            result={results.get(selectedStep.step_order)}
+            timingControl={
+              <WaitRow
+                value={selectedStep.delay_days}
+                sendDate={selectedStep.send_date ?? null}
+                isFirst={selectedIndex === 0}
+                onChange={(d) => patchStep(selectedStep.id, { delay_days: d, send_date: null })}
+                onSetDate={(date) => patchStep(selectedStep.id, { send_date: date })}
+              />
+            }
+            onTemplateChange={(id) => patchStep(selectedStep.id, { template_id: id })}
+            onMove={(dir) => moveStep(selectedStep.id, dir)}
+            onDelete={() => {
+              if (confirm(`Remove email ${selectedIndex + 1} from this automation?`)) deleteStep(selectedStep.id);
+            }}
+          />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-6 py-12 text-center">
+            <Mail size={20} className="mx-auto text-ink-subtle" />
+            <p className="mt-2 text-sm font-medium text-ink">Add the first email</p>
+            <p className="mt-1 text-[11px] text-ink-muted">Pick a template now, or add the step and write the email later.</p>
+            <button
+              onClick={addStep}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-800"
+            >
+              <Plus size={13} /> Add email
+            </button>
+          </div>
+        )}
+
+        {/* ── Batches (only once there are any) ── */}
+        {cohorts.length > 0 && (
+          <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+            <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-ink">
+              <Layers size={14} className="text-ink-muted" /> Batches
+            </h3>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-wider text-ink-subtle">
+                  <th className="pb-2 font-medium">Batch</th>
+                  <th className="pb-2 text-right font-medium">Size</th>
+                  <th className="pb-2 text-right font-medium">In flow</th>
+                  <th className="pb-2 text-right font-medium">Finished</th>
+                  <th className="pb-2 text-right font-medium">Exited</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {cohorts.map((c) => (
+                  <tr key={c.number}>
+                    <td className="py-1.5 font-medium text-ink">{c.label}</td>
+                    <td className="py-1.5 text-right tabular-nums">{c.total}</td>
+                    <td className="py-1.5 text-right tabular-nums text-ink-muted">{c.active}</td>
+                    <td className="py-1.5 text-right tabular-nums text-ink-muted">{c.completed}</td>
+                    <td className="py-1.5 text-right tabular-nums text-ink-muted">{c.exited}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-2 text-[10px] text-ink-muted">
+              Exited counts customers a stop rule removed, usually because they ordered. More exits is the outcome you want.{" "}
+              <Link href="/automations/cohorts" className="text-brand-600 hover:text-brand-800">Compare batches</Link>
+            </p>
+          </section>
+        )}
+      </div>
     </div>
   );
 }
@@ -1706,21 +1335,7 @@ function InlineEditableTitle({
   );
 }
 
-function FlowCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white shadow-sm px-5 py-4 space-y-1.5">
-      {children}
-    </div>
-  );
-}
 
-function FlowLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-      {children}
-    </div>
-  );
-}
 
 function Pill({ children }: { children: React.ReactNode }) {
   // Visual matches the /customers + /customers/d2c filter dropdowns:
@@ -1732,15 +1347,6 @@ function Pill({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Arrow({ children }: { children?: React.ReactNode }) {
-  return (
-    <div className="flex flex-col items-center py-1">
-      <ArrowDown size={14} className="text-gray-300" />
-      {children && <div className="my-1">{children}</div>}
-      {children && <ArrowDown size={14} className="text-gray-300" />}
-    </div>
-  );
-}
 
 /**
  * Custom-duration modal. Replaces window.prompt(), which couldn't express
@@ -1955,7 +1561,7 @@ function WaitRow({
     : "Pick a date";
 
   return (
-    <div className="w-full rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2">
+    <div className="w-full rounded-xl border border-line bg-surface-muted px-3 py-2.5">
       {modalOpen && (
         <CustomDurationModal
           title={isFirst ? "Wait how long after enrolling?" : "Wait how long?"}
@@ -1968,8 +1574,8 @@ function WaitRow({
           }}
         />
       )}
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-800">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
           {pinned ? (
             <Calendar size={11} className="shrink-0" />
           ) : (
@@ -1979,7 +1585,7 @@ function WaitRow({
         </span>
         <div className="flex items-center gap-1 shrink-0">
           {/* Mode toggle — Wait (relative) vs On date (pinned). */}
-          <div className="flex rounded-md bg-amber-100/70 p-0.5">
+          <div className="flex rounded-md bg-surface-sunken p-0.5">
             <button
               type="button"
               onClick={() => {
@@ -1988,7 +1594,7 @@ function WaitRow({
               }}
               className={clsx(
                 "rounded px-2 py-0.5 text-[10px] font-medium transition",
-                !pinned ? "bg-white text-amber-900 shadow-sm" : "text-amber-700 hover:text-amber-900",
+                !pinned ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink",
               )}
             >
               Wait
@@ -2005,7 +1611,7 @@ function WaitRow({
               }}
               className={clsx(
                 "rounded px-2 py-0.5 text-[10px] font-medium transition",
-                pinned ? "bg-white text-amber-900 shadow-sm" : "text-amber-700 hover:text-amber-900",
+                pinned ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink",
               )}
             >
               On date
@@ -2019,17 +1625,19 @@ function WaitRow({
               onChange={(e) => {
                 if (e.target.value) onSetDate(e.target.value);
               }}
-              className="rounded-md border border-amber-200 bg-white px-1.5 py-1 text-[11px] text-amber-900 focus:outline-none cursor-pointer"
+              className="rounded-md border border-line bg-surface px-1.5 py-1 text-[11px] text-ink focus:border-brand-400 focus:outline-none cursor-pointer"
             />
           ) : (
             <select
-              value={DELAY_OPTIONS.some((o) => o.value === value) ? String(value) : "__custom__"}
+              // A non-preset wait has its own "N days later" option below, so the
+              // select can show it directly instead of reading "Custom…".
+              value={String(value)}
               onChange={(e) => {
                 const v = e.target.value;
                 if (v === "__custom__") setModalOpen(true);
                 else onChange(Number(v));
               }}
-              className="rounded-md border border-amber-200 bg-white px-1.5 py-1 text-[11px] text-amber-900 focus:outline-none cursor-pointer"
+              className="rounded-md border border-line bg-surface px-1.5 py-1 text-[11px] text-ink focus:border-brand-400 focus:outline-none cursor-pointer"
             >
               {DELAY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -2443,25 +2051,75 @@ function FilterPill({
   );
 }
 
-function ActivityPanel({
-  icon,
-  title,
-  count,
-  detail,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  count: number;
-  detail?: string;
-}) {
+
+/* ─── Journey layout pieces ────────────────────────────────────────────── */
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-4 py-2.5">
-      <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider inline-flex items-center gap-1">
-        {icon}
-        {title}
-      </div>
-      <div className="text-xl font-semibold text-gray-900 tabular-nums mt-0.5">{count}</div>
-      {detail && <div className="text-[10px] text-gray-400">{detail}</div>}
+    <div className="leading-tight">
+      <dt className="text-[10px] uppercase tracking-wider text-ink-subtle">{label}</dt>
+      <dd className="text-sm font-semibold tabular-nums text-ink">{value}</dd>
     </div>
   );
+}
+
+/** One of the Who / Starts / Stops summary cards; opens its settings below. */
+function SetupCard({
+  icon,
+  label,
+  summary,
+  open,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  summary: string;
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-expanded={open}
+      className={clsx(
+        "flex items-start gap-3 rounded-2xl border bg-surface p-4 text-left shadow-card transition",
+        open ? "border-brand-500 ring-4 ring-brand-100" : "border-line hover:border-line-strong",
+      )}
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">{label}</span>
+        <span className="mt-0.5 block text-[13px] font-medium leading-snug text-ink">{summary}</span>
+      </span>
+      <ChevronDown size={14} className={clsx("mt-1 shrink-0 text-ink-subtle transition-transform", open && "rotate-180")} />
+    </button>
+  );
+}
+
+function PanelRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start">
+      <div className="pt-2 text-[11px] font-medium text-ink-muted">{label}</div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+/** The trigger as one plain sentence, for the Starts card and the journey's first node. */
+function triggerSummaryText(type: TriggerType, cfg: Automation["trigger_config"]): string {
+  if (type === "order_event") {
+    const d = cfg.days_after ?? 7;
+    const when = d === 0 ? "The day of" : `${d} day${d === 1 ? "" : "s"} after`;
+    return `${when} their ${cfg.order_event_type === "last" ? "latest" : "first"}${cfg.brand ? ` ${cfg.brand}` : ""} order`;
+  }
+  if (type === "status_change") return `When they become ${cfg.status_target === "churned" ? "Churned (365 days)" : "At Risk (180 days)"}`;
+  if (type === "date") {
+    const date = cfg.scheduled_at
+      ? new Date(`${cfg.scheduled_at}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+      : "a date to pick";
+    const every: Record<string, string> = { weekly: ", then weekly", monthly: ", then monthly", quarterly: ", then quarterly", annually: ", then yearly" };
+    return `On ${date}${every[cfg.recurring ?? "none"] ?? ""}`;
+  }
+  if (type === "manual") return "When added by hand";
+  return "No trigger set";
 }
