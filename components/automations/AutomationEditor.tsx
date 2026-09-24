@@ -26,6 +26,7 @@ import {
 import clsx from "clsx";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import AutomationOverview from "./AutomationOverview";
 
 type TriggerType = "status_change" | "order_event" | "date" | "manual";
 
@@ -73,6 +74,11 @@ type Automation = {
     brand?: string;
     /** order_event only: a customer who orders again restarts at step 1. */
     reenroll_on_new_order?: boolean;
+    /** Overview benchmark: target revenue per delivered email ($), the buyer
+     *  rate the suggested target assumes (%), and the attribution window. */
+    rpe_target?: number;
+    rpe_conversion_pct?: number;
+    attribution_days?: number;
     /** Batching — see the cron runner for the release semantics. */
     batch_mode?: "continuous" | "cohort";
     batch_weekday?: number;
@@ -181,6 +187,8 @@ export default function AutomationEditor({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  // Opens on the at-a-glance Overview; editing lives on Build.
+  const [view, setView] = useState<"overview" | "build">("overview");
   const [testEmail, setTestEmail] = useState(DEFAULT_TEST_EMAIL);
   /** "" = built-in sample; otherwise "<type>:<ref>" from the preview list. */
   const [testCustomer, setTestCustomer] = useState("");
@@ -700,7 +708,34 @@ export default function AutomationEditor({
         </div>
       </div>
 
-      {/* Body */}
+      {/* Overview (the drip at a glance) vs Build (the flow editor) */}
+      <div className="flex gap-1 border-b border-gray-100 px-6 pt-2" role="tablist">
+        {(["overview", "build"] as const).map((v) => (
+          <button
+            key={v}
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => setView(v)}
+            className={clsx(
+              "-mb-px border-b-2 px-3 py-2 text-xs font-medium transition",
+              view === v ? "border-brand-700 text-ink" : "border-transparent text-ink-muted hover:text-ink",
+            )}
+          >
+            {v === "overview" ? "Overview" : "Build"}
+          </button>
+        ))}
+      </div>
+
+      {view === "overview" ? (
+        <AutomationOverview
+          automationId={automation.id}
+          description={automation.description}
+          triggerType={t}
+          config={cfg}
+          onConfigChange={updateTriggerConfig}
+        />
+      ) : (
+      /* Body */
       <div className="px-6 py-6">
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 inline-flex items-start gap-2 mb-4">
@@ -1223,6 +1258,7 @@ export default function AutomationEditor({
           </div>
         </div>
       </div>
+      )}
 
       {/* Bottom action bar — sticky so Turn On is always reachable */}
       <div className="border-t border-gray-100 px-6 py-4 bg-gray-50/95 backdrop-blur-sm sticky bottom-0 z-10">
