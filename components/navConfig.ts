@@ -32,6 +32,7 @@ import {
   Network,
   Share2,
   Newspaper,
+  Star,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -189,6 +190,14 @@ export const navSections: readonly NavSection[] = [
         label: "Feedback & Testimonials",
         href: "/storefronts/feedback",
         icon: MessageSquare,
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
+      },
+      {
+        // Product reviews from customers (storefront /review pages — insert
+        // QR, email + invoice links). Moderated here before anything shows.
+        label: "Product Reviews",
+        href: "/storefronts/reviews",
+        icon: Star,
         roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {
