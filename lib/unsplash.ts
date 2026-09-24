@@ -244,6 +244,33 @@ export async function getSourceInfo(sources: UnsplashSource[]): Promise<Unsplash
   return results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
 }
 
+/**
+ * The photo behind an images.unsplash.com URL, if it's in one of our sources
+ * (the only photos our pickers offer). Matches on the image path, ignoring
+ * resize params. Pages are cached, so repeat lookups are cheap.
+ */
+export async function findSourcePhoto(url: string, sources: UnsplashSource[] = unsplashSources()): Promise<UnsplashPhoto | null> {
+  let path: string;
+  try {
+    const u = new URL(url.trim());
+    if (u.hostname !== "images.unsplash.com") return null;
+    path = u.pathname;
+  } catch {
+    return null;
+  }
+  if (!unsplashConfigured()) return null;
+  const MAX_PAGES = 10; // 300 photos per source
+  for (const source of sources) {
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const { photos, hasMore, errors } = await listPhotos(page, [source]);
+      const hit = photos.find((p) => new URL(p.url).pathname === path);
+      if (hit) return hit;
+      if (!hasMore || errors.length) break;
+    }
+  }
+  return null;
+}
+
 /** Required by the API guidelines whenever a photo is actually used. */
 export async function trackUnsplashDownload(downloadLocation: string): Promise<void> {
   const url = new URL(downloadLocation);

@@ -13,6 +13,7 @@ import {
 import { isBlogAudience, isBlogPurpose } from "@/lib/blog/meta";
 import { normalizeBlogBlocks } from "@/lib/blog/normalize";
 import { renderBlogBlocks } from "@/lib/blog/render";
+import { heroCreditFor } from "@/lib/blog/heroCredit";
 import { builderColumnMissing, BUILDER_MIGRATION_HINT } from "@/lib/blog/serverCompat";
 
 export const runtime = "nodejs";
@@ -168,16 +169,22 @@ export async function PATCH(
     patch.slug = slug;
   }
 
-  // Builder source → body. Runs after brand so a brand switch re-renders.
+  // Builder source → body. Runs after brand and hero so a brand switch
+  // re-renders, and a hero change updates the "Cover photo by…" credit.
   const brand = (patch.brand as BlogPostRow["brand"] | undefined) ?? existing.brand;
   const sourceBlocks =
-    input.blocks !== undefined ? input.blocks : patch.brand !== undefined ? existing.blocks : undefined;
+    input.blocks !== undefined
+      ? input.blocks
+      : patch.brand !== undefined || patch.hero_image_url !== undefined
+        ? existing.blocks
+        : undefined;
   if (input.blocks === null) {
     patch.blocks = null;
   } else if (Array.isArray(sourceBlocks)) {
     const blocks = normalizeBlogBlocks(sourceBlocks, brand);
+    const hero = (patch.hero_image_url as string | undefined) ?? existing.hero_image_url;
     patch.blocks = blocks;
-    patch.body = renderBlogBlocks(blocks, brand);
+    patch.body = renderBlogBlocks(blocks, brand, { heroCredit: await heroCreditFor(hero) });
   }
   if (input.audience !== undefined) patch.audience = isBlogAudience(input.audience) ? input.audience : null;
   if (input.purpose !== undefined) patch.purpose = isBlogPurpose(input.purpose) ? input.purpose : null;

@@ -11,6 +11,7 @@ import {
 import { isBlogAudience, isBlogPurpose } from "@/lib/blog/meta";
 import { normalizeBlogBlocks } from "@/lib/blog/normalize";
 import { renderBlogBlocks } from "@/lib/blog/render";
+import { heroCreditFor } from "@/lib/blog/heroCredit";
 import { builderColumnMissing, BUILDER_MIGRATION_HINT } from "@/lib/blog/serverCompat";
 
 export const runtime = "nodejs";
@@ -77,15 +78,16 @@ export async function POST(request: Request) {
     typeof body.title === "string" && body.title.trim() ? body.title.trim() : "Untitled post";
 
   const blocks = Array.isArray(body.blocks) ? normalizeBlogBlocks(body.blocks, brand) : null;
+  const heroUrl = typeof body.hero_image_url === "string" ? body.hero_image_url.trim() : "";
   const base = {
     brand,
     title,
     slug: slugify(title) || null,
-    body: blocks ? renderBlogBlocks(blocks, brand) : "",
+    body: blocks ? renderBlogBlocks(blocks, brand, { heroCredit: await heroCreditFor(heroUrl) }) : "",
     status: "draft",
     tags: normalizeTags(body.tags),
     seo_meta: typeof body.seo_meta === "string" && body.seo_meta.trim() ? body.seo_meta.trim() : null,
-    hero_image_url: typeof body.hero_image_url === "string" ? body.hero_image_url.trim() : "",
+    hero_image_url: heroUrl,
     updated_at: new Date().toISOString(),
   };
   const builder = {

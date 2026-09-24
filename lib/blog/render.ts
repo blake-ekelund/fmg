@@ -21,7 +21,24 @@ import {
 } from "./blocks";
 
 type Theme = (typeof BLOG_THEMES)[BlogBrand];
-type Opts = { editor?: boolean };
+
+/** The Unsplash photographer behind the post's hero (cover) image. */
+export type HeroCredit = { name: string; profileUrl: string; unsplashUrl: string };
+
+/** `heroCredit` appends "Cover photo by … on Unsplash" at the END of the body:
+ *  the hero has no caption slot, and anything placed before the intro would
+ *  steal NI's lead-paragraph styling (it targets the body's first <p>). */
+type Opts = { editor?: boolean; heroCredit?: HeroCredit | null };
+
+function heroCreditHtml(c: HeroCredit, t: Theme): string {
+  const link = (href: string, text: string) =>
+    `<a href="${escapeHtml(safeUrl(href))}" target="_blank" rel="noopener" style="color:inherit">${escapeHtml(text)}</a>`;
+  return (
+    `<div style="margin-top:40px;font-size:12px;color:${t.muted}">` +
+    `Cover photo by ${link(c.profileUrl, c.name)} on ${link(c.unsplashUrl, "Unsplash")}` +
+    `</div>`
+  );
+}
 
 export function escapeHtml(s: string): string {
   return (s ?? "")
@@ -195,7 +212,8 @@ export function renderBlogBlock(b: BlogBlock, brand: BlogBrand, opts: Opts = {})
 }
 
 export function renderBlogBlocks(blocks: BlogBlock[], brand: BlogBrand, opts: Opts = {}): string {
-  return blocks.map((b) => renderBlogBlock(b, brand, opts)).join("\n");
+  const html = blocks.map((b) => renderBlogBlock(b, brand, opts)).join("\n");
+  return opts.heroCredit ? `${html}\n${heroCreditHtml(opts.heroCredit, BLOG_THEMES[brand])}` : html;
 }
 
 /** Plain text of a post, for word counts and excerpts. */
