@@ -59,6 +59,10 @@
     {
       "path": "/api/cron/charge-wholesale-due",
       "schedule": "40 15 * * *"
+    },
+    {
+      "path": "/api/cron/stock-alerts",
+      "schedule": "17 * * * *"
     }
   ]
 }
