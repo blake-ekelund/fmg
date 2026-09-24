@@ -5,6 +5,7 @@ import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import { renderTextEmail } from "@/lib/email/renderText";
 import { applyMergeFields, currentQuarterLabel } from "@/lib/email/send";
+import { applyDiscountSample } from "@/lib/email/discountTokens";
 import type { EmailBlock } from "@/components/templates/types";
 
 export const runtime = "nodejs";
@@ -67,7 +68,7 @@ export async function GET(
             { previewText },
           );
 
-  return new NextResponse(applyMergeFields(html, SAMPLE), {
+  return new NextResponse(applyDiscountSample(applyMergeFields(html, SAMPLE)), {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",

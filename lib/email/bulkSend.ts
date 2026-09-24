@@ -27,6 +27,7 @@ import { dispatchEmail } from "@/lib/email/dispatch";
 import { resolveSender } from "@/lib/email/sender";
 import { buildTrackedHtmlFromHtml } from "@/lib/email/tracking";
 import { splitContactName } from "@/lib/email/mergeFields";
+import { applyDiscountSample, mintDiscountTokens } from "@/lib/email/discountTokens";
 import { primaryEmail } from "@/lib/email/addresses";
 import {
   findSuppressed,
@@ -317,7 +318,25 @@ async function sendOne(
   const subject = testEmail
     ? `[TEST → ${name ?? r.customer_ref}] ${subjectBase}`
     : subjectBase;
-  const bodyContent = applyMergeFields(job.body_template, vars);
+  // Per-recipient discount codes ({{discountCode:BATCH}}): a real single-use
+  // code per customer, a -SAMPLE placeholder on test runs. A batch that can't
+  // mint fails this recipient rather than mailing a code that won't work.
+  let bodyContent: string;
+  try {
+    const merged = applyMergeFields(job.body_template, vars);
+    bodyContent = testEmail ? applyDiscountSample(merged) : await mintDiscountTokens(merged);
+  } catch (e) {
+    await supabaseServer
+      .from("email_send_job_recipients")
+      .update({
+        status: "failed",
+        error_text: e instanceof Error ? e.message : String(e),
+        personalized_subject: subject,
+      })
+      .eq("id", r.id);
+    result.failed++;
+    return;
+  }
 
   // Test copies keep their links untouched (no click-redirect rewriting or
   // open pixel): a test must never write tracking rows or customer history,

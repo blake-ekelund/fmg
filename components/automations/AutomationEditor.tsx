@@ -69,6 +69,10 @@ type Automation = {
     exit_on_reply_inbound?: boolean;
     exit_on_active?: boolean;
     exit_after_days?: number;
+    /** D2C only: limit to buyers of this brand (see the cron runner). */
+    brand?: string;
+    /** order_event only: a customer who orders again restarts at step 1. */
+    reenroll_on_new_order?: boolean;
     /** Batching — see the cron runner for the release semantics. */
     batch_mode?: "continuous" | "cohort";
     batch_weekday?: number;
@@ -279,6 +283,7 @@ export default function AutomationEditor({
       // trigger type silently wipes the audience you just narrowed down.
       channels: automation?.trigger_config?.channels,
       states: automation?.trigger_config?.states,
+      brand: automation?.trigger_config?.brand,
     };
     let typeSpecific: Automation["trigger_config"] = {};
     if (t === "status_change") {
@@ -291,6 +296,7 @@ export default function AutomationEditor({
         order_event_type: automation?.trigger_config?.order_event_type ?? "first",
         days_after: automation?.trigger_config?.days_after ?? 7,
         lookback_days: automation?.trigger_config?.lookback_days ?? 30,
+        reenroll_on_new_order: automation?.trigger_config?.reenroll_on_new_order,
       };
     } else if (t === "date") {
       const inAWeek = new Date();
@@ -742,6 +748,20 @@ export default function AutomationEditor({
                 Both
               </FilterPill>
             </div>
+            {(cfg.audience ?? "d2c") !== "wholesale" && (
+              <div className="flex items-center gap-1 mt-2">
+                <span className="text-xs text-gray-500 mr-1">D2C buyers of</span>
+                <FilterPill active={!cfg.brand} onClick={() => updateTriggerConfig({ brand: undefined })}>
+                  Any brand
+                </FilterPill>
+                <FilterPill active={cfg.brand === "Sassy"} onClick={() => updateTriggerConfig({ brand: "Sassy" })}>
+                  Sassy
+                </FilterPill>
+                <FilterPill active={cfg.brand === "NI"} onClick={() => updateTriggerConfig({ brand: "NI" })}>
+                  NI
+                </FilterPill>
+              </div>
+            )}
           </FlowCard>
 
           <Arrow />
@@ -1002,6 +1022,14 @@ export default function AutomationEditor({
                 label="They place an order"
                 hint="Stops win-back mail the moment it works."
               />
+              {t === "order_event" && (
+                <ExitToggle
+                  checked={!!cfg.reenroll_on_new_order}
+                  onChange={(v) => updateTriggerConfig({ reenroll_on_new_order: v || undefined })}
+                  label="…and restart them at step 1 when they do"
+                  hint="Reorder drips: every new order resets the customer to Day 1."
+                />
+              )}
               <ExitToggle
                 checked={!!(cfg.exit_on_click ?? cfg.exit_on_reply)}
                 onChange={(v) =>

@@ -17,6 +17,7 @@ import { buildTrackedHtmlBody, buildTrackedHtmlFromHtml } from "@/lib/email/trac
 import { splitContactName } from "@/lib/email/mergeFields";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
+import { applyDiscountSample, mintDiscountTokens } from "@/lib/email/discountTokens";
 import type { Brand, EmailBlock } from "@/components/templates/types";
 import { flagEmail, parseEmailAddresses } from "@/lib/email/addresses";
 import {
@@ -98,6 +99,13 @@ type Automation = {
     exit_on_reply_inbound?: boolean;
     exit_on_active?: boolean;  // is back to "active" status
     exit_after_days?: number;  // still here after N days with no reply
+    /** D2C only: limit the audience to buyers of this brand (inventory_products
+     *  .brand, e.g. "Sassy"). order_event timing and exit_on_order are then
+     *  measured from that brand's orders. Reads d2c_customer_brand_activity;
+     *  if that can't be read the trigger enrolls NOBODY (fails closed). */
+    brand?: string;
+    /** order_event only: a customer who orders again restarts at step 1. */
+    reenroll_on_new_order?: boolean;
     /* ── Batching ──
        'continuous' (default) enrolls whoever became eligible since the last
        run — a trickle. 'cohort' holds them back and releases everyone waiting
@@ -183,6 +191,10 @@ type ContactRow = {
   lifetime_revenue: number | null;
   lifetime_orders: number | null;
   last_order_date: string | null;
+  /** The order date that put this customer in an order_event trigger window,
+   *  when it differs from last_order_date (a brand-filtered trigger measures
+   *  from the last order OF THAT BRAND). Drives restart-on-new-order. */
+  trigger_date?: string | null;
 };
 
 /**
@@ -293,13 +305,37 @@ export async function GET(request: Request) {
     const refs = candidates.map((c) => c.customer_ref);
     const { data: existing } = await supabaseServer
       .from("automation_enrollments")
-      .select("customer_ref")
+      .select("id, customer_type, customer_ref, enrolled_at, status")
       .eq("automation_id", a.id)
       .eq("is_test", isTestRun)
       .in("customer_ref", refs);
-    const enrolledSet = new Set(
-      (existing ?? []).map((r) => (r as { customer_ref: string }).customer_ref),
+    type ExistingRow = { id: string; customer_type: string; customer_ref: string; enrolled_at: string; status: string };
+    const existingByRef = new Map(
+      ((existing as ExistingRow[] | null) ?? []).map((r) => [`${r.customer_type}:${r.customer_ref}`, r]),
     );
+    const enrolledSet = new Set(
+      ((existing as ExistingRow[] | null) ?? []).map((r) => r.customer_ref),
+    );
+
+    /* Restart on a new order (opt-in, order_event triggers). The unique index
+       allows one enrollment row per customer per automation, so a restart
+       RESETS that row to step 1 instead of adding a second. A customer
+       qualifies when the order that put them in the trigger window is newer
+       than their last enrollment — i.e. they bought again since we started
+       mailing them. Mid-sequence customers restart too: that's the "reset to
+       Day 0" a reorder drip needs. Unsubscribers are still filtered below. */
+    const restartIds = new Map<string, string>(); // enrollment id → customer_ref
+    if (a.trigger_config?.reenroll_on_new_order && a.trigger_type === "order_event") {
+      for (const c of candidates) {
+        const prev = existingByRef.get(`${c.audience_side}:${c.customer_ref}`);
+        const orderDate = c.trigger_date ?? c.last_order_date;
+        if (!prev || !orderDate || prev.status === "unsubscribed") continue;
+        if (orderDate > prev.enrolled_at.slice(0, 10)) {
+          restartIds.set(prev.id, c.customer_ref);
+          enrolledSet.delete(c.customer_ref);
+        }
+      }
+    }
 
     /* Never enroll someone who has opted out. Filtering here (rather than only
        at send time) keeps them out of the enrollment table entirely, so the
@@ -352,7 +388,33 @@ export async function GET(request: Request) {
       const enrollSendAt = firstStep?.send_date
         ? `${firstStep.send_date}T00:00:00Z`
         : new Date().toISOString();
-      const rows = toEnroll.map((c) => ({
+      const cohortLabel = cohort ? (isTestRun ? `${cohort.label} (test)` : cohort.label) : null;
+
+      // Restarts reuse their existing row (see restartIds above).
+      const restartByRef = new Map([...restartIds].map(([id, ref]) => [ref, id]));
+      const restarting = toEnroll.filter((c) => restartByRef.has(c.customer_ref));
+      for (const c of restarting) {
+        const { error } = await supabaseServer
+          .from("automation_enrollments")
+          .update({
+            customer_name: c.customer_name,
+            customer_email: c.email,
+            next_step_order: 1,
+            next_send_at: enrollSendAt,
+            status: "enrolled",
+            enrolled_at: new Date().toISOString(),
+            completed_at: null,
+            exit_reason: null,
+            last_error: null,
+            cohort_label: cohortLabel,
+            cohort_number: cohort?.number ?? null,
+          })
+          .eq("id", restartByRef.get(c.customer_ref)!);
+        if (error) enrollErrors.push(`${a.name}: restart ${c.customer_ref}: ${error.message}`);
+        else totalEnrolled++;
+      }
+
+      const rows = toEnroll.filter((c) => !restartByRef.has(c.customer_ref)).map((c) => ({
         automation_id: a.id,
         customer_type: c.audience_side,
         customer_ref: c.customer_ref,
@@ -369,7 +431,9 @@ export async function GET(request: Request) {
         cohort_number: cohort?.number ?? null,
         is_test: isTestRun,
       }));
-      const { error } = await supabaseServer.from("automation_enrollments").insert(rows);
+      const { error } = rows.length
+        ? await supabaseServer.from("automation_enrollments").insert(rows)
+        : { error: null };
       if (error) {
         /* Was silently discarded. A failed insert — a missing column after an
            unapplied migration, say — looked exactly like "nobody qualified",
@@ -674,7 +738,36 @@ export async function GET(request: Request) {
       // Designed templates (block builder / uploaded HTML) render to email HTML
       // server-side, exactly like the mass-send path; plain-text templates keep
       // the escaped-text path. Either way we end with a tracked body + footer.
-      let tracked: { html: string; links: Array<{ id: string; link_index: number; original_url: string }> };
+
+      /* Per-recipient discount codes ({{discountCode:BATCH}}) are minted here,
+         before tracking rewrites links, so the stored copy and any link that
+         carries the code both see the real code. A test batch gets a -SAMPLE
+         placeholder instead — rehearsals must not burn codes. If a batch can't
+         mint (paused, missing) the send fails and retries next tick rather
+         than going out promising a code that won't work. */
+      const withCodes = async (html: string): Promise<string | null> => {
+        if (e.is_test) return applyDiscountSample(html);
+        try {
+          return await mintDiscountTokens(html);
+        } catch (err) {
+          const errText = err instanceof Error ? err.message : String(err);
+          await supabaseServer.from("automation_step_sends").insert({
+            enrollment_id: e.id,
+            step_id: step.id,
+            step_order: step.step_order,
+            status: "failed",
+            error_text: errText,
+          });
+          await supabaseServer
+            .from("automation_enrollments")
+            .update({ last_error: errText })
+            .eq("id", e.id);
+          failedCount++;
+          return null;
+        }
+      };
+
+      let tracked:{ html: string; links: Array<{ id: string; link_index: number; original_url: string }> };
       let bodyText: string;
       let bodyHtmlWithFooter: string;
 
@@ -686,7 +779,8 @@ export async function GET(request: Request) {
                 Array.isArray(tpl.blocks) ? (tpl.blocks as EmailBlock[]) : [],
                 { previewText: tpl.preview_text ?? undefined },
               );
-        const merged = applyMergeFields(rendered, vars);
+        const merged = await withCodes(applyMergeFields(rendered, vars));
+        if (merged === null) return;
         // Skip the auto footer if the template places its own opt-out link.
         const ownUnsub = /\{\{\s*unsubscribeUrl\s*\}\}/.test(rendered);
         tracked = buildTrackedHtmlFromHtml({
@@ -698,7 +792,9 @@ export async function GET(request: Request) {
         bodyHtmlWithFooter = tracked.html; // footer + open pixel already injected
         bodyText = merged.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
       } else {
-        bodyText = applyMergeFields(tpl.body ?? "", vars);
+        const text = await withCodes(applyMergeFields(tpl.body ?? "", vars));
+        if (text === null) return;
+        bodyText = text;
         tracked = buildTrackedHtmlBody({ plainText: bodyText, origin, messageId });
         bodyHtmlWithFooter = tracked.html + unsubscribeFooterHtml(unsubLink);
       }
@@ -851,6 +947,46 @@ export async function GET(request: Request) {
 
 type AudienceSide = "d2c" | "wholesale";
 
+/**
+ * person_key → first/last order date for one brand, from
+ * d2c_customer_brand_activity. Null when the view can't be read (e.g. its
+ * migration isn't applied yet) — callers treat that as "nobody qualifies".
+ * Paged with a stable order: an unordered .range() silently drops rows.
+ */
+async function loadBrandActivity(
+  brand: string,
+): Promise<Map<string, { first: string | null; last: string | null }> | null> {
+  const out = new Map<string, { first: string | null; last: string | null }>();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabaseServer
+      .from("d2c_customer_brand_activity")
+      .select("person_key, first_order_date, last_order_date")
+      .eq("brand", brand)
+      .order("person_key", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      console.error(`[automations] brand activity for ${brand}:`, error.message);
+      return null;
+    }
+    const rows = (data as Array<{ person_key: string; first_order_date: string | null; last_order_date: string | null }>) ?? [];
+    for (const r of rows) out.set(r.person_key, { first: r.first_order_date, last: r.last_order_date });
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+/** Last order date of one brand for one D2C person (null = none / unreadable). */
+async function brandLastOrderDate(brand: string, personKey: string): Promise<string | null> {
+  const { data } = await supabaseServer
+    .from("d2c_customer_brand_activity")
+    .select("last_order_date")
+    .eq("brand", brand)
+    .eq("person_key", personKey)
+    .maybeSingle();
+  return (data as { last_order_date: string | null } | null)?.last_order_date ?? null;
+}
+
 function viewFor(side: AudienceSide): { view: string; refColumn: string } {
   return side === "d2c"
     ? { view: "d2c_customer_contact", refColumn: "person_key" }
@@ -889,6 +1025,51 @@ async function findTriggerCandidates(
 
     return out;
   };
+
+  /* ── Brand-scoped D2C audience ("Sassy buyers") ─────────────────────────
+     Handled up front, then the brand is stripped and the ordinary trigger
+     logic reused. The wholesale side of a "both" audience is never
+     brand-filtered. If the brand view can't be read, the D2C side enrolls
+     nobody — mailing every D2C customer a Sassy drip is the failure we
+     can't take back. */
+  const brand = cfg.brand?.trim();
+  if (brand && sides.includes("d2c")) {
+    const unbranded = (aud: AudienceSide) =>
+      findTriggerCandidates(
+        { ...automation, trigger_config: { ...cfg, brand: undefined, audience: aud } },
+        options,
+      );
+    const rest = sides.includes("wholesale") ? await unbranded("wholesale") : [];
+    const activity = await loadBrandActivity(brand);
+    if (!activity) return rest;
+
+    if (t === "order_event") {
+      // Window on the brand's own order dates, not the customer's overall ones.
+      const subtype = cfg.order_event_type ?? "first";
+      const target = new Date();
+      target.setDate(target.getDate() - (cfg.days_after ?? 7));
+      const oldest = new Date(target);
+      oldest.setDate(oldest.getDate() - (cfg.lookback_days ?? 30));
+      const lo = oldest.toISOString().slice(0, 10);
+      const hi = target.toISOString().slice(0, 10);
+      const inWindow = new Map<string, string>();
+      for (const [key, d] of activity) {
+        const date = subtype === "first" ? d.first : d.last;
+        if (date && date >= lo && date <= hi) inWindow.set(key, date);
+      }
+      const keys = [...inWindow.keys()];
+      const rows: Array<ContactRow & { audience_side: AudienceSide }> = [];
+      for (let i = 0; i < keys.length && rows.length < queryLimit; i += 200) {
+        const chunk = keys.slice(i, i + 200);
+        const got = await runContactQuery("d2c", (q) => applyFilters(q).in("person_key", chunk), queryLimit);
+        rows.push(...got.map((r) => ({ ...r, trigger_date: inWindow.get(r.customer_ref) ?? null })));
+      }
+      return [...rows.slice(0, queryLimit), ...rest];
+    }
+
+    const d2c = await unbranded("d2c");
+    return [...d2c.filter((c) => activity.has(c.customer_ref)), ...rest];
+  }
 
   /* ── status_change: customer is in at_risk / churned status ──────────── */
   // Default behavior: catch every customer past the threshold. Dedup via
@@ -1184,8 +1365,14 @@ async function evaluateExit(
 
   // Ordered since enrolling — the contact row is already loaded for merge
   // fields, so this costs nothing extra.
-  if (cfg.exit_on_order && contact?.last_order_date) {
-    if (new Date(contact.last_order_date).getTime() > enrolledAt) {
+  // A brand-scoped drip exits on an order OF THAT BRAND — buying NI shouldn't
+  // silence the Sassy reorder emails.
+  if (cfg.exit_on_order) {
+    const lastOrder =
+      cfg.brand && e.customer_type === "d2c"
+        ? await brandLastOrderDate(cfg.brand, e.customer_ref)
+        : contact?.last_order_date ?? null;
+    if (lastOrder && new Date(lastOrder).getTime() > enrolledAt) {
       return "Placed an order";
     }
   }

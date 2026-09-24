@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { applyDiscountSample } from "@/lib/email/discountTokens";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
@@ -319,7 +320,7 @@ export async function POST(
               Array.isArray(tpl.blocks) ? (tpl.blocks as EmailBlock[]) : [],
               { previewText: tpl.preview_text ?? undefined },
             );
-      const merged = applyMergeFields(rendered, vars);
+      const merged = applyDiscountSample(applyMergeFields(rendered, vars));
       const ownUnsub = /\{\{\s*unsubscribeUrl\s*\}\}/.test(rendered);
       bodyHtml = buildTrackedHtmlFromHtml({
         html: merged,
@@ -328,7 +329,7 @@ export async function POST(
         footerHtml: ownUnsub ? undefined : unsubscribeFooterHtml(unsubLink),
       }).html;
     } else {
-      const bodyText = applyMergeFields(tpl.body ?? "", vars);
+      const bodyText = applyDiscountSample(applyMergeFields(tpl.body ?? "", vars));
       const tracked = buildTrackedHtmlBody({ plainText: bodyText, origin, messageId: randomUUID() });
       bodyHtml = tracked.html + unsubscribeFooterHtml(unsubLink);
     }

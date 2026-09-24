@@ -6,6 +6,7 @@ import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import { renderTextEmail } from "@/lib/email/renderText";
 import { applyMergeFields, currentQuarterLabel, daysSince, type MergeVars } from "@/lib/email/send";
+import { applyDiscountSample } from "@/lib/email/discountTokens";
 import { dispatchEmail, willUseResend } from "@/lib/email/dispatch";
 import { resolveSender } from "@/lib/email/sender";
 import { splitContactName } from "@/lib/email/mergeFields";
@@ -189,7 +190,7 @@ export async function POST(
   }
 
   const subject = `[Test] ${(data.subject as string | null)?.trim() || data.name || "Untitled template"}`;
-  const body = applyMergeFields(html, vars);
+  const body = applyDiscountSample(applyMergeFields(html, vars));
 
   let accessToken: string | null = null;
   if (!viaResend) {

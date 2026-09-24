@@ -147,7 +147,10 @@ const SAMPLE_MERGE_RE = new RegExp(
  * Unknown tokens are left in place, matching the send-time behavior.
  */
 export function applyMergeSample(template: string): string {
-  return template.replace(SAMPLE_MERGE_RE, (_m, k: string) => SAMPLE_VARS[k] ?? _m);
+  return template
+    .replace(SAMPLE_MERGE_RE, (_m, k: string) => SAMPLE_VARS[k] ?? _m)
+    // Per-recipient discount codes — see lib/email/discountTokens.ts.
+    .replace(/\{\{\s*discountCode\s*:\s*([A-Za-z0-9_-]+)\s*\}\}/g, (_m, b: string) => `${b.toUpperCase()}-SAMPLE`);
 }
 
 /* ─── Name display ─────────────────────────────────────────────────────────── */
