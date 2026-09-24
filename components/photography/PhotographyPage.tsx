@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Camera, Check, Copy, ExternalLink, Heart, Loader2, MapPin, Search, X } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Camera, Check, Copy, ExternalLink, Heart, Info, Loader2, MapPin, Search, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import type { UnsplashPhoto, UnsplashSourceInfo } from "@/lib/unsplash";
 
@@ -116,6 +117,8 @@ export default function PhotographyPage() {
         </div>
       ) : (
         <>
+          <UnsplashPlusNotice info={info} />
+
           {/* Sources — click a card to show only its photos */}
           {info.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -264,6 +267,50 @@ export default function PhotographyPage() {
       )}
 
       {open && <PhotoDetail photo={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+/**
+ * Unsplash's API only serves free photos, so Unsplash+ (paid) ones in our
+ * collections never reach this page or the pickers. The agreed workflow is to
+ * download them under our Unsplash+ subscription and upload them to the Image
+ * Library — spelled out here for the photographer, who works from this page.
+ */
+function UnsplashPlusNotice({ info }: { info: UnsplashSourceInfo[] }) {
+  const missing = info.reduce((n, s) => n + Math.max(0, s.totalPhotos - s.available), 0);
+  return (
+    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 md:p-5">
+      <div className="flex gap-3">
+        <Info size={18} className="mt-0.5 shrink-0 text-sky-600" />
+        <div className="min-w-0 flex-1 text-sm text-sky-950">
+          <p className="font-semibold">
+            Unsplash+ photos don&apos;t appear here
+            {missing > 0 && (
+              <span className="font-normal text-sky-800"> — {missing.toLocaleString()} in our collections right now</span>
+            )}
+          </p>
+          <p className="mt-1 text-sky-900">
+            Unsplash only shares its free photos with other apps, so anything marked Unsplash+ is missing from this
+            page and from the email and blog image pickers. To make one usable:
+          </p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sky-900">
+            <li>Open it on unsplash.com, signed in to our Unsplash+ account, and download it.</li>
+            <li>
+              Upload it to the <strong>Image Library</strong>, then give it a title and a short description of
+              what&apos;s in the shot. The AI email and blog writers choose photos by their descriptions, so a good
+              one gets it used.
+            </li>
+          </ol>
+          <p className="mt-2 text-sky-900">It will then show under “Ours” in every image picker.</p>
+          <Link
+            href="/marketing/assets"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
+          >
+            Open the Image Library <ArrowRight size={13} />
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
