@@ -18,6 +18,18 @@ import { splitContactName } from "@/lib/email/mergeFields";
 import { renderBlocksToEmailHtml } from "@/lib/email/renderBlocks";
 import { renderRawHtmlEmail } from "@/lib/email/rawHtml";
 import { applyDiscountSample, mintDiscountTokens } from "@/lib/email/discountTokens";
+import {
+  capDecision,
+  canResume,
+  decideEnrollment,
+  flowKind,
+  flowPriority,
+  type ActiveJourney,
+} from "@/lib/automations/overlap";
+import { loadSendingLimits, recentMarketingSends } from "@/lib/email/sendingLimits";
+
+/** exit_reason on an enrollment paused by a higher-priority journey. */
+const PAUSE_PREFIX = "Paused for ";
 import type { Brand, EmailBlock } from "@/components/templates/types";
 import { flagEmail, parseEmailAddresses } from "@/lib/email/addresses";
 import {
@@ -99,6 +111,11 @@ type Automation = {
     exit_on_reply_inbound?: boolean;
     exit_on_active?: boolean;  // is back to "active" status
     exit_after_days?: number;  // still here after N days with no reply
+    /** Overlap (lib/automations/overlap.ts): "journey" = one at a time, won by
+     *  priority (1 = highest); "one_off" may overlap. Defaults: date triggers
+     *  are one-off, the rest journeys; priority 5. */
+    flow_kind?: "journey" | "one_off";
+    priority?: number;
     /** D2C only: limit the audience to buyers of this brand (inventory_products
      *  .brand, e.g. "Sassy"). order_event timing and exit_on_order are then
      *  measured from that brand's orders. Reads d2c_customer_brand_activity;
@@ -251,6 +268,48 @@ export async function GET(request: Request) {
   const { data: autos } = await autosQuery;
   const automations = (autos as Automation[] | null) ?? [];
 
+  /* Every automation's overlap settings, whatever this run is scoped to —
+     "one journey at a time" is decided across all of them (lib/automations/
+     overlap.ts). Only ENABLED journeys hold a customer: a switched-off flow
+     sends nothing, so it shouldn't block one that would. */
+  const { data: allAutoRows } = await supabaseServer
+    .from("automations")
+    .select("id, name, enabled, trigger_type, trigger_config");
+  const journeyMeta = new Map<string, { name: string; priority: number }>();
+  for (const r of ((allAutoRows as Automation[] | null) ?? [])) {
+    if (r.enabled && flowKind(r.trigger_type, r.trigger_config) === "journey") {
+      journeyMeta.set(r.id, { name: r.name, priority: flowPriority(r.trigger_config) });
+    }
+  }
+
+  /** A customer's active enrollments in OTHER enabled journeys, same test/live mode. */
+  async function activeJourneysFor(
+    refs: string[],
+    excludeAutomationId: string,
+    isTest: boolean,
+  ): Promise<Map<string, ActiveJourney[]>> {
+    const out = new Map<string, ActiveJourney[]>();
+    const others = [...journeyMeta.keys()].filter((id) => id !== excludeAutomationId);
+    if (others.length === 0 || refs.length === 0) return out;
+    for (let i = 0; i < refs.length; i += 200) {
+      const { data } = await supabaseServer
+        .from("automation_enrollments")
+        .select("id, automation_id, customer_type, customer_ref")
+        .eq("status", "enrolled")
+        .eq("is_test", isTest)
+        .in("automation_id", others)
+        .in("customer_ref", refs.slice(i, i + 200));
+      for (const r of ((data as Array<{ id: string; automation_id: string; customer_type: string; customer_ref: string }> | null) ?? [])) {
+        const key = `${r.customer_type}:${r.customer_ref}`;
+        const arr = out.get(key) ?? [];
+        arr.push({ enrollmentId: r.id, automationId: r.automation_id, priority: journeyMeta.get(r.automation_id)!.priority });
+        out.set(key, arr);
+      }
+    }
+    return out;
+  }
+  let heldByOtherFlow = 0;
+
   const stepsByAutomation = new Map<string, Step[]>();
   if (automations.length > 0) {
     const { data: stepsRows } = await supabaseServer
@@ -344,12 +403,32 @@ export async function GET(request: Request) {
       candidates.map((c) => c.email ?? "").filter(Boolean),
     );
 
-    const eligible = candidates.filter(
+    const unblocked = candidates.filter(
       (c) =>
         !enrolledSet.has(c.customer_ref) &&
         !!c.email &&
         !suppressed.has(c.email.trim().toLowerCase()),
     );
+
+    /* One journey at a time (lib/automations/overlap.ts). A customer already
+       in an equal-or-higher-priority journey waits; entering this one pauses
+       any lower-priority journey they're in (applied after the insert). */
+    const pauseOnEnroll = new Map<string, string[]>(); // customer_ref → enrollment ids
+    let eligible = unblocked;
+    if (flowKind(a.trigger_type, a.trigger_config) === "journey" && unblocked.length > 0) {
+      const priority = flowPriority(a.trigger_config);
+      const active = await activeJourneysFor(unblocked.map((c) => c.customer_ref), a.id, isTestRun);
+      eligible = [];
+      for (const c of unblocked) {
+        const d = decideEnrollment(priority, active.get(`${c.audience_side}:${c.customer_ref}`) ?? []);
+        if (d.action === "hold") {
+          heldByOtherFlow++;
+          continue;
+        }
+        if (d.pause.length) pauseOnEnroll.set(c.customer_ref, d.pause);
+        eligible.push(c);
+      }
+    }
     if (eligible.length === 0) continue;
 
     if (!dry) {
@@ -442,6 +521,19 @@ export async function GET(request: Request) {
       } else {
         totalEnrolled += rows.length;
       }
+
+      /* This journey now has them: pause the lower-priority journeys they
+         were in. The exit_reason marks the pause as ours, so the resume pass
+         below can tell it from anything else and pick it back up later. */
+      const pauseIds = (error ? restarting : toEnroll).flatMap((c) => pauseOnEnroll.get(c.customer_ref) ?? []);
+      if (pauseIds.length) {
+        const { error: pauseErr } = await supabaseServer
+          .from("automation_enrollments")
+          .update({ status: "paused", exit_reason: `${PAUSE_PREFIX}${a.name}` })
+          .in("id", pauseIds)
+          .eq("status", "enrolled");
+        if (pauseErr) enrollErrors.push(`${a.name}: pausing lower-priority flows: ${pauseErr.message}`);
+      }
     } else {
       // Dry mode: count the full eligible set + tally email-quality issues
       // across the whole pool, but only sample the first N for the panel.
@@ -465,6 +557,37 @@ export async function GET(request: Request) {
     }
   }
 
+  /* ── 2b) Resume journeys we paused for a higher-priority one ──
+     Once no equal-or-higher-priority journey has the customer (it completed,
+     or they exited it), the paused journey carries on from the step it was
+     on. Its next_send_at is untouched, so an overdue step goes out this run —
+     spaced by the frequency cap like any other send. A journey that's been
+     switched off stays paused until it's switched back on. */
+  let resumedCount = 0;
+  if (!dry) {
+    const { data: pausedRows } = await supabaseServer
+      .from("automation_enrollments")
+      .select("id, automation_id, customer_type, customer_ref, is_test")
+      .eq("status", "paused")
+      .like("exit_reason", `${PAUSE_PREFIX}%`)
+      .limit(500);
+    type PausedRow = { id: string; automation_id: string; customer_type: string; customer_ref: string; is_test: boolean };
+    const paused = ((pausedRows as PausedRow[] | null) ?? []).filter(
+      (p) => journeyMeta.has(p.automation_id) && (!onlyAutomationId || p.automation_id === onlyAutomationId),
+    );
+    for (const p of paused) {
+      const active = await activeJourneysFor([p.customer_ref], p.automation_id, p.is_test);
+      const mine = (active.get(`${p.customer_type}:${p.customer_ref}`) ?? []);
+      if (!canResume(journeyMeta.get(p.automation_id)!.priority, mine)) continue;
+      const { error } = await supabaseServer
+        .from("automation_enrollments")
+        .update({ status: "enrolled", exit_reason: null })
+        .eq("id", p.id)
+        .eq("status", "paused");
+      if (!error) resumedCount++;
+    }
+  }
+
   /* ── 3) Process due enrollments ── */
   const { data: dueRows, error: dueErr } = await supabaseServer
     .from("automation_enrollments")
@@ -484,6 +607,8 @@ export async function GET(request: Request) {
       enrolled: totalEnrolled,
       invalid_emails: invalidEmailCount,
       suspect_emails: suspectEmailCount,
+      /** Qualify, but already in an equal-or-higher-priority journey. */
+      held_by_other_flow: heldByOtherFlow,
       due_now: due.length,
       sample_due: due.slice(0, 10),
       sample_candidates: sampleCandidates,
@@ -528,6 +653,10 @@ export async function GET(request: Request) {
   let completedCount = 0;
   // Enrollments stopped early by an exit rule or an unsubscribe.
   let exitedCount = 0;
+  // Frequency cap: the account's limits, and who this run has already mailed.
+  const sendingLimits = await loadSendingLimits();
+  const sentThisRun = new Map<string, Date[]>();
+  let deferredByCap = 0;
 
   const origin =
     (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "") ||
@@ -672,6 +801,32 @@ export async function GET(request: Request) {
           .eq("id", e.id);
         exitedCount++;
         return;
+      }
+
+      /* Frequency cap, across every flow and bulk blast (lib/automations/
+         overlap.ts). Over the cap, the send is postponed to the first slot it
+         allows, never dropped. Test batches go to a tester, so they're exempt.
+         The in-run reservation is taken synchronously after the only await,
+         so two flows sending to one person in the same run can't both slip
+         under the cap. */
+      if (!e.is_test) {
+        const addr = e.customer_email.trim().toLowerCase();
+        const recent = await recentMarketingSends(addr);
+        const reserved = sentThisRun.get(addr) ?? [];
+        const cap = capDecision([...recent, ...reserved], new Date(), sendingLimits);
+        if (!cap.ok) {
+          await supabaseServer
+            .from("automation_enrollments")
+            .update({
+              next_send_at: cap.retryAt.toISOString(),
+              last_error: `Waiting for the frequency cap (${cap.reason})`,
+            })
+            .eq("id", e.id);
+          deferredByCap++;
+          return;
+        }
+        reserved.push(new Date());
+        sentThisRun.set(addr, reserved);
       }
 
       const { firstName, lastName } = splitContactName(
@@ -933,6 +1088,11 @@ export async function GET(request: Request) {
     completed: completedCount,
     /** Stopped early by an exit rule or an unsubscribe. */
     exited: exitedCount,
+    /** Overlap rules: waiting on a higher-priority journey, resumed after
+     *  one, and postponed by the frequency cap. */
+    held_by_other_flow: heldByOtherFlow,
+    resumed: resumedCount,
+    deferred_by_cap: deferredByCap,
     /* Non-fatal problems that would otherwise be invisible: a run reporting
        0 enrolled and 0 sent is ambiguous without these. */
     errors: [

@@ -325,6 +325,10 @@ async function upsertAutomation(steps: Array<{ id: string; delay: number }>) {
       lookback_days: 3,
       exit_on_order: true,
       reenroll_on_new_order: true,
+      // Top of the pecking order: a Sassy buyer gets this drip, not the
+      // general D2C lifecycle (lib/automations/overlap.ts).
+      flow_kind: "journey",
+      priority: 1,
       batch_mode: "continuous",
     },
   };

@@ -12,6 +12,8 @@ import {
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import AutomationEditor from "./AutomationEditor";
+import SendingLimits from "./SendingLimits";
+import { flowKind, flowPriority } from "@/lib/automations/overlap";
 
 type Automation = {
   id: string;
@@ -121,13 +123,16 @@ export default function AutomationsPage() {
             or a pinned date. Runs twice daily, 7:45am and 3:45pm Eastern.
           </p>
         </div>
-        <button
-          onClick={createNew}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-700 text-white px-3 py-2 text-[11px] font-medium hover:bg-brand-800 transition"
-        >
-          <Plus size={13} />
-          New automation
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <SendingLimits />
+          <button
+            onClick={createNew}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-700 text-white px-3 py-2 text-[11px] font-medium hover:bg-brand-800 transition"
+          >
+            <Plus size={13} />
+            New automation
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -208,6 +213,12 @@ export default function AutomationsPage() {
                         )}
                       >
                         {a.enabled ? "Live" : "Paused"}
+                      </span>
+                      <span
+                        className="inline-flex shrink-0 items-center rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-ink-muted"
+                        title={flowKind(a.trigger_type, a.trigger_config) === "journey" ? "Journey: one at a time, higher priority wins" : "One-off: can overlap other flows"}
+                      >
+                        {flowKind(a.trigger_type, a.trigger_config) === "journey" ? `Priority ${flowPriority(a.trigger_config)}` : "One-off"}
                       </span>
                       {inert && (
                         <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-warning-soft px-1 py-0.5 text-[10px] font-medium text-warning">

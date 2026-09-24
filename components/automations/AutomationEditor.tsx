@@ -26,6 +26,7 @@ import clsx from "clsx";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { JourneyStrip, EmailInspector, type StepResult } from "./Journey";
+import { flowKind, flowPriority, PRIORITY_OPTIONS } from "@/lib/automations/overlap";
 
 type TriggerType = "status_change" | "order_event" | "date" | "manual";
 
@@ -73,6 +74,10 @@ type Automation = {
     brand?: string;
     /** order_event only: a customer who orders again restarts at step 1. */
     reenroll_on_new_order?: boolean;
+    /** Overlap: "journey" = one at a time, won by priority (1 = highest);
+     *  "one_off" may overlap other flows. See lib/automations/overlap.ts. */
+    flow_kind?: "journey" | "one_off";
+    priority?: number;
     /** Batching — see the cron runner for the release semantics. */
     batch_mode?: "continuous" | "cohort";
     batch_weekday?: number;
@@ -571,6 +576,8 @@ export default function AutomationEditor({
   const [suspectEmailCount, setSuspectEmailCount] = useState(0);
   const [showSample, setShowSample] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  /** Qualify, but already in an equal-or-higher-priority journey. */
+  const [heldCount, setHeldCount] = useState(0);
 
   type Cohort = {
     label: string;
@@ -585,7 +592,8 @@ export default function AutomationEditor({
   async function runPreview() {
     setPreviewing(true);
     try {
-      const res = await fetch("/api/cron/automations?dry=1", {
+      // Scoped to this automation — unscoped, the dry run sums every flow.
+      const res = await fetch(`/api/cron/automations?dry=1&automation=${encodeURIComponent(automationId)}`, {
         headers: await authHeader(),
       });
       const json = await res.json();
@@ -594,6 +602,7 @@ export default function AutomationEditor({
         setPreviewSample((json.sample_candidates as PreviewCandidate[]) ?? []);
         setInvalidEmailCount(json.invalid_emails ?? 0);
         setSuspectEmailCount(json.suspect_emails ?? 0);
+        setHeldCount(json.held_by_other_flow ?? 0);
         setShowSample(true);
       }
     } finally {
@@ -716,6 +725,8 @@ export default function AutomationEditor({
     : null;
 
   /* ── Journey derived values ── */
+  const kind = flowKind(t, cfg);
+  const priority = flowPriority(cfg);
   const baseDay = t === "order_event" ? cfg.days_after ?? 7 : 0;
   const stepDays: number[] = [];
   steps.forEach((s, i) => stepDays.push((i === 0 ? baseDay : stepDays[i - 1]) + s.delay_days));
@@ -766,6 +777,12 @@ export default function AutomationEditor({
                 )}
               />
               {automation.enabled ? (cfg.test_mode ? "Test batch" : "Live") : "Off"}
+            </span>
+            <span
+              className="inline-flex shrink-0 items-center rounded-full bg-surface-sunken px-2.5 py-1 text-[11px] font-medium text-ink-muted"
+              title={kind === "journey" ? "One journey at a time; the higher priority wins. Change under Starts." : "Can overlap other flows. Change under Starts."}
+            >
+              {kind === "journey" ? `Journey · Priority ${priority}` : "One-off"}
             </span>
             {savedFlash && (
               <span className="inline-flex items-center gap-1 text-[11px] text-positive">
@@ -985,6 +1002,11 @@ export default function AutomationEditor({
                           <b className="font-semibold text-ink">{previewCount}</b> eligible
                           {invalidEmailCount > 0 && <span className="ml-2 text-critical">{invalidEmailCount} bad email{invalidEmailCount === 1 ? "" : "s"}</span>}
                           {suspectEmailCount > 0 && <span className="ml-2 text-warning">{suspectEmailCount} flagged</span>}
+                          {heldCount > 0 && (
+                            <span className="ml-2 text-ink-muted">
+                              + {heldCount} waiting on a higher-priority flow
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>
@@ -1079,6 +1101,42 @@ export default function AutomationEditor({
                       </div>
                     </PanelRow>
                   )}
+
+                  <PanelRow label="Overlap">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <FilterPill active={kind === "journey"} onClick={() => updateTriggerConfig({ flow_kind: "journey" })}>
+                          Journey: one at a time
+                        </FilterPill>
+                        <FilterPill active={kind === "one_off"} onClick={() => updateTriggerConfig({ flow_kind: "one_off" })}>
+                          One-off: can overlap
+                        </FilterPill>
+                      </div>
+                      {kind === "journey" ? (
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-secondary">
+                          <span>Priority</span>
+                          <select
+                            value={String(priority)}
+                            onChange={(e) => updateTriggerConfig({ priority: Number(e.target.value) })}
+                            aria-label="Priority"
+                            className="rounded-lg border border-line bg-surface px-2 py-1.5 text-xs"
+                          >
+                            {PRIORITY_OPTIONS.map((p) => (
+                              <option key={p} value={p}>{p}{p === 1 ? " (highest)" : ""}</option>
+                            ))}
+                          </select>
+                          <span className="text-[11px] text-ink-muted">
+                            A customer is in one journey at a time. A higher-priority journey pauses this one until
+                            it&apos;s done; an equal or lower one waits.
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-ink-muted">
+                          Sends even if the customer is mid-journey elsewhere. The sending limits still apply.
+                        </p>
+                      )}
+                    </div>
+                  </PanelRow>
 
                   <PanelRow label="Test batch">
                     <label className="flex cursor-pointer items-start gap-2">
