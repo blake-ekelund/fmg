@@ -10,6 +10,7 @@ import {
   KanbanSquare,
   PackageSearch,
   ImageIcon,
+  Camera,
   Zap,
   Mail,
   MessageSquare,
@@ -266,6 +267,14 @@ export const navSections: readonly NavSection[] = [
         label: "Image Library",
         href: "/marketing/assets",
         icon: ImageIcon,
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
+      },
+      {
+        /* Our photographers' Unsplash work (UNSPLASH_PHOTOGRAPHERS) — the same
+           photos the image pickers' "Unsplash" tab offers. See lib/unsplash.ts. */
+        label: "Photography",
+        href: "/marketing/photography",
+        icon: Camera,
         roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
       {

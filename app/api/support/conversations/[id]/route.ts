@@ -100,9 +100,53 @@ export async function GET(
       .eq("id", id);
   }
 
+  // The rest of this shopper's history. Tickets roll over deliberately (a
+  // closed thread, a long gap, a thread that got too long), which keeps each
+  // one readable — but it also means the ticket in front of you may be the
+  // second half of a story. Without this an agent answers a follow-up having
+  // never seen the original complaint.
+  //
+  // Matched three ways, widest first: the same browser session, the same
+  // account, or the same checkout email. A signed-in shopper who switched
+  // laptops still lines up; an anonymous one at least lines up per browser.
+  // These become a PostgREST filter STRING, where a comma or a paren in a
+  // value would break out of the expression — so only shapes that can't are
+  // interpolated. Ids are uuids; the email is checked against a conservative
+  // pattern and simply dropped if it doesn't match, which costs a little
+  // matching breadth and no correctness.
+  const UUID = /^[0-9a-f-]{36}$/i;
+  const SAFE_EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+  const match: string[] = [];
+  if (UUID.test(String(conversation.session_key ?? ""))) {
+    match.push(`session_key.eq.${conversation.session_key}`);
+  }
+  if (UUID.test(String(conversation.profile_id ?? ""))) {
+    match.push(`profile_id.eq.${conversation.profile_id}`);
+  }
+  if (SAFE_EMAIL.test(String(conversation.email ?? ""))) {
+    match.push(`email.eq.${conversation.email}`);
+  }
+
+  // Nothing safe to match on (no uuid session key, no account, no usable
+  // email) means no history rather than an unfiltered list of everyone's.
+  const related = match.length
+    ? (
+        await supabaseServer
+          .from("support_conversations")
+          .select("id, subject, status, message_count, last_message_at, entry_preset")
+          .eq("store", conversation.store)
+          .neq("id", id)
+          .or(match.join(","))
+          .order("last_message_at", { ascending: false })
+          .limit(10)
+      ).data
+    : [];
+
   return NextResponse.json({
     conversation: { ...conversation, agent_unread: false },
     messages: messages ?? [],
+    related: related ?? [],
   });
 }
 

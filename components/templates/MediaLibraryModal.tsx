@@ -4,14 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { X, Upload, Loader2, Image as ImageIcon, Search } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { uploadEmailImage } from "./uploadEmailImage";
+import UnsplashPanel, { type UnsplashPick } from "./UnsplashPanel";
 
 type Img = { path: string; url: string; size: number; updatedAt: string | null };
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  /** Called with the chosen image's public URL; the parent closes the modal. */
-  onSelect: (url: string) => void;
+  /** Called with the chosen image's URL; the parent closes the modal. Unsplash
+   *  picks also carry their alt text and the photographer credit to show. */
+  onSelect: (url: string, unsplash?: UnsplashPick) => void;
   /** Bucket folder new uploads land in (e.g. "images", "section-bg"). */
   prefix?: string;
   /** Replaces the email resize-and-upload (the blog keeps full resolution). */
@@ -45,6 +47,7 @@ export default function MediaLibraryModal({ open, onClose, onSelect, prefix = "i
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<"library" | "unsplash">("library");
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -122,13 +125,24 @@ export default function MediaLibraryModal({ open, onClose, onSelect, prefix = "i
             </div>
             <h2 className="text-sm font-semibold text-gray-900">Image library</h2>
           </div>
+          <div className="ml-1 flex shrink-0 rounded-lg bg-gray-100 p-0.5 text-xs font-medium">
+            {(["library", "unsplash"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`rounded-md px-2.5 py-1 transition ${tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                {t === "library" ? "Ours" : "Unsplash"}
+              </button>
+            ))}
+          </div>
           <div className="relative ml-2 flex-1">
             <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search filenames…"
+              placeholder={tab === "library" ? "Search filenames…" : "Search descriptions…"}
               className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-7 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-gray-300"
             />
           </div>
@@ -158,10 +172,12 @@ export default function MediaLibraryModal({ open, onClose, onSelect, prefix = "i
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4">
-          {error && (
+          {tab === "unsplash" ? (
+            <UnsplashPanel query={query} onSelect={onSelect} />
+          ) : error ? (
             <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>
-          )}
-          {loading ? (
+          ) : null}
+          {tab === "unsplash" ? null : loading ? (
             <div className="flex items-center justify-center gap-2 py-16 text-sm text-gray-400">
               <Loader2 size={16} className="animate-spin" /> Loading images…
             </div>
