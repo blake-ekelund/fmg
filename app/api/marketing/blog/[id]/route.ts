@@ -10,6 +10,10 @@ import {
   type BlogPostRow,
   type BlogStatus,
 } from "@/lib/blogPosts";
+import { isBlogAudience, isBlogPurpose } from "@/lib/blog/meta";
+import { normalizeBlogBlocks } from "@/lib/blog/normalize";
+import { renderBlogBlocks } from "@/lib/blog/render";
+import { builderColumnMissing, BUILDER_MIGRATION_HINT } from "@/lib/blog/serverCompat";
 
 export const runtime = "nodejs";
 
@@ -28,6 +32,11 @@ export const runtime = "nodejs";
  *   DELETE — soft delete (status='deleted'). The row stays, so the AI
  *            generator's "already written" list keeps seeing the title.
  *
+ * Builder posts: when a post has `blocks`, they are the source and `body` is
+ * compiled from them here, in the post brand format — a sent body is
+ * ignored. Changing the brand re-renders the body in the new brand format.
+ * Sending `blocks: null` detaches the post back to plain HTML.
+ *
  * The one thing that can fail on a save is the slug: two LIVE posts on a brand
  * can't share one. That comes back as 409 with a plain message, not a 500.
  */
@@ -42,6 +51,10 @@ type PatchBody = {
   brand?: unknown;
   status?: unknown;
   publish_at?: unknown;
+  blocks?: unknown;
+  audience?: unknown;
+  purpose?: unknown;
+  description?: unknown;
 };
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -155,6 +168,24 @@ export async function PATCH(
     patch.slug = slug;
   }
 
+  // Builder source → body. Runs after brand so a brand switch re-renders.
+  const brand = (patch.brand as BlogPostRow["brand"] | undefined) ?? existing.brand;
+  const sourceBlocks =
+    input.blocks !== undefined ? input.blocks : patch.brand !== undefined ? existing.blocks : undefined;
+  if (input.blocks === null) {
+    patch.blocks = null;
+  } else if (Array.isArray(sourceBlocks)) {
+    const blocks = normalizeBlogBlocks(sourceBlocks, brand);
+    patch.blocks = blocks;
+    patch.body = renderBlogBlocks(blocks, brand);
+  }
+  if (input.audience !== undefined) patch.audience = isBlogAudience(input.audience) ? input.audience : null;
+  if (input.purpose !== undefined) patch.purpose = isBlogPurpose(input.purpose) ? input.purpose : null;
+  if (input.description !== undefined) {
+    patch.description =
+      typeof input.description === "string" && input.description.trim() ? input.description.trim() : null;
+  }
+
   const publishAt = parseDate(input.publish_at);
   if (input.publish_at !== undefined && publishAt === undefined) {
     return NextResponse.json({ error: "Publish date is not a valid date" }, { status: 400 });
@@ -190,12 +221,20 @@ export async function PATCH(
     patch.status = status;
   }
 
-  const { data, error } = await supabaseServer
+  let { data, error } = await supabaseServer
     .from("blog_posts")
     .update(patch)
     .eq("id", id)
     .select("*")
     .single();
+  let hint: string | undefined;
+  if (error && builderColumnMissing(error)) {
+    // Pre-migration: keep the compiled body, drop the builder columns.
+    const { blocks: _b, audience: _a, purpose: _p, description: _d, ...rest } = patch;
+    void _b; void _a; void _p; void _d;
+    ({ data, error } = await supabaseServer.from("blog_posts").update(rest).eq("id", id).select("*").single());
+    hint = BUILDER_MIGRATION_HINT;
+  }
 
   if (error) {
     if (error.code === "23505") {
@@ -207,7 +246,10 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   const saved = data as unknown as BlogPostRow;
-  return NextResponse.json({ post: saved, previewUrl: blogPreviewUrl(saved.brand, saved.id) });
+  // Pre-migration the row has no blocks column; hand the edited blocks back
+  // so the builder session carries on instead of flipping to HTML mode.
+  if (hint && Array.isArray(patch.blocks)) saved.blocks = patch.blocks as BlogPostRow["blocks"];
+  return NextResponse.json({ post: saved, previewUrl: blogPreviewUrl(saved.brand, saved.id), hint });
 }
 
 export async function DELETE(

@@ -9,7 +9,7 @@ import { type BlogBrand, resolveHeroUrl } from "@/lib/blogPosts";
  * enough to judge length, headings, and images.
  */
 
-const SASSY_BODY =
+export const SASSY_BODY =
   "mt-10 text-[#4b5563] " +
   "[&_a]:font-semibold [&_a]:text-[#B3295C] [&_a]:underline-offset-2 hover:[&_a]:underline " +
   "[&_blockquote]:mt-6 [&_blockquote]:border-l-2 [&_blockquote]:border-[#B3295C] [&_blockquote]:pl-5 [&_blockquote]:italic " +
@@ -21,7 +21,7 @@ const SASSY_BODY =
   "[&_strong]:font-semibold [&_strong]:text-[#1a1a1a] " +
   "[&_ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-6";
 
-const NI_BODY =
+export const NI_BODY =
   "mt-10 text-[#3b3b3b] " +
   "[&_a]:text-[#3D6B5A] [&_a]:underline [&_a]:underline-offset-2 " +
   "[&_blockquote]:mt-6 [&_blockquote]:border-l-2 [&_blockquote]:border-[#A8895A] [&_blockquote]:pl-5 [&_blockquote]:font-serif [&_blockquote]:text-lg [&_blockquote]:italic [&_blockquote]:text-[#1F3D35] " +
@@ -32,6 +32,9 @@ const NI_BODY =
   "[&_p]:mt-4 [&_p]:text-base [&_p]:leading-relaxed " +
   "[&_strong]:font-medium [&_strong]:text-[#1F3D35] " +
   "[&_ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-6";
+
+/** The journal sets its first paragraph as a larger lead (journal-article.tsx). */
+const NI_LEAD = "[&_p:first-child]:mt-0 [&_p:first-child]:text-lg";
 
 export default function StorefrontPreview({
   brand,
@@ -73,7 +76,7 @@ export default function StorefrontPreview({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={hero} alt={title} className="mt-8 aspect-[16/9] w-full rounded-2xl object-cover" />
         ) : null}
-        <div className={NI_BODY} dangerouslySetInnerHTML={{ __html: body || "<p>Nothing written yet.</p>" }} />
+        <div className={`${NI_BODY} ${NI_LEAD}`} dangerouslySetInnerHTML={{ __html: body || "<p>Nothing written yet.</p>" }} />
       </article>
     );
   }

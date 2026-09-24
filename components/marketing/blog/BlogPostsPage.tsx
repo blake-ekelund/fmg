@@ -9,7 +9,8 @@ import PageHeader from "@/components/ui/PageHeader";
 import TabNav, { type Tab } from "@/components/ui/TabNav";
 import { useBrand } from "@/components/BrandContext";
 import { DRAFT_STATUSES, type BlogBrand, type BlogPostSummary } from "@/lib/blogPosts";
-import { createPost, listPosts } from "./api";
+import { listPosts } from "./api";
+import NewBlogWizard from "./NewBlogWizard";
 import { BrandPill, StatusPill, formatDateTime, relativeTime } from "./bits";
 
 /**
@@ -54,7 +55,7 @@ export default function BlogPostsPage() {
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [bucket, setBucket] = useState<Bucket>("upcoming");
-  const [creating, setCreating] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -106,17 +107,6 @@ export default function BlogPostsPage() {
     return list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }, [scoped, bucket]);
 
-  async function handleNew() {
-    setCreating(true);
-    try {
-      const target: BlogBrand = brand === "NI" ? "NI" : "Sassy";
-      const post = await createPost(target);
-      router.push(`/marketing/blog/${post.id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't create the post.");
-      setCreating(false);
-    }
-  }
 
   const tabs = TABS.map((t) => ({ ...t, label: `${t.label} · ${counts[t.value]}` }));
 
@@ -124,14 +114,22 @@ export default function BlogPostsPage() {
     <div className="w-full space-y-6 p-6 md:px-8">
       <PageHeader subtitle="Write posts here, give each a date, and it goes live on the storefront by itself. The site picks up a post within about five minutes of its scheduled time.">
         <button
-          onClick={handleNew}
-          disabled={creating}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-60"
+          onClick={() => setWizardOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800"
         >
-          {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-          New post{brand === "NI" ? " (NI)" : brand === "Sassy" ? " (Sassy)" : ""}
+          <Plus size={14} />
+          New post
         </button>
       </PageHeader>
+
+      {wizardOpen && (
+        <NewBlogWizard
+          open
+          defaultBrand={(brand === "NI" ? "NI" : "Sassy") as BlogBrand}
+          onClose={() => setWizardOpen(false)}
+          onCreated={(post) => router.push(`/marketing/blog/${post.id}`)}
+        />
+      )}
 
       {hint && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

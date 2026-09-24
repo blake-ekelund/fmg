@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { supabaseServer } from "@/lib/supabaseServer";
+import { fetchLibraryImages } from "@/lib/email/libraryImages";
 import { normalizeBlocks } from "@/lib/email/normalizeBlocks";
-import { buildGeneratePrompt, type GenerateInput, type LibraryImage } from "@/lib/email/generatePrompt";
+import { buildGeneratePrompt, type GenerateInput } from "@/lib/email/generatePrompt";
 import type { Brand, Channel, TemplatePurpose } from "@/components/templates/types";
 
 export const runtime = "nodejs";
@@ -20,25 +20,6 @@ const MAX_PROMPT_CHARS = 4000;
  * block/section vocabulary, validated by normalizeBlocks so it always opens
  * cleanly in the builder. Does NOT write the DB — the caller seeds a draft.
  */
-
-/** Curated brand images (from the Image Library) the model may place. */
-async function fetchLibraryImages(): Promise<LibraryImage[]> {
-  try {
-    const { data, error } = await supabaseServer
-      .from("email_asset_meta")
-      .select("path, title, alt_text, description")
-      .order("updated_at", { ascending: false })
-      .limit(30);
-    if (error || !data) return [];
-    return data.map((r) => {
-      const row = r as { path: string; title: string | null; alt_text: string | null; description: string | null };
-      const { data: pub } = supabaseServer.storage.from("email-assets").getPublicUrl(row.path);
-      return { url: pub.publicUrl, title: row.title, alt: row.alt_text, description: row.description };
-    });
-  } catch {
-    return []; // table may not be migrated yet — generation still works without images
-  }
-}
 
 export async function POST(request: Request) {
   const user = await requireInternalUser(request);

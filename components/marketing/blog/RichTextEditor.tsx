@@ -20,6 +20,9 @@ type Props = {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  /** Inline marks only (bold, italic, links) — for builder paragraph blocks,
+   *  where headings, lists, and quotes are blocks of their own. */
+  inline?: boolean;
 };
 
 type ToolbarBtn = {
@@ -30,7 +33,9 @@ type ToolbarBtn = {
   active?: string; // queryCommandState/queryCommandValue check
 };
 
-export default function RichTextEditor({ value, onChange, placeholder }: Props) {
+const BLOCK_COMMANDS = new Set(["heading2", "heading3", "insertUnorderedList", "insertOrderedList", "formatBlock"]);
+
+export default function RichTextEditor({ value, onChange, placeholder, inline = false }: Props) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [, forceUpdate] = useState(0); // trigger re-render for active states
   const isInitialMount = useRef(true);
@@ -89,7 +94,7 @@ export default function RichTextEditor({ value, onChange, placeholder }: Props) 
     exec("formatBlock", tag);
   }
 
-  const toolbar: (ToolbarBtn | "sep")[] = [
+  const fullToolbar: (ToolbarBtn | "sep")[] = [
     { icon: <Undo2 size={14} />, command: "undo", label: "Undo" },
     { icon: <Redo2 size={14} />, command: "redo", label: "Redo" },
     "sep",
@@ -106,6 +111,11 @@ export default function RichTextEditor({ value, onChange, placeholder }: Props) 
     { icon: <Link size={14} />, command: "link", label: "Insert link" },
     { icon: <RemoveFormatting size={14} />, command: "removeFormat", label: "Clear formatting" },
   ];
+  const toolbar = inline
+    ? fullToolbar
+        .filter((t) => t === "sep" || !BLOCK_COMMANDS.has(t.command))
+        .filter((t, i, all) => t !== "sep" || all[i - 1] !== "sep")
+    : fullToolbar;
 
   return (
     <div className="rounded-lg border border-gray-200 overflow-hidden focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-300 transition">
@@ -159,7 +169,9 @@ export default function RichTextEditor({ value, onChange, placeholder }: Props) 
         onClick={() => forceUpdate((n) => n + 1)}
         data-placeholder={placeholder ?? "Start writing…"}
         className={clsx(
-          "min-h-[400px] max-h-[60vh] overflow-y-auto px-6 py-5 outline-none",
+          inline
+            ? "min-h-[140px] max-h-[50vh] overflow-y-auto px-3 py-3 outline-none"
+            : "min-h-[400px] max-h-[60vh] overflow-y-auto px-6 py-5 outline-none",
           "text-[15px] text-gray-800 leading-relaxed",
           // Prose-like styling for the editable content
           "[&>h2]:text-xl [&>h2]:font-semibold [&>h2]:text-gray-900 [&>h2]:mt-7 [&>h2]:mb-3",

@@ -9,6 +9,9 @@
  * ever contains live rows.
  */
 
+import type { BlogBlock } from "@/lib/blog/blocks";
+import type { BlogAudience, BlogPurpose } from "@/lib/blog/meta";
+
 export const BLOG_BRANDS = ["Sassy", "NI"] as const;
 export type BlogBrand = (typeof BLOG_BRANDS)[number];
 
@@ -48,11 +51,17 @@ export type BlogPostRow = {
   published_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Builder source (lib/blog/blocks.ts). null = written in the rich-text
+   *  editor; absent until migration 20260923010000 is applied. */
+  blocks?: BlogBlock[] | null;
+  audience?: BlogAudience | null;
+  purpose?: BlogPurpose | null;
+  description?: string | null;
 };
 
 /** The list endpoint leaves the body out — it is the heavy column and the
  *  board never shows it. */
-export type BlogPostSummary = Omit<BlogPostRow, "body">;
+export type BlogPostSummary = Omit<BlogPostRow, "body" | "blocks">;
 
 export const BLOG_LIST_COLUMNS =
   "id, brand, title, slug, seo_meta, tags, hero_image_url, status, publish_at, published_at, created_at, updated_at";

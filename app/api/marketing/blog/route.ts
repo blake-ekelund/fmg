@@ -4,9 +4,14 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 import {
   BLOG_LIST_COLUMNS,
   isBlogBrand,
+  normalizeTags,
   slugify,
   type BlogPostSummary,
 } from "@/lib/blogPosts";
+import { isBlogAudience, isBlogPurpose } from "@/lib/blog/meta";
+import { normalizeBlogBlocks } from "@/lib/blog/normalize";
+import { renderBlogBlocks } from "@/lib/blog/render";
+import { builderColumnMissing, BUILDER_MIGRATION_HINT } from "@/lib/blog/serverCompat";
 
 export const runtime = "nodejs";
 
@@ -15,9 +20,12 @@ export const runtime = "nodejs";
  *      Every post that is not soft-deleted, without bodies. The board sorts
  *      and buckets client-side; there are a few hundred rows at most.
  *
- * POST /api/marketing/blog  { brand, title? }
- *      Creates an empty draft and returns it, so the editor has an id to
- *      autosave against from the first keystroke.
+ * POST /api/marketing/blog  { brand, title?, blocks?, audience?, purpose?,
+ *                              description?, seo_meta?, tags?, hero_image_url? }
+ *      Creates a draft and returns it. The new-post wizard sends the lot;
+ *      with `blocks` the post is a builder post and `body` is compiled from
+ *      them here. Before the builder migration is applied the draft is still
+ *      created (body compiled, blocks dropped) and the response says so.
  *
  * Internal-only, same guard as the rest of the portal. Writes go through the
  * service role — blog_posts has RLS on with no policies, on purpose.
@@ -58,7 +66,7 @@ export async function POST(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  let body: { brand?: unknown; title?: unknown } = {};
+  let body: Record<string, unknown> = {};
   try {
     body = await request.json();
   } catch {
@@ -68,21 +76,36 @@ export async function POST(request: Request) {
   const title =
     typeof body.title === "string" && body.title.trim() ? body.title.trim() : "Untitled post";
 
-  const { data, error } = await supabaseServer
+  const blocks = Array.isArray(body.blocks) ? normalizeBlogBlocks(body.blocks, brand) : null;
+  const base = {
+    brand,
+    title,
+    slug: slugify(title) || null,
+    body: blocks ? renderBlogBlocks(blocks, brand) : "",
+    status: "draft",
+    tags: normalizeTags(body.tags),
+    seo_meta: typeof body.seo_meta === "string" && body.seo_meta.trim() ? body.seo_meta.trim() : null,
+    hero_image_url: typeof body.hero_image_url === "string" ? body.hero_image_url.trim() : "",
+    updated_at: new Date().toISOString(),
+  };
+  const builder = {
+    blocks,
+    audience: isBlogAudience(body.audience) ? body.audience : null,
+    purpose: isBlogPurpose(body.purpose) ? body.purpose : null,
+    description:
+      typeof body.description === "string" && body.description.trim() ? body.description.trim() : null,
+  };
+
+  let { data, error } = await supabaseServer
     .from("blog_posts")
-    .insert({
-      brand,
-      title,
-      slug: slugify(title) || null,
-      body: "",
-      status: "draft",
-      tags: null,
-      seo_meta: null,
-      hero_image_url: "",
-      updated_at: new Date().toISOString(),
-    })
+    .insert({ ...base, ...builder })
     .select("*")
     .single();
+  let hint: string | undefined;
+  if (error && builderColumnMissing(error)) {
+    ({ data, error } = await supabaseServer.from("blog_posts").insert(base).select("*").single());
+    hint = BUILDER_MIGRATION_HINT;
+  }
 
   if (error) {
     if (columnMissing(error.message)) {
@@ -90,5 +113,5 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ post: data });
+  return NextResponse.json({ post: data, hint });
 }

@@ -14,6 +14,10 @@ type Props = {
   onSelect: (url: string) => void;
   /** Bucket folder new uploads land in (e.g. "images", "section-bg"). */
   prefix?: string;
+  /** Replaces the email resize-and-upload (the blog keeps full resolution). */
+  uploader?: (file: File) => Promise<{ url: string } | { error: string }>;
+  /** Hint under the empty state; defaults to the email wording. */
+  emptyHint?: string;
 };
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -35,7 +39,7 @@ function prettySize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function MediaLibraryModal({ open, onClose, onSelect, prefix = "images" }: Props) {
+export default function MediaLibraryModal({ open, onClose, onSelect, prefix = "images", uploader, emptyHint }: Props) {
   const [images, setImages] = useState<Img[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +87,7 @@ export default function MediaLibraryModal({ open, onClose, onSelect, prefix = "i
     let firstUrl: string | null = null;
     let lastError: string | null = null;
     for (const file of Array.from(files)) {
-      const res = await uploadEmailImage(file, prefix);
+      const res = uploader ? await uploader(file) : await uploadEmailImage(file, prefix);
       if ("error" in res) lastError = res.error;
       else if (!firstUrl) firstUrl = res.url;
     }
@@ -168,7 +172,7 @@ export default function MediaLibraryModal({ open, onClose, onSelect, prefix = "i
                 {images.length === 0 ? "No images yet" : "No matches"}
               </p>
               <p className="mt-1 text-xs text-gray-400">
-                {images.length === 0 ? "Upload one to get started — it'll be resized for email automatically." : "Try a different search."}
+                {images.length === 0 ? (emptyHint ?? "Upload one to get started — it'll be resized for email automatically.") : "Try a different search."}
               </p>
             </div>
           ) : (
