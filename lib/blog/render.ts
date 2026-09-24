@@ -30,6 +30,12 @@ export type HeroCredit = { name: string; profileUrl: string; unsplashUrl: string
  *  steal NI's lead-paragraph styling (it targets the body's first <p>). */
 type Opts = { editor?: boolean; heroCredit?: HeroCredit | null };
 
+/** Just the credit line, for the builder canvas (which renders it outside
+ *  the editable blocks). */
+export function renderHeroCredit(c: HeroCredit, brand: BlogBrand): string {
+  return heroCreditHtml(c, BLOG_THEMES[brand]);
+}
+
 function heroCreditHtml(c: HeroCredit, t: Theme): string {
   const link = (href: string, text: string) =>
     `<a href="${escapeHtml(safeUrl(href))}" target="_blank" rel="noopener" style="color:inherit">${escapeHtml(text)}</a>`;

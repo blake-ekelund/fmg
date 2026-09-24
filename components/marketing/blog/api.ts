@@ -2,6 +2,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import { supabase } from "@/lib/supabaseClient";
 import type { BlogBrand, BlogPostRow, BlogPostSummary, BlogStatus } from "@/lib/blogPosts";
 import type { BlogBlock } from "@/lib/blog/blocks";
+import type { HeroCredit } from "@/lib/blog/render";
 import type { BlogAudience, BlogPurpose } from "@/lib/blog/meta";
 
 /** Browser-side client for the blog API routes. Every call carries the
@@ -19,7 +20,15 @@ async function readJson<T>(res: Response): Promise<T> {
   return json;
 }
 
-export type ListResult = { posts: BlogPostSummary[]; notReady?: boolean; hint?: string };
+/** The Unsplash cover credit a save would add for this hero (null if none). */
+export async function getHeroCredit(heroUrl: string): Promise<HeroCredit | null> {
+  const res = await fetch(`/api/marketing/blog/hero-credit?url=${encodeURIComponent(heroUrl)}`, {
+    headers: await authHeader(),
+  });
+  return (await readJson<{ credit: HeroCredit | null }>(res)).credit;
+}
+
+export type ListResult ={ posts: BlogPostSummary[]; notReady?: boolean; hint?: string };
 
 export async function listPosts(brand: BlogBrand | "all"): Promise<ListResult> {
   const res = await fetch(`/api/marketing/blog?brand=${encodeURIComponent(brand)}`, {

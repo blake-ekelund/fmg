@@ -28,8 +28,8 @@ import { enforceFormat, type BlogBlock } from "@/lib/blog/blocks";
 import { importBlogHtml } from "@/lib/blog/importHtml";
 import { BLOG_AUDIENCES, BLOG_PURPOSES, type BlogAudience, type BlogPurpose } from "@/lib/blog/meta";
 import { normalizeBlogBlocks } from "@/lib/blog/normalize";
-import { renderBlogBlocks } from "@/lib/blog/render";
-import { deletePost, getPost, updatePost, type PostPatch } from "./api";
+import { renderBlogBlocks, type HeroCredit } from "@/lib/blog/render";
+import { deletePost, getHeroCredit, getPost, updatePost, type PostPatch } from "./api";
 import BlogBuilder, { ImageField } from "./BlogBuilder";
 import RichTextEditor from "./RichTextEditor";
 import StorefrontPreview from "./StorefrontPreview";
@@ -71,6 +71,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [hero, setHero] = useState("");
+  const [heroCredit, setHeroCredit] = useState<HeroCredit | null>(null);
   const [brand, setBrand] = useState<BlogBrand>("Sassy");
   const [publishAtLocal, setPublishAtLocal] = useState("");
   const [blocks, setBlocks] = useState<BlogBlock[] | null>(null);
@@ -80,6 +81,25 @@ export default function BlogPostEditor({ id }: { id: string }) {
   const [hint, setHint] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // The Unsplash cover credit the server adds on save, so previews match the
+  // saved body. Debounced: the hero field is also a free-typing URL input.
+  useEffect(() => {
+    if (!hero.includes("images.unsplash.com")) {
+      setHeroCredit(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      getHeroCredit(hero)
+        .then((c) => !cancelled && setHeroCredit(c))
+        .catch(() => !cancelled && setHeroCredit(null));
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [hero]);
 
   const seed = useCallback((p: BlogPostRow) => {
     setPost(p);
@@ -237,7 +257,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
   const liveUrl = `${STORE_ORIGIN[brand]}/blog/${slugify(slug) || slugify(title)}`;
   const heroPreview = resolveHeroUrl(brand, hero);
 
-  const compiledBody = blocks ? renderBlogBlocks(blocks, brand) : body;
+  const compiledBody = blocks ? renderBlogBlocks(blocks, brand, { heroCredit }) : body;
   const dateLabel = (() => {
     const d = publishAtIso ?? post.published_at;
     return d
@@ -660,7 +680,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
             setDirty(true);
             setNotice(null);
           }}
-          header={{ title, tags, heroUrl: hero, dateLabel }}
+          header={{ title, tags, heroUrl: hero, heroCredit, dateLabel }}
           rail={rail}
           onError={setError}
         />

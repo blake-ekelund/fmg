@@ -50,7 +50,7 @@ import {
   type BlogContentBlock,
   type SectionLayout,
 } from "@/lib/blog/blocks";
-import { renderBlogBlocks } from "@/lib/blog/render";
+import { renderBlogBlocks, renderHeroCredit, type HeroCredit } from "@/lib/blog/render";
 import MediaLibraryModal from "@/components/templates/MediaLibraryModal";
 import RichTextEditor from "./RichTextEditor";
 import { NI_BODY, SASSY_BODY } from "./StorefrontPreview";
@@ -85,7 +85,8 @@ type Props = {
   brand: BlogBrand;
   blocks: BlogBlock[];
   onChange: (blocks: BlogBlock[]) => void;
-  header: { title: string; tags: string[]; heroUrl: string; dateLabel: string };
+  /** heroCredit: the Unsplash cover credit the saved body ends with. */
+  header: { title: string; tags: string[]; heroUrl: string; heroCredit?: HeroCredit | null; dateLabel: string };
   /** The post-settings / publishing rail, shown in the "Post" tab. */
   rail: ReactNode;
   onError: (message: string) => void;
@@ -467,6 +468,14 @@ export default function BlogBuilder({ brand, blocks, onChange, header, rail, onE
             }}
             dangerouslySetInnerHTML={{ __html: html }}
           />
+          {header.heroCredit ? (
+            // Outside the canvas: it isn't a block, just the credit the saved body ends with.
+            <div
+              className={brand === "NI" ? NI_BODY : SASSY_BODY}
+              title="Added automatically for the Unsplash cover photo"
+              dangerouslySetInnerHTML={{ __html: renderHeroCredit(header.heroCredit, brand) }}
+            />
+          ) : null}
           {uploading ? (
             <div className="mt-4 flex items-center gap-2 text-xs text-gray-500">
               <Loader2 size={13} className="animate-spin" /> Uploading images…
