@@ -7,7 +7,7 @@
  */
 
 import type { BlogBrand } from "@/lib/blogPosts";
-import type { LibraryImage } from "@/lib/email/generatePrompt";
+import type { BlogImageCandidate } from "./generateImages";
 import { BLOG_AUDIENCES, BLOG_PURPOSES, type BlogAudience, type BlogPurpose } from "./meta";
 
 const VOICE: Record<BlogBrand, string> = {
@@ -51,18 +51,29 @@ export type BlogGenerateInput = {
   title: string;
   description: string;
   prompt: string;
-  images: LibraryImage[];
+  images: BlogImageCandidate[];
 };
 
-function imagesBlock(images: LibraryImage[]): string {
+function imagesBlock(images: BlogImageCandidate[]): string {
   if (!images.length) {
     return `No hosted brand images are available. Leave every "src"/"imageUrl" as "" — the team adds photos in the builder. Still place image blocks where a photo belongs (usually 1–3 per post).`;
   }
-  const list = images
-    .slice(0, 30)
-    .map((im) => `- ${im.url}  (${[im.title, im.description || im.alt].filter(Boolean).join(" — ") || "no description"})`)
-    .join("\n");
-  return `AVAILABLE BRAND IMAGES — use these exact URLs where they genuinely fit (image, product, gallery, and the hero). Never invent image URLs; if nothing fits, leave the field "".\n${list}`;
+  const line = (im: BlogImageCandidate) =>
+    `- ${im.url}  (${[im.title, im.description || im.alt].filter(Boolean).join(" — ") || "no description"})`;
+  const ours = images.filter((i) => i.source === "library");
+  const stock = images.filter((i) => i.source === "unsplash");
+  const parts = [
+    `AVAILABLE IMAGES — copy URLs exactly, character for character; any other URL is discarded. Use them where they genuinely fit; if nothing fits a slot, leave it "".`,
+  ];
+  if (ours.length) {
+    parts.push(`OUR BRAND IMAGES (products, packaging, brand shots — the only images allowed in product cards):\n${ours.map(line).join("\n")}`);
+  }
+  if (stock.length) {
+    parts.push(
+      `BRAND MOOD PHOTOGRAPHY from our Unsplash collection (lifestyle and atmosphere — for image, gallery, image-beside-text and the hero; NEVER in a product card; leave "caption" as "" — the photographer credit is added automatically):\n${stock.map(line).join("\n")}`,
+    );
+  }
+  return parts.join("\n\n");
 }
 
 export function buildBlogGeneratePrompt(input: BlogGenerateInput): string {
@@ -100,7 +111,7 @@ WRITING RULES:
 Also write:
 - "seo_meta": 120–155 characters for Google and the blog index card.
 - "tags": 2–4 short topical tags.
-- "hero_image_url": one URL from the image list for the top of the post, or "".
+- "hero_image_url": one URL from the image lists for the top of the post, or "".
 
 Return ONLY valid JSON, no prose or code fences, exactly:
 {"seo_meta":"…","tags":["…"],"hero_image_url":"","blocks":[ … ]}`;

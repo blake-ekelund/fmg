@@ -26,6 +26,12 @@ const BRAND_COLLECTIONS: { key: string; label: string; id: string }[] = [
   { key: "ni", label: "Natural Inspirations", id: "4839527" },
 ];
 
+/** The Unsplash collection for a blog/email brand ("Sassy" | "NI"), if there is one. */
+export function brandCollection(brand: string): UnsplashSource | null {
+  const c = BRAND_COLLECTIONS.find((b) => b.key === brand.toLowerCase());
+  return c ? { ...c, kind: "collection" } : null;
+}
+
 export type UnsplashSource = { key: string; label: string; kind: "collection" | "user"; id: string };
 
 /** Header-card details for a source (collection or photographer). */

@@ -6,6 +6,8 @@ import { isBlogBrand, normalizeTags } from "@/lib/blogPosts";
 import { buildBlogGeneratePrompt } from "@/lib/blog/generatePrompt";
 import { isBlogAudience, isBlogPurpose, starterTags } from "@/lib/blog/meta";
 import { normalizeBlogBlocks } from "@/lib/blog/normalize";
+import { checkGeneratedImages, type BlogImageCandidate } from "@/lib/blog/generateImages";
+import { brandCollection, listPhotos, trackUnsplashDownload, unsplashConfigured } from "@/lib/unsplash";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -14,10 +16,39 @@ const MODEL = "claude-opus-5";
 const MAX_PROMPT_CHARS = 4000;
 
 /**
+ * What the model may place: our tagged Image Library photos, plus the brand's
+ * Unsplash collection (first page, 30 photos). Either half can come back empty
+ * (no metadata rows yet, no Unsplash key) and generation still works.
+ */
+async function gatherImages(brand: string): Promise<BlogImageCandidate[]> {
+  const collection = brandCollection(brand);
+  const [library, stock] = await Promise.all([
+    fetchLibraryImages(20),
+    collection && unsplashConfigured()
+      ? listPhotos(1, [collection]).then((r) => r.photos).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+  return [
+    ...library.map((i): BlogImageCandidate => ({ ...i, source: "library" })),
+    ...stock.map(
+      (p): BlogImageCandidate => ({
+        url: p.url,
+        title: null,
+        alt: p.alt,
+        description: p.description,
+        source: "unsplash",
+        credit: `Photo by ${p.photographer.name} on Unsplash`,
+        downloadLocation: p.downloadLocation,
+      }),
+    ),
+  ];
+}
+
+/**
  * POST /api/marketing/blog/generate
  *
  * Body: { brand, audience, purpose, title, description?, prompt }
- * Returns: { blocks, seo_meta, tags, hero_image_url } — a whole post in our
+ * Returns: { blocks, seo_meta, tags, hero_image_url, image_credits } — a whole post in our
  * blog block vocabulary, already normalized into the brand's format. Does NOT
  * write the DB; the wizard creates the draft with it.
  *
@@ -53,7 +84,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Describe the post you want written." }, { status: 400 });
   }
 
-  const images = await fetchLibraryImages();
+  const images = await gatherImages(brand);
 
   let message: Anthropic.Beta.BetaMessage;
   try {
@@ -102,17 +133,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "The generated post wasn't valid. Try again." }, { status: 502 });
   }
 
-  const blocks = normalizeBlogBlocks(parsed.blocks, brand);
-  if (blocks.length <= 2) {
+  const normalized = normalizeBlogBlocks(parsed.blocks, brand);
+  if (normalized.length <= 2) {
     return NextResponse.json(
       { error: "The AI didn't produce a usable post. Try adding more detail to the description." },
       { status: 422 },
     );
   }
 
-  // Only accept a hero the model picked from the library list.
-  const hero = typeof parsed.hero_image_url === "string" ? parsed.hero_image_url.trim() : "";
-  const heroOk = images.some((i) => i.url === hero);
+  // Every image URL (hero included) must come from the list we offered;
+  // Unsplash photos get their credit and are reported as used.
+  const { blocks, hero, usedUnsplash } = checkGeneratedImages(
+    normalized,
+    typeof parsed.hero_image_url === "string" ? parsed.hero_image_url : "",
+    images,
+  );
+  await Promise.allSettled(
+    usedUnsplash.flatMap((p) => (p.downloadLocation ? [trackUnsplashDownload(p.downloadLocation)] : [])),
+  );
 
   // Category / purpose tag leads so the NI journal files it correctly.
   const tags = normalizeTags([...starterTags(brand, purpose), ...(Array.isArray(parsed.tags) ? parsed.tags : [])]);
@@ -121,6 +159,8 @@ export async function POST(request: Request) {
     blocks,
     seo_meta: typeof parsed.seo_meta === "string" ? parsed.seo_meta.trim().slice(0, 300) : "",
     tags: tags ?? [],
-    hero_image_url: heroOk ? hero : "",
+    hero_image_url: hero,
+    // The hero has no caption slot, so its credit (if Unsplash) rides along here.
+    image_credits: usedUnsplash.map((p) => ({ url: p.url, credit: p.credit })),
   });
 }
