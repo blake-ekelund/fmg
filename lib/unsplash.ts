@@ -37,7 +37,10 @@ export type UnsplashSourceInfo = {
   subtitle: string | null;
   description: string | null;
   image: string | null;
+  /** Everything in the collection/account, as unsplash.com counts it. */
   totalPhotos: number;
+  /** What the API will actually return: Unsplash+ (paid) photos are excluded. */
+  available: number;
   url: string;
 };
 
@@ -144,6 +147,16 @@ async function api<T>(path: string): Promise<T> {
 
 const enc = encodeURIComponent;
 
+/** Photo count the API will serve for a listing, via its X-Total header. */
+async function servableCount(path: string): Promise<number> {
+  const res = await fetch(`${API}${path}${path.includes("?") ? "&" : "?"}per_page=1`, {
+    headers: { Authorization: `Client-ID ${process.env.UNSPLASH_ACCESS_KEY}`, "Accept-Version": "v1" },
+    next: { revalidate: 600 },
+  });
+  if (!res.ok) throw new Error(`Unsplash ${res.status}`);
+  return Number(res.headers.get("x-total")) || 0;
+}
+
 /**
  * One page of photos from the given sources, newest first (page N is page N
  * of each source, merged and de-duplicated). A failing source doesn't sink the
@@ -187,7 +200,10 @@ export async function getSourceInfo(sources: UnsplashSource[]): Promise<Unsplash
   const results = await Promise.allSettled(
     sources.map(async (s): Promise<UnsplashSourceInfo> => {
       if (s.kind === "collection") {
-        const c = await api<ApiCollection>(`/collections/${enc(s.id)}`);
+        const [c, available] = await Promise.all([
+          api<ApiCollection>(`/collections/${enc(s.id)}`),
+          servableCount(`/collections/${enc(s.id)}/photos`),
+        ]);
         return {
           key: s.key,
           label: s.label,
@@ -197,10 +213,14 @@ export async function getSourceInfo(sources: UnsplashSource[]): Promise<Unsplash
           description: c.description,
           image: c.cover_photo?.urls.small ?? null,
           totalPhotos: c.total_photos,
+          available,
           url: utm(c.links.html),
         };
       }
-      const u = await api<ApiUser>(`/users/${enc(s.id)}`);
+      const [u, available] = await Promise.all([
+        api<ApiUser>(`/users/${enc(s.id)}`),
+        servableCount(`/users/${enc(s.id)}/photos`),
+      ]);
       return {
         key: s.key,
         label: s.label,
@@ -210,6 +230,7 @@ export async function getSourceInfo(sources: UnsplashSource[]): Promise<Unsplash
         description: u.bio,
         image: u.profile_image?.large ?? null,
         totalPhotos: u.total_photos,
+        available,
         url: utm(u.links.html),
       };
     }),

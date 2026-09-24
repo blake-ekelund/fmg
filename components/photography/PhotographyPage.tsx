@@ -164,7 +164,18 @@ export default function PhotographyPage() {
                       </p>
                     )}
                     <p className="mt-1.5 text-xs text-gray-600">
-                      <span className="font-medium text-gray-900">{fmt(s.totalPhotos)}</span> photos
+                      {s.available < s.totalPhotos ? (
+                        <>
+                          <span className="font-medium text-gray-900">{fmt(s.available)}</span> of {fmt(s.totalPhotos)} available
+                          <span className="block text-[11px] text-gray-400">
+                            The other {fmt(s.totalPhotos - s.available)} are Unsplash+ (paid) and not offered through the API
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-medium text-gray-900">{fmt(s.totalPhotos)}</span> photos
+                        </>
+                      )}
                     </p>
                     {s.description && <p className="mt-1.5 line-clamp-2 text-xs text-gray-500">{s.description}</p>}
                   </div>
