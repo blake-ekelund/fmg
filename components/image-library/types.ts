@@ -1,6 +1,10 @@
 export type ShareScope = "internal" | "third_party";
 
-/** One image in the public `email-assets` bucket + its editorial metadata. */
+/**
+ * One image in the library: either an `email-assets` upload with its editorial
+ * metadata (source "library"), or a read-only Media Kit product photo
+ * (source "product", path prefixed "media-kit:").
+ */
 export type LibraryImage = {
   path: string;
   url: string;
@@ -10,8 +14,21 @@ export type LibraryImage = {
   altText: string | null;
   description: string | null;
   shareScope: ShareScope;
-  /** Folder it's filed in — its label if re-filed, else where it was uploaded. */
+  /** Folder id it's filed in — its label if re-filed, else where it was uploaded. */
   folder: string;
+  source: "library" | "product";
+  /** Product photos: the inventory part, for linking to the product page. */
+  productPart?: string;
+};
+
+/**
+ * A folder. Ids are paths ("sassy-holiday/ads"); product folders start with
+ * "~" and are read-only (no uploads, filing, subfolders, or delete).
+ */
+export type LibraryFolder = {
+  id: string;
+  name: string;
+  readOnly: boolean;
 };
 
 export type MetaPatch = {

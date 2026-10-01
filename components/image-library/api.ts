@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
-import type { LibraryImage, MetaPatch } from "./types";
+import type { LibraryFolder, LibraryImage, MetaPatch } from "./types";
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -7,22 +7,22 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export async function listImages(): Promise<{ images: LibraryImage[]; folders: string[] }> {
+export async function listImages(): Promise<{ images: LibraryImage[]; folders: LibraryFolder[] }> {
   const res = await fetch("/api/email/images", { headers: await authHeader() });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error ?? "Couldn't load images.");
   return {
     images: (json.images ?? []) as LibraryImage[],
-    folders: (json.folders ?? []) as string[],
+    folders: (json.folders ?? []) as LibraryFolder[],
   };
 }
 
-/** Create a top-level folder. Returns the URL-safe name it was saved as. */
-export async function createFolder(name: string): Promise<string> {
+/** Create a folder (inside `parent` when given). Returns the id it was saved as. */
+export async function createFolder(name: string, parent: string | null = null): Promise<string> {
   const res = await fetch("/api/email/images", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeader()) },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, parent }),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error ?? "Couldn't create folder.");

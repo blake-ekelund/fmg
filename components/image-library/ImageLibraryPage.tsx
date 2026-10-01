@@ -16,16 +16,16 @@ import {
   FolderOpen,
   FolderInput,
   ChevronRight,
-  ArrowLeft,
   Trash2,
   CheckSquare,
   Square,
   Link2,
+  Package,
 } from "lucide-react";
 import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
 import { listImages, createFolder, deleteFolder, refileImages } from "./api";
 import ImageDetailModal from "./ImageDetailModal";
-import type { LibraryImage, ShareScope } from "./types";
+import type { LibraryFolder, LibraryImage, ShareScope } from "./types";
 
 function fileName(path: string): string {
   const base = path.split("/").pop() ?? path;
@@ -33,17 +33,38 @@ function fileName(path: string): string {
   return base.replace(/^\d+-/, "");
 }
 
-/** Folders are stored slugged ("sassy-holiday-2026") — show them with spaces. */
-function folderLabel(folder: string): string {
-  return folder.replace(/[-_]+/g, " ");
-}
-
-/** Where uploads land when no specific folder is open. */
+/** Where uploads land when the open folder can't take them. */
 const DEFAULT_FOLDER = "images";
 /** Old uploads at the bucket root — viewable, but nothing can be filed into it. */
 const ROOT = "root";
+/** Must match MAX_FOLDER_DEPTH in /api/email/images. */
+const MAX_FOLDER_DEPTH = 3;
 /** dataTransfer type for library images being dragged onto a folder. */
 const DRAG_TYPE = "application/x-fmg-library-images";
+
+/** "sassy-holiday-2026" → "Sassy Holiday 2026" (fallback until the server names it). */
+function titleCase(slug: string): string {
+  return slug.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function parentOf(id: string): string | null {
+  const i = id.lastIndexOf("/");
+  return i === -1 ? null : id.slice(0, i);
+}
+
+function depthOf(id: string): number {
+  return id.split("/").length;
+}
+
+/** Is `id` the folder `f` itself or anywhere inside it? */
+function within(id: string, f: string): boolean {
+  return id === f || id.startsWith(`${f}/`);
+}
+
+/** Library folders accept uploads / filing; product folders and "root" don't. */
+function writable(f: LibraryFolder | undefined): boolean {
+  return !!f && !f.readOnly && !f.id.startsWith("~") && f.id !== ROOT;
+}
 
 function prettySize(bytes: number): string {
   if (!bytes) return "";
@@ -64,17 +85,17 @@ function isFileDrag(e: React.DragEvent): boolean {
 
 export default function ImageLibraryPage() {
   const [images, setImages] = useState<LibraryImage[]>([]);
+  const [folderList, setFolderList] = useState<LibraryFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [query, setQuery] = useState("");
-  /** "all" = library home (folder tiles + every image); otherwise the open folder. */
-  const [folder, setFolder] = useState<string>("all");
+  /** null = library home (top-level folders + every library image). */
+  const [folder, setFolder] = useState<string | null>(null);
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [copied, setCopied] = useState<string | null>(null);
   const [selected, setSelected] = useState<LibraryImage | null>(null);
-  const [storedFolders, setStoredFolders] = useState<string[]>([]);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
@@ -96,7 +117,7 @@ export default function ImageLibraryPage() {
     try {
       const res = await listImages();
       setImages(res.images);
-      setStoredFolders(res.folders);
+      setFolderList(res.folders);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load images.");
     } finally {
@@ -114,9 +135,66 @@ export default function ImageLibraryPage() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  // Uploads go into the open folder ("root" can't be targeted).
-  const uploadTarget = folder !== "all" && folder !== ROOT ? folder : DEFAULT_FOLDER;
+  // ── Folder tree ──────────────────────────────────────────────────────────
+  const folderMap = useMemo(() => new Map(folderList.map((f) => [f.id, f])), [folderList]);
 
+  const nameOf = useCallback(
+    (id: string) => folderMap.get(id)?.name ?? titleCase(id.split("/").pop() ?? id),
+    [folderMap],
+  );
+
+  /** "Sassy holiday › Ads" — for pickers where the whole path matters. */
+  const pathName = useCallback(
+    (id: string) => {
+      const parts: string[] = [];
+      for (let p: string | null = id; p; p = parentOf(p)) parts.unshift(nameOf(p));
+      return parts.join(" › ");
+    },
+    [nameOf],
+  );
+
+  const childrenOf = useCallback(
+    (parent: string | null) =>
+      folderList
+        .filter((f) => parentOf(f.id) === parent)
+        // Library folders first, product folders after, each alphabetical.
+        .sort((a, b) => Number(a.readOnly) - Number(b.readOnly) || a.name.localeCompare(b.name)),
+    [folderList],
+  );
+
+  // Count + thumbnails include everything nested below a folder.
+  const folderStats = useMemo(() => {
+    const stats = new Map<string, { count: number; thumbs: LibraryImage[] }>();
+    for (const f of folderList) stats.set(f.id, { count: 0, thumbs: [] });
+    for (const i of images) {
+      for (let p: string | null = i.folder; p; p = parentOf(p)) {
+        const s = stats.get(p) ?? { count: 0, thumbs: [] };
+        s.count++;
+        if (s.thumbs.length < 4) s.thumbs.push(i);
+        stats.set(p, s);
+      }
+    }
+    return stats;
+  }, [images, folderList]);
+
+  const current = folder ? folderMap.get(folder) : undefined;
+  const canWriteHere = writable(current);
+  const canNestHere = canWriteHere && !!folder && depthOf(folder) < MAX_FOLDER_DEPTH;
+  // New folders go inside the open folder when it can hold one, else top level.
+  const newFolderParent = canNestHere ? folder : null;
+  // Uploads go into the open folder when it can take them.
+  const uploadTarget = canWriteHere && folder ? folder : DEFAULT_FOLDER;
+
+  const fileableFolders = useMemo(
+    () =>
+      folderList
+        .filter(writable)
+        .map((f) => f.id)
+        .sort((a, b) => pathName(a).localeCompare(pathName(b))),
+    [folderList, pathName],
+  );
+
+  // ── Actions ──────────────────────────────────────────────────────────────
   async function handleUpload(files: FileList | File[] | null, target = uploadTarget) {
     const list = Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
     if (list.length === 0) {
@@ -134,7 +212,7 @@ export default function ImageLibraryPage() {
     }
     setUploading(false);
     if (lastError) setError(lastError);
-    if (ok) setNotice(`Uploaded ${ok} image${ok === 1 ? "" : "s"} to ${folderLabel(target)}.`);
+    if (ok) setNotice(`Uploaded ${ok} image${ok === 1 ? "" : "s"} to ${pathName(target)}.`);
     await load();
   }
 
@@ -153,11 +231,15 @@ export default function ImageLibraryPage() {
     setFolderBusy(true);
     setError(null);
     try {
-      const created = await createFolder(newFolderName);
-      setStoredFolders((prev) => Array.from(new Set([...prev, created])).sort());
+      const created = await createFolder(newFolderName, newFolderParent);
+      setFolderList((prev) =>
+        prev.some((f) => f.id === created)
+          ? prev
+          : [...prev, { id: created, name: newFolderName.trim(), readOnly: false }],
+      );
       setNewFolderName("");
       setNewFolderOpen(false);
-      setNotice(`Created ${folderLabel(created)} — drag photos onto it to file them.`);
+      setNotice(`Created ${pathName(created)} — drag photos onto it to file them.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create folder.");
     } finally {
@@ -170,13 +252,19 @@ export default function ImageLibraryPage() {
     setError(null);
     try {
       await deleteFolder(f);
-      setStoredFolders((prev) => prev.filter((x) => x !== f));
-      if (folder === f) setFolder("all");
+      setFolderList((prev) => prev.filter((x) => x.id !== f));
+      setFolder(parentOf(f));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't delete folder.");
     } finally {
       setFolderBusy(false);
     }
+  }
+
+  function openFolder(id: string | null) {
+    setFolder(id);
+    setQuery("");
+    setNewFolderOpen(false);
   }
 
   function togglePick(path: string) {
@@ -196,7 +284,10 @@ export default function ImageLibraryPage() {
 
   /** Re-file images under a folder. A label change only — URLs never move. */
   async function moveImages(paths: string[], target: string) {
-    const toMove = paths.filter((p) => images.find((i) => i.path === p)?.folder !== target);
+    const toMove = paths.filter((p) => {
+      const img = images.find((i) => i.path === p);
+      return img && img.source === "library" && img.folder !== target;
+    });
     if (toMove.length === 0) return;
     setMoving(true);
     setError(null);
@@ -205,7 +296,7 @@ export default function ImageLibraryPage() {
       const moved = new Set(toMove);
       setImages((prev) => prev.map((i) => (moved.has(i.path) ? { ...i, folder: target } : i)));
       setNotice(
-        `Moved ${toMove.length} image${toMove.length === 1 ? "" : "s"} to ${folderLabel(target)}. Links are unchanged.`,
+        `Moved ${toMove.length} image${toMove.length === 1 ? "" : "s"} to ${pathName(target)}. Links are unchanged.`,
       );
       stopSelecting();
     } catch (e) {
@@ -233,7 +324,9 @@ export default function ImageLibraryPage() {
     setDragging(paths);
   }
 
+  /** Drop handlers for a writable folder (tile or breadcrumb). */
   function folderDropProps(target: string) {
+    if (!writable(folderMap.get(target))) return {};
     return {
       onDragOver: (e: React.DragEvent) => {
         if (!isImageDrag(e) && !isFileDrag(e)) return;
@@ -291,51 +384,103 @@ export default function ImageLibraryPage() {
     },
   };
 
-  // ── Derived ──────────────────────────────────────────────────────────────
-  // Image count per folder; empty folders (only a placeholder) show 0.
-  const folderCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const f of storedFolders) counts.set(f, 0);
-    for (const i of images) counts.set(i.folder, (counts.get(i.folder) ?? 0) + 1);
-    return counts;
-  }, [images, storedFolders]);
-
-  const allFolders = useMemo(() => Array.from(folderCounts.keys()).sort(), [folderCounts]);
-
-  // Folders an image can be filed into.
-  const fileableFolders = useMemo(() => allFolders.filter((f) => f !== ROOT), [allFolders]);
-
-  // Up to 4 recent thumbnails per folder for the tile mosaic.
-  const folderThumbs = useMemo(() => {
-    const m = new Map<string, LibraryImage[]>();
-    for (const i of images) {
-      const arr = m.get(i.folder) ?? [];
-      if (arr.length < 4) arr.push(i);
-      m.set(i.folder, arr);
-    }
-    return m;
-  }, [images]);
+  // ── What's on screen ─────────────────────────────────────────────────────
+  const searching = query.trim() !== "";
+  const subfolders = searching ? [] : childrenOf(folder);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return images.filter((i) => {
-      if (folder !== "all" && i.folder !== folder) return false;
-      if (scope !== "all" && i.shareScope !== scope) return false;
       if (q) {
-        const hay = `${fileName(i.path)} ${i.title ?? ""} ${i.altText ?? ""} ${folderLabel(i.folder)}`.toLowerCase();
+        // Search reaches everything inside the open folder (or the whole library).
+        if (folder && !within(i.folder, folder)) return false;
+        const hay = `${fileName(i.path)} ${i.title ?? ""} ${i.altText ?? ""} ${pathName(i.folder)}`.toLowerCase();
         if (!hay.includes(q)) return false;
+      } else if (folder) {
+        if (i.folder !== folder) return false;
+      } else if (i.source !== "library") {
+        // Home lists library images; product photos live in their folders.
+        return false;
       }
+      if (scope !== "all" && i.shareScope !== scope) return false;
       return true;
     });
-  }, [images, query, folder, scope]);
+  }, [images, query, folder, scope, pathName]);
 
-  const sharedCount = useMemo(
-    () => images.filter((i) => i.shareScope === "third_party").length,
-    [images],
-  );
+  const pickable = filtered.filter((i) => i.source === "library");
+  const folderTotal = folder ? folderStats.get(folder)?.count ?? 0 : images.length;
+  const folderEmpty = !!folder && folderTotal === 0 && childrenOf(folder).length === 0;
+  const crumbs: string[] = [];
+  for (let p = folder; p; p = parentOf(p)) crumbs.unshift(p);
 
-  const atHome = folder === "all";
-  const openCount = atHome ? images.length : folderCounts.get(folder) ?? 0;
+  function renderTile(f: LibraryFolder) {
+    const stats = folderStats.get(f.id) ?? { count: 0, thumbs: [] };
+    const hot = dropTarget === f.id;
+    const droppable = writable(f);
+    const isProduct = f.id.startsWith("~");
+    return (
+      <button
+        key={f.id}
+        onClick={() => openFolder(f.id)}
+        {...folderDropProps(f.id)}
+        className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white text-left transition ${
+          hot
+            ? "border-violet-500 ring-2 ring-violet-500 scale-[1.02] shadow-md"
+            : dragging && droppable
+              ? "border-dashed border-violet-300"
+              : "border-gray-200 hover:border-gray-300 hover:shadow-sm"
+        } ${dragging && !droppable ? "opacity-50" : ""}`}
+      >
+        <div className="grid aspect-[4/3] grid-cols-2 grid-rows-2 gap-px bg-gray-100">
+          {stats.thumbs.length === 0 ? (
+            <div className="col-span-2 row-span-2 flex items-center justify-center bg-gray-50">
+              <Folder size={32} className={hot ? "text-violet-500" : "text-gray-300"} />
+            </div>
+          ) : (
+            Array.from({ length: 4 }).map((_, idx) => {
+              const t = stats.thumbs[idx];
+              return t ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={t.path}
+                  src={t.url}
+                  alt=""
+                  draggable={false}
+                  loading="lazy"
+                  className="h-full w-full bg-gray-50 object-cover"
+                />
+              ) : (
+                <div key={idx} className="bg-gray-50" />
+              );
+            })
+          )}
+        </div>
+        {isProduct && (
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/95 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 shadow-sm">
+            <Package size={10} /> Product photos
+          </span>
+        )}
+        {hot && (
+          <div className="absolute inset-0 flex items-center justify-center bg-violet-600/15">
+            <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow">
+              {dragging ? "Move here" : "Upload here"}
+            </span>
+          </div>
+        )}
+        <div className="flex items-center gap-2 border-t border-gray-100 px-3 py-2">
+          {isProduct ? (
+            <Package size={14} className="shrink-0 text-amber-600" />
+          ) : (
+            <Folder size={14} className="shrink-0 text-violet-600" />
+          )}
+          <span className="flex-1 truncate text-xs font-medium text-gray-800" title={f.name}>
+            {f.name}
+          </span>
+          <span className="text-[11px] tabular-nums text-gray-400">{stats.count}</span>
+        </div>
+      </button>
+    );
+  }
 
   return (
     <div
@@ -352,7 +497,7 @@ export default function ImageLibraryPage() {
           <div className="rounded-2xl border-2 border-dashed border-violet-500 bg-white px-8 py-6 text-center shadow-lg">
             <Upload size={24} className="mx-auto mb-2 text-violet-600" />
             <div className="text-sm font-semibold text-gray-900">
-              Drop to upload to {folderLabel(uploadTarget)}
+              Drop to upload to {pathName(uploadTarget)}
             </div>
             <div className="mt-1 text-xs text-gray-500">Or drop onto a folder to upload there</div>
           </div>
@@ -364,9 +509,10 @@ export default function ImageLibraryPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Image Library</h1>
           <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-            Brand photos, logos, and graphics used across emails and the blog.
-            Organize them into folders by dragging, and mark the ones reps may
-            reuse as safe for 3rd-party sharing.
+            Brand photos, logos, and graphics used across emails and the blog, plus
+            every product photo from the catalog. Organize your own images into
+            folders by dragging, and mark the ones reps may reuse as safe for
+            3rd-party sharing.
           </p>
         </div>
 
@@ -376,16 +522,16 @@ export default function ImageLibraryPage() {
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition shadow-sm"
           >
             <FolderPlus size={16} />
-            New folder
+            {newFolderParent ? "New subfolder" : "New folder"}
           </button>
           <button
             onClick={() => fileRef.current?.click()}
             disabled={uploading}
-            title={`Uploads go into the "${folderLabel(uploadTarget)}" folder`}
+            title={`Uploads go into "${pathName(uploadTarget)}"`}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm disabled:opacity-50"
           >
             {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-            Upload to {folderLabel(uploadTarget)}
+            <span className="max-w-[16rem] truncate">Upload to {nameOf(uploadTarget)}</span>
           </button>
         </div>
         <input
@@ -400,6 +546,62 @@ export default function ImageLibraryPage() {
           }}
         />
       </div>
+
+      {/* Breadcrumb — every writable level is a drop target */}
+      <nav className="flex flex-wrap items-center gap-1 text-sm">
+        <button
+          onClick={() => openFolder(null)}
+          className={`rounded-lg px-2 py-1 font-medium ${
+            folder ? "text-gray-500 hover:bg-gray-100 hover:text-gray-800" : "text-gray-900"
+          }`}
+        >
+          All images
+        </button>
+        {crumbs.map((c, idx) => {
+          const last = idx === crumbs.length - 1;
+          const hot = dropTarget === c;
+          return (
+            <span key={c} className="inline-flex items-center gap-1">
+              <ChevronRight size={14} className="text-gray-300" />
+              <button
+                onClick={() => openFolder(c)}
+                {...(last ? {} : folderDropProps(c))}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${
+                  hot
+                    ? "bg-violet-100 text-violet-800 ring-2 ring-violet-500"
+                    : last
+                      ? "font-semibold text-gray-900"
+                      : "font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                }`}
+              >
+                {last && (c.startsWith("~") ? (
+                  <Package size={15} className="text-amber-600" />
+                ) : (
+                  <FolderOpen size={15} className="text-violet-600" />
+                ))}
+                {nameOf(c)}
+              </button>
+            </span>
+          );
+        })}
+        {folder && (
+          <span className="ml-1 text-xs text-gray-400 tabular-nums">· {folderTotal}</span>
+        )}
+        {folder && current?.readOnly && current.id.startsWith("~") && (
+          <span className="ml-2 text-xs text-gray-400">
+            Product photos are managed on each product&apos;s page.
+          </span>
+        )}
+        {folderEmpty && canWriteHere && (
+          <button
+            onClick={() => folder && void handleDeleteFolder(folder)}
+            disabled={folderBusy}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+          >
+            <Trash2 size={12} /> Delete empty folder
+          </button>
+        )}
+      </nav>
 
       {/* New folder */}
       {newFolderOpen && (
@@ -417,7 +619,7 @@ export default function ImageLibraryPage() {
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setNewFolderOpen(false)}
-            placeholder="Folder name, e.g. Sassy Holiday 2026"
+            placeholder={newFolderParent ? "Subfolder name, e.g. Instagram ads" : "Folder name, e.g. Sassy Holiday 2026"}
             maxLength={60}
             className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
           />
@@ -436,157 +638,49 @@ export default function ImageLibraryPage() {
           >
             Cancel
           </button>
+          <p className="w-full text-[11px] text-gray-500">
+            {newFolderParent ? (
+              <>
+                Inside <span className="font-medium">{pathName(newFolderParent)}</span>.
+              </>
+            ) : (
+              "At the top level of the library."
+            )}
+          </p>
         </form>
       )}
 
-      {/* Breadcrumb (inside a folder) */}
-      {!atHome && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setFolder("all")}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-          >
-            <ArrowLeft size={14} /> All images
-          </button>
-          <ChevronRight size={14} className="text-gray-300" />
-          <span className="inline-flex items-center gap-1.5 text-sm font-semibold capitalize text-gray-900">
-            <FolderOpen size={16} className="text-violet-600" />
-            {folderLabel(folder)}
-            <span className="font-normal text-gray-400 tabular-nums">· {openCount}</span>
-          </span>
-          {folder !== ROOT && openCount === 0 && (
-            <button
-              onClick={() => void handleDeleteFolder(folder)}
-              disabled={folderBusy}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-            >
-              <Trash2 size={12} /> Delete empty folder
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Folders */}
-      {!loading && (
-        atHome ? (
-          <section className="space-y-2">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Folders</h2>
-              <span className="text-[11px] text-gray-400">
-                {dragging ? "Drop on a folder to move" : "Drag photos onto a folder to file them"}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-              {allFolders.map((f) => {
-                const thumbs = folderThumbs.get(f) ?? [];
-                const count = folderCounts.get(f) ?? 0;
-                const hot = dropTarget === f;
-                const droppable = f !== ROOT;
-                return (
-                  <button
-                    key={f}
-                    onClick={() => setFolder(f)}
-                    {...(droppable ? folderDropProps(f) : {})}
-                    className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white text-left transition ${
-                      hot
-                        ? "border-violet-500 ring-2 ring-violet-500 scale-[1.02] shadow-md"
-                        : dragging && droppable
-                          ? "border-violet-300 border-dashed"
-                          : "border-gray-200 hover:border-gray-300 hover:shadow-sm"
-                    }`}
-                  >
-                    <div className="grid aspect-[4/3] grid-cols-2 grid-rows-2 gap-px bg-gray-100">
-                      {thumbs.length === 0 ? (
-                        <div className="col-span-2 row-span-2 flex items-center justify-center bg-gray-50">
-                          <Folder size={32} className={hot ? "text-violet-500" : "text-gray-300"} />
-                        </div>
-                      ) : (
-                        Array.from({ length: 4 }).map((_, idx) => {
-                          const t = thumbs[idx];
-                          return t ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              key={t.path}
-                              src={t.url}
-                              alt=""
-                              draggable={false}
-                              loading="lazy"
-                              className="h-full w-full bg-gray-50 object-cover"
-                            />
-                          ) : (
-                            <div key={idx} className="bg-gray-50" />
-                          );
-                        })
-                      )}
-                    </div>
-                    {hot && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-violet-600/15">
-                        <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow">
-                          {dragging ? `Move here` : "Upload here"}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 border-t border-gray-100 px-3 py-2">
-                      <Folder size={14} className="shrink-0 text-violet-600" />
-                      <span className="flex-1 truncate text-xs font-medium capitalize text-gray-800">
-                        {folderLabel(f)}
-                      </span>
-                      <span className="text-[11px] tabular-nums text-gray-400">{count}</span>
-                    </div>
-                  </button>
-                );
-              })}
+      {!loading && (subfolders.length > 0 || canNestHere || !folder) && (
+        <section className="space-y-2">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              {folder ? "Subfolders" : "Folders"}
+            </h2>
+            <span className="text-[11px] text-gray-400">
+              {dragging ? "Drop on a folder to move" : "Drag photos onto a folder to file them"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {subfolders.map(renderTile)}
+            {(!folder || canNestHere) && (
               <button
                 onClick={() => setNewFolderOpen(true)}
-                className="flex aspect-auto min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-gray-300 text-xs font-medium text-gray-500 transition hover:border-violet-400 hover:bg-violet-50/50 hover:text-violet-700"
+                className="flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-gray-300 text-xs font-medium text-gray-500 transition hover:border-violet-400 hover:bg-violet-50/50 hover:text-violet-700"
               >
                 <FolderPlus size={20} />
-                New folder
+                {folder ? "New subfolder" : "New folder"}
               </button>
-            </div>
-          </section>
-        ) : (
-          // Inside a folder: a compact strip of the other folders, still drop targets.
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[11px] text-gray-400">
-              {dragging ? "Drop on a folder to move:" : "Folders:"}
-            </span>
-            {allFolders.map((f) => {
-              const hot = dropTarget === f;
-              const current = f === folder;
-              const droppable = f !== ROOT && !current;
-              return (
-                <button
-                  key={f}
-                  onClick={() => setFolder(f)}
-                  {...(droppable ? folderDropProps(f) : {})}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium capitalize transition ${
-                    current
-                      ? "bg-violet-600 text-white"
-                      : hot
-                        ? "bg-violet-100 text-violet-800 ring-2 ring-violet-500"
-                        : dragging && droppable
-                          ? "bg-white text-gray-700 ring-1 ring-violet-300"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
-                >
-                  <Folder size={11} />
-                  {folderLabel(f)}
-                  <span className={`tabular-nums ${current ? "text-violet-200" : "text-gray-400"}`}>
-                    {folderCounts.get(f) ?? 0}
-                  </span>
-                </button>
-              );
-            })}
+            )}
           </div>
-        )
+        </section>
       )}
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
-        {atHome && (
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">All images</h2>
-        )}
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          {searching ? "Results" : folder ? "Images" : "All library images"}
+        </h2>
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search
             size={14}
@@ -596,7 +690,7 @@ export default function ImageLibraryPage() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={atHome ? "Search all images…" : `Search ${folderLabel(folder)}…`}
+            placeholder={folder ? `Search in ${nameOf(folder)}…` : "Search everything, incl. product photos…"}
             className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
           />
         </div>
@@ -623,20 +717,20 @@ export default function ImageLibraryPage() {
         </div>
 
         {!loading && (
-          <span className="ml-auto text-xs text-gray-400 tabular-nums">
-            {filtered.length} of {openCount} · {sharedCount} shared
-          </span>
+          <span className="ml-auto text-xs text-gray-400 tabular-nums">{filtered.length} shown</span>
         )}
 
-        <button
-          onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
-          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
-            selecting ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          }`}
-        >
-          <CheckSquare size={12} />
-          {selecting ? "Done" : "Select"}
-        </button>
+        {pickable.length > 0 && (
+          <button
+            onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+              selecting ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            <CheckSquare size={12} />
+            {selecting ? "Done" : "Select"}
+          </button>
+        )}
       </div>
 
       {/* Bulk re-file bar */}
@@ -647,30 +741,30 @@ export default function ImageLibraryPage() {
               ? "Click images to select them"
               : `${picked.size} selected — drag them onto a folder, or`}
           </span>
-          {filtered.length > 0 && (
+          {pickable.length > 0 && (
             <button
               onClick={() =>
                 setPicked((prev) =>
-                  filtered.every((i) => prev.has(i.path))
+                  pickable.every((i) => prev.has(i.path))
                     ? new Set()
-                    : new Set(filtered.map((i) => i.path)),
+                    : new Set(pickable.map((i) => i.path)),
                 )
               }
               className="rounded-lg px-2 py-1 font-medium text-violet-700 hover:bg-white"
             >
-              {filtered.every((i) => picked.has(i.path)) ? "Clear" : `Select all ${filtered.length}`}
+              {pickable.every((i) => picked.has(i.path)) ? "Clear" : `Select all ${pickable.length}`}
             </button>
           )}
           <div className="ml-auto flex items-center gap-2">
             <select
               value={moveTo}
               onChange={(e) => setMoveTo(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs capitalize focus:outline-none focus:ring-2 focus:ring-violet-300"
+              className="max-w-[18rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-300"
             >
               <option value="">Move to folder…</option>
               {fileableFolders.map((f) => (
                 <option key={f} value={f}>
-                  {folderLabel(f)}
+                  {pathName(f)}
                 </option>
               ))}
             </select>
@@ -707,39 +801,43 @@ export default function ImageLibraryPage() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 rounded-2xl border border-dashed border-gray-200 bg-white/60">
-          <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-            <ImageIcon size={24} className="text-gray-400" />
+        // Inside a folder that only holds subfolders, the tiles above say it all.
+        folder && !searching && subfolders.length > 0 ? null : (
+          <div className="flex flex-col items-center justify-center py-16 rounded-2xl border border-dashed border-gray-200 bg-white/60">
+            <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+              <ImageIcon size={24} className="text-gray-400" />
+            </div>
+            <h3 className="text-sm font-medium text-gray-700 mb-1">
+              {searching ? "No matches" : folder ? "This folder is empty" : "No images yet"}
+            </h3>
+            <p className="text-xs text-gray-400 max-w-sm text-center">
+              {searching
+                ? "Try a different search or sharing filter."
+                : canWriteHere || !folder
+                  ? "Drag photos from your computer onto this page to upload them here, or drag existing images onto this folder."
+                  : "Nothing here yet."}
+            </p>
           </div>
-          <h3 className="text-sm font-medium text-gray-700 mb-1">
-            {images.length === 0
-              ? "No images yet"
-              : !atHome && openCount === 0
-                ? "This folder is empty"
-                : "No matches"}
-          </h3>
-          <p className="text-xs text-gray-400 max-w-sm text-center">
-            {images.length === 0 || (!atHome && openCount === 0)
-              ? "Drag photos from your computer onto this page to upload them here, or drag existing images onto this folder from All images."
-              : "Try a different search or sharing filter."}
-          </p>
-        </div>
+        )
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {filtered.map((img) => {
+            const isLibrary = img.source === "library";
             const isPicked = selecting && picked.has(img.path);
             const isDragging = dragging?.includes(img.path) ?? false;
             return (
               <button
                 key={img.path}
-                draggable
-                onDragStart={(e) => onImageDragStart(e, img)}
-                onClick={() => (selecting ? togglePick(img.path) : setSelected(img))}
-                className={`group flex flex-col overflow-hidden rounded-2xl border bg-white text-left transition hover:shadow-sm cursor-grab active:cursor-grabbing ${
+                draggable={isLibrary}
+                onDragStart={isLibrary ? (e) => onImageDragStart(e, img) : undefined}
+                onClick={() => (selecting && isLibrary ? togglePick(img.path) : setSelected(img))}
+                className={`group flex flex-col overflow-hidden rounded-2xl border bg-white text-left transition hover:shadow-sm ${
+                  isLibrary ? "cursor-grab active:cursor-grabbing" : ""
+                } ${
                   isPicked
                     ? "border-violet-500 ring-2 ring-violet-500"
                     : "border-gray-200 hover:border-gray-300"
-                } ${isDragging ? "opacity-40" : ""}`}
+                } ${isDragging ? "opacity-40" : ""} ${selecting && !isLibrary ? "opacity-50" : ""}`}
               >
                 <div className="relative flex aspect-square items-center justify-center bg-gray-50">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -751,20 +849,29 @@ export default function ImageLibraryPage() {
                     loading="lazy"
                   />
 
-                  {/* Sharing badge */}
-                  <span
-                    className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                      img.shareScope === "third_party"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-gray-100 text-gray-500"
-                    }`}
-                    title={img.shareScope === "third_party" ? "Shared on rep portal" : "Internal only"}
-                  >
-                    {img.shareScope === "third_party" ? <Globe size={10} /> : <Lock size={10} />}
-                    {img.shareScope === "third_party" ? "3rd party" : "Internal"}
-                  </span>
+                  {/* Sharing / source badge */}
+                  {isLibrary ? (
+                    <span
+                      className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                        img.shareScope === "third_party"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-gray-100 text-gray-500"
+                      }`}
+                      title={img.shareScope === "third_party" ? "Shared on rep portal" : "Internal only"}
+                    >
+                      {img.shareScope === "third_party" ? <Globe size={10} /> : <Lock size={10} />}
+                      {img.shareScope === "third_party" ? "3rd party" : "Internal"}
+                    </span>
+                  ) : (
+                    <span
+                      className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                      title="Product photo — managed on the product page"
+                    >
+                      <Package size={10} /> Product
+                    </span>
+                  )}
 
-                  {selecting && (
+                  {selecting && isLibrary && (
                     <span className="absolute right-2 top-2 rounded bg-white/95 text-violet-600 shadow-sm">
                       {isPicked ? <CheckSquare size={18} /> : <Square size={18} className="text-gray-400" />}
                     </span>
@@ -815,9 +922,9 @@ export default function ImageLibraryPage() {
                     {img.title || fileName(img.path)}
                   </div>
                   <div className="mt-0.5 flex items-center justify-between text-[10px] text-gray-400">
-                    <span className="inline-flex items-center gap-1 truncate capitalize">
+                    <span className="inline-flex items-center gap-1 truncate" title={pathName(img.folder)}>
                       <Folder size={10} className="shrink-0" />
-                      {folderLabel(img.folder)}
+                      {nameOf(img.folder)}
                     </span>
                     <span className="shrink-0 tabular-nums">{prettySize(img.size)}</span>
                   </div>
@@ -831,7 +938,8 @@ export default function ImageLibraryPage() {
       {selected && (
         <ImageDetailModal
           image={selected}
-          folders={fileableFolders}
+          folders={fileableFolders.map((id) => ({ id, label: pathName(id) }))}
+          currentFolderLabel={pathName(selected.folder)}
           onClose={() => setSelected(null)}
           onSaved={(updated) => {
             setImages((prev) => prev.map((i) => (i.path === updated.path ? updated : i)));

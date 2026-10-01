@@ -10,17 +10,15 @@ import {
   ExternalLink,
   Globe,
   Lock,
+  Package,
 } from "lucide-react";
+import Link from "next/link";
 import { updateImageMeta, deleteImage } from "./api";
 import type { LibraryImage, ShareScope } from "./types";
 
 function fileName(path: string): string {
   const base = path.split("/").pop() ?? path;
   return base.replace(/^\d+-/, "");
-}
-
-function folderLabel(folder: string): string {
-  return folder.replace(/[-_]+/g, " ");
 }
 
 function prettySize(bytes: number): string {
@@ -33,13 +31,16 @@ function prettySize(bytes: number): string {
 export default function ImageDetailModal({
   image,
   folders,
+  currentFolderLabel,
   onClose,
   onSaved,
   onDeleted,
 }: {
   image: LibraryImage;
-  /** Folders the image can be filed into. */
-  folders: string[];
+  /** Folders the image can be filed into, with their full-path labels. */
+  folders: { id: string; label: string }[];
+  /** Full-path label of the folder the image is in now. */
+  currentFolderLabel: string;
   onClose: () => void;
   onSaved: (updated: LibraryImage) => void;
   onDeleted: (path: string) => void;
@@ -114,6 +115,8 @@ export default function ImageDetailModal({
     }
   }
 
+  const isProduct = image.source === "product";
+
   const dirty =
     title !== (image.title ?? "") ||
     altText !== (image.altText ?? "") ||
@@ -133,7 +136,7 @@ export default function ImageDetailModal({
         {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-5 py-3">
           <h2 className="truncate text-sm font-semibold text-gray-900" title={fileName(image.path)}>
-            {fileName(image.path)}
+            {isProduct ? image.title : fileName(image.path)}
           </h2>
           <button
             onClick={onClose}
@@ -174,7 +177,42 @@ export default function ImageDetailModal({
             </p>
           </div>
 
-          {/* Metadata form */}
+          {isProduct ? (
+            // Product photos come from the catalog — edited on the product page.
+            <div className="space-y-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+                  <Package size={16} /> Product photo
+                </div>
+                <p className="mt-1 text-xs text-amber-800">
+                  This image comes from the product catalog, so it can&apos;t be renamed,
+                  moved, or deleted here. Change it on the product&apos;s page and it updates
+                  everywhere — the storefront, the rep portal, and this library.
+                </p>
+              </div>
+              <dl className="space-y-2 text-xs">
+                <div>
+                  <dt className="font-medium text-gray-500">Folder</dt>
+                  <dd className="text-gray-900">{currentFolderLabel}</dd>
+                </div>
+                {image.productPart && (
+                  <div>
+                    <dt className="font-medium text-gray-500">Part</dt>
+                    <dd className="font-mono text-gray-900">{image.productPart}</dd>
+                  </div>
+                )}
+              </dl>
+              {image.productPart && (
+                <Link
+                  href={`/products/${encodeURIComponent(image.productPart)}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800"
+                >
+                  Open product page <ExternalLink size={12} />
+                </Link>
+              )}
+            </div>
+          ) : (
+          /* Metadata form */
           <div className="space-y-4">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
@@ -186,12 +224,15 @@ export default function ImageDetailModal({
               <select
                 value={folder}
                 onChange={(e) => setFolder(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm capitalize focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
               >
                 {/* Keep the current value selectable even if it isn't fileable (e.g. "root"). */}
-                {(folders.includes(image.folder) ? folders : [image.folder, ...folders]).map((f) => (
-                  <option key={f} value={f}>
-                    {folderLabel(f)}
+                {(folders.some((f) => f.id === image.folder)
+                  ? folders
+                  : [{ id: image.folder, label: currentFolderLabel }, ...folders]
+                ).map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
                   </option>
                 ))}
               </select>
@@ -264,6 +305,7 @@ export default function ImageDetailModal({
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {error && (
@@ -274,7 +316,9 @@ export default function ImageDetailModal({
 
         {/* Footer */}
         <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
-          {confirmDelete ? (
+          {isProduct ? (
+            <span />
+          ) : confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-600">Delete permanently?</span>
               <button
@@ -309,6 +353,7 @@ export default function ImageDetailModal({
             >
               Close
             </button>
+            {!isProduct && (
             <button
               onClick={handleSave}
               disabled={saving || !dirty}
@@ -317,6 +362,7 @@ export default function ImageDetailModal({
               {saving && <Loader2 size={13} className="animate-spin" />}
               Save
             </button>
+            )}
           </div>
         </div>
       </div>
