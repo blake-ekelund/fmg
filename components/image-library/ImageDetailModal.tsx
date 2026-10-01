@@ -178,12 +178,15 @@ export default function ImageDetailModal({
           <div className="space-y-4">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                Folder <span className="font-normal text-gray-400">— moving keeps the same URL</span>
+                Folder{" "}
+                <span className="font-normal text-gray-400">
+                  — moving keeps the same link, so emails using it don&apos;t break
+                </span>
               </label>
               <select
                 value={folder}
                 onChange={(e) => setFolder(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm capitalize focus:outline-none focus:ring-2 focus:ring-gray-300"
               >
                 {/* Keep the current value selectable even if it isn't fileable (e.g. "root"). */}
                 {(folders.includes(image.folder) ? folders : [image.folder, ...folders]).map((f) => (
