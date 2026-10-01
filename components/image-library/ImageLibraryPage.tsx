@@ -32,6 +32,8 @@ const ROOT = "root";
 const MAX_FOLDER_DEPTH = 3;
 /** dataTransfer type for library images being dragged onto a folder. */
 const DRAG_TYPE = "application/x-fmg-library-images";
+/** Images rendered per batch — a brand folder holds hundreds of product photos. */
+const BATCH = 60;
 
 /** "sassy-holiday-2026" → "Sassy Holiday 2026" (fallback until the server names it). */
 function titleCase(slug: string): string {
@@ -80,6 +82,7 @@ export default function ImageLibraryPage() {
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [copied, setCopied] = useState<string | null>(null);
   const [selected, setSelected] = useState<LibraryImage | null>(null);
+  const [visible, setVisible] = useState(BATCH);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
@@ -381,7 +384,8 @@ export default function ImageLibraryPage() {
         const hay = `${fileName(i.path)} ${i.title ?? ""} ${i.altText ?? ""} ${pathName(i.folder)}`.toLowerCase();
         if (!hay.includes(q)) return false;
       } else if (folder) {
-        if (i.folder !== folder) return false;
+        // A folder shows everything inside it, subfolders included.
+        if (!within(i.folder, folder)) return false;
       } else if (i.source !== "library") {
         // Home lists library images; product photos live in their folders.
         return false;
@@ -391,9 +395,11 @@ export default function ImageLibraryPage() {
     });
   }, [images, query, folder, scope, pathName]);
 
+  // Start each folder / search / filter back at the first batch.
+  useEffect(() => setVisible(BATCH), [folder, query, scope]);
+
   const pickable = filtered.filter((i) => i.source === "library");
-  // A folder that only holds subfolders (e.g. a brand's product folders) needs no "Images" block.
-  const onlySubfolders = !!folder && !searching && filtered.length === 0 && subfolders.length > 0;
+  const shown = filtered.slice(0, visible);
   const folderTotal = folder ? folderStats.get(folder)?.count ?? 0 : images.length;
   const folderEmpty = !!folder && folderTotal === 0 && childrenOf(folder).length === 0;
   const crumbs: string[] = [];
@@ -642,7 +648,10 @@ export default function ImageLibraryPage() {
       <section className="mt-10">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <h2 className="mr-auto text-lg font-semibold text-gray-900">
-            {searching ? "Search results" : onlySubfolders ? "" : "Images"}
+            {searching ? "Search results" : subfolders.length > 0 ? "All images" : "Images"}
+            {!loading && filtered.length > 0 && (
+              <span className="ml-2 text-base font-normal text-gray-400 tabular-nums">{filtered.length}</span>
+            )}
           </h2>
 
           <div className="relative w-full sm:w-72">
@@ -736,7 +745,7 @@ export default function ImageLibraryPage() {
               <div key={i} className="aspect-square animate-pulse rounded-2xl bg-gray-100" />
             ))}
           </div>
-        ) : onlySubfolders ? null : filtered.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-gray-200 py-20 text-center">
             <ImageIcon size={40} className="mb-4 text-gray-300" />
             <p className="text-lg font-medium text-gray-800">
@@ -751,8 +760,9 @@ export default function ImageLibraryPage() {
             </p>
           </div>
         ) : (
+          <>
           <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {filtered.map((img) => {
+            {shown.map((img) => {
               const isLibrary = img.source === "library";
               const isPicked = selecting && picked.has(img.path);
               const isDragging = dragging?.includes(img.path) ?? false;
@@ -827,13 +837,30 @@ export default function ImageLibraryPage() {
                   >
                     {displayName(img)}
                   </div>
-                  {searching && (
-                    <div className="truncate px-0.5 text-sm text-gray-500">{pathName(img.folder)}</div>
+                  {/* Say where it lives when that isn't the open folder (product titles already do). */}
+                  {isLibrary && (searching || img.folder !== folder) && (
+                    <div className="truncate px-0.5 text-sm text-gray-500">
+                      {searching ? pathName(img.folder) : nameOf(img.folder)}
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
+          {filtered.length > visible && (
+            <div className="mt-10 flex flex-col items-center gap-2">
+              <button
+                onClick={() => setVisible((v) => v + BATCH * 2)}
+                className="rounded-full border border-gray-300 bg-white px-6 py-2.5 text-[15px] font-medium text-gray-800 hover:bg-gray-50"
+              >
+                Show more
+              </button>
+              <span className="text-sm text-gray-500 tabular-nums">
+                Showing {visible} of {filtered.length}
+              </span>
+            </div>
+          )}
+          </>
         )}
       </section>
 
