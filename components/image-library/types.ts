@@ -10,6 +10,8 @@ export type LibraryImage = {
   altText: string | null;
   description: string | null;
   shareScope: ShareScope;
+  /** Folder it's filed in — its label if re-filed, else where it was uploaded. */
+  folder: string;
 };
 
 export type MetaPatch = {
@@ -17,4 +19,5 @@ export type MetaPatch = {
   altText?: string;
   description?: string;
   shareScope?: ShareScope;
+  folder?: string;
 };

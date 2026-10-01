@@ -19,6 +19,10 @@ function fileName(path: string): string {
   return base.replace(/^\d+-/, "");
 }
 
+function folderLabel(folder: string): string {
+  return folder.replace(/[-_]+/g, " ");
+}
+
 function prettySize(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -28,11 +32,14 @@ function prettySize(bytes: number): string {
 
 export default function ImageDetailModal({
   image,
+  folders,
   onClose,
   onSaved,
   onDeleted,
 }: {
   image: LibraryImage;
+  /** Folders the image can be filed into. */
+  folders: string[];
   onClose: () => void;
   onSaved: (updated: LibraryImage) => void;
   onDeleted: (path: string) => void;
@@ -41,6 +48,7 @@ export default function ImageDetailModal({
   const [altText, setAltText] = useState(image.altText ?? "");
   const [description, setDescription] = useState(image.description ?? "");
   const [shareScope, setShareScope] = useState<ShareScope>(image.shareScope);
+  const [folder, setFolder] = useState(image.folder);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -53,6 +61,7 @@ export default function ImageDetailModal({
     setAltText(image.altText ?? "");
     setDescription(image.description ?? "");
     setShareScope(image.shareScope);
+    setFolder(image.folder);
     setConfirmDelete(false);
     setError(null);
   }, [image]);
@@ -61,13 +70,20 @@ export default function ImageDetailModal({
     setSaving(true);
     setError(null);
     try {
-      await updateImageMeta(image.path, { title, altText, description, shareScope });
+      await updateImageMeta(image.path, {
+        title,
+        altText,
+        description,
+        shareScope,
+        ...(folder !== image.folder ? { folder } : {}),
+      });
       onSaved({
         ...image,
         title: title.trim() || null,
         altText: altText.trim() || null,
         description: description.trim() || null,
         shareScope,
+        folder,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save changes.");
@@ -102,7 +118,8 @@ export default function ImageDetailModal({
     title !== (image.title ?? "") ||
     altText !== (image.altText ?? "") ||
     description !== (image.description ?? "") ||
-    shareScope !== image.shareScope;
+    shareScope !== image.shareScope ||
+    folder !== image.folder;
 
   return (
     <div
@@ -159,6 +176,23 @@ export default function ImageDetailModal({
 
           {/* Metadata form */}
           <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Folder <span className="font-normal text-gray-400">— moving keeps the same URL</span>
+              </label>
+              <select
+                value={folder}
+                onChange={(e) => setFolder(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+              >
+                {/* Keep the current value selectable even if it isn't fileable (e.g. "root"). */}
+                {(folders.includes(image.folder) ? folders : [image.folder, ...folders]).map((f) => (
+                  <option key={f} value={f}>
+                    {folderLabel(f)}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">Title</label>
               <input
