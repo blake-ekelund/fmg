@@ -70,7 +70,21 @@ function isFileDrag(e: React.DragEvent): boolean {
   return !isImageDrag(e) && Array.from(e.dataTransfer.types).includes("Files");
 }
 
-export default function ImageLibraryPage() {
+/**
+ * Pick mode: the same library, embedded in the email / blog editors' image
+ * picker. Clicking an image uses it; uploads go to the editor's inbox (or the
+ * open folder) and the first one is used straight away. Filing tools (select,
+ * drag-to-move, the detail editor) stay on the Image Library page.
+ */
+export type PickOptions = {
+  onPick: (url: string) => void;
+  /** Inbox uploads land in when no writable folder is open. */
+  inbox: string;
+  /** Replaces the email resize-and-upload (the blog keeps full resolution). */
+  uploader?: (file: File, folder: string) => Promise<{ url: string } | { error: string }>;
+};
+
+export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) {
   const [images, setImages] = useState<LibraryImage[]>([]);
   const [folderList, setFolderList] = useState<LibraryFolder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,6 +113,7 @@ export default function ImageLibraryPage() {
   const [fileHover, setFileHover] = useState(false);
   const fileDragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -178,7 +193,7 @@ export default function ImageLibraryPage() {
   // New folders go inside the open folder when it can hold one, else top level.
   const newFolderParent = canNestHere ? folder : null;
   // Uploads go into the open folder when it can take them.
-  const uploadTarget = canWriteHere && folder ? folder : DEFAULT_FOLDER;
+  const uploadTarget = canWriteHere && folder ? folder : pick?.inbox ?? DEFAULT_FOLDER;
 
   const fileableFolders = useMemo(
     () =>
@@ -199,13 +214,22 @@ export default function ImageLibraryPage() {
     setUploading(true);
     setError(null);
     let lastError: string | null = null;
+    let firstUrl: string | null = null;
     let ok = 0;
     for (const file of list) {
-      const res = await uploadEmailImage(file, target);
+      const res = pick?.uploader ? await pick.uploader(file, target) : await uploadEmailImage(file, target);
       if ("error" in res) lastError = res.error;
-      else ok++;
+      else {
+        ok++;
+        firstUrl ??= res.url;
+      }
     }
     setUploading(false);
+    // Picking: an upload is a choice — use it right away.
+    if (pick && firstUrl) {
+      pick.onPick(firstUrl);
+      return;
+    }
     if (lastError) setError(lastError);
     if (ok) setNotice(`Uploaded ${ok} image${ok === 1 ? "" : "s"} to ${pathName(target)}.`);
     await load();
@@ -258,6 +282,8 @@ export default function ImageLibraryPage() {
 
   function openFolder(id: string | null) {
     setFolder(id);
+    // Start each folder at the top (the page, or the picker's scroll area).
+    rootRef.current?.scrollIntoView({ block: "start" });
     setQuery("");
     setNewFolderOpen(false);
   }
@@ -477,7 +503,8 @@ export default function ImageLibraryPage() {
 
   return (
     <div
-      className="relative mx-auto max-w-[1400px] px-4 py-8 md:px-10 md:py-10"
+      ref={rootRef}
+      className={pick ? "relative px-6 py-5" : "relative mx-auto max-w-[1400px] px-4 py-8 md:px-10 md:py-10"}
       {...pageDropProps}
       onDragEnd={() => {
         setDragging(null);
@@ -544,7 +571,9 @@ export default function ImageLibraryPage() {
             })}
           </nav>
         ) : (
-          <h1 className="text-3xl font-semibold tracking-tight text-gray-900">Image Library</h1>
+          <h1 className={`${pick ? "text-2xl" : "text-3xl"} font-semibold tracking-tight text-gray-900`}>
+            Image Library
+          </h1>
         )}
 
         <div className="flex items-center gap-2">
@@ -681,7 +710,7 @@ export default function ImageLibraryPage() {
             <option value="internal">Internal only</option>
           </select>
 
-          {pickable.length > 0 && !selecting && (
+          {!pick && pickable.length > 0 && !selecting && (
             <button
               onClick={() => setSelecting(true)}
               className="rounded-full px-4 py-2.5 text-[15px] font-medium text-gray-700 hover:bg-gray-100"
@@ -771,11 +800,17 @@ export default function ImageLibraryPage() {
               return (
                 <div key={img.path} className={`group ${isDragging ? "opacity-30" : ""}`}>
                   <button
-                    draggable={isLibrary}
-                    onDragStart={isLibrary ? (e) => onImageDragStart(e, img) : undefined}
-                    onClick={() => (selecting && isLibrary ? togglePick(img.path) : setSelected(img))}
+                    draggable={isLibrary && !pick}
+                    onDragStart={isLibrary && !pick ? (e) => onImageDragStart(e, img) : undefined}
+                    onClick={() =>
+                      pick
+                        ? pick.onPick(img.url)
+                        : selecting && isLibrary
+                          ? togglePick(img.path)
+                          : setSelected(img)
+                    }
                     className={`relative block aspect-square w-full overflow-hidden rounded-2xl bg-gray-100 transition ${
-                      isLibrary ? "cursor-grab active:cursor-grabbing" : ""
+                      isLibrary && !pick ? "cursor-grab active:cursor-grabbing" : ""
                     } ${
                       isPicked
                         ? "ring-4 ring-violet-500 ring-offset-2"
@@ -811,7 +846,13 @@ export default function ImageLibraryPage() {
                       </span>
                     )}
 
-                    {!selecting && (
+                    {pick && (
+                      <span className="absolute bottom-2.5 right-2.5 rounded-full bg-violet-600 px-3 py-1.5 text-sm font-medium text-white opacity-0 shadow-sm transition group-hover:opacity-100">
+                        Use image
+                      </span>
+                    )}
+
+                    {!selecting && !pick && (
                       <span
                         role="button"
                         tabIndex={-1}
