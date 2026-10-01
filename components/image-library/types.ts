@@ -19,6 +19,8 @@ export type LibraryImage = {
   source: "library" | "product";
   /** Product photos: the inventory part, for linking to the product page. */
   productPart?: string;
+  /** Product photos also show in these folders (their collection + category). */
+  alsoIn?: string[];
 };
 
 /**
@@ -31,6 +33,8 @@ export type LibraryFolder = {
   readOnly: boolean;
   /** Landing folder for uploads nobody filed (Email / Blog / Library uploads). */
   kind?: "inbox";
+  /** Fixed position among siblings (Collections, Categories, Products). */
+  order?: number;
 };
 
 export type MetaPatch = {

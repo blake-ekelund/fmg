@@ -55,6 +55,16 @@ function within(id: string, f: string): boolean {
   return id === f || id.startsWith(`${f}/`);
 }
 
+/** Every folder an image shows in: its home, plus (product photos) collection + category. */
+function placesOf(img: LibraryImage): string[] {
+  return img.alsoIn?.length ? [img.folder, ...img.alsoIn] : [img.folder];
+}
+
+/** Does the image show anywhere inside folder `f`? */
+function inFolder(img: LibraryImage, f: string): boolean {
+  return placesOf(img).some((p) => within(p, f));
+}
+
 /** Library folders accept uploads / filing; product folders and "root" don't. */
 function writable(f: LibraryFolder | undefined): boolean {
   return !!f && !f.readOnly && !f.id.startsWith("~") && f.id !== ROOT;
@@ -165,17 +175,23 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
           (a, b) =>
             Number(b.kind === "inbox") - Number(a.kind === "inbox") ||
             Number(a.readOnly) - Number(b.readOnly) ||
+            (a.order ?? 0) - (b.order ?? 0) ||
             a.name.localeCompare(b.name),
         ),
     [folderList],
   );
 
-  // Count + thumbnails include everything nested below a folder.
+  // Count + thumbnails include everything nested below a folder. An image that
+  // shows in several places (product photos) counts once per folder.
   const folderStats = useMemo(() => {
     const stats = new Map<string, { count: number; thumbs: LibraryImage[] }>();
     for (const f of folderList) stats.set(f.id, { count: 0, thumbs: [] });
     for (const i of images) {
-      for (let p: string | null = i.folder; p; p = parentOf(p)) {
+      const reached = new Set<string>();
+      for (const place of placesOf(i)) {
+        for (let p: string | null = place; p; p = parentOf(p)) reached.add(p);
+      }
+      for (const p of reached) {
         const s = stats.get(p) ?? { count: 0, thumbs: [] };
         s.count++;
         if (s.thumbs.length < 4) s.thumbs.push(i);
@@ -414,12 +430,13 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
     return images.filter((i) => {
       if (q) {
         // Search reaches everything inside the open folder (or the whole library).
-        if (folder && !within(i.folder, folder)) return false;
-        const hay = `${fileName(i.path)} ${i.title ?? ""} ${i.altText ?? ""} ${pathName(i.folder)}`.toLowerCase();
+        if (folder && !inFolder(i, folder)) return false;
+        const places = placesOf(i).map(pathName).join(" ");
+        const hay = `${fileName(i.path)} ${i.title ?? ""} ${i.altText ?? ""} ${places}`.toLowerCase();
         if (!hay.includes(q)) return false;
       } else if (folder) {
         // A folder shows everything inside it, subfolders included.
-        if (!within(i.folder, folder)) return false;
+        if (!inFolder(i, folder)) return false;
       } else if (i.source !== "library") {
         // Home lists library images; product photos live in their folders.
         return false;

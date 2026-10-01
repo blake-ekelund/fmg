@@ -139,6 +139,32 @@ function productFolderName(displayName: string | null, fragrance: string | null,
   return scent && !base.toLowerCase().includes(scent.toLowerCase()) ? `${base} · ${scent}` : base;
 }
 
+/**
+ * A product's scent collection ("Sea Salt", "Grapefruit"), from `fragrance`.
+ * Null for placeholders and internal codes ("N/A", "Complete", "KLM",
+ * "SSC/EUC/LAV") so they don't become junk folders.
+ */
+function collectionOf(fragrance: string | null): string | null {
+  const f = fragrance?.trim();
+  if (!f || /^(n\/a|complete|header|frag free)$/i.test(f) || f.includes("/") || /^[A-Z]{2,4}$/.test(f)) return null;
+  return f;
+}
+
+/**
+ * A product's category ("Mini Hand Creme", "Body Butter"), from `product_form`,
+ * tidied so near-duplicates share one folder: brand tails dropped, holiday
+ * variants folded in, per-scent lip butters / gift sets / displays grouped.
+ */
+function categoryOf(form: string | null, displayName: string | null): string | null {
+  let c = (form || displayName || "").replace(/\s+[l|]\s+Sassy \+ Co\s*$/i, "").trim();
+  if (!c) return null;
+  if (/display|spinner|marketing materials/i.test(c)) return "Displays & Marketing";
+  if (/gift set|prepack/i.test(c)) return "Gift Sets";
+  if (/spf 30 lip butter/i.test(c)) return "SPF 30 Lip Butter";
+  c = c.replace(/^holiday\s+/i, "");
+  return c;
+}
+
 /** "sassy-holiday-2026" → "Sassy Holiday 2026". */
 function prettySegment(seg: string): string {
   return seg.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -156,9 +182,11 @@ type Img = FileEntry & {
   folder: string;
   source: "library" | "product";
   productPart?: string;
+  /** Product photos also show in these folders (their collection + category). */
+  alsoIn?: string[];
 };
 
-type Folder = { id: string; name: string; readOnly: boolean; kind?: "inbox" };
+type Folder = { id: string; name: string; readOnly: boolean; kind?: "inbox"; order?: number };
 
 type MetaRow = {
   path: string;
@@ -253,7 +281,15 @@ async function librarySnapshot(): Promise<{ images: Img[]; folders: Set<string>;
   return { images, folders, meta };
 }
 
-/** Media Kit product photos, grouped Brand → product. Never fails the page. */
+/**
+ * Media Kit product photos, organized per brand three ways at once:
+ *   <Brand> Products › Collections › Sea Salt
+ *                   › Categories  › Body Butter
+ *                   › Products    › Body Butter · Sea Salt
+ * Each photo has one home (its product folder) and `alsoIn` its collection
+ * and category folders, so it shows up in all three without being copied.
+ * Testers live under Products only. Never fails the page.
+ */
 async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> {
   try {
     // PostgREST caps each response (1000 rows), so page — with a unique
@@ -273,13 +309,20 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
     }
     if (rows.length === 0) return { images: [], folders: [] };
 
-    type ProductRow = { part: string; display_name: string | null; fragrance: string | null; brand: string | null };
+    type ProductRow = {
+      part: string;
+      display_name: string | null;
+      fragrance: string | null;
+      product_form: string | null;
+      is_tester: boolean | null;
+      brand: string | null;
+    };
     const parts = Array.from(new Set(rows.map((r) => r.part)));
     const byPart = new Map<string, ProductRow>();
     for (let i = 0; i < parts.length; i += 200) {
       const { data } = await supabaseServer
         .from("inventory_products")
-        .select("part, display_name, fragrance, brand")
+        .select("part, display_name, fragrance, product_form, is_tester, brand")
         .in("part", parts.slice(i, i + 200));
       for (const p of (data ?? []) as ProductRow[]) byPart.set(p.part, p);
     }
@@ -291,10 +334,31 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
       const p = byPart.get(r.part);
       const brand = p?.brand || "Other";
       const brandId = `${PRODUCT_PREFIX}-${slugFolder(brand) || "other"}`;
-      const productId = `${brandId}/${r.part}`;
       const productName = productFolderName(p?.display_name ?? null, p?.fragrance ?? null, r.part);
+      const group = (key: string, name: string, order: number) => {
+        const id = `${brandId}/${key}`;
+        folders.set(id, { id, name, readOnly: true, order });
+        return id;
+      };
       folders.set(brandId, { id: brandId, name: BRAND_NAMES[brand] ?? `${brand} Products`, readOnly: true });
+      const productId = `${group("products", "Products", 3)}/${r.part}`;
       folders.set(productId, { id: productId, name: productName, readOnly: true });
+
+      const alsoIn: string[] = [];
+      if (!p?.is_tester) {
+        const collection = collectionOf(p?.fragrance ?? null);
+        if (collection) {
+          const id = `${group("collections", "Collections", 1)}/${slugFolder(collection)}`;
+          folders.set(id, { id, name: collection, readOnly: true });
+          alsoIn.push(id);
+        }
+        const category = categoryOf(p?.product_form ?? null, p?.display_name ?? null);
+        if (category) {
+          const id = `${group("categories", "Categories", 2)}/${slugFolder(category)}`;
+          folders.set(id, { id, name: category, readOnly: true });
+          alsoIn.push(id);
+        }
+      }
 
       const { data: pub } = supabaseServer.storage.from(PRODUCT_BUCKET).getPublicUrl(r.storage_path);
       images.push({
@@ -310,6 +374,7 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
         folder: productId,
         source: "product",
         productPart: r.part,
+        alsoIn,
       });
     }
     return { images, folders: Array.from(folders.values()) };
