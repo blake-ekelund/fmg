@@ -29,6 +29,8 @@ export type LibraryFolder = {
   id: string;
   name: string;
   readOnly: boolean;
+  /** Landing folder for uploads nobody filed (Email / Blog / Library uploads). */
+  kind?: "inbox";
 };
 
 export type MetaPatch = {

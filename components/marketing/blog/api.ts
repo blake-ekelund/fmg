@@ -134,15 +134,15 @@ export async function deletePost(id: string): Promise<void> {
 
 /**
  * Blog image upload (hero and in-post images). Goes to the public `email-assets` bucket (the one the Image
- * Library browses) under blog/, at full resolution — the storefront renders
+ * Library browses) under the Blog uploads inbox (or a chosen folder), at full resolution — the storefront renders
  * heroes edge-to-edge at ~770px CSS width, so the 800px email resize would
  * look soft on a retina screen.
  */
-export async function uploadBlogImage(file: File): Promise<string> {
+export async function uploadBlogImage(file: File, folder = "blog-uploads"): Promise<string> {
   if (!file.type.startsWith("image/")) throw new Error("That file isn't an image.");
   if (file.size > 8 * 1024 * 1024) throw new Error("Keep hero images under 8 MB.");
   const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `blog/${Date.now()}-${safe}`;
+  const path = `${folder}/${Date.now()}-${safe}`;
   const { error } = await supabase.storage.from("email-assets").upload(path, file, {
     cacheControl: "31536000",
     contentType: file.type,
@@ -153,9 +153,12 @@ export async function uploadBlogImage(file: File): Promise<string> {
 }
 
 /** Same upload, in the { url } | { error } shape MediaLibraryModal takes. */
-export async function uploadBlogImageResult(file: File): Promise<{ url: string } | { error: string }> {
+export async function uploadBlogImageResult(
+  file: File,
+  folder?: string,
+): Promise<{ url: string } | { error: string }> {
   try {
-    return { url: await uploadBlogImage(file) };
+    return { url: await uploadBlogImage(file, folder) };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Upload failed." };
   }

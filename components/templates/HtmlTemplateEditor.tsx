@@ -138,7 +138,8 @@ export default function HtmlTemplateEditor({
       // Shrink + re-encode for email before it ever hits the bucket.
       const resized = await resizeImageForEmail(file);
       const safe = resized.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${templateId ?? "unsaved"}/${Date.now()}-${safe}`;
+      // Under the Email uploads inbox, one subfolder per template.
+      const path = `email-uploads/${templateId ?? "unsaved"}/${Date.now()}-${safe}`;
       const { error } = await supabase.storage.from("email-assets").upload(path, resized.blob, {
         cacheControl: "31536000",
         contentType: resized.type,

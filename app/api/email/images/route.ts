@@ -17,8 +17,10 @@ export const runtime = "nodejs";
  *  DELETE — remove one image (storage object AND metadata row), or an empty folder.
  *
  * Folders are paths, up to MAX_FOLDER_DEPTH segments ("sassy-holiday/ads").
- * An image's folder is its `email_asset_meta.folder` label when set, else the
- * storage directory it was uploaded into. Re-filing only ever changes the label
+ * An image's folder is its `email_asset_meta.folder` label when set, else its
+ * default: the landing folder for where it was uploaded from (Email / Blog /
+ * Library uploads — see defaultFolder) or, for folder uploads, the storage
+ * directory it was uploaded into. Re-filing only ever changes the label
  * — never the storage path — because the path IS the public URL that emails and
  * blog posts embed, so a real move would break them. New folders are storage
  * prefixes held open by a placeholder object (the `.emptyFolderPlaceholder`
@@ -49,6 +51,25 @@ const PLACEHOLDER = ".emptyFolderPlaceholder";
 /** Images sitting at the bucket root have no directory; they read as this folder. */
 const ROOT = "root";
 const PRODUCT_PREFIX = "~products";
+
+/**
+ * Landing ("inbox") folders: where uploads go when nobody picks a folder. Each
+ * editor uploads into its own; older uploads made before these existed are
+ * mapped in by the storage directory they were written to, so nothing moves.
+ */
+const EMAIL_INBOX = "email-uploads";
+const BLOG_INBOX = "blog-uploads";
+const LIBRARY_INBOX = "library-uploads";
+const INBOX_NAMES: Record<string, string> = {
+  [EMAIL_INBOX]: "Email uploads",
+  [BLOG_INBOX]: "Blog uploads",
+  [LIBRARY_INBOX]: "Library uploads",
+};
+/** Legacy storage dirs: email block images / section backgrounds, and blog. */
+const EMAIL_LEGACY_DIRS = new Set(["images", "sections", "section-bg"]);
+const BLOG_LEGACY_DIRS = new Set(["blog"]);
+/** HTML-template uploads used to go to "<template uuid>/" or "unsaved/". */
+const TEMPLATE_DIR = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|unsaved)$/i;
 
 const BRAND_NAMES: Record<string, string> = {
   Sassy: "Sassy Products",
@@ -84,9 +105,27 @@ function validFolder(f: string): boolean {
   return segs.every((s) => !!s && s !== "." && s !== ".." && s !== PLACEHOLDER && !s.includes("~"));
 }
 
-/** Store a label only when it differs from where the image physically lives. */
+/** The folder an image shows in when it has no label: its inbox, else its directory. */
+function defaultFolder(path: string): string {
+  const dir = dirOf(path);
+  if (dir === ROOT) return ROOT;
+  const top = dir.split("/")[0];
+  if (top in INBOX_NAMES) return top;
+  if (EMAIL_LEGACY_DIRS.has(top) || TEMPLATE_DIR.test(top)) return EMAIL_INBOX;
+  if (BLOG_LEGACY_DIRS.has(top)) return BLOG_INBOX;
+  return dir;
+}
+
+/** A stored label pointing at a legacy upload dir ("images", "blog") means its inbox. */
+function normalizeLabel(label: string): string {
+  if (EMAIL_LEGACY_DIRS.has(label)) return EMAIL_INBOX;
+  if (BLOG_LEGACY_DIRS.has(label)) return BLOG_INBOX;
+  return label;
+}
+
+/** Store a label only when it differs from where the image shows by default. */
 function labelFor(path: string, folder: string | null): string | null {
-  return folder == null || folder === dirOf(path) ? null : folder;
+  return folder == null || folder === defaultFolder(path) ? null : folder;
 }
 
 /**
@@ -119,7 +158,7 @@ type Img = FileEntry & {
   productPart?: string;
 };
 
-type Folder = { id: string; name: string; readOnly: boolean };
+type Folder = { id: string; name: string; readOnly: boolean; kind?: "inbox" };
 
 type MetaRow = {
   path: string;
@@ -194,7 +233,7 @@ async function librarySnapshot(): Promise<{ images: Img[]; folders: Set<string>;
 
   const images: Img[] = files.slice(0, MAX_IMAGES).map((f) => {
     const m = byPath.get(f.path);
-    const folder = m?.folder || dirOf(f.path);
+    const folder = m?.folder ? normalizeLabel(m.folder) : defaultFolder(f.path);
     folders.add(folder);
     return {
       ...f,
@@ -288,7 +327,11 @@ export async function GET(request: Request) {
   const folders: Folder[] = [
     ...Array.from(library.folders)
       .sort()
-      .map((id) => ({ id, name: prettySegment(id.split("/").pop() ?? id), readOnly: id === ROOT })),
+      .map((id): Folder =>
+        id in INBOX_NAMES
+          ? { id, name: INBOX_NAMES[id], readOnly: false, kind: "inbox" }
+          : { id, name: prettySegment(id.split("/").pop() ?? id), readOnly: id === ROOT },
+      ),
     ...products.folders.sort((a, b) => a.id.localeCompare(b.id)),
   ];
 

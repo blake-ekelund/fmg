@@ -8,7 +8,7 @@ import { resizeImageForEmail } from "./resizeImage";
  */
 export async function uploadEmailImage(
   file: File,
-  prefix = "sections",
+  prefix = "email-uploads",
 ): Promise<{ url: string } | { error: string }> {
   if (!file.type.startsWith("image/")) return { error: "That file isn't an image." };
   const resized = await resizeImageForEmail(file);

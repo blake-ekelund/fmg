@@ -16,6 +16,7 @@ import {
   Trash2,
   X,
   Package,
+  Inbox,
 } from "lucide-react";
 import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
 import { listImages, createFolder, deleteFolder, refileImages } from "./api";
@@ -24,8 +25,8 @@ import { displayName, fileName } from "./format";
 import type { LibraryFolder, LibraryImage, ShareScope } from "./types";
 
 
-/** Where uploads land when the open folder can't take them. */
-const DEFAULT_FOLDER = "images";
+/** Where library uploads land when no folder is open (an inbox; see the API). */
+const DEFAULT_FOLDER = "library-uploads";
 /** Old uploads at the bucket root — viewable, but nothing can be filed into it. */
 const ROOT = "root";
 /** Must match MAX_FOLDER_DEPTH in /api/email/images. */
@@ -144,8 +145,13 @@ export default function ImageLibraryPage() {
     (parent: string | null) =>
       folderList
         .filter((f) => parentOf(f.id) === parent)
-        // Library folders first, product folders after, each alphabetical.
-        .sort((a, b) => Number(a.readOnly) - Number(b.readOnly) || a.name.localeCompare(b.name)),
+        // Upload inboxes first, then library folders, then product folders.
+        .sort(
+          (a, b) =>
+            Number(b.kind === "inbox") - Number(a.kind === "inbox") ||
+            Number(a.readOnly) - Number(b.readOnly) ||
+            a.name.localeCompare(b.name),
+        ),
     [folderList],
   );
 
@@ -166,7 +172,9 @@ export default function ImageLibraryPage() {
 
   const current = folder ? folderMap.get(folder) : undefined;
   const canWriteHere = writable(current);
-  const canNestHere = canWriteHere && !!folder && depthOf(folder) < MAX_FOLDER_DEPTH;
+  // Inboxes are a to-be-filed pile, not somewhere to build a tree.
+  const canNestHere =
+    canWriteHere && !!folder && current?.kind !== "inbox" && depthOf(folder) < MAX_FOLDER_DEPTH;
   // New folders go inside the open folder when it can hold one, else top level.
   const newFolderParent = canNestHere ? folder : null;
   // Uploads go into the open folder when it can take them.
@@ -411,7 +419,9 @@ export default function ImageLibraryPage() {
     const hot = dropTarget === f.id;
     const droppable = writable(f);
     const isProduct = f.id.startsWith("~");
+    const isInbox = f.kind === "inbox";
     const cover = stats.thumbs[0];
+    const Icon = isProduct ? Package : isInbox ? Inbox : Folder;
     return (
       <button
         key={f.id}
@@ -441,11 +451,7 @@ export default function ImageLibraryPage() {
             />
           ) : (
             <div className="flex h-full items-center justify-center">
-              {isProduct ? (
-                <Package size={36} className="text-gray-300" />
-              ) : (
-                <Folder size={36} className="text-gray-300" />
-              )}
+              <Icon size={36} className="text-gray-300" />
             </div>
           )}
           {hot && (
@@ -457,11 +463,7 @@ export default function ImageLibraryPage() {
           )}
         </div>
         <div className="mt-2.5 flex items-start gap-2 px-0.5">
-          {isProduct ? (
-            <Package size={16} className="mt-0.5 shrink-0 text-gray-400" />
-          ) : (
-            <Folder size={16} className="mt-0.5 shrink-0 text-gray-400" />
-          )}
+          <Icon size={16} className={isInbox ? "mt-0.5 shrink-0 text-violet-500" : "mt-0.5 shrink-0 text-gray-400"} />
           <span className="line-clamp-2 text-[15px] font-medium leading-snug text-gray-900" title={f.name}>
             {f.name}
           </span>

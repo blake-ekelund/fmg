@@ -896,6 +896,7 @@ export function ImageField({
           setLibrary(false);
         }}
         uploader={uploadBlogImageResult}
+        inbox="blog-uploads"
         emptyHint="Upload one to get started — blog images keep their full resolution."
       />
     </div>

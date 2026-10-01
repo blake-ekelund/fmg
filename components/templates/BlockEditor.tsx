@@ -160,7 +160,7 @@ function SelectInput({ value, onChange, options }: { value: string; onChange: (v
 }
 
 /** URL input + "Upload" button that hosts a resized image and fills the URL. */
-function ImageField({ value, onChange, prefix }: { value: string; onChange: (v: string) => void; prefix?: string }) {
+function ImageField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -209,7 +209,7 @@ function ImageField({ value, onChange, prefix }: { value: string; onChange: (v: 
           if (!file) return;
           setErr(null);
           setBusy(true);
-          const res = await uploadEmailImage(file, prefix);
+          const res = await uploadEmailImage(file, "email-uploads");
           setBusy(false);
           if ("error" in res) setErr(res.error);
           else onChange(res.url);
@@ -223,7 +223,7 @@ function ImageField({ value, onChange, prefix }: { value: string; onChange: (v: 
           onChange(url);
           setLibOpen(false);
         }}
-        prefix={prefix ?? "images"}
+        inbox="email-uploads"
       />
     </div>
   );
@@ -334,7 +334,7 @@ export default function BlockEditor({
 
       {block.type === "image" && (
         <>
-          <Field label="Image"><ImageField value={block.src} onChange={(v) => set("src" as any, v)} prefix="images" /></Field>
+          <Field label="Image"><ImageField value={block.src} onChange={(v) => set("src" as any, v)} /></Field>
           <Field label="Alt Text"><TextInput value={block.alt} onChange={(v) => set("alt" as any, v)} /></Field>
           <Field label="Width">
             <SelectInput
@@ -548,7 +548,7 @@ export default function BlockEditor({
 
       {block.type === "caption" && (
         <>
-          <Field label="Image"><ImageField value={block.imageUrl} onChange={(v) => set("imageUrl" as any, v)} prefix="images" /></Field>
+          <Field label="Image"><ImageField value={block.imageUrl} onChange={(v) => set("imageUrl" as any, v)} /></Field>
           <Field label="Alt Text"><TextInput value={block.alt} onChange={(v) => set("alt" as any, v)} placeholder="Describe the image" /></Field>
           <Field label="Layout">
             <SelectInput value={block.layout} onChange={(v) => set("layout" as any, v)} options={[
@@ -608,7 +608,7 @@ export default function BlockEditor({
               )}
             </div>
           </Field>
-          <Field label="Background Image"><ImageField value={block.bgImage} onChange={(v) => set("bgImage" as any, v)} prefix="section-bg" /></Field>
+          <Field label="Background Image"><ImageField value={block.bgImage} onChange={(v) => set("bgImage" as any, v)} /></Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Padding"><NumberInput value={block.padding} onChange={(v) => set("padding" as any, v)} min={0} max={80} suffix="px" /></Field>
             <Field label="Column Gap"><NumberInput value={block.gap} onChange={(v) => set("gap" as any, v)} min={0} max={48} suffix="px" /></Field>
