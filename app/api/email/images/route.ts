@@ -89,6 +89,17 @@ function labelFor(path: string, folder: string | null): string | null {
   return folder == null || folder === dirOf(path) ? null : folder;
 }
 
+/**
+ * Folder name for a product: "Bath + Shower Gel · Grapefruit". Drops the
+ * " l Sassy + Co" brand tail and adds the fragrance — many products share a
+ * display name and differ only by scent.
+ */
+function productFolderName(displayName: string | null, fragrance: string | null, part: string): string {
+  const base = (displayName ?? "").replace(/\s+[l|]\s+Sassy \+ Co\s*$/i, "").trim() || part;
+  const scent = fragrance?.trim();
+  return scent && !base.toLowerCase().includes(scent.toLowerCase()) ? `${base} · ${scent}` : base;
+}
+
 /** "sassy-holiday-2026" → "Sassy Holiday 2026". */
 function prettySegment(seg: string): string {
   return seg.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -223,13 +234,13 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
     }
     if (rows.length === 0) return { images: [], folders: [] };
 
-    type ProductRow = { part: string; display_name: string | null; brand: string | null };
+    type ProductRow = { part: string; display_name: string | null; fragrance: string | null; brand: string | null };
     const parts = Array.from(new Set(rows.map((r) => r.part)));
     const byPart = new Map<string, ProductRow>();
     for (let i = 0; i < parts.length; i += 200) {
       const { data } = await supabaseServer
         .from("inventory_products")
-        .select("part, display_name, brand")
+        .select("part, display_name, fragrance, brand")
         .in("part", parts.slice(i, i + 200));
       for (const p of (data ?? []) as ProductRow[]) byPart.set(p.part, p);
     }
@@ -242,7 +253,7 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
       const brand = p?.brand || "Other";
       const brandId = `${PRODUCT_PREFIX}-${slugFolder(brand) || "other"}`;
       const productId = `${brandId}/${r.part}`;
-      const productName = p?.display_name || r.part;
+      const productName = productFolderName(p?.display_name ?? null, p?.fragrance ?? null, r.part);
       folders.set(brandId, { id: brandId, name: BRAND_NAMES[brand] ?? `${brand} Products`, readOnly: true });
       folders.set(productId, { id: productId, name: productName, readOnly: true });
 

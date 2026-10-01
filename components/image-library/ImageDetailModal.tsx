@@ -1,25 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  X,
-  Loader2,
-  Trash2,
-  Copy,
-  Check,
-  ExternalLink,
-  Globe,
-  Lock,
-  Package,
-} from "lucide-react";
 import Link from "next/link";
+import { X, Loader2, Trash2, Copy, Check, ExternalLink, ChevronDown } from "lucide-react";
 import { updateImageMeta, deleteImage } from "./api";
+import { displayName, fileName } from "./format";
 import type { LibraryImage, ShareScope } from "./types";
-
-function fileName(path: string): string {
-  const base = path.split("/").pop() ?? path;
-  return base.replace(/^\d+-/, "");
-}
 
 function prettySize(bytes: number): string {
   if (!bytes) return "";
@@ -27,6 +13,10 @@ function prettySize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+const fieldClass =
+  "w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2.5 text-[15px] text-gray-900 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200";
+const labelClass = "mb-1.5 block text-sm font-medium text-gray-700";
 
 export default function ImageDetailModal({
   image,
@@ -50,6 +40,7 @@ export default function ImageDetailModal({
   const [description, setDescription] = useState(image.description ?? "");
   const [shareScope, setShareScope] = useState<ShareScope>(image.shareScope);
   const [folder, setFolder] = useState(image.folder);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -63,9 +54,17 @@ export default function ImageDetailModal({
     setDescription(image.description ?? "");
     setShareScope(image.shareScope);
     setFolder(image.folder);
+    setMoreOpen(false);
     setConfirmDelete(false);
     setError(null);
   }, [image]);
+
+  // Escape closes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   async function handleSave() {
     setSaving(true);
@@ -126,245 +125,216 @@ export default function ImageDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-5 py-3">
-          <h2 className="truncate text-sm font-semibold text-gray-900" title={fileName(image.path)}>
-            {isProduct ? image.title : fileName(image.path)}
+        <div className="flex flex-shrink-0 items-center justify-between gap-4 px-6 pb-2 pt-5">
+          <h2 className="truncate text-xl font-semibold text-gray-900" title={fileName(image.path)}>
+            {displayName(image)}
           </h2>
           <button
             onClick={onClose}
-            className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            className="shrink-0 rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             aria-label="Close"
           >
-            <X size={18} />
+            <X size={22} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="grid flex-1 gap-5 overflow-y-auto p-5 sm:grid-cols-2">
+        <div className="grid flex-1 gap-6 overflow-y-auto px-6 pb-6 pt-3 md:grid-cols-[3fr_2fr]">
           {/* Preview */}
           <div className="space-y-3">
-            <div className="flex aspect-square items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+            <div className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl bg-gray-100 md:aspect-[4/3]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image.url} alt={image.altText ?? fileName(image.path)} className="h-full w-full object-contain" />
+              <img
+                src={image.url}
+                alt={image.altText ?? displayName(image)}
+                className="h-full w-full object-contain p-3"
+              />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={copyUrl}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-[15px] font-medium text-white hover:bg-gray-700"
               >
-                {copied ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
-                {copied ? "Copied" : "Copy URL"}
+                {copied ? <Check size={16} /> : <Copy size={16} />}
+                {copied ? "Link copied" : "Copy link"}
               </button>
               <a
                 href={image.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 text-[15px] font-medium text-gray-800 hover:bg-gray-50"
               >
-                <ExternalLink size={13} /> Open
+                <ExternalLink size={16} /> Open full size
               </a>
+              {prettySize(image.size) && (
+                <span className="ml-auto text-sm text-gray-500">{prettySize(image.size)}</span>
+              )}
             </div>
-            <p className="text-[11px] text-gray-400">
-              {[image.path, prettySize(image.size)].filter(Boolean).join(" · ")}
-            </p>
           </div>
 
           {isProduct ? (
             // Product photos come from the catalog — edited on the product page.
-            <div className="space-y-4">
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
-                  <Package size={16} /> Product photo
-                </div>
-                <p className="mt-1 text-xs text-amber-800">
-                  This image comes from the product catalog, so it can&apos;t be renamed,
-                  moved, or deleted here. Change it on the product&apos;s page and it updates
-                  everywhere — the storefront, the rep portal, and this library.
-                </p>
+            <div className="space-y-5">
+              <p className="text-[15px] leading-relaxed text-gray-600">
+                This is a product photo. To change or remove it, open the product&apos;s
+                page — it updates here, on the storefront, and on the rep portal.
+              </p>
+              <div>
+                <div className={labelClass}>Folder</div>
+                <div className="text-[15px] text-gray-900">{currentFolderLabel}</div>
               </div>
-              <dl className="space-y-2 text-xs">
-                <div>
-                  <dt className="font-medium text-gray-500">Folder</dt>
-                  <dd className="text-gray-900">{currentFolderLabel}</dd>
-                </div>
-                {image.productPart && (
-                  <div>
-                    <dt className="font-medium text-gray-500">Part</dt>
-                    <dd className="font-mono text-gray-900">{image.productPart}</dd>
-                  </div>
-                )}
-              </dl>
               {image.productPart && (
                 <Link
                   href={`/products/${encodeURIComponent(image.productPart)}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800"
+                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-[15px] font-medium text-white hover:bg-gray-700"
                 >
-                  Open product page <ExternalLink size={12} />
+                  Open product page <ExternalLink size={16} />
                 </Link>
               )}
             </div>
           ) : (
-          /* Metadata form */
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Folder{" "}
-                <span className="font-normal text-gray-400">
-                  — moving keeps the same link, so emails using it don&apos;t break
-                </span>
-              </label>
-              <select
-                value={folder}
-                onChange={(e) => setFolder(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-              >
-                {/* Keep the current value selectable even if it isn't fileable (e.g. "root"). */}
-                {(folders.some((f) => f.id === image.folder)
-                  ? folders
-                  : [{ id: image.folder, label: currentFolderLabel }, ...folders]
-                ).map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">Title</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Spring hero banner"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Alt text <span className="font-normal text-gray-400">— for screen readers & fallback</span>
-              </label>
-              <input
-                type="text"
-                value={altText}
-                onChange={(e) => setAltText(e.target.value)}
-                placeholder="Describe the image"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">Description</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                placeholder="Notes, usage guidance, source…"
-                className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-gray-700">Sharing</label>
-              <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-5">
+              <div>
+                <label className={labelClass}>Name</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={displayName({ ...image, title: null })}
+                  className={fieldClass}
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>Folder</label>
+                <select value={folder} onChange={(e) => setFolder(e.target.value)} className={fieldClass}>
+                  {/* Keep the current value selectable even if it isn't fileable (e.g. "root"). */}
+                  {(folders.some((f) => f.id === image.folder)
+                    ? folders
+                    : [{ id: image.folder, label: currentFolderLabel }, ...folders]
+                  ).map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className={labelClass}>Who can use it</div>
+                <div className="inline-flex w-full rounded-xl bg-gray-100 p-1">
+                  {([
+                    { key: "internal", label: "Our team" },
+                    { key: "third_party", label: "Our team + reps" },
+                  ] as { key: ShareScope; label: string }[]).map((o) => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      onClick={() => setShareScope(o.key)}
+                      className={`flex-1 rounded-lg px-3 py-2 text-[15px] font-medium transition ${
+                        shareScope === o.key
+                          ? "bg-white text-gray-900 shadow-sm"
+                          : "text-gray-500 hover:text-gray-800"
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Rarely-needed fields stay folded away. */}
+              <div>
                 <button
                   type="button"
-                  onClick={() => setShareScope("internal")}
-                  className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${
-                    shareScope === "internal"
-                      ? "border-gray-900 bg-gray-50 ring-1 ring-gray-900"
-                      : "border-gray-200 hover:bg-gray-50"
-                  }`}
+                  onClick={() => setMoreOpen((o) => !o)}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900"
                 >
-                  <Lock size={14} className="mt-0.5 shrink-0 text-gray-500" />
-                  <span>
-                    <span className="block text-xs font-medium text-gray-900">Internal only</span>
-                    <span className="block text-[11px] text-gray-400">Not shown to reps</span>
-                  </span>
+                  <ChevronDown size={16} className={`transition ${moreOpen ? "rotate-180" : ""}`} />
+                  Description &amp; alt text
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShareScope("third_party")}
-                  className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${
-                    shareScope === "third_party"
-                      ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600"
-                      : "border-gray-200 hover:bg-gray-50"
-                  }`}
-                >
-                  <Globe size={14} className="mt-0.5 shrink-0 text-emerald-600" />
-                  <span>
-                    <span className="block text-xs font-medium text-gray-900">Safe for 3rd party</span>
-                    <span className="block text-[11px] text-gray-400">Shared on rep-group portal</span>
-                  </span>
-                </button>
+                {moreOpen && (
+                  <div className="mt-3 space-y-4">
+                    <div>
+                      <label className={labelClass}>Description</label>
+                      <textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        rows={3}
+                        placeholder="Notes, usage guidance, photographer…"
+                        className={`${fieldClass} resize-none`}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Alt text</label>
+                      <input
+                        type="text"
+                        value={altText}
+                        onChange={(e) => setAltText(e.target.value)}
+                        placeholder="Describe the image for screen readers"
+                        className={fieldClass}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
           )}
         </div>
 
         {error && (
-          <div className="mx-5 mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-            {error}
-          </div>
+          <div className="mx-6 mb-3 rounded-xl bg-rose-50 px-4 py-3 text-[15px] text-rose-700">{error}</div>
         )}
 
         {/* Footer */}
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
-          {isProduct ? (
-            <span />
-          ) : confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-600">Delete permanently?</span>
+        {!isProduct && (
+          <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-gray-100 px-6 py-4">
+            {confirmDelete ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[15px] text-gray-700">Delete this image for good?</span>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-[15px] font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                  Delete
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleting}
+                  className="rounded-full px-4 py-2 text-[15px] font-medium text-gray-600 hover:bg-gray-100"
+                >
+                  Keep it
+                </button>
+              </div>
+            ) : (
               <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-[15px] font-medium text-gray-500 hover:bg-rose-50 hover:text-rose-600"
               >
-                {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                Yes, delete
+                <Trash2 size={16} /> Delete
               </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                disabled={deleting}
-                className="rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
-            >
-              <Trash2 size={13} /> Delete
-            </button>
-          )}
+            )}
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
-            >
-              Close
-            </button>
-            {!isProduct && (
             <button
               onClick={handleSave}
               disabled={saving || !dirty}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-2.5 text-[15px] font-semibold text-white hover:bg-violet-700 disabled:bg-gray-200 disabled:text-gray-500"
             >
-              {saving && <Loader2 size={13} className="animate-spin" />}
-              Save
+              {saving && <Loader2 size={16} className="animate-spin" />}
+              Save changes
             </button>
-            )}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

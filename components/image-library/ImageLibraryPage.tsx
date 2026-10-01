@@ -8,30 +8,21 @@ import {
   Search,
   Copy,
   Check,
-  ExternalLink,
   Globe,
-  Lock,
   FolderPlus,
   Folder,
-  FolderOpen,
-  FolderInput,
   ChevronRight,
+  ArrowLeft,
   Trash2,
-  CheckSquare,
-  Square,
-  Link2,
+  X,
   Package,
 } from "lucide-react";
 import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
 import { listImages, createFolder, deleteFolder, refileImages } from "./api";
 import ImageDetailModal from "./ImageDetailModal";
+import { displayName, fileName } from "./format";
 import type { LibraryFolder, LibraryImage, ShareScope } from "./types";
 
-function fileName(path: string): string {
-  const base = path.split("/").pop() ?? path;
-  // Uploads are prefixed with a timestamp (e.g. 1699-hero.jpg) — drop it for display.
-  return base.replace(/^\d+-/, "");
-}
 
 /** Where uploads land when the open folder can't take them. */
 const DEFAULT_FOLDER = "images";
@@ -64,13 +55,6 @@ function within(id: string, f: string): boolean {
 /** Library folders accept uploads / filing; product folders and "root" don't. */
 function writable(f: LibraryFolder | undefined): boolean {
   return !!f && !f.readOnly && !f.id.startsWith("~") && f.id !== ROOT;
-}
-
-function prettySize(bytes: number): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 type ScopeFilter = "all" | ShareScope;
@@ -408,83 +392,84 @@ export default function ImageLibraryPage() {
   }, [images, query, folder, scope, pathName]);
 
   const pickable = filtered.filter((i) => i.source === "library");
+  // A folder that only holds subfolders (e.g. a brand's product folders) needs no "Images" block.
+  const onlySubfolders = !!folder && !searching && filtered.length === 0 && subfolders.length > 0;
   const folderTotal = folder ? folderStats.get(folder)?.count ?? 0 : images.length;
   const folderEmpty = !!folder && folderTotal === 0 && childrenOf(folder).length === 0;
   const crumbs: string[] = [];
   for (let p = folder; p; p = parentOf(p)) crumbs.unshift(p);
+
 
   function renderTile(f: LibraryFolder) {
     const stats = folderStats.get(f.id) ?? { count: 0, thumbs: [] };
     const hot = dropTarget === f.id;
     const droppable = writable(f);
     const isProduct = f.id.startsWith("~");
+    const cover = stats.thumbs[0];
     return (
       <button
         key={f.id}
         onClick={() => openFolder(f.id)}
         {...folderDropProps(f.id)}
-        className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white text-left transition ${
-          hot
-            ? "border-violet-500 ring-2 ring-violet-500 scale-[1.02] shadow-md"
-            : dragging && droppable
-              ? "border-dashed border-violet-300"
-              : "border-gray-200 hover:border-gray-300 hover:shadow-sm"
-        } ${dragging && !droppable ? "opacity-50" : ""}`}
+        className={`group flex flex-col text-left transition ${
+          dragging && !droppable ? "opacity-40" : ""
+        }`}
       >
-        <div className="grid aspect-[4/3] grid-cols-2 grid-rows-2 gap-px bg-gray-100">
-          {stats.thumbs.length === 0 ? (
-            <div className="col-span-2 row-span-2 flex items-center justify-center bg-gray-50">
-              <Folder size={32} className={hot ? "text-violet-500" : "text-gray-300"} />
-            </div>
+        <div
+          className={`relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-gray-100 transition ${
+            hot
+              ? "ring-4 ring-violet-500 ring-offset-2"
+              : dragging && droppable
+                ? "ring-2 ring-violet-300 ring-offset-2"
+                : "group-hover:ring-2 group-hover:ring-gray-300 group-hover:ring-offset-2"
+          }`}
+        >
+          {cover ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={cover.url}
+              alt=""
+              draggable={false}
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
           ) : (
-            Array.from({ length: 4 }).map((_, idx) => {
-              const t = stats.thumbs[idx];
-              return t ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={t.path}
-                  src={t.url}
-                  alt=""
-                  draggable={false}
-                  loading="lazy"
-                  className="h-full w-full bg-gray-50 object-cover"
-                />
+            <div className="flex h-full items-center justify-center">
+              {isProduct ? (
+                <Package size={36} className="text-gray-300" />
               ) : (
-                <div key={idx} className="bg-gray-50" />
-              );
-            })
+                <Folder size={36} className="text-gray-300" />
+              )}
+            </div>
+          )}
+          {hot && (
+            <div className="absolute inset-0 flex items-center justify-center bg-violet-600/20">
+              <span className="rounded-full bg-violet-600 px-4 py-1.5 text-sm font-semibold text-white shadow">
+                {dragging ? "Move here" : "Upload here"}
+              </span>
+            </div>
           )}
         </div>
-        {isProduct && (
-          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/95 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 shadow-sm">
-            <Package size={10} /> Product photos
-          </span>
-        )}
-        {hot && (
-          <div className="absolute inset-0 flex items-center justify-center bg-violet-600/15">
-            <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-semibold text-white shadow">
-              {dragging ? "Move here" : "Upload here"}
-            </span>
-          </div>
-        )}
-        <div className="flex items-center gap-2 border-t border-gray-100 px-3 py-2">
+        <div className="mt-2.5 flex items-start gap-2 px-0.5">
           {isProduct ? (
-            <Package size={14} className="shrink-0 text-amber-600" />
+            <Package size={16} className="mt-0.5 shrink-0 text-gray-400" />
           ) : (
-            <Folder size={14} className="shrink-0 text-violet-600" />
+            <Folder size={16} className="mt-0.5 shrink-0 text-gray-400" />
           )}
-          <span className="flex-1 truncate text-xs font-medium text-gray-800" title={f.name}>
+          <span className="line-clamp-2 text-[15px] font-medium leading-snug text-gray-900" title={f.name}>
             {f.name}
           </span>
-          <span className="text-[11px] tabular-nums text-gray-400">{stats.count}</span>
         </div>
+        <span className="mt-0.5 px-0.5 text-sm text-gray-500">
+          {stats.count} {stats.count === 1 ? "image" : "images"}
+        </span>
       </button>
     );
   }
 
   return (
     <div
-      className="relative px-4 md:px-8 py-6 md:py-8 space-y-6"
+      className="relative mx-auto max-w-[1400px] px-4 py-8 md:px-10 md:py-10"
       {...pageDropProps}
       onDragEnd={() => {
         setDragging(null);
@@ -493,46 +478,88 @@ export default function ImageLibraryPage() {
     >
       {/* Desktop-file drop overlay */}
       {fileHover && (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-violet-600/10 backdrop-blur-[1px]">
-          <div className="rounded-2xl border-2 border-dashed border-violet-500 bg-white px-8 py-6 text-center shadow-lg">
-            <Upload size={24} className="mx-auto mb-2 text-violet-600" />
-            <div className="text-sm font-semibold text-gray-900">
-              Drop to upload to {pathName(uploadTarget)}
-            </div>
-            <div className="mt-1 text-xs text-gray-500">Or drop onto a folder to upload there</div>
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-white/70 backdrop-blur-sm">
+          <div className="rounded-3xl border-2 border-dashed border-violet-500 bg-white px-12 py-10 text-center shadow-xl">
+            <Upload size={32} className="mx-auto mb-3 text-violet-600" />
+            <div className="text-lg font-semibold text-gray-900">Drop to upload</div>
+            <div className="mt-1 text-base text-gray-500">into {pathName(uploadTarget)}</div>
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Image Library</h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-            Brand photos, logos, and graphics used across emails and the blog, plus
-            every product photo from the catalog. Organize your own images into
-            folders by dragging, and mark the ones reps may reuse as safe for
-            3rd-party sharing.
-          </p>
+      {/* Dragging hint */}
+      {dragging && (
+        <div className="pointer-events-none fixed bottom-8 left-1/2 z-40 -translate-x-1/2 rounded-full bg-gray-900 px-5 py-2.5 text-sm font-medium text-white shadow-lg">
+          Drop on a folder to move {dragging.length === 1 ? "it" : `${dragging.length} images`}
         </div>
+      )}
+
+      {/* Header */}
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        {folder ? (
+          // Breadcrumb — every writable level above is a drop target.
+          <nav className="flex min-w-0 flex-wrap items-center gap-1">
+            <button
+              onClick={() => openFolder(parentOf(folder))}
+              className="mr-1 rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+              aria-label="Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <button
+              onClick={() => openFolder(null)}
+              className="rounded-lg px-1.5 py-1 text-lg text-gray-500 hover:text-gray-900"
+            >
+              Image Library
+            </button>
+            {crumbs.map((c, idx) => {
+              const last = idx === crumbs.length - 1;
+              const hot = dropTarget === c;
+              return (
+                <span key={c} className="inline-flex min-w-0 items-center gap-1">
+                  <ChevronRight size={18} className="shrink-0 text-gray-300" />
+                  <button
+                    onClick={() => openFolder(c)}
+                    {...(last ? {} : folderDropProps(c))}
+                    className={`truncate rounded-lg px-1.5 py-1 ${
+                      hot
+                        ? "bg-violet-100 text-violet-800 ring-2 ring-violet-500"
+                        : last
+                          ? "text-2xl font-semibold tracking-tight text-gray-900"
+                          : "text-lg text-gray-500 hover:text-gray-900"
+                    }`}
+                  >
+                    {nameOf(c)}
+                  </button>
+                </span>
+              );
+            })}
+          </nav>
+        ) : (
+          <h1 className="text-3xl font-semibold tracking-tight text-gray-900">Image Library</h1>
+        )}
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setNewFolderOpen((o) => !o)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 transition shadow-sm"
-          >
-            <FolderPlus size={16} />
-            {newFolderParent ? "New subfolder" : "New folder"}
-          </button>
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            title={`Uploads go into "${pathName(uploadTarget)}"`}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm disabled:opacity-50"
-          >
-            {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-            <span className="max-w-[16rem] truncate">Upload to {nameOf(uploadTarget)}</span>
-          </button>
+          {(!folder || canNestHere) && (
+            <button
+              onClick={() => setNewFolderOpen((o) => !o)}
+              className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-2.5 text-[15px] font-medium text-gray-800 transition hover:bg-gray-50"
+            >
+              <FolderPlus size={18} />
+              New folder
+            </button>
+          )}
+          {(!folder || canWriteHere) && (
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              title={`Uploads go into ${pathName(uploadTarget)}`}
+              className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-[15px] font-medium text-white transition hover:bg-gray-700 disabled:opacity-50"
+            >
+              {uploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+              {uploading ? "Uploading…" : "Upload"}
+            </button>
+          )}
         </div>
         <input
           ref={fileRef}
@@ -545,63 +572,13 @@ export default function ImageLibraryPage() {
             e.target.value = "";
           }}
         />
-      </div>
+      </header>
 
-      {/* Breadcrumb — every writable level is a drop target */}
-      <nav className="flex flex-wrap items-center gap-1 text-sm">
-        <button
-          onClick={() => openFolder(null)}
-          className={`rounded-lg px-2 py-1 font-medium ${
-            folder ? "text-gray-500 hover:bg-gray-100 hover:text-gray-800" : "text-gray-900"
-          }`}
-        >
-          All images
-        </button>
-        {crumbs.map((c, idx) => {
-          const last = idx === crumbs.length - 1;
-          const hot = dropTarget === c;
-          return (
-            <span key={c} className="inline-flex items-center gap-1">
-              <ChevronRight size={14} className="text-gray-300" />
-              <button
-                onClick={() => openFolder(c)}
-                {...(last ? {} : folderDropProps(c))}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${
-                  hot
-                    ? "bg-violet-100 text-violet-800 ring-2 ring-violet-500"
-                    : last
-                      ? "font-semibold text-gray-900"
-                      : "font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-                }`}
-              >
-                {last && (c.startsWith("~") ? (
-                  <Package size={15} className="text-amber-600" />
-                ) : (
-                  <FolderOpen size={15} className="text-violet-600" />
-                ))}
-                {nameOf(c)}
-              </button>
-            </span>
-          );
-        })}
-        {folder && (
-          <span className="ml-1 text-xs text-gray-400 tabular-nums">· {folderTotal}</span>
-        )}
-        {folder && current?.readOnly && current.id.startsWith("~") && (
-          <span className="ml-2 text-xs text-gray-400">
-            Product photos are managed on each product&apos;s page.
-          </span>
-        )}
-        {folderEmpty && canWriteHere && (
-          <button
-            onClick={() => folder && void handleDeleteFolder(folder)}
-            disabled={folderBusy}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-          >
-            <Trash2 size={12} /> Delete empty folder
-          </button>
-        )}
-      </nav>
+      {current?.readOnly && current.id.startsWith("~") && (
+        <p className="mt-2 text-[15px] text-gray-500">
+          Product photos are edited on each product&apos;s page.
+        </p>
+      )}
 
       {/* New folder */}
       {newFolderOpen && (
@@ -610,138 +587,105 @@ export default function ImageLibraryPage() {
             e.preventDefault();
             void handleCreateFolder();
           }}
-          className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-200 bg-violet-50/60 p-3"
+          className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-gray-50 p-4"
         >
-          <Folder size={16} className="text-violet-600" />
           <input
             autoFocus
             type="text"
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setNewFolderOpen(false)}
-            placeholder={newFolderParent ? "Subfolder name, e.g. Instagram ads" : "Folder name, e.g. Sassy Holiday 2026"}
+            placeholder={newFolderParent ? `New folder in ${nameOf(newFolderParent)}` : "Folder name"}
             maxLength={60}
-            className="min-w-[220px] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+            className="min-w-[240px] flex-1 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-base focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"
           />
           <button
             type="submit"
             disabled={folderBusy || !newFolderName.trim()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-[15px] font-medium text-white hover:bg-gray-700 disabled:opacity-40"
           >
-            {folderBusy && <Loader2 size={13} className="animate-spin" />}
+            {folderBusy && <Loader2 size={16} className="animate-spin" />}
             Create
           </button>
           <button
             type="button"
             onClick={() => setNewFolderOpen(false)}
-            className="rounded-lg px-2 py-1.5 text-xs font-medium text-gray-500 hover:bg-white"
+            className="rounded-full px-4 py-2.5 text-[15px] font-medium text-gray-600 hover:bg-gray-200"
           >
             Cancel
           </button>
-          <p className="w-full text-[11px] text-gray-500">
-            {newFolderParent ? (
-              <>
-                Inside <span className="font-medium">{pathName(newFolderParent)}</span>.
-              </>
-            ) : (
-              "At the top level of the library."
-            )}
-          </p>
         </form>
       )}
 
+      {/* Messages */}
+      {notice && (
+        <div className="mt-6 flex items-center gap-2.5 rounded-2xl bg-emerald-50 px-5 py-3.5 text-[15px] text-emerald-800">
+          <Check size={18} className="shrink-0" />
+          {notice}
+        </div>
+      )}
+      {error && (
+        <div className="mt-6 rounded-2xl bg-rose-50 px-5 py-3.5 text-[15px] text-rose-700">{error}</div>
+      )}
+
       {/* Folders */}
-      {!loading && (subfolders.length > 0 || canNestHere || !folder) && (
-        <section className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              {folder ? "Subfolders" : "Folders"}
-            </h2>
-            <span className="text-[11px] text-gray-400">
-              {dragging ? "Drop on a folder to move" : "Drag photos onto a folder to file them"}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+      {!loading && subfolders.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">Folders</h2>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {subfolders.map(renderTile)}
-            {(!folder || canNestHere) && (
-              <button
-                onClick={() => setNewFolderOpen(true)}
-                className="flex min-h-[120px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-gray-300 text-xs font-medium text-gray-500 transition hover:border-violet-400 hover:bg-violet-50/50 hover:text-violet-700"
-              >
-                <FolderPlus size={20} />
-                {folder ? "New subfolder" : "New folder"}
-              </button>
-            )}
           </div>
         </section>
       )}
 
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-          {searching ? "Results" : folder ? "Images" : "All library images"}
-        </h2>
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search
-            size={14}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-          />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={folder ? `Search in ${nameOf(folder)}…` : "Search everything, incl. product photos…"}
-            className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-          />
-        </div>
+      {/* Images */}
+      <section className="mt-10">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <h2 className="mr-auto text-lg font-semibold text-gray-900">
+            {searching ? "Search results" : onlySubfolders ? "" : "Images"}
+          </h2>
 
-        {/* Sharing filter */}
-        <div className="flex gap-1.5">
-          {([
-            { key: "all", label: "All" },
-            { key: "third_party", label: "3rd party" },
-            { key: "internal", label: "Internal" },
-          ] as { key: ScopeFilter; label: string }[]).map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setScope(s.key)}
-              className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
-                scope === s.key
-                  ? "bg-gray-900 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+          <div className="relative w-full sm:w-72">
+            <Search
+              size={18}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="w-full rounded-full border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-base focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"
+            />
+          </div>
 
-        {!loading && (
-          <span className="ml-auto text-xs text-gray-400 tabular-nums">{filtered.length} shown</span>
-        )}
-
-        {pickable.length > 0 && (
-          <button
-            onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
-              selecting ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value as ScopeFilter)}
+            aria-label="Show"
+            className="rounded-full border border-gray-300 bg-white px-4 py-2.5 text-[15px] text-gray-700 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"
           >
-            <CheckSquare size={12} />
-            {selecting ? "Done" : "Select"}
-          </button>
-        )}
-      </div>
+            <option value="all">All images</option>
+            <option value="third_party">Shared with reps</option>
+            <option value="internal">Internal only</option>
+          </select>
 
-      {/* Bulk re-file bar */}
-      {selecting && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-xs">
-          <span className="font-medium text-gray-700 tabular-nums">
-            {picked.size === 0
-              ? "Click images to select them"
-              : `${picked.size} selected — drag them onto a folder, or`}
-          </span>
-          {pickable.length > 0 && (
+          {pickable.length > 0 && !selecting && (
+            <button
+              onClick={() => setSelecting(true)}
+              className="rounded-full px-4 py-2.5 text-[15px] font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Select
+            </button>
+          )}
+        </div>
+
+        {/* Selection bar */}
+        {selecting && (
+          <div className="sticky top-2 z-30 mb-5 flex flex-wrap items-center gap-3 rounded-2xl bg-gray-900 px-5 py-3 text-[15px] text-white shadow-lg">
+            <span className="font-medium tabular-nums">
+              {picked.size === 0 ? "Tap images to select" : `${picked.size} selected`}
+            </span>
             <button
               onClick={() =>
                 setPicked((prev) =>
@@ -750,188 +694,159 @@ export default function ImageLibraryPage() {
                     : new Set(pickable.map((i) => i.path)),
                 )
               }
-              className="rounded-lg px-2 py-1 font-medium text-violet-700 hover:bg-white"
+              className="rounded-full px-3 py-1 text-gray-300 hover:bg-white/10 hover:text-white"
             >
-              {pickable.every((i) => picked.has(i.path)) ? "Clear" : `Select all ${pickable.length}`}
+              {pickable.every((i) => picked.has(i.path)) ? "Clear" : "Select all"}
             </button>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <select
-              value={moveTo}
-              onChange={(e) => setMoveTo(e.target.value)}
-              className="max-w-[18rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-300"
-            >
-              <option value="">Move to folder…</option>
-              {fileableFolders.map((f) => (
-                <option key={f} value={f}>
-                  {pathName(f)}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => void moveImages(Array.from(picked), moveTo)}
-              disabled={moving || !moveTo || picked.size === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 font-medium text-white hover:bg-violet-700 disabled:opacity-50"
-            >
-              {moving ? <Loader2 size={13} className="animate-spin" /> : <FolderInput size={13} />}
-              Move
-            </button>
-          </div>
-        </div>
-      )}
-
-      {notice && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
-          <Link2 size={14} className="shrink-0" />
-          {notice}
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {error}
-        </div>
-      )}
-
-      {/* Grid */}
-      {loading ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="aspect-square rounded-2xl bg-gray-100 animate-pulse" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        // Inside a folder that only holds subfolders, the tiles above say it all.
-        folder && !searching && subfolders.length > 0 ? null : (
-          <div className="flex flex-col items-center justify-center py-16 rounded-2xl border border-dashed border-gray-200 bg-white/60">
-            <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-              <ImageIcon size={24} className="text-gray-400" />
+            <div className="ml-auto flex items-center gap-2">
+              <select
+                value={moveTo}
+                onChange={(e) => setMoveTo(e.target.value)}
+                className="max-w-[16rem] rounded-full border-0 bg-white/10 px-4 py-2 text-[15px] text-white focus:outline-none focus:ring-2 focus:ring-white/40 [&>option]:text-gray-900"
+              >
+                <option value="">Move to…</option>
+                {fileableFolders.map((f) => (
+                  <option key={f} value={f}>
+                    {pathName(f)}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => void moveImages(Array.from(picked), moveTo)}
+                disabled={moving || !moveTo || picked.size === 0}
+                className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 font-medium text-gray-900 hover:bg-gray-100 disabled:opacity-40"
+              >
+                {moving && <Loader2 size={16} className="animate-spin" />}
+                Move
+              </button>
+              <button
+                onClick={stopSelecting}
+                className="rounded-full p-2 text-gray-300 hover:bg-white/10 hover:text-white"
+                aria-label="Done selecting"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <h3 className="text-sm font-medium text-gray-700 mb-1">
-              {searching ? "No matches" : folder ? "This folder is empty" : "No images yet"}
-            </h3>
-            <p className="text-xs text-gray-400 max-w-sm text-center">
+          </div>
+        )}
+
+        {loading ? (
+          <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="aspect-square animate-pulse rounded-2xl bg-gray-100" />
+            ))}
+          </div>
+        ) : onlySubfolders ? null : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-gray-200 py-20 text-center">
+            <ImageIcon size={40} className="mb-4 text-gray-300" />
+            <p className="text-lg font-medium text-gray-800">
+              {searching ? "Nothing found" : folder ? "No images here yet" : "No images yet"}
+            </p>
+            <p className="mt-1 max-w-sm text-[15px] text-gray-500">
               {searching
-                ? "Try a different search or sharing filter."
+                ? "Try a different word."
                 : canWriteHere || !folder
-                  ? "Drag photos from your computer onto this page to upload them here, or drag existing images onto this folder."
-                  : "Nothing here yet."}
+                  ? "Drag photos from your computer onto this page, or use Upload."
+                  : ""}
             </p>
           </div>
-        )
-      ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {filtered.map((img) => {
-            const isLibrary = img.source === "library";
-            const isPicked = selecting && picked.has(img.path);
-            const isDragging = dragging?.includes(img.path) ?? false;
-            return (
-              <button
-                key={img.path}
-                draggable={isLibrary}
-                onDragStart={isLibrary ? (e) => onImageDragStart(e, img) : undefined}
-                onClick={() => (selecting && isLibrary ? togglePick(img.path) : setSelected(img))}
-                className={`group flex flex-col overflow-hidden rounded-2xl border bg-white text-left transition hover:shadow-sm ${
-                  isLibrary ? "cursor-grab active:cursor-grabbing" : ""
-                } ${
-                  isPicked
-                    ? "border-violet-500 ring-2 ring-violet-500"
-                    : "border-gray-200 hover:border-gray-300"
-                } ${isDragging ? "opacity-40" : ""} ${selecting && !isLibrary ? "opacity-50" : ""}`}
-              >
-                <div className="relative flex aspect-square items-center justify-center bg-gray-50">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={img.url}
-                    alt={img.altText ?? fileName(img.path)}
-                    draggable={false}
-                    className="h-full w-full object-contain"
-                    loading="lazy"
-                  />
-
-                  {/* Sharing / source badge */}
-                  {isLibrary ? (
-                    <span
-                      className={`absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                        img.shareScope === "third_party"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-gray-100 text-gray-500"
-                      }`}
-                      title={img.shareScope === "third_party" ? "Shared on rep portal" : "Internal only"}
-                    >
-                      {img.shareScope === "third_party" ? <Globe size={10} /> : <Lock size={10} />}
-                      {img.shareScope === "third_party" ? "3rd party" : "Internal"}
-                    </span>
-                  ) : (
-                    <span
-                      className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
-                      title="Product photo — managed on the product page"
-                    >
-                      <Package size={10} /> Product
-                    </span>
-                  )}
-
-                  {selecting && isLibrary && (
-                    <span className="absolute right-2 top-2 rounded bg-white/95 text-violet-600 shadow-sm">
-                      {isPicked ? <CheckSquare size={18} /> : <Square size={18} className="text-gray-400" />}
-                    </span>
-                  )}
-
-                  {/* Hover actions */}
-                  <div
-                    className={`absolute inset-x-0 bottom-0 flex justify-end gap-1.5 bg-gradient-to-t from-black/40 to-transparent p-2 opacity-0 transition ${
-                      selecting ? "hidden" : "group-hover:opacity-100"
-                    }`}
+        ) : (
+          <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {filtered.map((img) => {
+              const isLibrary = img.source === "library";
+              const isPicked = selecting && picked.has(img.path);
+              const isDragging = dragging?.includes(img.path) ?? false;
+              return (
+                <div key={img.path} className={`group ${isDragging ? "opacity-30" : ""}`}>
+                  <button
+                    draggable={isLibrary}
+                    onDragStart={isLibrary ? (e) => onImageDragStart(e, img) : undefined}
+                    onClick={() => (selecting && isLibrary ? togglePick(img.path) : setSelected(img))}
+                    className={`relative block aspect-square w-full overflow-hidden rounded-2xl bg-gray-100 transition ${
+                      isLibrary ? "cursor-grab active:cursor-grabbing" : ""
+                    } ${
+                      isPicked
+                        ? "ring-4 ring-violet-500 ring-offset-2"
+                        : "hover:ring-2 hover:ring-gray-300 hover:ring-offset-2"
+                    } ${selecting && !isLibrary ? "opacity-40" : ""}`}
+                    aria-label={displayName(img)}
                   >
-                    <span
-                      role="button"
-                      tabIndex={-1}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void copyUrl(img.url);
-                      }}
-                      title="Copy public URL"
-                      className="inline-flex items-center gap-1 rounded-lg bg-white/95 px-2 py-1 text-[11px] font-medium text-gray-700 shadow-sm hover:bg-white"
-                    >
-                      {copied === img.url ? (
-                        <>
-                          <Check size={12} className="text-emerald-600" /> Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy size={12} /> Copy
-                        </>
-                      )}
-                    </span>
-                    <a
-                      href={img.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.url}
+                      alt={img.altText ?? fileName(img.path)}
                       draggable={false}
-                      onClick={(e) => e.stopPropagation()}
-                      title="Open in new tab"
-                      className="inline-flex items-center rounded-lg bg-white/95 p-1.5 text-gray-700 shadow-sm hover:bg-white"
-                    >
-                      <ExternalLink size={12} />
-                    </a>
-                  </div>
-                </div>
+                      loading="lazy"
+                      className="h-full w-full object-contain p-2"
+                    />
 
-                <div className="border-t border-gray-100 px-2.5 py-2">
-                  <div className="truncate text-xs font-medium text-gray-700" title={img.title ?? fileName(img.path)}>
-                    {img.title || fileName(img.path)}
+                    {selecting && isLibrary && (
+                      <span
+                        className={`absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-full border-2 ${
+                          isPicked ? "border-violet-600 bg-violet-600 text-white" : "border-white bg-black/20"
+                        }`}
+                      >
+                        {isPicked && <Check size={16} strokeWidth={3} />}
+                      </span>
+                    )}
+
+                    {isLibrary && img.shareScope === "third_party" && !selecting && (
+                      <span
+                        className="absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-0.5 text-xs font-medium text-emerald-700 shadow-sm"
+                        title="Reps can see and use this image"
+                      >
+                        <Globe size={12} /> Reps
+                      </span>
+                    )}
+
+                    {!selecting && (
+                      <span
+                        role="button"
+                        tabIndex={-1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void copyUrl(img.url);
+                        }}
+                        className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-sm font-medium text-gray-800 opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
+                      >
+                        {copied === img.url ? (
+                          <>
+                            <Check size={14} className="text-emerald-600" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={14} /> Copy link
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </button>
+                  <div
+                    className="mt-2.5 truncate px-0.5 text-[15px] text-gray-800"
+                    title={displayName(img)}
+                  >
+                    {displayName(img)}
                   </div>
-                  <div className="mt-0.5 flex items-center justify-between text-[10px] text-gray-400">
-                    <span className="inline-flex items-center gap-1 truncate" title={pathName(img.folder)}>
-                      <Folder size={10} className="shrink-0" />
-                      {nameOf(img.folder)}
-                    </span>
-                    <span className="shrink-0 tabular-nums">{prettySize(img.size)}</span>
-                  </div>
+                  {searching && (
+                    <div className="truncate px-0.5 text-sm text-gray-500">{pathName(img.folder)}</div>
+                  )}
                 </div>
-              </button>
-            );
-          })}
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Empty folder housekeeping, out of the way at the bottom */}
+      {folderEmpty && canWriteHere && (
+        <div className="mt-10 flex justify-center">
+          <button
+            onClick={() => folder && void handleDeleteFolder(folder)}
+            disabled={folderBusy}
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[15px] font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+          >
+            <Trash2 size={16} /> Delete this empty folder
+          </button>
         </div>
       )}
 
