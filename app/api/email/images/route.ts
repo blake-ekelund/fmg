@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
+import { BRAND_PRODUCT_NAMES, productName as productFolderName } from "@/lib/productImageNames";
 
 export const runtime = "nodejs";
 
@@ -71,10 +72,6 @@ const BLOG_LEGACY_DIRS = new Set(["blog"]);
 /** HTML-template uploads used to go to "<template uuid>/" or "unsaved/". */
 const TEMPLATE_DIR = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|unsaved)$/i;
 
-const BRAND_NAMES: Record<string, string> = {
-  Sassy: "Sassy Products",
-  NI: "Natural Inspirations Products",
-};
 
 /** "Sassy Holiday 2026" → "sassy-holiday-2026". Empty string if nothing usable. */
 function slugFolder(name: string): string {
@@ -128,16 +125,6 @@ function labelFor(path: string, folder: string | null): string | null {
   return folder == null || folder === defaultFolder(path) ? null : folder;
 }
 
-/**
- * Folder name for a product: "Bath + Shower Gel · Grapefruit". Drops the
- * " l Sassy + Co" brand tail and adds the fragrance — many products share a
- * display name and differ only by scent.
- */
-function productFolderName(displayName: string | null, fragrance: string | null, part: string): string {
-  const base = (displayName ?? "").replace(/\s+[l|]\s+Sassy \+ Co\s*$/i, "").trim() || part;
-  const scent = fragrance?.trim();
-  return scent && !base.toLowerCase().includes(scent.toLowerCase()) ? `${base} · ${scent}` : base;
-}
 
 /**
  * A product's scent collection ("Sea Salt", "Grapefruit"), from `fragrance`.
@@ -362,7 +349,7 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
         folders.set(id, { id, name, readOnly: true, order });
         return id;
       };
-      folders.set(brandId, { id: brandId, name: BRAND_NAMES[brand] ?? `${brand} Products`, readOnly: true });
+      folders.set(brandId, { id: brandId, name: BRAND_PRODUCT_NAMES[brand] ?? `${brand} Products`, readOnly: true });
       const productId = `${group("products", "Products", 4)}/${r.part}`;
       folders.set(productId, { id: productId, name: productName, readOnly: true });
 

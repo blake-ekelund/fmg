@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { resolvePortalAgency } from "@/lib/email/server-auth";
+import { BRAND_NAMES, productName } from "@/lib/productImageNames";
 
 export const runtime = "nodejs";
 
 const SIGN_TTL = 60 * 60; // 1 hour
 const MAX = 300;
+/** Product photos: all of them (~1.1k today), paged and signed in batches. */
+const MAX_PRODUCT = 5000;
+const PAGE = 1000;
+const SIGN_BATCH = 500;
 
 type Asset = {
   id: string;
@@ -63,32 +68,56 @@ export async function GET(request: Request) {
   }
 
   // ── Product media-kit imagery (global) ──────────────────────────────────────
-  // media_kit_assets has `uploaded_at` and no `file_name` — asking for either
-  // failed the query, so reps never saw any product imagery.
-  const { data: media, error: mediaErr } = await supabaseServer
-    .from("media_kit_assets")
-    .select("id, part, asset_type, storage_path")
-    .order("uploaded_at", { ascending: false })
-    .limit(MAX);
-  if (mediaErr) console.error("[portal/assets] product imagery query failed:", mediaErr.message);
+  // Every product photo, paged (PostgREST caps responses at 1000 rows; a unique
+  // tiebreaker keeps .range() from dropping rows). media_kit_assets has
+  // `uploaded_at` and no `file_name`.
+  type MediaRow = { id: string; part: string; asset_type: string; storage_path: string };
+  const mediaRows: MediaRow[] = [];
+  for (let from = 0; from < MAX_PRODUCT; from += PAGE) {
+    const { data, error } = await supabaseServer
+      .from("media_kit_assets")
+      .select("id, part, asset_type, storage_path")
+      .order("uploaded_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      console.error("[portal/assets] product imagery query failed:", error.message);
+      break;
+    }
+    mediaRows.push(...((data ?? []) as MediaRow[]));
+    if (!data || data.length < PAGE) break;
+  }
+  const productRows = mediaRows.filter((m) => /\.(png|jpe?g|gif|webp)$/i.test(m.storage_path));
 
-  const mediaRows = (media ?? []) as {
-    id: string;
-    part: string;
-    asset_type: string;
-    storage_path: string;
-  }[];
+  if (productRows.length > 0) {
+    // Name photos by product ("Body Butter · Sea Salt"), not part number.
+    type ProductRow = { part: string; display_name: string | null; fragrance: string | null; brand: string | null };
+    const parts = Array.from(new Set(productRows.map((m) => m.part)));
+    const byPart = new Map<string, ProductRow>();
+    for (let i = 0; i < parts.length; i += 200) {
+      const { data } = await supabaseServer
+        .from("inventory_products")
+        .select("part, display_name, fragrance, brand")
+        .in("part", parts.slice(i, i + 200));
+      for (const p of (data ?? []) as ProductRow[]) byPart.set(p.part, p);
+    }
 
-  if (mediaRows.length > 0) {
-    const { data: signed } = await supabaseServer.storage
-      .from("media-kit")
-      .createSignedUrls(mediaRows.map((m) => m.storage_path), SIGN_TTL);
-    const byPath = new Map((signed ?? []).map((s) => [s.path, s.signedUrl]));
-    for (const m of mediaRows) {
+    const byPath = new Map<string, string>();
+    for (let i = 0; i < productRows.length; i += SIGN_BATCH) {
+      const { data: signed } = await supabaseServer.storage
+        .from("media-kit")
+        .createSignedUrls(productRows.slice(i, i + SIGN_BATCH).map((m) => m.storage_path), SIGN_TTL);
+      for (const s of signed ?? []) if (s.path && s.signedUrl) byPath.set(s.path, s.signedUrl);
+    }
+
+    for (const m of productRows) {
+      const p = byPart.get(m.part);
+      const name = productName(p?.display_name ?? null, p?.fragrance ?? null, m.part);
+      const brand = p?.brand ? BRAND_NAMES[p.brand] ?? p.brand : null;
       assets.push({
         id: `media:${m.id}`,
-        title: `${m.part} · ${m.asset_type}`,
-        description: null,
+        title: `${name} — ${m.asset_type}`,
+        description: [brand, m.part].filter(Boolean).join(" · "),
         kind: "product",
         url: byPath.get(m.storage_path) ?? null,
         fileName: m.storage_path.split("/").pop() ?? m.part,
