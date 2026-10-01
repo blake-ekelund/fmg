@@ -308,16 +308,23 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
   try {
     // PostgREST caps each response (1000 rows), so page — with a unique
     // tiebreaker, or .range() silently drops rows.
-    type AssetRow = { part: string; asset_type: string; storage_path: string; created_at: string | null };
+    // media_kit_assets has `uploaded_at`, not `created_at`.
+    type AssetRow = { part: string; asset_type: string; storage_path: string; uploaded_at: string | null };
     const rows: AssetRow[] = [];
     for (let from = 0; from < MAX_PRODUCT_IMAGES; from += PAGE) {
       const { data, error } = await supabaseServer
         .from("media_kit_assets")
-        .select("part, asset_type, storage_path, created_at")
-        .order("created_at", { ascending: false })
+        .select("part, asset_type, storage_path, uploaded_at")
+        .order("uploaded_at", { ascending: false })
         .order("storage_path", { ascending: true })
         .range(from, from + PAGE - 1);
-      if (error || !data) break;
+      if (error) {
+        // Don't fail the page, but don't hide it either — this once silently
+        // emptied every product folder.
+        console.error("[image-library] product photos query failed:", error.message);
+        break;
+      }
+      if (!data) break;
       rows.push(...(data as AssetRow[]));
       if (data.length < PAGE) break;
     }
@@ -386,7 +393,7 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
         path: `${PRODUCT_BUCKET}:${r.storage_path}`,
         url: pub.publicUrl,
         size: 0,
-        updatedAt: r.created_at,
+        updatedAt: r.uploaded_at,
         title: `${productName} — ${r.asset_type}`,
         altText: productName,
         description: null,
@@ -399,7 +406,8 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
       });
     }
     return { images, folders: Array.from(folders.values()) };
-  } catch {
+  } catch (e) {
+    console.error("[image-library] product photos failed:", e);
     return { images: [], folders: [] };
   }
 }

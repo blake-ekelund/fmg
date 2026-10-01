@@ -63,18 +63,20 @@ export async function GET(request: Request) {
   }
 
   // ── Product media-kit imagery (global) ──────────────────────────────────────
-  const { data: media } = await supabaseServer
+  // media_kit_assets has `uploaded_at` and no `file_name` — asking for either
+  // failed the query, so reps never saw any product imagery.
+  const { data: media, error: mediaErr } = await supabaseServer
     .from("media_kit_assets")
-    .select("id, part, asset_type, storage_path, file_name")
-    .order("created_at", { ascending: false })
+    .select("id, part, asset_type, storage_path")
+    .order("uploaded_at", { ascending: false })
     .limit(MAX);
+  if (mediaErr) console.error("[portal/assets] product imagery query failed:", mediaErr.message);
 
   const mediaRows = (media ?? []) as {
     id: string;
     part: string;
     asset_type: string;
     storage_path: string;
-    file_name: string | null;
   }[];
 
   if (mediaRows.length > 0) {
@@ -89,7 +91,7 @@ export async function GET(request: Request) {
         description: null,
         kind: "product",
         url: byPath.get(m.storage_path) ?? null,
-        fileName: m.file_name ?? m.storage_path.split("/").pop() ?? m.part,
+        fileName: m.storage_path.split("/").pop() ?? m.part,
       });
     }
   }
