@@ -84,6 +84,16 @@ describe("estimateRowsForOrder", () => {
       expect(ship[0][col("ProductDescription")]).toMatch(/GIFT MAILER \$2\.50/);
     });
 
+    it("still flags a free gift mailer for the packer", () => {
+      const { rows } = estimateRowsForOrder(
+        makeOrder({ source: null, shipping: 0, packaging: 0, gift_mailer: true } as never),
+        "MARTIN BOOT CO",
+      );
+      const last = rows[rows.length - 1];
+      expect(last[col("ProductPrice")]).toBe("0.00");
+      expect(last[col("ProductDescription")]).toMatch(/GIFT MAILER free/);
+    });
+
     it("leaves the Shipping line plain without a gift mailer", () => {
       const { rows } = estimateRowsForOrder(
         makeOrder({ source: null, shipping: 0 } as never),

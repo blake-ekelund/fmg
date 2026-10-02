@@ -71,6 +71,9 @@ export type StorefrontOrder = {
   /** Gift-mailer upcharge (Sassy D2C). > 0 = pack in the pink mailer. In
    *  total, not in subtotal. Absent on rows read before the column existed. */
   packaging?: number;
+  /** Shopper chose the pink gift mailer — pack in it even when packaging is
+   *  0 (free over $50). */
+  gift_mailer?: boolean;
   tax?: number;
   discount?: number;
   discounts?: OrderDiscount[] | null;
@@ -261,7 +264,7 @@ export function composeInvoiceLines(o: StorefrontOrder): InvoiceLine[] {
     });
   }
 
-  if (o.packaging != null && Number(o.packaging) > 0) {
+  if (o.gift_mailer || Number(o.packaging ?? 0) > 0) {
     n += 1;
     lines.push({
       lineNo: n,
@@ -270,7 +273,7 @@ export function composeInvoiceLines(o: StorefrontOrder): InvoiceLine[] {
       description: "Gift mailer",
       unitPrice: null,
       quantity: null,
-      amount: Number(o.packaging),
+      amount: Number(o.packaging ?? 0),
     });
   }
 

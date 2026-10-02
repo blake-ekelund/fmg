@@ -441,8 +441,15 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
                     : money(order.shipping)
               }
             />
-            {Number(order.packaging ?? 0) > 0 ? (
-              <Total label="Gift mailer" value={money(order.packaging)} />
+            {order.gift_mailer || Number(order.packaging ?? 0) > 0 ? (
+              <Total
+                label="Gift mailer"
+                value={
+                  Number(order.packaging ?? 0) > 0
+                    ? money(order.packaging)
+                    : "Free"
+                }
+              />
             ) : null}
             <Total label="Tax" value={money(order.tax ?? 0)} />
             <div className="flex items-baseline justify-between border-t border-gray-200 pt-2">

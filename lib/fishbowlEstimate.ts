@@ -607,14 +607,17 @@ export function estimateRowsForOrder(
     // the packer sees it): Fishbowl has no non-inventory fee item, and a second
     // type-60 line trips the double-shipping check.
     const packaging = Number(order.packaging ?? 0);
+    const gift = order.gift_mailer === true || packaging > 0;
     itemRows.push({
       ...itemDefaults,
       SOItemTypeID: "60",
       ProductNumber: "Shipping",
       ProductDescription:
-        packaging > 0
-          ? `Shipping + GIFT MAILER $${money(packaging)} (pack in pink mailer)`
-          : "Shipping",
+        !gift
+          ? "Shipping"
+          : packaging > 0
+            ? `Shipping + GIFT MAILER $${money(packaging)} (pack in pink mailer)`
+            : "Shipping + GIFT MAILER free (pack in pink mailer)",
       ProductQuantity: "1",
       ProductPrice: money(Number(order.shipping ?? 0) + packaging),
       Taxable: "false",
