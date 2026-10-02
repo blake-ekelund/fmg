@@ -131,6 +131,9 @@ export async function GET(request: Request) {
     .from("email_asset_meta")
     .select("path, title, description")
     .eq("share_scope", "third_party")
+    // Product-photo details ("media-kit:…") share this table; those photos
+    // already reach reps under Product imagery above.
+    .not("path", "like", "media-kit:%")
     .order("updated_at", { ascending: false })
     .limit(MAX);
 

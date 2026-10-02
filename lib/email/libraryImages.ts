@@ -16,7 +16,11 @@ export async function fetchLibraryImages(limit = 30): Promise<LibraryImage[]> {
     if (error || !data) return [];
     return data.map((r) => {
       const row = r as { path: string; title: string | null; alt_text: string | null; description: string | null };
-      const { data: pub } = supabaseServer.storage.from("email-assets").getPublicUrl(row.path);
+      // Product photos annotated on the product page are keyed
+      // "media-kit:<storage_path>" and live in the (public) media-kit bucket.
+      const { data: pub } = row.path.startsWith("media-kit:")
+        ? supabaseServer.storage.from("media-kit").getPublicUrl(row.path.slice("media-kit:".length))
+        : supabaseServer.storage.from("email-assets").getPublicUrl(row.path);
       return { url: pub.publicUrl, title: row.title, alt: row.alt_text, description: row.description };
     });
   } catch {

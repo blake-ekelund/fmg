@@ -336,6 +336,17 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
       for (const p of (data ?? []) as ProductRow[]) byPart.set(p.part, p);
     }
 
+    // Titles / alt / descriptions set on the product page (keyed like `path` below).
+    const { data: metaRows } = await supabaseServer
+      .from("email_asset_meta")
+      .select("path, title, alt_text, description")
+      .like("path", `${PRODUCT_BUCKET}:%`);
+    const metaByPath = new Map(
+      ((metaRows ?? []) as { path: string; title: string | null; alt_text: string | null; description: string | null }[]).map(
+        (m) => [m.path, m],
+      ),
+    );
+
     const images: Img[] = [];
     const folders = new Map<string, Folder>();
     for (const r of rows) {
@@ -376,14 +387,16 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
       }
 
       const { data: pub } = supabaseServer.storage.from(PRODUCT_BUCKET).getPublicUrl(r.storage_path);
+      const key = `${PRODUCT_BUCKET}:${r.storage_path}`;
+      const meta = metaByPath.get(key);
       images.push({
-        path: `${PRODUCT_BUCKET}:${r.storage_path}`,
+        path: key,
         url: pub.publicUrl,
         size: 0,
         updatedAt: r.uploaded_at,
-        title: `${productName} — ${r.asset_type}`,
-        altText: productName,
-        description: null,
+        title: meta?.title || `${productName} — ${r.asset_type}`,
+        altText: meta?.alt_text || productName,
+        description: meta?.description ?? null,
         // Reps already get Media Kit imagery on the portal.
         shareScope: "third_party",
         folder: productId,

@@ -921,6 +921,7 @@ export default function ProductDetailPage({
           {section === "media" && (
             <ProductPhotos
               part={part}
+              productName={form.display_name || part}
               photos={mediaAssets.map((a) => ({
                 id: a.id,
                 tag: a.asset_type,

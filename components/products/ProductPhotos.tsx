@@ -1,27 +1,17 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { Check, Loader2, Trash2, Upload, X, ZoomIn } from "lucide-react";
+import { Check, Loader2, Trash2, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { uploadMediaKitAsset } from "@/lib/mediaKit/uploadMediaKitAsset";
 import { DeleteConfirmModal } from "@/components/marketing/media-kit/components/modalSections/DeleteConfirmModal";
-
-export type PhotoTag = "front" | "benefits" | "lifestyle" | "ingredients" | "fragrance" | "other";
-
-export const PHOTO_TAGS: { tag: PhotoTag; label: string }[] = [
-  { tag: "front", label: "Front" },
-  { tag: "benefits", label: "Benefits" },
-  { tag: "lifestyle", label: "Lifestyle" },
-  { tag: "ingredients", label: "Ingredients" },
-  { tag: "fragrance", label: "Fragrance" },
-  { tag: "other", label: "Other" },
-];
-
-/** Tags every product should have at least one photo for ("Other" is optional). */
-const REQUIRED: PhotoTag[] = ["front", "benefits", "lifestyle", "ingredients", "fragrance"];
+import ProductPhotoModal, { type PhotoDetails } from "./ProductPhotoModal";
+import { PHOTO_TAGS, REQUIRED_PHOTO_TAGS, type PhotoTag } from "./photoTags";
 
 export type ProductPhoto = { id: string; tag: string; path: string; url: string | null };
+
+const NO_DETAILS: PhotoDetails = { title: null, altText: null, description: null, tags: [] };
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -29,55 +19,86 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function patchPhoto(body: Record<string, unknown>): Promise<void> {
+  const res = await fetch("/api/products/photos", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(await authHeader()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(json.error ?? "Couldn't save the photo.");
+  }
+}
+
 /**
  * One place to manage every photo of a product: a single grid, each photo
- * tagged Front / Benefits / Lifestyle / Ingredients / Fragrance / Other.
- * Re-tagging only changes `media_kit_assets.asset_type` (the file and its URL
- * never move); the storefronts use the tag to order the gallery.
+ * typed Front / Benefits / Lifestyle / Ingredients / Fragrance / Other.
+ * Click a photo to edit its title, type, tags, alt text and description
+ * (like the Image Library). Nothing here moves a file or changes its URL;
+ * the storefronts use the type to order the gallery.
  */
 export default function ProductPhotos({
   part,
+  productName,
   photos,
   onChanged,
 }: {
   part: string;
+  productName: string;
   photos: ProductPhoto[];
   onChanged: () => void;
 }) {
   const [filter, setFilter] = useState<PhotoTag | "all">("all");
-  /** Tag changes shown immediately while the save runs. */
+  /** Type changes shown immediately while the save runs. */
   const [pendingTags, setPendingTags] = useState<Record<string, string>>({});
+  const [details, setDetails] = useState<Record<string, PhotoDetails>>({});
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProductPhoto | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploadTag, setUploadTag] = useState<PhotoTag | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const tagged = useMemo(
+  // Title / alt / description / tags per photo (server-side, see the API).
+  const loadDetails = useCallback(async () => {
+    const res = await fetch(`/api/products/photos?part=${encodeURIComponent(part)}`, { headers: await authHeader() });
+    if (!res.ok) return;
+    const json = (await res.json().catch(() => ({}))) as { photos?: Record<string, PhotoDetails> };
+    setDetails(json.photos ?? {});
+  }, [part]);
+
+  const photoIds = photos.map((p) => p.id).join(",");
+  useEffect(() => {
+    void loadDetails();
+  }, [loadDetails, photoIds]);
+
+  const typed = useMemo(
     () => photos.map((p) => ({ ...p, tag: pendingTags[p.id] ?? p.tag })),
     [photos, pendingTags],
   );
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const p of tagged) c[p.tag] = (c[p.tag] ?? 0) + 1;
+    for (const p of typed) c[p.tag] = (c[p.tag] ?? 0) + 1;
     return c;
-  }, [tagged]);
+  }, [typed]);
 
-  const missing = REQUIRED.filter((t) => !counts[t]);
-  // New uploads default to the first tag still missing a photo.
-  const [uploadTag, setUploadTag] = useState<PhotoTag | null>(null);
+  const missing = REQUIRED_PHOTO_TAGS.filter((t) => !counts[t]);
+  // New uploads default to the filtered type, else the first type still missing.
   const tagForUpload: PhotoTag = uploadTag ?? (filter !== "all" ? filter : missing[0] ?? "other");
 
   const order = (t: string) => {
     const i = PHOTO_TAGS.findIndex((x) => x.tag === t);
     return i === -1 ? PHOTO_TAGS.length : i;
   };
-  const shown = tagged
+  const shown = typed
     .filter((p) => filter === "all" || p.tag === filter)
     .sort((a, b) => order(a.tag) - order(b.tag));
+  const open = openId ? typed.find((p) => p.id === openId) ?? null : null;
+  const typeLabel = (t: string) => PHOTO_TAGS.find((x) => x.tag === t)?.label ?? t;
 
   async function upload(files: FileList | File[] | null) {
     const list = Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
@@ -95,25 +116,37 @@ export default function ProductPhotos({
     }
   }
 
-  async function retag(photo: ProductPhoto, tag: string) {
+  async function retype(photo: ProductPhoto, tag: string) {
     setPendingTags((m) => ({ ...m, [photo.id]: tag }));
     setError(null);
-    const res = await fetch("/api/products/photos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...(await authHeader()) },
-      body: JSON.stringify({ id: photo.id, assetType: tag }),
-    });
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      setError(json.error ?? "Couldn't change the tag.");
+    try {
+      await patchPhoto({ id: photo.id, assetType: tag });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't change the photo type.");
       setPendingTags((m) => {
         const next = { ...m };
         delete next[photo.id];
         return next;
       });
-      return;
     }
-    onChanged();
+  }
+
+  async function saveDetails(photo: ProductPhoto, patch: { assetType?: string } & Partial<PhotoDetails>) {
+    await patchPhoto({ id: photo.id, ...patch });
+    setDetails((d) => ({
+      ...d,
+      [photo.id]: {
+        title: patch.title?.trim() || null,
+        altText: patch.altText?.trim() || null,
+        description: patch.description?.trim() || null,
+        tags: patch.tags ?? d[photo.id]?.tags ?? [],
+      },
+    }));
+    if (patch.assetType) {
+      setPendingTags((m) => ({ ...m, [photo.id]: patch.assetType! }));
+      onChanged();
+    }
   }
 
   async function confirmDelete() {
@@ -124,6 +157,9 @@ export default function ProductPhotos({
       if (storageError) throw storageError;
       const { error: dbError } = await supabase.from("media_kit_assets").delete().eq("id", deleteTarget.id);
       if (dbError) throw dbError;
+      // Its title / alt / description row goes too (best effort).
+      await supabase.from("email_asset_meta").delete().eq("path", `media-kit:${deleteTarget.path}`);
+      setOpenId(null);
       onChanged();
     } catch (e) {
       console.error("Delete failed", e);
@@ -136,7 +172,7 @@ export default function ProductPhotos({
 
   return (
     <div className="space-y-4">
-      {/* Tag checklist — doubles as the filter */}
+      {/* Type checklist — doubles as the filter */}
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5">
@@ -151,7 +187,7 @@ export default function ProductPhotos({
             </button>
             {PHOTO_TAGS.map(({ tag, label }) => {
               const n = counts[tag] ?? 0;
-              const needed = REQUIRED.includes(tag) && n === 0;
+              const needed = REQUIRED_PHOTO_TAGS.includes(tag) && n === 0;
               return (
                 <button
                   key={tag}
@@ -210,9 +246,7 @@ export default function ProductPhotos({
           </div>
         </div>
         {missing.length > 0 ? (
-          <p className="mt-3 text-xs text-amber-700">
-            Still needed: {missing.map((t) => PHOTO_TAGS.find((x) => x.tag === t)?.label).join(", ")}
-          </p>
+          <p className="mt-3 text-xs text-amber-700">Still needed: {missing.map(typeLabel).join(", ")}</p>
         ) : (
           <p className="mt-3 text-xs text-emerald-700">Every photo type is covered.</p>
         )}
@@ -248,76 +282,81 @@ export default function ProductPhotos({
           <div className="flex flex-col items-center gap-3 py-14 text-center text-gray-400">
             <Upload size={30} strokeWidth={1.5} />
             <p className="text-sm font-medium text-gray-600">
-              {filter === "all"
-                ? "No photos yet"
-                : `No ${PHOTO_TAGS.find((x) => x.tag === filter)?.label.toLowerCase()} photos yet`}
+              {filter === "all" ? "No photos yet" : `No ${typeLabel(filter).toLowerCase()} photos yet`}
             </p>
             <p className="text-xs">Drag photos here or use Add photos.</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {shown.map((p) => (
-              <div key={p.id} className="group">
-                <div className="relative aspect-square overflow-hidden rounded-xl bg-gray-50">
-                  {p.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={p.url}
-                      alt={`${p.tag} photo`}
-                      className="h-full w-full cursor-zoom-in object-contain p-2"
-                      onClick={() => setLightbox(p.url)}
-                    />
-                  ) : null}
-                  <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
+            {shown.map((p) => {
+              const d = details[p.id] ?? NO_DETAILS;
+              return (
+                <div key={p.id} className="group">
+                  <div className="relative aspect-square overflow-hidden rounded-xl bg-gray-50">
                     <button
                       type="button"
-                      onClick={() => p.url && setLightbox(p.url)}
-                      className="rounded-full bg-white/95 p-1.5 shadow-sm hover:bg-white"
-                      title="View full size"
+                      onClick={() => setOpenId(p.id)}
+                      className="block h-full w-full transition hover:ring-2 hover:ring-gray-300 hover:ring-offset-2 rounded-xl"
+                      aria-label={`Edit ${d.title || typeLabel(p.tag) + " photo"}`}
                     >
-                      <ZoomIn size={13} className="text-gray-600" />
+                      {p.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.url} alt={d.altText || `${typeLabel(p.tag)} photo`} className="h-full w-full object-contain p-2" />
+                      ) : null}
                     </button>
                     <button
                       type="button"
                       onClick={() => setDeleteTarget(p)}
-                      className="rounded-full bg-white/95 p-1.5 shadow-sm hover:bg-white"
+                      className="absolute right-2 top-2 rounded-full bg-white/95 p-1.5 opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
                       title="Delete photo"
                     >
                       <Trash2 size={13} className="text-red-500" />
                     </button>
+                    {d.tags.length > 0 && (
+                      <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-medium text-gray-600 shadow-sm">
+                        {d.tags.length} tag{d.tags.length === 1 ? "" : "s"}
+                      </span>
+                    )}
                   </div>
+                  <div className="mt-2 truncate text-sm font-medium text-gray-800" title={d.title ?? undefined}>
+                    {d.title || <span className="font-normal text-gray-400">Untitled</span>}
+                  </div>
+                  <select
+                    value={p.tag}
+                    onChange={(e) => void retype(p, e.target.value)}
+                    aria-label="Photo type"
+                    className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  >
+                    {!PHOTO_TAGS.some((x) => x.tag === p.tag) && <option value={p.tag}>{p.tag}</option>}
+                    {PHOTO_TAGS.map(({ tag, label }) => (
+                      <option key={tag} value={tag}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <select
-                  value={p.tag}
-                  onChange={(e) => void retag(p, e.target.value)}
-                  aria-label="Photo tag"
-                  className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300"
-                >
-                  {!PHOTO_TAGS.some((x) => x.tag === p.tag) && <option value={p.tag}>{p.tag}</option>}
-                  {PHOTO_TAGS.map(({ tag, label }) => (
-                    <option key={tag} value={tag}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      {lightbox && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setLightbox(null)}>
-          <button
-            onClick={() => setLightbox(null)}
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 transition hover:bg-white/20"
-            aria-label="Close"
-          >
-            <X size={20} className="text-white" />
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="" className="max-h-[90vh] max-w-[90vw] object-contain" onClick={(e) => e.stopPropagation()} />
-        </div>
+      {open && (
+        <ProductPhotoModal
+          key={open.id}
+          url={open.url}
+          fileName={open.path.split("/").pop() ?? open.path}
+          productName={productName}
+          type={open.tag}
+          details={details[open.id] ?? NO_DETAILS}
+          onClose={() => setOpenId(null)}
+          onSave={(patch) => saveDetails(open, patch)}
+          onDelete={() => {
+            // The confirm dialog sits below this modal — close it first.
+            setDeleteTarget(open);
+            setOpenId(null);
+          }}
+        />
       )}
 
       {deleteTarget && (
