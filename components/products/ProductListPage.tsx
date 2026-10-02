@@ -20,7 +20,6 @@ import { Product } from "@/components/inventory/types";
 import { type Trend, TREND_CONFIG, computeTrend } from "@/lib/trends";
 import { useBrandSettings, brandBadgeStyle } from "@/lib/brand-settings";
 import CreateProductModal from "./CreateProductModal";
-import CopyImportExport from "./CopyImportExport";
 import type { Brand } from "@/types/brand";
 
 /* ─── Sales lookup type ─── */
@@ -43,16 +42,56 @@ const TREND_OPTIONS: Trend[] = ["growing", "new", "stable", "declining"];
 type SortKey = "part" | "display_name" | "brand" | "fragrance" | "size" | "product_type" | "trend" | "forecast" | "media";
 type SortDir = "asc" | "desc";
 
-/* Media kit completeness: which parts have copy + assets */
-type MediaStatus = { hasCopy: boolean; assetCount: number };
+/* Media kit completeness: which parts have copy + which photo types */
+type MediaStatus = { hasCopy: boolean; assetTypes: Set<string> };
 type MediaLookup = Record<string, MediaStatus>;
 
-const REQUIRED_ASSETS = 6; // front, benefits, lifestyle, ingredients, fragrance, other
+/* Every piece of media a product should have. "copy" is the text; the rest
+   are media_kit_assets.asset_type values. Order = order in the dropdown. */
+type MediaKind =
+  | "copy"
+  | "front"
+  | "benefits"
+  | "lifestyle"
+  | "ingredients"
+  | "fragrance"
+  | "other";
 
-/** A product needs media if it lacks copy OR has fewer than REQUIRED_ASSETS photos. */
-function needsMedia(status: MediaStatus | undefined): boolean {
+const MEDIA_KINDS: { kind: MediaKind; label: string }[] = [
+  { kind: "copy", label: "Copy" },
+  { kind: "front", label: "Front" },
+  { kind: "benefits", label: "Benefits" },
+  { kind: "lifestyle", label: "Lifestyle" },
+  { kind: "ingredients", label: "Ingredients / Back" },
+  { kind: "fragrance", label: "Fragrance" },
+  { kind: "other", label: "Other" },
+];
+
+const ALL_MEDIA_KINDS = MEDIA_KINDS.map((m) => m.kind);
+
+function isMissing(status: MediaStatus | undefined, kind: MediaKind): boolean {
   if (!status) return true;
-  return !status.hasCopy || status.assetCount < REQUIRED_ASSETS;
+  return kind === "copy" ? !status.hasCopy : !status.assetTypes.has(kind);
+}
+
+/** True if the product is missing ANY of the given media kinds. */
+function missingAny(status: MediaStatus | undefined, kinds: Iterable<MediaKind>): boolean {
+  for (const k of kinds) if (isMissing(status, k)) return true;
+  return false;
+}
+
+/* ─── Filter persistence ───────────────────────────────────────────────
+   Filters + sort live in the URL query string so opening a product and
+   hitting Back lands on the same filtered table; sessionStorage covers
+   links that go to a bare /products. */
+
+const FILTERS_STORAGE_KEY = "products:list-filters";
+
+const SORT_KEYS: SortKey[] = ["part", "display_name", "brand", "fragrance", "size", "product_type", "trend", "forecast", "media"];
+
+function parseList<T extends string>(raw: string | null, allowed: readonly T[]): Set<T> {
+  if (!raw) return new Set();
+  return new Set(raw.split(",").filter((v): v is T => (allowed as readonly string[]).includes(v)));
 }
 
 /* ─── Page ─── */
@@ -69,10 +108,55 @@ export default function ProductListPage() {
   const [status, setStatus] = useState<StatusFilter>("current");
   // Multiselect: empty set == all trends (keeps "cleared" and "everything" as one state).
   const [trendSel, setTrendSel] = useState<Set<Trend>>(new Set());
-  const [needsMediaOnly, setNeedsMediaOnly] = useState(false);
+  // Media kinds the product must be missing (any of). Empty == filter off.
+  const [mediaSel, setMediaSel] = useState<Set<MediaKind>>(new Set());
 
   const [sortKey, setSortKey] = useState<SortKey>("part");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  /* Restore filters from the URL once on mount, then mirror every change
+     back into it (replaceState — no history entry per keystroke). */
+  const [urlReady, setUrlReady] = useState(false);
+
+  useEffect(() => {
+    // A bare /products (detail page's Back link, sidebar) falls back to the
+    // last filters used this tab.
+    let qs = window.location.search;
+    if (!qs) {
+      try {
+        qs = sessionStorage.getItem(FILTERS_STORAGE_KEY) ?? "";
+      } catch {}
+    }
+    const sp = new URLSearchParams(qs);
+    setQuery(sp.get("q") ?? "");
+    const st = sp.get("status");
+    if (st === "current" || st === "archived" || st === "all") setStatus(st);
+    setTrendSel(parseList(sp.get("trend"), TREND_OPTIONS));
+    setMediaSel(parseList(sp.get("media"), ALL_MEDIA_KINDS));
+    const sk = sp.get("sort") as SortKey | null;
+    if (sk && SORT_KEYS.includes(sk)) setSortKey(sk);
+    if (sp.get("dir") === "desc") setSortDir("desc");
+    setUrlReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!urlReady) return;
+    const sp = new URLSearchParams();
+    if (query) sp.set("q", query);
+    if (status !== "current") sp.set("status", status);
+    if (trendSel.size) sp.set("trend", [...trendSel].join(","));
+    if (mediaSel.size) sp.set("media", [...mediaSel].join(","));
+    if (sortKey !== "part") sp.set("sort", sortKey);
+    if (sortDir !== "asc") sp.set("dir", sortDir);
+    const qs = sp.toString();
+    try {
+      sessionStorage.setItem(FILTERS_STORAGE_KEY, qs ? `?${qs}` : "");
+    } catch {}
+    const next = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(window.history.state, "", next);
+    }
+  }, [urlReady, query, status, trendSel, mediaSel, sortKey, sortDir]);
 
   /* Sales data for trend calculation */
   const [salesLookup, setSalesLookup] = useState<SalesLookup>({});
@@ -165,13 +249,13 @@ export default function ProductListPage() {
 
       (copyRes.data ?? []).forEach((r: { part: string; short_description: string | null; long_description: string | null; benefits: string | null }) => {
         const hasCopy = !!(r.short_description || r.long_description || r.benefits);
-        if (!lookup[r.part]) lookup[r.part] = { hasCopy: false, assetCount: 0 };
+        if (!lookup[r.part]) lookup[r.part] = { hasCopy: false, assetTypes: new Set() };
         lookup[r.part].hasCopy = hasCopy;
       });
 
       (assetsRes.data ?? []).forEach((r: { part: string; asset_type: string }) => {
-        if (!lookup[r.part]) lookup[r.part] = { hasCopy: false, assetCount: 0 };
-        lookup[r.part].assetCount++;
+        if (!lookup[r.part]) lookup[r.part] = { hasCopy: false, assetTypes: new Set() };
+        lookup[r.part].assetTypes.add(r.asset_type);
       });
 
       setMediaLookup(lookup);
@@ -182,14 +266,17 @@ export default function ProductListPage() {
   /* ─── Toggle forecast ─── */
 
   async function toggleForecast(part: string, value: boolean) {
+    // Archiving also drops the product to Draft so it leaves the storefronts.
+    // (A DB trigger enforces the same rule for every other write path.)
+    const patch: Partial<Product> = value
+      ? { is_forecasted: true }
+      : { is_forecasted: false, storefront_channel: "off" };
     setProducts((prev) =>
-      prev.map((p) =>
-        p.part === part ? { ...p, is_forecasted: value } : p
-      )
+      prev.map((p) => (p.part === part ? { ...p, ...patch } : p))
     );
     await supabase
       .from("inventory_products")
-      .update({ is_forecasted: value })
+      .update(patch)
       .eq("part", part);
   }
 
@@ -247,13 +334,13 @@ export default function ProductListPage() {
       if (except !== "trend" && trendSel.size > 0) {
         if (!trendSel.has(getTrend(p.part))) return false;
       }
-      if (except !== "needsMedia" && needsMediaOnly) {
-        if (!needsMedia(mediaLookup[p.part])) return false;
+      if (except !== "needsMedia" && mediaSel.size > 0) {
+        if (!missingAny(mediaLookup[p.part], mediaSel)) return false;
       }
       return true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, status, trendSel, needsMediaOnly, salesLookup, mediaLookup]);
+  }, [query, status, trendSel, mediaSel, salesLookup, mediaLookup]);
 
   /* ─── Pill counts (cross-filtered) ───────────────────────────────────
      Each pill's count = how many rows would show if you clicked it,
@@ -282,17 +369,28 @@ export default function ProductListPage() {
       if (t in trend) trend[t as TrendFilter]++;
     }
 
-    // Needs media: hold status/trend/search constant, count missing-media.
-    const needsMediaCount = brandScoped
-      .filter((p) => passesFilters(p, "needsMedia"))
-      .filter((p) => needsMedia(mediaLookup[p.part])).length;
+    // Needs media: hold status/trend/search constant, count per missing kind.
+    const mediaPool = brandScoped.filter((p) => passesFilters(p, "needsMedia"));
+    const media = { any: 0 } as Record<MediaKind | "any", number>;
+    for (const { kind } of MEDIA_KINDS) media[kind] = 0;
+    for (const p of mediaPool) {
+      const s = mediaLookup[p.part];
+      let any = false;
+      for (const { kind } of MEDIA_KINDS) {
+        if (isMissing(s, kind)) {
+          media[kind]++;
+          any = true;
+        }
+      }
+      if (any) media.any++;
+    }
 
     return {
       current,
       archived,
       all: statusPool.length,
       trend,
-      needsMedia: needsMediaCount,
+      media,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brandScoped, passesFilters, mediaLookup, salesLookup]);
@@ -333,10 +431,8 @@ export default function ProductListPage() {
           cmp = (a.is_forecasted ? 0 : 1) - (b.is_forecasted ? 0 : 1);
           break;
         case "media": {
-          const mA = mediaLookup[a.part];
-          const mB = mediaLookup[b.part];
-          const scoreA = (mA?.hasCopy ? 1 : 0) + (mA?.assetCount ?? 0);
-          const scoreB = (mB?.hasCopy ? 1 : 0) + (mB?.assetCount ?? 0);
+          const scoreA = ALL_MEDIA_KINDS.filter((k) => !isMissing(mediaLookup[a.part], k)).length;
+          const scoreB = ALL_MEDIA_KINDS.filter((k) => !isMissing(mediaLookup[b.part], k)).length;
           cmp = scoreA - scoreB;
           break;
         }
@@ -346,7 +442,7 @@ export default function ProductListPage() {
 
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brandScoped, query, status, trendSel, needsMediaOnly, salesLookup, sortKey, sortDir, mediaLookup]);
+  }, [brandScoped, query, status, trendSel, mediaSel, salesLookup, sortKey, sortDir, mediaLookup]);
 
   /* ─── Column definitions ─── */
 
@@ -370,7 +466,7 @@ export default function ProductListPage() {
 
   return (
     <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
-      {/* Single-row toolbar — filters + import/export/new product all on one line */}
+      {/* Single-row toolbar — filters + new product on one line */}
       <div className="flex items-center gap-2">
         {/* Search */}
         <div className="relative min-w-[240px] max-w-[460px] flex-1">
@@ -406,27 +502,15 @@ export default function ProductListPage() {
           onChange={setTrendSel}
         />
 
-        {/* Needs media toggle */}
-        <button
-          onClick={() => setNeedsMediaOnly((v) => !v)}
-          className={clsx(
-            "shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
-            needsMediaOnly
-              ? "bg-amber-50 text-amber-700 border-amber-200"
-              : "bg-white text-gray-500 border-gray-200 hover:border-gray-300",
-          )}
-          title={
-            needsMediaOnly
-              ? "Showing only products missing media — click to clear"
-              : "Show only products missing copy or photos"
-          }
-        >
-          Needs media ({counts.needsMedia})
-        </button>
+        {/* Needs media multiselect — missing any of the checked kinds */}
+        <NeedsMediaMultiSelect
+          selected={mediaSel}
+          counts={counts.media}
+          onChange={setMediaSel}
+        />
 
-        {/* Copy export/import + add product (pushed right) */}
+        {/* Add product (pushed right) */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <CopyImportExport onImported={load} />
           <button
             onClick={() => setCreateOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm font-medium hover:bg-gray-800 transition"
@@ -574,7 +658,7 @@ export default function ProductListPage() {
               No products found
             </p>
             <p className="mt-1 text-sm text-gray-500 max-w-sm">
-              {query || trendSel.size > 0 || needsMediaOnly
+              {query || trendSel.size > 0 || mediaSel.size > 0
                 ? "Try adjusting your search or filters."
                 : "Add your first product to get started."}
             </p>
@@ -736,6 +820,134 @@ function TrendMultiSelect({
   );
 }
 
+/* ─── Needs-media multiselect ─────────────────────────────────────────
+   Empty selection == filter off. "Missing anything" checks every kind.
+   A product shows if it's missing ANY checked kind. */
+
+function NeedsMediaMultiSelect({
+  selected,
+  counts,
+  onChange,
+}: {
+  selected: Set<MediaKind>;
+  counts: Record<MediaKind | "any", number>;
+  onChange: (next: Set<MediaKind>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function toggle(k: MediaKind) {
+    const next = new Set(selected);
+    if (next.has(k)) next.delete(k);
+    else next.add(k);
+    onChange(next);
+  }
+
+  const allOn = selected.size === MEDIA_KINDS.length;
+  const active = selected.size > 0;
+  const label = !active
+    ? "Needs media"
+    : allOn
+      ? "Missing anything"
+      : selected.size === 1
+        ? `Missing ${MEDIA_KINDS.find((m) => selected.has(m.kind))!.label}`
+        : `Missing ${selected.size} types`;
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        className={clsx(
+          "inline-flex min-w-[130px] items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
+          active
+            ? "bg-amber-50 text-amber-700 border-amber-200"
+            : "bg-white text-gray-500 border-gray-200 hover:border-gray-300",
+        )}
+        title="Show products missing specific media"
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown
+          size={12}
+          className={clsx(
+            "ml-auto shrink-0 transition-transform duration-150",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 z-30 mt-1 min-w-[220px] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => onChange(allOn ? new Set() : new Set(ALL_MEDIA_KINDS))}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-gray-50"
+          >
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              {allOn && <Check size={14} className="text-gray-900" />}
+            </span>
+            <span className={clsx("flex-1", allOn ? "font-medium text-gray-900" : "text-gray-600")}>
+              Missing anything
+            </span>
+            <span className="text-xs tabular-nums text-gray-400">{counts.any}</span>
+          </button>
+
+          <div className="border-t border-gray-100">
+            {MEDIA_KINDS.map(({ kind, label: kLabel }) => {
+              const on = selected.has(kind);
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => toggle(kind)}
+                  aria-pressed={on}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-gray-50"
+                >
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {on && <Check size={14} className="text-gray-900" />}
+                  </span>
+                  <span className={clsx("flex-1", on ? "font-medium text-gray-900" : "text-gray-600")}>
+                    {kLabel}
+                  </span>
+                  <span className="text-xs tabular-nums text-gray-400">{counts[kind]}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {active && (
+            <button
+              type="button"
+              onClick={() => onChange(new Set())}
+              className="w-full border-t border-gray-100 px-3 py-2 text-left text-xs text-gray-500 hover:bg-gray-50"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Sort icon ─── */
 
 function SortIcon({
@@ -763,7 +975,7 @@ function SortIcon({
 /* ─── Media badge ─── */
 
 function MediaBadge({ status }: { status?: MediaStatus }) {
-  if (!status || (!status.hasCopy && status.assetCount === 0)) {
+  if (!status || (!status.hasCopy && status.assetTypes.size === 0)) {
     return (
       <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600">
         Missing
@@ -773,7 +985,10 @@ function MediaBadge({ status }: { status?: MediaStatus }) {
 
   const missing: string[] = [];
   if (!status.hasCopy) missing.push("Copy");
-  if (status.assetCount < REQUIRED_ASSETS) missing.push("Photos");
+  const missingPhotos = MEDIA_KINDS.filter(
+    (m) => m.kind !== "copy" && isMissing(status, m.kind),
+  );
+  if (missingPhotos.length) missing.push("Photos");
 
   if (missing.length === 0) {
     return (
@@ -784,7 +999,10 @@ function MediaBadge({ status }: { status?: MediaStatus }) {
   }
 
   return (
-    <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-600">
+    <span
+      className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-600"
+      title={missingPhotos.length ? `Missing photos: ${missingPhotos.map((m) => m.label).join(", ")}` : undefined}
+    >
       {missing.join(" + ")}
     </span>
   );
