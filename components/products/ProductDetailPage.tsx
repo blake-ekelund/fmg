@@ -55,6 +55,8 @@ type AssetRecord = {
   id: string;
   asset_type: string;
   storage_path: string;
+  /** Drag order on the Media tab (null = unordered). */
+  sort_order?: number | null;
 };
 
 type SalesRow = {
@@ -179,8 +181,14 @@ export default function ProductDetailPage({
         .maybeSingle(),
       supabase
         .from("media_kit_assets")
-        .select("id, asset_type, storage_path")
-        .eq("part", part),
+        .select("id, asset_type, storage_path, sort_order")
+        .eq("part", part)
+        .then(async (res) =>
+          // Before the photo-order migration there's no sort_order column.
+          res.error
+            ? supabase.from("media_kit_assets").select("id, asset_type, storage_path").eq("part", part)
+            : res,
+        ),
     ]);
 
     const text = (textRes.data as MediaKitText) ?? {
@@ -927,6 +935,7 @@ export default function ProductDetailPage({
                 tag: a.asset_type,
                 path: a.storage_path,
                 url: assetUrls[a.storage_path] ?? null,
+                sortOrder: a.sort_order ?? null,
               }))}
               onChanged={loadMedia}
             />

@@ -12,7 +12,8 @@ const PHOTO_TAGS = ["front", "benefits", "lifestyle", "ingredients", "fragrance"
  *
  *  GET   ?part=… — per photo id: free-form `tags` plus title / alt text /
  *                  description.
- *  PATCH         — update one photo `{ id, assetType?, tags?, title?, altText?,
+ *  PATCH         — reorder `{ part, order: [ids] }` (sets sort_order), or
+ *                  update one photo `{ id, assetType?, tags?, title?, altText?,
  *                  description? }`; only provided fields change.
  *
  * Type + tags live on `media_kit_assets`. Title / alt / description live in
@@ -68,12 +69,42 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => null)) as {
     id?: string;
+    part?: string;
+    order?: unknown;
     assetType?: string;
     tags?: unknown;
     title?: string;
     altText?: string;
     description?: string;
   } | null;
+
+  // Reorder: `{ part, order: [photo ids, first → last] }` sets sort_order 0…n.
+  if (body?.order !== undefined) {
+    const part = body.part?.trim();
+    if (!part || !Array.isArray(body.order) || body.order.some((x) => typeof x !== "string")) {
+      return NextResponse.json({ error: "Invalid order" }, { status: 400 });
+    }
+    const order = body.order as string[];
+    const { data: owned, error: ownErr } = await supabaseServer
+      .from("media_kit_assets")
+      .select("id")
+      .eq("part", part);
+    if (ownErr) return NextResponse.json({ error: ownErr.message }, { status: 500 });
+    const ids = new Set(((owned ?? []) as { id: string }[]).map((r) => r.id));
+    if (order.length !== ids.size || order.some((x) => !ids.has(x)) || new Set(order).size !== order.length) {
+      return NextResponse.json({ error: "Order must list each of this product's photos once" }, { status: 400 });
+    }
+    const now = new Date().toISOString();
+    const results = await Promise.all(
+      order.map((photoId, i) =>
+        supabaseServer.from("media_kit_assets").update({ sort_order: i, updated_at: now }).eq("id", photoId),
+      ),
+    );
+    const failed = results.find((r) => r.error);
+    if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
   const id = body?.id?.trim();
   if (!id) return NextResponse.json({ error: "Missing photo id" }, { status: 400 });
 

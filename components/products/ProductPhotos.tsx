@@ -9,7 +9,17 @@ import { DeleteConfirmModal } from "@/components/marketing/media-kit/components/
 import ProductPhotoModal, { type PhotoDetails } from "./ProductPhotoModal";
 import { PHOTO_TAGS, REQUIRED_PHOTO_TAGS, type PhotoTag } from "./photoTags";
 
-export type ProductPhoto = { id: string; tag: string; path: string; url: string | null };
+export type ProductPhoto = {
+  id: string;
+  tag: string;
+  path: string;
+  url: string | null;
+  /** Drag order (null = unordered → sorted by type after the ordered ones). */
+  sortOrder?: number | null;
+};
+
+/** dataTransfer type for a photo being dragged to a new position. */
+const DRAG_TYPE = "application/x-fmg-product-photo";
 
 const NO_DETAILS: PhotoDetails = { title: null, altText: null, description: null, tags: [] };
 
@@ -35,8 +45,9 @@ async function patchPhoto(body: Record<string, unknown>): Promise<void> {
  * One place to manage every photo of a product: a single grid, each photo
  * typed Front / Benefits / Lifestyle / Ingredients / Fragrance / Other.
  * Click a photo to edit its title, type, tags, alt text and description
- * (like the Image Library). Nothing here moves a file or changes its URL;
- * the storefronts use the type to order the gallery.
+ * (like the Image Library); drag photos (All view) to set the gallery order,
+ * which the storefronts follow — first photo leads. Nothing here moves a
+ * file or changes its URL.
  */
 export default function ProductPhotos({
   part,
@@ -60,6 +71,10 @@ export default function ProductPhotos({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadTag, setUploadTag] = useState<PhotoTag | null>(null);
+  /** Order just set by dragging, shown until the reloaded photos reflect it. */
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Title / alt / description / tags per photo (server-side, see the API).
@@ -71,6 +86,11 @@ export default function ProductPhotos({
   }, [part]);
 
   const photoIds = photos.map((p) => p.id).join(",");
+  const savedOrder = photos.map((p) => `${p.id}:${p.sortOrder ?? ""}`).join(",");
+  useEffect(() => {
+    // Saved positions arrived (or photos changed) — drop the optimistic order.
+    setLocalOrder(null);
+  }, [savedOrder]);
   useEffect(() => {
     void loadDetails();
   }, [loadDetails, photoIds]);
@@ -94,9 +114,40 @@ export default function ProductPhotos({
     const i = PHOTO_TAGS.findIndex((x) => x.tag === t);
     return i === -1 ? PHOTO_TAGS.length : i;
   };
-  const shown = typed
-    .filter((p) => filter === "all" || p.tag === filter)
-    .sort((a, b) => order(a.tag) - order(b.tag));
+  // Drag order when any photo has one (unordered photos after, by type),
+  // else type order — the same rule the storefronts use.
+  const custom = typed.some((p) => p.sortOrder != null);
+  const sorted = [...typed].sort((a, b) => {
+    if (localOrder) return localOrder.indexOf(a.id) - localOrder.indexOf(b.id);
+    if (custom) {
+      const d = (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      if (d) return d;
+    }
+    return order(a.tag) - order(b.tag);
+  });
+  const shown = sorted.filter((p) => filter === "all" || p.tag === filter);
+  const canReorder = filter === "all" && sorted.length > 1;
+
+  async function dropPhoto(targetId: string, after: boolean) {
+    const moving = draggingId;
+    setDraggingId(null);
+    setDropAt(null);
+    if (!moving || moving === targetId) return;
+    const ids = sorted.map((p) => p.id).filter((id) => id !== moving);
+    const at = ids.indexOf(targetId) + (after ? 1 : 0);
+    ids.splice(at, 0, moving);
+    const before = sorted.map((p) => p.id);
+    if (ids.join() === before.join()) return;
+    setLocalOrder(ids);
+    setError(null);
+    try {
+      await patchPhoto({ part, order: ids });
+      onChanged();
+    } catch (e) {
+      setLocalOrder(null);
+      setError(e instanceof Error ? e.message : "Couldn't save the new order.");
+    }
+  }
   const open = openId ? typed.find((p) => p.id === openId) ?? null : null;
   const typeLabel = (t: string) => PHOTO_TAGS.find((x) => x.tag === t)?.label ?? t;
 
@@ -278,6 +329,13 @@ export default function ProductPhotos({
           dragOver ? "border-violet-400 ring-4 ring-violet-100" : "border-gray-200",
         )}
       >
+        {sorted.length > 1 && (
+          <p className="mb-3 text-xs text-gray-500">
+            {canReorder
+              ? "Drag photos to change their order — the first photo leads the storefront gallery."
+              : "Switch to All photos to drag photos into a new order."}
+          </p>
+        )}
         {shown.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-14 text-center text-gray-400">
             <Upload size={30} strokeWidth={1.5} />
@@ -291,8 +349,48 @@ export default function ProductPhotos({
             {shown.map((p) => {
               const d = details[p.id] ?? NO_DETAILS;
               return (
-                <div key={p.id} className="group">
+                <div
+                  key={p.id}
+                  className={clsx("group relative", draggingId === p.id && "opacity-40")}
+                  draggable={canReorder}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(DRAG_TYPE, p.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    setDraggingId(p.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingId(null);
+                    setDropAt(null);
+                  }}
+                  onDragOver={(e) => {
+                    if (!draggingId || !Array.from(e.dataTransfer.types).includes(DRAG_TYPE)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const after = e.clientX > r.left + r.width / 2;
+                    if (dropAt?.id !== p.id || dropAt.after !== after) setDropAt({ id: p.id, after });
+                  }}
+                  onDrop={(e) => {
+                    if (!Array.from(e.dataTransfer.types).includes(DRAG_TYPE)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void dropPhoto(p.id, dropAt?.id === p.id ? dropAt.after : false);
+                  }}
+                >
+                  {dropAt?.id === p.id && draggingId !== p.id && (
+                    <span
+                      className={clsx(
+                        "pointer-events-none absolute -top-1 bottom-0 z-10 w-1 rounded-full bg-violet-500",
+                        dropAt.after ? "-right-2.5" : "-left-2.5",
+                      )}
+                    />
+                  )}
                   <div className="relative aspect-square overflow-hidden rounded-xl bg-gray-50">
+                    {canReorder && sorted[0]?.id === p.id && (
+                      <span className="pointer-events-none absolute left-2 top-2 z-[1] rounded-full bg-gray-900/85 px-2 py-0.5 text-[10px] font-semibold text-white">
+                        First
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={() => setOpenId(p.id)}
@@ -301,7 +399,12 @@ export default function ProductPhotos({
                     >
                       {p.url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.url} alt={d.altText || `${typeLabel(p.tag)} photo`} className="h-full w-full object-contain p-2" />
+                        <img
+                          src={p.url}
+                          alt={d.altText || `${typeLabel(p.tag)} photo`}
+                          draggable={false}
+                          className={clsx("h-full w-full object-contain p-2", canReorder && "cursor-grab active:cursor-grabbing")}
+                        />
                       ) : null}
                     </button>
                     <button
