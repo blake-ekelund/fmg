@@ -15,6 +15,8 @@ import {
 
 import type { Product, StorefrontChannel } from "@/components/inventory/types";
 import { composeDisplayName, normalizeHexColor } from "./copySheet";
+import RichTextField from "./RichTextField";
+import { richTextToPlain } from "@/lib/richText";
 
 type Update = <K extends keyof Product>(key: K, value: Product[K]) => void;
 
@@ -266,52 +268,6 @@ function TextField({
         onChange={onChange}
         placeholder={placeholder}
         disabled={disabled}
-      />
-      {hint ? <p className="text-[11px] text-gray-400">{hint}</p> : null}
-    </div>
-  );
-}
-
-function TextareaField({
-  label,
-  value,
-  onChange,
-  rows,
-  placeholder,
-  hint,
-  /** Show a live character counter that turns amber past this length. */
-  softMax,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  rows?: number;
-  placeholder?: string;
-  hint?: string;
-  softMax?: number;
-}) {
-  const over = softMax != null && value.length > softMax;
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between">
-        <label className="text-xs font-medium text-gray-500">{label}</label>
-        {softMax != null ? (
-          <span
-            className={clsx(
-              "text-[11px] tabular-nums",
-              over ? "font-semibold text-amber-600" : "text-gray-400"
-            )}
-          >
-            {value.length}/{softMax}
-          </span>
-        ) : null}
-      </div>
-      <textarea
-        rows={rows ?? 3}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 transition focus:outline-none focus:ring-2 focus:ring-gray-300"
       />
       {hint ? <p className="text-[11px] text-gray-400">{hint}</p> : null}
     </div>
@@ -1154,7 +1110,7 @@ export function DetailsSection({
 
           {/* Longer copy */}
           <div className="mt-5 space-y-4 border-t border-gray-100 pt-5">
-            <TextareaField
+            <RichTextField
               label="Short description"
               value={copy.short_description}
               onChange={(v) => updateCopy("short_description", v)}
@@ -1163,7 +1119,7 @@ export function DetailsSection({
               softMax={160}
               hint="Doubles as the page lead AND the Google search snippet — keep it under 160 characters."
             />
-            <TextareaField
+            <RichTextField
               label="Long description"
               value={copy.long_description}
               onChange={(v) => updateCopy("long_description", v)}
@@ -1172,7 +1128,7 @@ export function DetailsSection({
               hint="Formula facts. Sharing one paragraph across same-formula SKUs is fine — the short description carries the differentiation."
             />
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <TextareaField
+              <RichTextField
                 label="Benefits"
                 value={copy.benefits}
                 onChange={(v) => updateCopy("benefits", v)}
@@ -1180,9 +1136,9 @@ export function DetailsSection({
                 placeholder={
                   "Deeply hydrating\nFast-absorbing\nPlane-approved"
                 }
-                hint="One benefit per line — the storefronts render each line as a bullet."
+                hint="Use the bulleted-list button for one benefit per line — the storefronts show them as bullets."
               />
-              <TextareaField
+              <RichTextField
                 label="Ingredients"
                 value={copy.ingredients_text}
                 onChange={(v) => updateCopy("ingredients_text", v)}
@@ -1191,7 +1147,7 @@ export function DetailsSection({
                 hint="Full INCI list, comma-separated."
               />
             </div>
-            <TextareaField
+            <RichTextField
               label="How to use"
               value={copy.how_to_use}
               onChange={(v) => updateCopy("how_to_use", v)}
@@ -1199,7 +1155,7 @@ export function DetailsSection({
               placeholder="Apply generously. Accept compliments."
               hint="Application directions for the product page."
             />
-            <TextareaField
+            <RichTextField
               label="Retailer notes"
               value={copy.retailer_notes}
               onChange={(v) => updateCopy("retailer_notes", v)}
@@ -1278,7 +1234,7 @@ export function DetailsSection({
                   {form.display_name || "Product name"}
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed opacity-80">
-                  {copy.short_description || "Short description copy appears here in the text color."}
+                  {richTextToPlain(copy.short_description) || "Short description copy appears here in the text color."}
                 </p>
               </div>
               <div className="mt-4 flex items-center gap-2">

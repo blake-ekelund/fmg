@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,9 +12,6 @@ import {
   Package,
   AlertTriangle,
   CheckCircle,
-  Upload,
-  X,
-  ZoomIn,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -39,11 +36,8 @@ import { type Trend, TREND_CONFIG, computeTrend } from "@/lib/trends";
 import { project, colorFor } from "@/components/inventory/forecasting/utils/forecast";
 import { addMonths } from "@/components/inventory/forecasting/utils/date";
 import type { ForecastRow } from "@/components/inventory/forecasting/types";
-import { sectionLabels } from "@/components/marketing/media-kit/components/modalSections/sectionLabels";
 import type { Section as MediaSection } from "@/components/marketing/media-kit/components/modalSections/types";
-import type { AssetType } from "@/components/marketing/media-kit/components/mediaKit/types";
-import { uploadMediaKitAsset } from "@/lib/mediaKit/uploadMediaKitAsset";
-import { DeleteConfirmModal } from "@/components/marketing/media-kit/components/modalSections/DeleteConfirmModal";
+import ProductPhotos from "./ProductPhotos";
 import { DetailsSection } from "./DetailsSection";
 
 /* ─── Types ─── */
@@ -405,8 +399,24 @@ export default function ProductDetailPage({
     return { error: null };
   }
 
+  /** Autosave plumbing (see "Autosave" below): in-flight guard + latest save fn. */
+  const savingRef = useRef(false);
+  const saveAgainRef = useRef(false);
+  const saveRef = useRef<() => Promise<void>>(async () => {});
+
+  function requestSave() {
+    if (isNewProduct) return;
+    window.setTimeout(() => void saveRef.current(), 120);
+  }
+
   async function handleSave() {
-    if (!form) return;
+    if (!form || !hasChanges) return;
+    // One save at a time; a field finished mid-save is picked up right after.
+    if (savingRef.current) {
+      saveAgainRef.current = true;
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
 
     // If new product and SKU was changed, delete old placeholder row and insert with new SKU
@@ -420,6 +430,7 @@ export default function ProductDetailPage({
       if (insertErr) {
         console.error("Failed to save with new SKU", insertErr);
         alert("Failed to save. SKU may already exist.");
+        savingRef.current = false;
         setSaving(false);
         return;
       }
@@ -439,15 +450,50 @@ export default function ProductDetailPage({
     if (saveError) {
       console.error("Save failed", saveError);
       alert(`Save failed: ${saveError.message}`);
+      savingRef.current = false;
+      saveAgainRef.current = false;
       setSaving(false);
       return;
     }
 
     setProduct({ ...form });
+    savingRef.current = false;
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+    if (saveAgainRef.current) {
+      saveAgainRef.current = false;
+      requestSave();
+    }
   }
+
+  /* ─── Autosave ───
+   * Saves when the user finishes an input — leaves a text/number field or
+   * presses Enter, picks from a dropdown / checkbox, or flips a toggle — never
+   * per keystroke. The save runs a beat later so it sees the state the input
+   * just committed (via saveRef, refreshed after every render). New products
+   * keep the manual Save bar: saving one rewrites its SKU and reloads.
+   */
+  useEffect(() => {
+    saveRef.current = handleSave;
+  });
+
+  const autosaveProps = {
+    onBlurCapture: (e: React.FocusEvent) => {
+      if ((e.target as HTMLElement).matches?.('input, textarea, select, [contenteditable="true"]')) requestSave();
+    },
+    onChangeCapture: (e: React.FormEvent) => {
+      // Discrete pickers commit on change; colour inputs fire continuously while dragging, so they wait for blur.
+      if ((e.target as HTMLElement).matches?.('select, input[type="checkbox"], input[type="radio"]')) requestSave();
+    },
+    onKeyDownCapture: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && (e.target as HTMLElement).matches?.("input")) requestSave();
+    },
+    onClickCapture: (e: React.MouseEvent) => {
+      // Toggles and option buttons commit on click.
+      if ((e.target as HTMLElement).closest?.("button")) requestSave();
+    },
+  };
 
   async function handleDelete() {
     setDeleting(true);
@@ -610,7 +656,7 @@ export default function ProductDetailPage({
   /* ─── Render ─── */
 
   return (
-    <div className="px-4 md:px-8 py-6 md:py-8 space-y-5">
+    <div className="px-4 md:px-8 py-6 md:py-8 space-y-5" {...autosaveProps}>
       {/* Top bar: back + prev/next */}
       <div className="flex items-center justify-between">
         <Link href="/products" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition">
@@ -873,12 +919,15 @@ export default function ProductDetailPage({
 
           {/* ─── MEDIA ─── */}
           {section === "media" && (
-            <MediaGallery
-              assetSections={ASSET_SECTIONS}
-              assetImagesBySection={assetImagesBySection}
-              sectionLabels={sectionLabels}
+            <ProductPhotos
               part={part}
-              onUploaded={loadMedia}
+              photos={mediaAssets.map((a) => ({
+                id: a.id,
+                tag: a.asset_type,
+                path: a.storage_path,
+                url: assetUrls[a.storage_path] ?? null,
+              }))}
+              onChanged={loadMedia}
             />
           )}
 
@@ -1005,8 +1054,8 @@ export default function ProductDetailPage({
 
       </div>
 
-      {/* Sticky Save Bar */}
-      {hasChanges && (
+      {/* Sticky Save Bar — new products only; everything else autosaves */}
+      {isNewProduct && hasChanges && (
         <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-3 bg-white/90 backdrop-blur border-t border-gray-200 flex items-center justify-between z-10">
           <p className="text-sm text-gray-500">You have unsaved changes</p>
           <div className="flex items-center gap-3">
@@ -1019,9 +1068,9 @@ export default function ProductDetailPage({
         </div>
       )}
 
-      {saved && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
-          Changes saved
+      {(saving || saved) && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+          {saving ? "Saving…" : "Saved"}
         </div>
       )}
 
@@ -1107,256 +1156,6 @@ function FormattedNumField({ label, value, onChange, prefix, decimals }: {
         onBlur={handleBlur}
         className="w-full rounded-lg bg-white px-3 py-2 text-sm text-right border border-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300 transition tabular-nums"
       />
-    </div>
-  );
-}
-
-/* ─── Media Gallery with carousel ─── */
-
-function MediaGallery({
-  assetSections,
-  assetImagesBySection,
-  sectionLabels: labels,
-  part,
-  onUploaded,
-}: {
-  assetSections: MediaSection[];
-  assetImagesBySection: Partial<Record<MediaSection, string[]>>;
-  sectionLabels: Record<string, string>;
-  part: string;
-  onUploaded: () => void;
-}) {
-  const [activeSection, setActiveSection] = useState<MediaSection>(assetSections[0]);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [lightbox, setLightbox] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const images = assetImagesBySection[activeSection] ?? [];
-  const currentImage = images[activeIndex] ?? null;
-
-  // Reset index when switching sections
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [activeSection]);
-
-  // Clamp index if images change
-  useEffect(() => {
-    if (activeIndex >= images.length && images.length > 0) {
-      setActiveIndex(images.length - 1);
-    }
-  }, [images.length, activeIndex]);
-
-  const missingPhotos = assetSections.filter(
-    (s) => !(assetImagesBySection[s]?.length)
-  );
-
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!e.target.files?.length) return;
-    try {
-      for (const file of Array.from(e.target.files)) {
-        await uploadMediaKitAsset({ file, part, assetType: activeSection as AssetType });
-      }
-      onUploaded();
-    } catch (err) {
-      console.error("Upload failed", err);
-      alert("Upload failed. Please try again.");
-    } finally {
-      e.target.value = "";
-    }
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const url = new URL(deleteTarget);
-      const path = decodeURIComponent(url.pathname.split("/media-kit/")[1]);
-      const { error: storageError } = await supabase.storage.from("media-kit").remove([path]);
-      if (storageError) throw storageError;
-      const { error: dbError } = await supabase.from("media_kit_assets").delete().eq("storage_path", path);
-      if (dbError) throw dbError;
-      onUploaded();
-    } catch (err) {
-      console.error("Delete failed", err);
-      alert("Failed to delete image.");
-    } finally {
-      setDeleting(false);
-      setDeleteTarget(null);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Missing photos banner */}
-      {missingPhotos.length > 0 ? (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-3">
-          <AlertTriangle size={14} className="text-amber-500 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-xs font-medium text-amber-800">Missing photos</p>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {missingPhotos.map((s) => (
-                <span key={s} className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700">
-                  {labels[s] ?? s}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 flex items-center gap-2">
-          <CheckCircle size={14} className="text-green-600" />
-          <p className="text-xs font-medium text-green-700">All photos uploaded</p>
-        </div>
-      )}
-
-      {/* Section tabs */}
-      <div className="flex gap-1 flex-wrap">
-        {assetSections.map((s) => {
-          const count = assetImagesBySection[s]?.length ?? 0;
-          const isActive = activeSection === s;
-          return (
-            <button
-              key={s}
-              onClick={() => setActiveSection(s)}
-              className={clsx(
-                "rounded-lg px-3 py-1.5 text-xs font-medium transition flex items-center gap-1.5",
-                isActive
-                  ? "bg-gray-900 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              )}
-            >
-              {labels[s] ?? s}
-              <span className={clsx(
-                "rounded-full px-1.5 py-0.5 text-[10px] leading-none font-medium",
-                isActive
-                  ? "bg-white/20 text-white"
-                  : count > 0 ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-600"
-              )}>
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Main viewer */}
-      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-        {/* Large image area */}
-        <div className="relative bg-gray-50 flex items-center justify-center" style={{ minHeight: 400 }}>
-          {currentImage ? (
-            <>
-              <img
-                src={currentImage}
-                alt={`${labels[activeSection] ?? activeSection} photo`}
-                className="max-h-[500px] max-w-full object-contain p-4 cursor-zoom-in"
-                onClick={() => setLightbox(currentImage)}
-              />
-              {/* Nav arrows */}
-              {images.length > 1 && (
-                <>
-                  <button
-                    onClick={() => setActiveIndex((i) => (i - 1 + images.length) % images.length)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/90 shadow hover:bg-white transition"
-                  >
-                    <ChevronLeft size={18} className="text-gray-700" />
-                  </button>
-                  <button
-                    onClick={() => setActiveIndex((i) => (i + 1) % images.length)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/90 shadow hover:bg-white transition"
-                  >
-                    <ChevronRight size={18} className="text-gray-700" />
-                  </button>
-                </>
-              )}
-              {/* Actions overlay */}
-              <div className="absolute top-3 right-3 flex gap-1.5">
-                <button
-                  onClick={() => setLightbox(currentImage)}
-                  className="p-2 rounded-full bg-white/90 shadow hover:bg-white transition"
-                  title="View full size"
-                >
-                  <ZoomIn size={14} className="text-gray-600" />
-                </button>
-                <button
-                  onClick={() => setDeleteTarget(currentImage)}
-                  className="p-2 rounded-full bg-white/90 shadow hover:bg-white transition"
-                  title="Delete image"
-                >
-                  <Trash2 size={14} className="text-red-500" />
-                </button>
-              </div>
-              {/* Image counter */}
-              {images.length > 1 && (
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-white font-medium">
-                  {activeIndex + 1} / {images.length}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-16 text-gray-400">
-              <Upload size={32} strokeWidth={1.5} />
-              <p className="text-sm font-medium">No {labels[activeSection]?.toLowerCase() ?? activeSection} photos yet</p>
-              <label className="cursor-pointer rounded-lg bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-800 transition">
-                Upload Photo
-                <input type="file" className="hidden" accept="image/*" multiple={activeSection === "other"} onChange={handleUpload} />
-              </label>
-            </div>
-          )}
-        </div>
-
-        {/* Thumbnail strip + upload */}
-        {images.length > 0 && (
-          <div className="border-t border-gray-100 px-4 py-3 flex items-center gap-3">
-            <div className="flex gap-2 overflow-x-auto flex-1">
-              {images.map((src, i) => (
-                <button
-                  key={src}
-                  onClick={() => setActiveIndex(i)}
-                  className={clsx(
-                    "shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition",
-                    i === activeIndex ? "border-gray-900" : "border-transparent hover:border-gray-300"
-                  )}
-                >
-                  <img src={src} alt="" className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-            <label className="shrink-0 cursor-pointer flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 hover:border-gray-400 hover:text-gray-700 transition">
-              <Upload size={14} />
-              Add
-              <input type="file" className="hidden" accept="image/*" multiple={activeSection === "other"} onChange={handleUpload} />
-            </label>
-          </div>
-        )}
-      </div>
-
-      {/* Lightbox */}
-      {lightbox && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setLightbox(null)}>
-          <button
-            onClick={() => setLightbox(null)}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition"
-          >
-            <X size={20} className="text-white" />
-          </button>
-          <img
-            src={lightbox}
-            alt=""
-            className="max-h-[90vh] max-w-[90vw] object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
-
-      {/* Delete confirmation */}
-      {deleteTarget && (
-        <DeleteConfirmModal
-          loading={deleting}
-          onCancel={() => setDeleteTarget(null)}
-          onConfirm={confirmDelete}
-        />
-      )}
     </div>
   );
 }
