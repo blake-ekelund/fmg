@@ -68,6 +68,9 @@ export type StorefrontOrder = {
   bill_to?: OrderAddress | null;
   subtotal?: number;
   shipping?: number;
+  /** Gift-mailer upcharge (Sassy D2C). > 0 = pack in the pink mailer. In
+   *  total, not in subtotal. Absent on rows read before the column existed. */
+  packaging?: number;
   tax?: number;
   discount?: number;
   discounts?: OrderDiscount[] | null;
@@ -205,7 +208,7 @@ export const ORDER_SOURCE_LABELS: Record<OrderSourceKey, string> = {
 
 export type InvoiceLine = {
   lineNo: number;
-  kind: "Sale" | "Discount" | "Shipping";
+  kind: "Sale" | "Discount" | "Shipping" | "Packaging";
   part: string;
   description: string;
   unitPrice: number | null;
@@ -255,6 +258,19 @@ export function composeInvoiceLines(o: StorefrontOrder): InvoiceLine[] {
       unitPrice: null,
       quantity: null,
       amount: -Math.abs(d.amount ?? 0),
+    });
+  }
+
+  if (o.packaging != null && Number(o.packaging) > 0) {
+    n += 1;
+    lines.push({
+      lineNo: n,
+      kind: "Packaging",
+      part: "—",
+      description: "Gift mailer",
+      unitPrice: null,
+      quantity: null,
+      amount: Number(o.packaging),
     });
   }
 

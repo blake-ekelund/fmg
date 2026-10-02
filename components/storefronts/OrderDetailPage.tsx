@@ -389,7 +389,9 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
                         ? "text-gray-600"
                         : l.kind === "Discount"
                           ? "text-emerald-700"
-                          : "text-gray-500"
+                          : l.kind === "Packaging"
+                            ? "font-medium text-pink-600"
+                            : "text-gray-500"
                     }
                   >
                     {l.kind}
@@ -439,6 +441,9 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
                     : money(order.shipping)
               }
             />
+            {Number(order.packaging ?? 0) > 0 ? (
+              <Total label="Gift mailer" value={money(order.packaging)} />
+            ) : null}
             <Total label="Tax" value={money(order.tax ?? 0)} />
             <div className="flex items-baseline justify-between border-t border-gray-200 pt-2">
               <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">

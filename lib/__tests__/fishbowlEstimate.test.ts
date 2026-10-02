@@ -73,6 +73,27 @@ describe("estimateRowsForOrder", () => {
       expect(last[col("ProductPrice")]).toBe("8.95");
     });
 
+    it("folds a gift-mailer upcharge into the Shipping line and names it", () => {
+      const { rows } = estimateRowsForOrder(
+        makeOrder({ source: null, shipping: 8.95, packaging: 2.5 } as never),
+        "MARTIN BOOT CO",
+      );
+      const ship = rows.slice(1).filter((r) => r[col("SOItemTypeID")] === "60");
+      expect(ship).toHaveLength(1);
+      expect(ship[0][col("ProductPrice")]).toBe("11.45");
+      expect(ship[0][col("ProductDescription")]).toMatch(/GIFT MAILER \$2\.50/);
+    });
+
+    it("leaves the Shipping line plain without a gift mailer", () => {
+      const { rows } = estimateRowsForOrder(
+        makeOrder({ source: null, shipping: 0 } as never),
+        "MARTIN BOOT CO",
+      );
+      const last = rows[rows.length - 1];
+      expect(last[col("ProductDescription")]).toBe("Shipping");
+      expect(last[col("ProductPrice")]).toBe("0.00");
+    });
+
     it("never emits both a Shipping and a Subtotal line", () => {
       for (const source of ["faire", "markettime", null]) {
         const { rows } = estimateRowsForOrder(makeOrder({ source } as never), "MARTIN BOOT CO");

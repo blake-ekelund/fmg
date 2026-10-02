@@ -603,13 +603,20 @@ export function estimateRowsForOrder(
   } else {
     // Storefront orders DO collect shipping, so their line stays — always
     // present even at $0.00, so every storefront SO has a consistent shape.
+    // A gift-mailer upcharge rides on this line (named in the description so
+    // the packer sees it): Fishbowl has no non-inventory fee item, and a second
+    // type-60 line trips the double-shipping check.
+    const packaging = Number(order.packaging ?? 0);
     itemRows.push({
       ...itemDefaults,
       SOItemTypeID: "60",
       ProductNumber: "Shipping",
-      ProductDescription: "Shipping",
+      ProductDescription:
+        packaging > 0
+          ? `Shipping + GIFT MAILER $${money(packaging)} (pack in pink mailer)`
+          : "Shipping",
       ProductQuantity: "1",
-      ProductPrice: money(order.shipping ?? 0),
+      ProductPrice: money(Number(order.shipping ?? 0) + packaging),
       Taxable: "false",
     });
   }
