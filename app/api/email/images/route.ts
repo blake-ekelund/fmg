@@ -52,6 +52,8 @@ const PLACEHOLDER = ".emptyFolderPlaceholder";
 /** Images sitting at the bucket root have no directory; they read as this folder. */
 const ROOT = "root";
 const PRODUCT_PREFIX = "~products";
+/** Storefront gallery type order — matches HERO_PRIORITY in each storefront's lib/fmg/products.ts. */
+const GALLERY_TYPE_ORDER = ["front", "lifestyle", "benefits", "ingredients", "fragrance", "other"];
 
 /**
  * Landing ("inbox") folders: where uploads go when nobody picks a folder. Each
@@ -71,7 +73,6 @@ const EMAIL_LEGACY_DIRS = new Set(["images", "sections", "section-bg"]);
 const BLOG_LEGACY_DIRS = new Set(["blog"]);
 /** HTML-template uploads used to go to "<template uuid>/" or "unsaved/". */
 const TEMPLATE_DIR = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|unsaved)$/i;
-
 
 /** "Sassy Holiday 2026" → "sassy-holiday-2026". Empty string if nothing usable. */
 function slugFolder(name: string): string {
@@ -124,7 +125,6 @@ function normalizeLabel(label: string): string {
 function labelFor(path: string, folder: string | null): string | null {
   return folder == null || folder === defaultFolder(path) ? null : folder;
 }
-
 
 /**
  * A product's scent collection ("Sea Salt", "Grapefruit"), from `fragrance`.
@@ -296,12 +296,18 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
     // PostgREST caps each response (1000 rows), so page — with a unique
     // tiebreaker, or .range() silently drops rows.
     // media_kit_assets has `uploaded_at`, not `created_at`.
-    type AssetRow = { part: string; asset_type: string; storage_path: string; uploaded_at: string | null };
+    type AssetRow = {
+      part: string;
+      asset_type: string;
+      storage_path: string;
+      uploaded_at: string | null;
+      sort_order: number | null;
+    };
     const rows: AssetRow[] = [];
     for (let from = 0; from < MAX_PRODUCT_IMAGES; from += PAGE) {
       const { data, error } = await supabaseServer
         .from("media_kit_assets")
-        .select("part, asset_type, storage_path, uploaded_at")
+        .select("part, asset_type, storage_path, uploaded_at, sort_order")
         .order("uploaded_at", { ascending: false })
         .order("storage_path", { ascending: true })
         .range(from, from + PAGE - 1);
@@ -335,6 +341,30 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
         .in("part", parts.slice(i, i + 200));
       for (const p of (data ?? []) as ProductRow[]) byPart.set(p.part, p);
     }
+
+    // Order the way staff and shoppers see them: grouped by product (A→Z),
+    // and within a product the drag order from the product page — or, if
+    // nobody has reordered it, front → lifestyle → benefits → … like the
+    // storefront gallery. Unordered photos follow ordered ones.
+    const nameOf = (part: string) => {
+      const p = byPart.get(part);
+      return productFolderName(p?.display_name ?? null, p?.fragrance ?? null, part);
+    };
+    const typeRank = (t: string) => {
+      const i = GALLERY_TYPE_ORDER.indexOf(t);
+      return i === -1 ? GALLERY_TYPE_ORDER.length : i;
+    };
+    const customParts = new Set(rows.filter((r) => r.sort_order != null).map((r) => r.part));
+    rows.sort(
+      (a, b) =>
+        nameOf(a.part).localeCompare(nameOf(b.part)) ||
+        a.part.localeCompare(b.part) ||
+        (customParts.has(a.part)
+          ? (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER)
+          : 0) ||
+        typeRank(a.asset_type) - typeRank(b.asset_type) ||
+        (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""),
+    );
 
     // Titles / alt / descriptions set on the product page (keyed like `path` below).
     const { data: metaRows } = await supabaseServer
