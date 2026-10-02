@@ -46,6 +46,8 @@ const COLLECTIONS: Record<"NI" | "Sassy", { slug: string; label: string }[]> = {
     { slug: "eucalyptus-rosemary-mint", label: "Eucalyptus Rosemary Mint" },
     { slug: "grapefruit-bergamot", label: "Grapefruit Bergamot" },
     { slug: "lavender-ylang", label: "Lavender Ylang" },
+    { slug: "orange-ginger", label: "Orange Ginger" },
+    { slug: "sea-salt-citrus", label: "Sea Salt Citrus" },
   ],
 };
 
