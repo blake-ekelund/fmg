@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   Save,
   Trash2,
-  Search,
   ChevronRight,
   ChevronLeft,
   Package,
@@ -113,7 +112,6 @@ export default function ProductDetailPage({
   const [allProducts, setAllProducts] = useState<
     { part: string; display_name: string; brand: string }[]
   >([]);
-  const [navSearch, setNavSearch] = useState("");
 
   /* Media kit */
   const [mediaText, setMediaText] = useState<MediaKitText | null>(null);
@@ -135,11 +133,6 @@ export default function ProductDetailPage({
 
   /* Sales */
   const [salesData, setSalesData] = useState<SalesRow[]>([]);
-
-  /* Related products */
-  const [relatedProducts, setRelatedProducts] = useState<
-    { part: string; display_name: string; brand: string }[]
-  >([]);
 
   /* Forecast */
   const [forecastOnHand, setForecastOnHand] = useState(0);
@@ -180,16 +173,6 @@ export default function ProductDetailPage({
     }
     loadNav();
   }, []);
-
-  /* ─── Load related products ─── */
-
-  useEffect(() => {
-    if (!form) return;
-    const related = allProducts.filter(
-      (p) => p.part !== form.part && p.brand === form.brand
-    );
-    setRelatedProducts(related.slice(0, 10));
-  }, [form, allProducts]);
 
   /* ─── Load media kit ─── */
 
@@ -474,13 +457,6 @@ export default function ProductDetailPage({
 
   /* ─── Derived data ─── */
 
-  const filteredNav = useMemo(() => {
-    const q = navSearch.trim().toLowerCase();
-    if (!q) return allProducts;
-    return allProducts.filter(
-      (p) => p.display_name.toLowerCase().includes(q) || p.part.toLowerCase().includes(q)
-    );
-  }, [allProducts, navSearch]);
 
   const salesTotals = useMemo(() => {
     const rev = salesData.reduce((s, r) => s + (r.revenue ?? 0), 0);
@@ -702,7 +678,7 @@ export default function ProductDetailPage({
       {/* ─── Two-Panel Layout ─── */}
       <div className="flex gap-6 items-start">
         {/* LEFT PANEL */}
-        <div className="w-full lg:w-2/3 space-y-5">
+        <div className="w-full space-y-5">
           {/* Section Nav */}
           <nav className="flex gap-1 rounded-lg bg-white border border-gray-200 p-1">
             {NAV_SECTIONS.map((s) => {
@@ -785,11 +761,28 @@ export default function ProductDetailPage({
 
               {/* Inventory Rules — editable */}
               <div className="rounded-xl border border-gray-200 bg-white">
-                <div className="px-5 py-4 border-b border-gray-100">
-                  <h2 className="text-sm font-medium text-gray-900">Inventory Rules</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Avg monthly demand auto-populated from trailing 90-day sales. Lead time defaults to 3 months.
-                  </p>
+                <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-100">
+                  <div>
+                    <h2 className="text-sm font-medium text-gray-900">Inventory Rules</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Avg monthly demand auto-populated from trailing 90-day sales. Lead time defaults to 3 months.
+                    </p>
+                  </div>
+                  {/* Was the "Status" side panel. Off = archived: out of demand planning and off the storefronts. */}
+                  <label className="flex shrink-0 items-center gap-2.5">
+                    <span className="text-right">
+                      <span className="block text-sm font-medium text-gray-900">Include in Forecast</span>
+                      <span className="block text-xs text-gray-500">Off also takes it off the storefronts</span>
+                    </span>
+                    <Toggle
+                      checked={form.is_forecasted}
+                      onChange={(v) => {
+                        update("is_forecasted", v);
+                        // Archiving pulls the product off the storefronts (Draft).
+                        if (!v) update("storefront_channel", "off");
+                      }}
+                    />
+                  </label>
                 </div>
                 <div className="px-5 py-5">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1010,84 +1003,6 @@ export default function ProductDetailPage({
           </div>
         </div>
 
-        {/* RIGHT PANEL */}
-        <div className="hidden lg:block w-1/3 space-y-5">
-          {/* Status toggles */}
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-medium text-gray-900">Status</h2>
-            </div>
-            <div className="px-5 py-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Include in Forecast</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Show in demand planning</p>
-                </div>
-                <Toggle checked={form.is_forecasted} onChange={(v) => update("is_forecasted", v)} />
-              </div>
-              <div className="h-px bg-gray-100" />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Share to Third Party</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Sync to external sites</p>
-                </div>
-                <Toggle checked={false} onChange={() => {}} disabled />
-              </div>
-            </div>
-          </div>
-
-          {/* Related Products */}
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h2 className="text-sm font-medium text-gray-900">Related Products</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Same brand</p>
-            </div>
-            <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
-              {relatedProducts.length === 0 ? (
-                <div className="px-5 py-6 text-center text-sm text-gray-400">No related products</div>
-              ) : (
-                relatedProducts.map((rp) => (
-                  <Link key={rp.part} href={`/products/${encodeURIComponent(rp.part)}`}
-                    className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition group">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{rp.display_name}</p>
-                      <p className="text-xs text-gray-400 font-mono">{rp.part}</p>
-                    </div>
-                    <ChevronRight size={14} className="text-gray-300 group-hover:text-gray-500 shrink-0 ml-2" />
-                  </Link>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Product Nav */}
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <div className="px-5 py-4 border-b border-gray-100 space-y-3">
-              <h2 className="text-sm font-medium text-gray-900">All Products</h2>
-              <div className="relative">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input value={navSearch} onChange={(e) => setNavSearch(e.target.value)} placeholder="Search..."
-                  className="w-full rounded-md border border-gray-200 bg-gray-50 pl-8 pr-3 py-1.5 text-xs placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300 transition" />
-              </div>
-            </div>
-            <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
-              {filteredNav.slice(0, 50).map((p) => (
-                <Link key={p.part} href={`/products/${encodeURIComponent(p.part)}`}
-                  className={clsx("flex items-center justify-between px-5 py-2.5 text-xs transition",
-                    p.part === part ? "bg-gray-50 font-medium text-gray-900" : "text-gray-600 hover:bg-gray-50"
-                  )}>
-                  <span className="truncate">{p.display_name}</span>
-                  <span className={clsx("shrink-0 ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                    p.brand === "NI" ? "bg-blue-50 text-blue-600" : "bg-pink-50 text-pink-600"
-                  )}>{p.brand}</span>
-                </Link>
-              ))}
-              {filteredNav.length > 50 && (
-                <div className="px-5 py-2 text-xs text-gray-400 text-center">+{filteredNav.length - 50} more</div>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Sticky Save Bar */}
