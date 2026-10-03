@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Tag, Upload, Loader2, Images } from "lucide-react";
 import type { EmailBlock, BlockType, SectionColumn, VAlign, Brand, Channel } from "./types";
 import { newBlockId, BRAND_PRESETS, SECTION_CONTENT_TYPES } from "./types";
@@ -107,41 +108,161 @@ function NumberInput({ value, onChange, min, max, suffix }: { value: number; onC
   );
 }
 
+const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** #abc → #aabbcc (the native color input only accepts 6-digit hex). */
+function toHex6(v: string): string {
+  if (!HEX_RE.test(v)) return "#000000";
+  if (v.length === 4) return "#" + v.slice(1).split("").map((c) => c + c).join("");
+  return v.toLowerCase();
+}
+
+/**
+ * Compact color field: one chip showing the current color (and its preset
+ * name, if it is one). Clicking opens a popover with the brand presets and a
+ * custom picker + hex field. The popover is portalled to <body> because every
+ * ColorInput sits inside a <label> (Field) — clicks on the popover's blank
+ * space would otherwise re-activate the trigger button and close it.
+ */
 function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const swatches = useContext(SwatchContext);
-  return (
-    <div className="space-y-1.5">
-      {swatches.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {swatches.map((s) => {
-            const active = (value ?? "").toLowerCase() === s.color.toLowerCase();
-            return (
-              <button
-                key={s.color}
-                type="button"
-                title={`${s.label} · ${s.color}`}
-                onClick={() => onChange(s.color)}
-                className={clsx(
-                  "h-6 w-6 rounded-md border transition",
-                  active ? "border-gray-900 ring-2 ring-gray-900/20" : "border-gray-200 hover:border-gray-400",
-                )}
-                style={{ backgroundColor: s.color }}
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [hex, setHex] = useState(value ?? "");
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  const current = (value ?? "").toLowerCase();
+  const preset = swatches.find((s) => s.color.toLowerCase() === current);
+
+  useEffect(() => {
+    setHex(value ?? "");
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    function place() {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const W = 232;
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - W - 8));
+      // Flip above the trigger when there isn't room below.
+      const below = r.bottom + 6;
+      const top = below + 230 > window.innerHeight ? Math.max(8, r.top - 236) : below;
+      setPos({ top, left });
+    }
+    function onPointer(e: MouseEvent) {
+      const t = e.target as Node;
+      if (popRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function commitHex(raw: string) {
+    let v = raw.trim();
+    if (v && !v.startsWith("#")) v = "#" + v;
+    setHex(v);
+    if (HEX_RE.test(v)) onChange(v.toLowerCase());
+  }
+
+  const popover =
+    open && pos
+      ? createPortal(
+          <div
+            ref={popRef}
+            style={{ position: "fixed", top: pos.top, left: pos.left, width: 232 }}
+            className="z-[100] rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
+          >
+            {swatches.length > 0 && (
+              <>
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Presets</div>
+                <div className="grid grid-cols-6 gap-1.5">
+                  {swatches.map((s) => {
+                    const active = current === s.color.toLowerCase();
+                    return (
+                      <button
+                        key={s.label + s.color}
+                        type="button"
+                        title={`${s.label} · ${s.color}`}
+                        onClick={() => {
+                          onChange(s.color);
+                          setOpen(false);
+                        }}
+                        className={clsx(
+                          "h-7 w-7 rounded-md border transition",
+                          active ? "border-gray-900 ring-2 ring-gray-900/25" : "border-gray-200 hover:scale-110 hover:border-gray-400",
+                        )}
+                        style={{ backgroundColor: s.color }}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            <div className={clsx("text-[10px] font-semibold uppercase tracking-wider text-gray-400", swatches.length > 0 && "mt-3 border-t border-gray-100 pt-2.5")}>
+              Custom
+            </div>
+            <div className="mt-1.5 flex items-center gap-2">
+              <input
+                type="color"
+                value={toHex6(value ?? "")}
+                onChange={(e) => onChange(e.target.value)}
+                className="h-8 w-10 cursor-pointer rounded border border-gray-200 bg-white p-0.5"
+                title="Pick any color"
               />
-            );
-          })}
-        </div>
-      )}
-      <div className="flex items-center gap-2">
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="w-8 h-8 rounded border border-gray-200 cursor-pointer" />
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-24 px-2 py-1.5 text-xs border border-gray-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-        />
-        <span className="text-[10px] text-gray-400">Custom</span>
-      </div>
-    </div>
+              <input
+                type="text"
+                value={hex}
+                onChange={(e) => commitHex(e.target.value)}
+                onBlur={() => setHex(value ?? "")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setOpen(false);
+                }}
+                placeholder="#000000"
+                spellCheck={false}
+                className={clsx(
+                  "w-full rounded-lg border px-2 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20",
+                  hex && !HEX_RE.test(hex.startsWith("#") ? hex : "#" + hex) ? "border-red-300" : "border-gray-200",
+                )}
+              />
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={clsx(
+          "flex w-full items-center gap-2 rounded-lg border bg-white px-2 py-1.5 text-left transition",
+          open ? "border-blue-400 ring-2 ring-blue-500/20" : "border-gray-200 hover:border-gray-300",
+        )}
+      >
+        <span className="h-5 w-5 shrink-0 rounded border border-gray-200" style={{ backgroundColor: value || "transparent" }} />
+        <span className="truncate text-xs text-gray-700">{preset ? preset.label : "Custom"}</span>
+        <span className="ml-auto font-mono text-[11px] text-gray-400">{value || "—"}</span>
+      </button>
+      {popover}
+    </>
   );
 }
 
