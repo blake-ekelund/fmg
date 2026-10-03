@@ -16,6 +16,7 @@ import {
 import type { Product, StorefrontChannel } from "@/components/inventory/types";
 import { composeDisplayName, normalizeHexColor } from "./copySheet";
 import RichTextField from "./RichTextField";
+import FragranceMultiSelect from "./FragranceMultiSelect";
 import { richTextToPlain } from "@/lib/richText";
 
 type Update = <K extends keyof Product>(key: K, value: Product[K]) => void;
@@ -862,29 +863,24 @@ export function DetailsSection({
               placeholder={form.brand === "Sassy" ? "Mini Hand Crème" : "Hand + Body Lotion"}
               hint="The physical format shoppers see"
             />
-            <TextField
+            <FragranceMultiSelect
               label="Fragrance"
+              brand={form.brand}
               value={form.fragrance}
               onChange={(v) => update("fragrance", v)}
               placeholder={form.brand === "Sassy" ? "Eucalyptus Mint" : "Sea Salt"}
-              hint={form.brand === "Sassy" ? "The scent, not the product name" : "The NI site groups by this"}
+              hint="Pick several for a gift set"
             />
             {form.brand === "NI" ? (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-500">Tester unit</label>
-                <button
-                  type="button"
-                  onClick={() => applyNameParts({ is_tester: !form.is_tester })}
-                  className={clsx(
-                    "flex h-[38px] w-full items-center justify-center rounded-lg border px-4 text-sm font-medium transition",
-                    form.is_tester
-                      ? "border-indigo-300 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
-                      : "border-gray-200 bg-white text-gray-400 hover:border-gray-300"
-                  )}
-                >
-                  {form.is_tester ? "TESTER" : "Not a tester"}
-                </button>
-              </div>
+              <SelectField
+                label="Is this a tester?"
+                value={form.is_tester ? "yes" : "no"}
+                onChange={(v) => applyNameParts({ is_tester: v === "yes" })}
+                options={[
+                  { value: "no", label: "No" },
+                  { value: "yes", label: "Yes" },
+                ]}
+              />
             ) : null}
 
             <TextField
