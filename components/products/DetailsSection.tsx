@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LayoutGroup } from "framer-motion";
 import clsx from "clsx";
 import { AlertTriangle, CheckCircle } from "lucide-react";
@@ -427,18 +427,24 @@ function ColorField({
 function Card({
   title,
   hint,
+  actions,
   children,
 }: {
   title?: string;
   hint?: string;
+  /** Right side of the header (status pills, quick controls). */
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white">
       {title ? (
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h2 className="text-sm font-medium text-gray-900">{title}</h2>
-          {hint ? <p className="mt-0.5 text-xs text-gray-400">{hint}</p> : null}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-sm font-medium text-gray-900">{title}</h2>
+            {hint ? <p className="mt-0.5 text-xs text-gray-400">{hint}</p> : null}
+          </div>
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
       ) : null}
       <div className="px-5 py-5">{children}</div>
@@ -617,32 +623,140 @@ function availabilityLine(channel: StorefrontChannel, brand: "NI" | "Sassy"): st
   }
 }
 
+/* ─── Product header: stock pill + "Published on" multi-select ─── */
+
+function StockPill({ onHand, inStock }: { onHand: number; inStock: boolean }) {
+  const out = !inStock || onHand <= 0;
+  return (
+    <span
+      className={clsx(
+        "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium tabular-nums",
+        out ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700",
+      )}
+      title={!inStock ? "Marked out of stock (see Availability)" : "On hand from the latest inventory snapshot"}
+    >
+      <span className={clsx("h-1.5 w-1.5 rounded-full", out ? "bg-red-500" : "bg-green-500")} />
+      {onHand.toLocaleString()} in stock
+      {!inStock ? <span className="font-normal text-red-500">· marked out</span> : null}
+    </span>
+  );
+}
+
+/** storefront_channel as two checkboxes: D2C and Wholesale (none = draft). */
+function ChannelMultiSelect({
+  channel,
+  brand,
+  archived,
+  onChange,
+}: {
+  channel: StorefrontChannel;
+  brand: "NI" | "Sassy";
+  archived: boolean;
+  onChange: (c: StorefrontChannel) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const d2c = channel === "d2c" || channel === "both";
+  const wholesale = channel === "wholesale" || channel === "both";
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function set(nextD2c: boolean, nextWholesale: boolean) {
+    onChange(nextD2c && nextWholesale ? "both" : nextD2c ? "d2c" : nextWholesale ? "wholesale" : "off");
+  }
+
+  const label = d2c && wholesale ? "D2C + Wholesale" : d2c ? "D2C" : wholesale ? "Wholesale" : "Not published";
+  const options = [
+    { key: "d2c", title: "D2C", sub: BRAND_SITE[brand] ?? "Storefront", on: d2c, toggle: () => set(!d2c, wholesale) },
+    { key: "wholesale", title: "Wholesale", sub: "Approved stockists", on: wholesale, toggle: () => set(d2c, !wholesale) },
+  ];
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={clsx(
+          "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition",
+          channel === "off"
+            ? "border-gray-200 bg-white text-gray-500 hover:border-gray-300"
+            : "border-gray-900 bg-gray-900 text-white",
+        )}
+        title="Where this product is published"
+      >
+        <span className={clsx("font-normal", channel === "off" ? "text-gray-400" : "text-gray-300")}>Published on</span>
+        {label}
+        <svg viewBox="0 0 20 20" fill="none" className={clsx("h-3.5 w-3.5 transition-transform", open && "rotate-180")}>
+          <path d="M6 8l4 4 4-4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-64 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          {options.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={o.toggle}
+              aria-pressed={o.on}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50"
+            >
+              <span
+                className={clsx(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                  o.on ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300",
+                )}
+              >
+                {o.on ? (
+                  <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="none">
+                    <path d="M2.5 6.5l2.2 2L9.5 3.5" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+                  </svg>
+                ) : null}
+              </span>
+              <span>
+                <span className="block text-sm font-medium text-gray-900">{o.title}</span>
+                <span className="block text-[11px] text-gray-400">{o.sub}</span>
+              </span>
+            </button>
+          ))}
+          <div className="border-t border-gray-100 px-3 py-2 text-[11px] text-gray-400">
+            {archived
+              ? "Archived products always stay draft — un-archive to publish."
+              : "Untick both to keep it as a draft."}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AvailabilityRow({
   form,
   update,
   channel,
-  onHand,
 }: {
   form: Product;
   update: Update;
   channel: StorefrontChannel;
-  onHand: number;
 }) {
   const archived = form.is_forecasted === false;
   return (
     <div>
       <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
-        <SelectField
-          label="Sell on"
-          value={channel}
-          onChange={(v) => update("storefront_channel", v as StorefrontChannel)}
-          options={[
-            { value: "off", label: "Off (draft)" },
-            { value: "d2c", label: "D2C only" },
-            { value: "wholesale", label: "Wholesale only" },
-            { value: "both", label: "D2C + wholesale" },
-          ]}
-        />
         <SelectField
           label="In stock?"
           value={form.storefront_in_stock === false ? "no" : "yes"}
@@ -652,7 +766,6 @@ function AvailabilityRow({
             { value: "no", label: "No — show it, but disable buying" },
           ]}
         />
-        <ReadoutField label="On hand" value={onHand.toLocaleString()} />
       </div>
       <p
         className={clsx(
@@ -743,7 +856,20 @@ export function DetailsSection({
             Brand · Collection · Type / name parts + fragrance / SKU · Barcode · Size.
             display_name is still recomposed from the name parts (the
             storefronts parse it), it just isn't shown. */}
-        <Card title="Product">
+        <Card
+          title="Product"
+          actions={
+            <>
+              <StockPill onHand={onHand} inStock={form.storefront_in_stock !== false} />
+              <ChannelMultiSelect
+                channel={channel}
+                brand={form.brand}
+                archived={form.is_forecasted === false}
+                onChange={(c) => update("storefront_channel", c)}
+              />
+            </>
+          }
+        >
           <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
             <SelectField
               label="Brand"
@@ -858,7 +984,7 @@ export function DetailsSection({
 
         {/* ── AVAILABILITY ── */}
         <Card title="Availability">
-          <AvailabilityRow form={form} update={update} channel={channel} onHand={onHand} />
+          <AvailabilityRow form={form} update={update} channel={channel} />
         </Card>
 
         {/* ── MARKETING COPY (merged with old Copy tab) ── */}
