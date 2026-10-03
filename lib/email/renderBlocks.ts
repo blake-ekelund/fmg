@@ -552,7 +552,7 @@ function renderCaption(block: CaptionBlock, width: number, editable: boolean): s
   const cellW = Math.max(1, Math.round(width - block.padding * 2));
   const vmlOpen = hasImg
     ? `<!--[if gte mso 9]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:${cellW}px;height:${minH}px;">` +
-      `<v:fill type="frame" src="${img}" color="${bg}" /><v:textbox inset="0,0,0,0"><![endif]-->`
+      `<v:fill type="frame" src="${img}" aspect="atleast" origin="0.5,0.5" position="0.5,0.5" color="${bg}" /><v:textbox inset="0,0,0,0"><![endif]-->`
     : "";
   const vmlClose = hasImg ? `<!--[if gte mso 9]></v:textbox></v:rect><![endif]-->` : "";
 
@@ -669,7 +669,7 @@ function sectionRow(
   const vmlOpen =
     `<!--[if gte mso 9]>` +
     `<v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:${Math.round(opts.width)}px;">` +
-    `<v:fill type="frame" src="${img}" color="${fillColor}" />` +
+    `<v:fill type="frame" src="${img}" aspect="atleast" origin="0.5,0.5" position="0.5,0.5" color="${fillColor}" />` +
     `<v:textbox inset="0,0,0,0"><![endif]-->`;
   const vmlClose = `<!--[if gte mso 9]></v:textbox></v:rect><![endif]-->`;
   return (
