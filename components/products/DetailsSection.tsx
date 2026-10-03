@@ -602,63 +602,19 @@ function PricingRows({
 }
 
 // ---------------------------------------------------------------------------
-// Availability — where it sells, whether it's purchasable, live on-hand.
+// Product header — stock menu + publish picker.
 // ---------------------------------------------------------------------------
 const BRAND_SITE: Record<"NI" | "Sassy", string> = {
   Sassy: "sassyandco.com",
   NI: "naturalinspirations.com",
 };
 
-function availabilityLine(channel: StorefrontChannel, brand: "NI" | "Sassy"): string {
-  const site = BRAND_SITE[brand] ?? "the storefront";
-  switch (channel) {
-    case "d2c":
-      return `Live for shoppers on ${site}.`;
-    case "wholesale":
-      return "Live for approved stockists only.";
-    case "both":
-      return `Live for shoppers on ${site} and for approved stockists.`;
-    default:
-      return "Draft — hidden from the storefronts.";
-  }
-}
+/* ─── Product header: stock menu + "Published on" multi-select ─── */
 
-/* ─── Product header: stock pill + "Published on" multi-select ─── */
-
-function StockPill({ onHand, inStock }: { onHand: number; inStock: boolean }) {
-  const out = !inStock || onHand <= 0;
-  return (
-    <span
-      className={clsx(
-        "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium tabular-nums",
-        out ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700",
-      )}
-      title={!inStock ? "Marked out of stock (see Availability)" : "On hand from the latest inventory snapshot"}
-    >
-      <span className={clsx("h-1.5 w-1.5 rounded-full", out ? "bg-red-500" : "bg-green-500")} />
-      {onHand.toLocaleString()} in stock
-      {!inStock ? <span className="font-normal text-red-500">· marked out</span> : null}
-    </span>
-  );
-}
-
-/** storefront_channel as two checkboxes: D2C and Wholesale (none = draft). */
-function ChannelMultiSelect({
-  channel,
-  brand,
-  archived,
-  onChange,
-}: {
-  channel: StorefrontChannel;
-  brand: "NI" | "Sassy";
-  archived: boolean;
-  onChange: (c: StorefrontChannel) => void;
-}) {
+/** Shared outside-click / Escape closing for the header menus. */
+function useMenu() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const d2c = channel === "d2c" || channel === "both";
-  const wholesale = channel === "wholesale" || channel === "both";
-
   useEffect(() => {
     if (!open) return;
     function onPointer(e: MouseEvent) {
@@ -674,6 +630,104 @@ function ChannelMultiSelect({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+  return { open, setOpen, ref };
+}
+
+/**
+ * On-hand count that doubles as the "In stock?" control: picking
+ * "Out of stock" keeps the product visible but lets the storefronts
+ * disable purchasing (storefront_in_stock = false).
+ */
+function StockMenu({
+  onHand,
+  inStock,
+  onChange,
+}: {
+  onHand: number;
+  inStock: boolean;
+  onChange: (inStock: boolean) => void;
+}) {
+  const { open, setOpen, ref } = useMenu();
+  const out = !inStock || onHand <= 0;
+  const options = [
+    { value: true, title: "In stock", sub: "Shoppers and stockists can buy it" },
+    { value: false, title: "Out of stock", sub: "Still shown, but buying is disabled" },
+  ];
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        title="On hand from the latest inventory snapshot — click to mark in or out of stock"
+        className={clsx(
+          "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium tabular-nums transition",
+          out
+            ? "border-red-200 bg-red-50 text-red-700 hover:border-red-300"
+            : "border-green-200 bg-green-50 text-green-700 hover:border-green-300",
+        )}
+      >
+        <span className={clsx("h-1.5 w-1.5 rounded-full", out ? "bg-red-500" : "bg-green-500")} />
+        {onHand.toLocaleString()} in stock
+        {!inStock ? <span className="font-normal text-red-500">· marked out</span> : null}
+        <svg viewBox="0 0 20 20" fill="none" className={clsx("h-3.5 w-3.5 transition-transform", open && "rotate-180")}>
+          <path d="M6 8l4 4 4-4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-64 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          {options.map((o) => {
+            const on = inStock === o.value;
+            return (
+              <button
+                key={o.title}
+                type="button"
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                }}
+                aria-pressed={on}
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50"
+              >
+                <span
+                  className={clsx(
+                    "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                    on ? "border-gray-900" : "border-gray-300",
+                  )}
+                >
+                  {on ? <span className="h-2 w-2 rounded-full bg-gray-900" /> : null}
+                </span>
+                <span>
+                  <span className="block text-sm font-medium text-gray-900">{o.title}</span>
+                  <span className="block text-[11px] text-gray-400">{o.sub}</span>
+                </span>
+              </button>
+            );
+          })}
+          <div className="border-t border-gray-100 px-3 py-2 text-[11px] text-gray-400 tabular-nums">
+            {onHand.toLocaleString()} on hand in the latest inventory snapshot.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** storefront_channel as two checkboxes: D2C and Wholesale (none = draft). */
+function ChannelMultiSelect({
+  channel,
+  brand,
+  archived,
+  onChange,
+}: {
+  channel: StorefrontChannel;
+  brand: "NI" | "Sassy";
+  archived: boolean;
+  onChange: (c: StorefrontChannel) => void;
+}) {
+  const { open, setOpen, ref } = useMenu();
+  const d2c = channel === "d2c" || channel === "both";
+  const wholesale = channel === "wholesale" || channel === "both";
 
   function set(nextD2c: boolean, nextWholesale: boolean) {
     onChange(nextD2c && nextWholesale ? "both" : nextD2c ? "d2c" : nextWholesale ? "wholesale" : "off");
@@ -740,50 +794,6 @@ function ChannelMultiSelect({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function AvailabilityRow({
-  form,
-  update,
-  channel,
-}: {
-  form: Product;
-  update: Update;
-  channel: StorefrontChannel;
-}) {
-  const archived = form.is_forecasted === false;
-  return (
-    <div>
-      <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
-        <SelectField
-          label="In stock?"
-          value={form.storefront_in_stock === false ? "no" : "yes"}
-          onChange={(v) => update("storefront_in_stock", v === "yes")}
-          options={[
-            { value: "yes", label: "Yes" },
-            { value: "no", label: "No — show it, but disable buying" },
-          ]}
-        />
-      </div>
-      <p
-        className={clsx(
-          "mt-3 flex items-center gap-1.5 text-xs",
-          channel === "off" ? "text-gray-500" : "text-green-700",
-        )}
-      >
-        <span
-          className={clsx(
-            "h-1.5 w-1.5 rounded-full",
-            channel === "off" ? "bg-gray-400" : "bg-green-500",
-          )}
-        />
-        {availabilityLine(channel, form.brand)}
-        {archived ? (
-          <span className="text-amber-700"> Archived products always stay draft.</span>
-        ) : null}
-      </p>
     </div>
   );
 }
@@ -860,7 +870,11 @@ export function DetailsSection({
           title="Product"
           actions={
             <>
-              <StockPill onHand={onHand} inStock={form.storefront_in_stock !== false} />
+              <StockMenu
+                onHand={onHand}
+                inStock={form.storefront_in_stock !== false}
+                onChange={(v) => update("storefront_in_stock", v)}
+              />
               <ChannelMultiSelect
                 channel={channel}
                 brand={form.brand}
@@ -980,11 +994,6 @@ export function DetailsSection({
         {/* ── PRICING ── right under Product: what it is, then what it costs. */}
         <Card title="Pricing & quantity">
           <PricingRows form={form} update={update} channel={channel} />
-        </Card>
-
-        {/* ── AVAILABILITY ── */}
-        <Card title="Availability">
-          <AvailabilityRow form={form} update={update} channel={channel} />
         </Card>
 
         {/* ── MARKETING COPY (merged with old Copy tab) ── */}
