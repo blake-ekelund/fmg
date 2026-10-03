@@ -351,18 +351,32 @@ export function newBlockId(): string {
   return `block-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function createDefaultBlock(type: BlockType): EmailBlock {
+/**
+ * Name + accent colour new blocks start with, per template brand. "both" is
+ * brand-neutral (FMG navy); no brand keeps the original Natural Inspirations
+ * defaults for older callers.
+ */
+export function brandBlockDefaults(brand?: Brand): { name: string; accent: string } {
+  if (brand === "sassy") return { name: BRAND_PRESETS.sassy.logoText, accent: BRAND_PRESETS.sassy.primaryColor };
+  if (brand === "both") return { name: "Fragrance Marketing Group", accent: "#1b3c53" };
+  return { name: BRAND_PRESETS.ni.logoText, accent: BRAND_PRESETS.ni.primaryColor };
+}
+
+/** A new block of `type`, styled for the template's `brand` (header name,
+ *  button / caption / band colours). */
+export function createDefaultBlock(type: BlockType, brand?: Brand): EmailBlock {
   const id = newBlockId();
+  const look = brandBlockDefaults(brand);
 
   switch (type) {
     case "header":
-      return { id, type, logoUrl: "", companyName: "Natural Inspirations", bgColor: "#1a5632", textColor: "#ffffff", padding: 20 };
+      return { id, type, logoUrl: "", companyName: look.name, bgColor: look.accent, textColor: "#ffffff", padding: 20 };
     case "text":
       return { id, type, html: "<p>Enter your text here...</p>", fontSize: 15, fontFamily: "sans", textAlign: "left", textColor: "#374151", bgColor: "#ffffff", padding: 20 };
     case "image":
       return { id, type, src: "", alt: "Image", width: "full", align: "center", linkUrl: "", borderRadius: 0, padding: 10 };
     case "button":
-      return { id, type, text: "Shop Now", url: "https://", bgColor: "#1a5632", textColor: "#ffffff", align: "center", borderRadius: 8, fontSize: 16, padding: 20 };
+      return { id, type, text: "Shop Now", url: "https://", bgColor: look.accent, textColor: "#ffffff", align: "center", borderRadius: 8, fontSize: 16, padding: 20 };
     case "divider":
       return { id, type, color: "#e5e7eb", thickness: 1, style: "solid", padding: 10 };
     case "spacer":
@@ -376,14 +390,14 @@ export function createDefaultBlock(type: BlockType): EmailBlock {
     case "hero":
       return { id, type, imageUrl: "", heading: "Your Headline Here", subheading: "Supporting text goes here", buttonText: "Learn More", buttonUrl: "https://", overlay: true, textColor: "#ffffff", padding: 0 };
     case "caption":
-      return { id, type, imageUrl: "", alt: "", heading: "Your Headline", subheading: "", layout: "overlay", textAlign: "center", verticalAlign: "middle", textColor: "#ffffff", bgColor: "#1a5632", scrim: 30, fontSize: 26, minHeight: 220, padding: 0 };
+      return { id, type, imageUrl: "", alt: "", heading: "Your Headline", subheading: "", layout: "overlay", textAlign: "center", verticalAlign: "middle", textColor: "#ffffff", bgColor: look.accent, scrim: 30, fontSize: 26, minHeight: 220, padding: 0 };
     case "promotion":
       return { id, type, promotionId: "", headline: "Special Offer", description: "Don't miss out on this limited-time deal.", promoCode: "", discountLabel: "", expiresLabel: "", buttonText: "Shop Now", buttonUrl: "https://", bgColor: "#f5f3ff", accentColor: "#7c3aed", textColor: "#1f2937", padding: 24 };
     case "footer":
       // Same copy as the auto-appended fallback footer (lib/email/unsubscribe.ts).
       return { id, type, text: "You're receiving this because you're a Fragrance Marketing Group customer.", unsubscribeLabel: "Unsubscribe", bgColor: "#ffffff", textColor: "#6b7b88", linkColor: "#1b3c53", fontSize: 12, textAlign: "center", padding: 20 };
     case "section":
-      return createSectionPreset("imageText");
+      return createSectionPreset("imageText", brand);
   }
 }
 
@@ -409,29 +423,30 @@ function col(weight: number, blocks: EmailBlock[]): SectionColumn {
 
 /** A heading + paragraph + button stack — the typical "content" column. All
  *  center-aligned so it reads consistently next to an image. */
-function contentStack(): EmailBlock[] {
+function contentStack(brand?: Brand): EmailBlock[] {
   return [
     { ...(createDefaultBlock("header") as HeaderBlock), companyName: "Your Headline", logoUrl: "", bgColor: "", textColor: "#111827", padding: 0 },
     { ...(createDefaultBlock("text") as TextBlock), html: "<p>Supporting copy goes here. Keep it short and punchy.</p>", bgColor: "", padding: 0, textAlign: "center" },
-    { ...(createDefaultBlock("button") as ButtonBlock), align: "center", padding: 0 },
+    { ...(createDefaultBlock("button", brand) as ButtonBlock), align: "center", padding: 0 },
   ];
 }
 
-export function createSectionPreset(preset: SectionPreset): SectionBlock {
+/** A section layout, its button / band colours set for the template's `brand`. */
+export function createSectionPreset(preset: SectionPreset, brand?: Brand): SectionBlock {
   const base = { id: newBlockId(), type: "section" as const, bgColor: "", bgImage: "", padding: 24, gap: 20, stackOnMobile: true, verticalAlign: "middle" as VAlign };
   const image = () => [createDefaultBlock("image")];
 
   switch (preset) {
     case "imageText":
-      return { ...base, columns: [col(1, image()), col(1, contentStack())] };
+      return { ...base, columns: [col(1, image()), col(1, contentStack(brand))] };
     case "textImage":
-      return { ...base, columns: [col(1, contentStack()), col(1, image())] };
+      return { ...base, columns: [col(1, contentStack(brand)), col(1, image())] };
     case "twoCol":
       return { ...base, columns: [col(1, [createDefaultBlock("text")]), col(1, [createDefaultBlock("text")])] };
     case "threeCol":
       return { ...base, columns: [col(1, [createDefaultBlock("text")]), col(1, [createDefaultBlock("text")]), col(1, [createDefaultBlock("text")])] };
     case "band":
-      return { ...base, bgColor: "#1a5632", columns: [col(1, [
+      return { ...base, bgColor: brandBlockDefaults(brand).accent, columns: [col(1, [
         { ...(createDefaultBlock("header") as HeaderBlock), companyName: "Section Heading", logoUrl: "", bgColor: "", textColor: "#ffffff", padding: 0 },
         { ...(createDefaultBlock("text") as TextBlock), html: "<p style=\"text-align:center\">A full-width band — set a background colour or image.</p>", textColor: "#ffffff", bgColor: "", textAlign: "center", padding: 0 },
       ])] };
