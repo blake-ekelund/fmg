@@ -41,11 +41,13 @@ export function getOwnerColor(name: string | null | undefined): string {
   return COLOR_PALETTE[hashName(name) % COLOR_PALETTE.length];
 }
 
-type ProfileRow = { first_name: string | null; email: string | null };
+type ProfileRow = { first_name: string | null; access: string | null };
 
 /**
- * Returns the list of selectable owner names — one per team member, derived
- * from profiles.first_name (with the local part of email as a fallback).
+ * Returns the list of selectable owner names — one per team member: a profile
+ * with a staff role (not an external rep, not role-less) AND a first name.
+ * Nameless accounts (sign-ups / subscribers that only have an email) used to
+ * show up as their email's local part; they aren't teammates, so they're out.
  */
 export function useTeamOwners() {
   const [owners, setOwners] = useState<string[]>([]);
@@ -56,16 +58,12 @@ export function useTeamOwners() {
     (async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("first_name, email")
+        .select("first_name, access")
         .order("first_name", { ascending: true });
       if (cancelled) return;
       const names = ((data ?? []) as ProfileRow[])
-        .map((r) => {
-          const trimmed = r.first_name?.trim();
-          if (trimmed) return trimmed;
-          const local = r.email?.split("@")[0]?.trim();
-          return local || null;
-        })
+        .filter((r) => !!r.access && r.access !== "rep")
+        .map((r) => r.first_name?.trim() || null)
         .filter((n): n is string => !!n);
       setOwners(Array.from(new Set(names)));
       setLoading(false);
