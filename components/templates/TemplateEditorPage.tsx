@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   Plus,
@@ -150,6 +150,9 @@ function SmsEditor({
     </div>
   );
 }
+
+/** Pause after the last edit before an autosave runs. */
+const AUTOSAVE_DELAY = 1500;
 
 /* ─── Main Template Editor ─── */
 export default function TemplateEditorPage() {
@@ -415,6 +418,10 @@ export default function TemplateEditorPage() {
   // Load template into editor. For a brand-new template, `blankSource` picks
   // which editor opens (blocks builder by default, or a plain-text body).
   function openEditor(template?: EmailTemplate, blankSource: TemplateSource = "blocks") {
+    // Autosave: an opened template takes its loaded state as the baseline; a
+    // blank new one saves straight away.
+    autosaveBaseline.current = template ? null : "";
+    templateIdRef.current = template?.id ?? null;
     if (template) {
       setEditingId(template.id);
       setIsNew(false);
@@ -463,6 +470,9 @@ export default function TemplateEditorPage() {
    */
   function startFromWizard(r: NewTemplateResult) {
     setShowWizard(false);
+    // Autosave from the start: the wizard's draft is saved as soon as it opens.
+    autosaveBaseline.current = "";
+    templateIdRef.current = null;
     setEditingId(null);
     setIsNew(true);
     setName(r.name);
@@ -485,6 +495,10 @@ export default function TemplateEditorPage() {
   }
 
   function closeEditor() {
+    // Save edits made in the last moments before leaving.
+    if (autosaveDirty) void saveRef.current({ auto: true });
+    autosaveBaseline.current = null;
+    templateIdRef.current = null;
     setEditingId(null);
     setIsNew(false);
   }
@@ -556,21 +570,87 @@ export default function TemplateEditorPage() {
     setSelectedBlockId(nb.id);
   }
 
-  // Save
-  async function handleSave(): Promise<EmailTemplate | null> {
+  /* ─── Autosave ───
+   * Everything the editor persists, serialized. Autosave fires when this stops
+   * changing for AUTOSAVE_DELAY (a pause after typing, adding, deleting or
+   * moving blocks — never per keystroke), and immediately for a brand-new
+   * template so the wizard's draft exists from the start. autosaveBaseline is
+   * the last saved/loaded snapshot (null = adopt the next one, i.e. a template
+   * that was just opened). templateIdRef holds the row id the moment the first
+   * save returns, so a follow-up save can never insert a second copy before
+   * React re-renders with editingId.
+   */
+  const autosaveSnapshot = useMemo(
+    () =>
+      JSON.stringify([
+        name, subject, templateType, brand, channel, source, blocks, rawHtml,
+        textBody, smsBody, previewText, fromName, purpose, description,
+      ]),
+    [name, subject, templateType, brand, channel, source, blocks, rawHtml, textBody, smsBody, previewText, fromName, purpose, description],
+  );
+  const autosaveBaseline = useRef<string | null>(null);
+  const templateIdRef = useRef<string | null>(null);
+  const savingRef = useRef(false);
+  const saveAgainRef = useRef(false);
+  const saveRef = useRef<(opts?: { auto?: boolean }) => Promise<EmailTemplate | null>>(async () => null);
+  const snapshotRef = useRef(autosaveSnapshot);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const editorOpen = !!editingId || isNew;
+  const autosaveDirty =
+    editorOpen && autosaveBaseline.current !== null && autosaveSnapshot !== autosaveBaseline.current;
+
+  useEffect(() => {
+    snapshotRef.current = autosaveSnapshot;
+    saveRef.current = handleSave;
+  });
+
+  useEffect(() => {
+    if (!editorOpen) return;
+    if (autosaveBaseline.current === null) {
+      // Just opened an existing template: its loaded state counts as saved.
+      autosaveBaseline.current = autosaveSnapshot;
+      return;
+    }
+    if (autosaveSnapshot === autosaveBaseline.current) return;
+    const t = window.setTimeout(
+      () => void saveRef.current({ auto: true }),
+      templateIdRef.current ? AUTOSAVE_DELAY : 0,
+    );
+    return () => window.clearTimeout(t);
+  }, [autosaveSnapshot, editorOpen]);
+
+  // Closing the tab with unsaved edits asks first.
+  useEffect(() => {
+    if (!autosaveDirty && !saving) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [autosaveDirty, saving]);
+
+  // Save: manual (button / send test / grade) or autosave ({ auto: true }).
+  async function handleSave(opts?: { auto?: boolean }): Promise<EmailTemplate | null> {
+    // One save at a time; changes made meanwhile are saved right after.
+    if (savingRef.current) {
+      saveAgainRef.current = true;
+      return null;
+    }
     // An uploaded document with a broken merge field would send the literal
     // {{token}} to customers — refuse the save while any error stands (the
-    // HTML editor's "Merge field check" panel lists them).
+    // HTML editor's "Merge field check" panel lists them). Autosave just
+    // waits quietly until the document is valid.
     if (source === "html") {
       const check = validateTemplateBody(rawHtml, "html");
       if (!check.ok) {
+        if (opts?.auto) return null;
         const n = check.issues.filter((i) => i.severity === "error").length;
         setValidationError(`${n} merge field problem${n === 1 ? "" : "s"} in the HTML. See "Merge field check" in the sidebar.`);
         return null;
       }
     }
     setValidationError(null);
+    savingRef.current = true;
     setSaving(true);
+    const snapshot = snapshotRef.current;
     const payload: Partial<EmailTemplate> = {
       name: name || "Untitled Template",
       subject,
@@ -588,14 +668,25 @@ export default function TemplateEditorPage() {
       description,
       status: "draft",
     };
-    if (editingId) payload.id = editingId;
+    const id = templateIdRef.current ?? editingId;
+    if (id) payload.id = id;
 
     const result = await save(payload);
-    if (result && isNew) {
-      setEditingId(result.id);
-      setIsNew(false);
+    if (result) {
+      templateIdRef.current = result.id;
+      autosaveBaseline.current = snapshot;
+      setLastSavedAt(Date.now());
+      if (isNew) {
+        setEditingId(result.id);
+        setIsNew(false);
+      }
     }
+    savingRef.current = false;
     setSaving(false);
+    if (saveAgainRef.current) {
+      saveAgainRef.current = false;
+      window.setTimeout(() => void saveRef.current({ auto: true }), 0);
+    }
     return result ?? null;
   }
 
@@ -976,13 +1067,17 @@ export default function TemplateEditorPage() {
               Send test
             </button>
           )}
+          <span className="min-w-[6.5rem] text-right text-xs text-gray-400" aria-live="polite">
+            {saving ? "Saving…" : autosaveDirty ? "Unsaved changes" : lastSavedAt ? "All changes saved" : ""}
+          </span>
           <button
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={saving}
+            title="Changes save automatically; this saves right now"
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition shadow-sm disabled:opacity-50"
           >
             <Save size={12} />
-            {saving ? "Saving..." : "Save"}
+            Save
           </button>
         </div>
       </div>
