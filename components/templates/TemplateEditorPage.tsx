@@ -77,6 +77,20 @@ const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
   { type: "footer", label: "Footer / Unsubscribe", icon: PanelBottom },
 ];
 
+/* The palette, grouped by where each block usually sits in an email. Every
+   BLOCK_PALETTE type appears in exactly one group. */
+const PALETTE_GROUPS: { title: string; hint: string; types: BlockType[]; withSections?: boolean }[] = [
+  { title: "Beginning", hint: "Brand + the big hook", types: ["header", "hero"] },
+  {
+    title: "Middle",
+    hint: "The pitch and products",
+    types: ["text", "image", "caption", "columns", "product", "promotion", "button"],
+    withSections: true,
+  },
+  { title: "End", hint: "Required: footer with unsubscribe", types: ["social", "footer"] },
+  { title: "Spacing", hint: "Use anywhere", types: ["divider", "spacer"] },
+];
+
 /* Mini glyph illustrating a section layout in the palette. */
 function PresetGlyph({ preset }: { preset: SectionPreset }) {
   const cols =
@@ -538,7 +552,7 @@ export default function TemplateEditorPage() {
       setShowPromoPicker(true);
       return;
     }
-    const b = createDefaultBlock(type);
+    const b = createDefaultBlock(type, brand);
     setBlocks((prev) => [...prev, b]);
     setSelectedBlockId(b.id);
   }
@@ -560,7 +574,7 @@ export default function TemplateEditorPage() {
 
   // Add a preset section (pre-populated with placeholder content blocks).
   function addSection(preset: SectionPreset) {
-    const s = createSectionPreset(preset);
+    const s = createSectionPreset(preset, brand);
     setBlocks((prev) => [...prev, s]);
     setSelectedBlockId(s.id);
   }
@@ -577,9 +591,9 @@ export default function TemplateEditorPage() {
   // whole section layout. Build the right block from that spec.
   function blockFromDragSpec(spec: string): EmailBlock {
     if (spec.startsWith("section:")) {
-      return createSectionPreset(spec.slice("section:".length) as SectionPreset);
+      return createSectionPreset(spec.slice("section:".length) as SectionPreset, brand);
     }
-    return createDefaultBlock(spec as BlockType);
+    return createDefaultBlock(spec as BlockType, brand);
   }
 
   // Drag from the palette → drop a new block (or section layout) at a precise
@@ -1227,52 +1241,63 @@ export default function TemplateEditorPage() {
           {!showPreview && (
             <div className="w-56 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto">
               <div className="p-3">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-3">Add Block</div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {BLOCK_PALETTE.map((b) => {
-                    // Promotion needs the picker, so it stays click-only. The rest
-                    // can be dragged onto any spot in the canvas.
-                    const draggable = b.type !== "promotion";
-                    return (
-                      <button
-                        key={b.type}
-                        draggable={draggable}
-                        onDragStart={(e) => {
-                          if (!draggable) return;
-                          e.dataTransfer.setData(NEW_BLOCK_MIME, b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type)}
-                        title={draggable ? "Click to add, or drag onto the canvas" : undefined}
-                        className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition text-[10px] font-medium cursor-grab active:cursor-grabbing"
-                      >
-                        <b.icon size={16} />
-                        {b.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Section layouts — multi-column containers with backgrounds */}
-                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-4 mb-2">Section Layouts</div>
-                <div className="space-y-1.5">
-                  {SECTION_PRESETS.map((p) => (
-                    <button
-                      key={p.preset}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData(NEW_BLOCK_MIME, `section:${p.preset}`);
-                        e.dataTransfer.effectAllowed = "copy";
-                      }}
-                      onClick={() => addSection(p.preset)}
-                      title="Click to add, or drag above/below a section"
-                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition text-[11px] font-medium cursor-grab active:cursor-grabbing"
-                    >
-                      <PresetGlyph preset={p.preset} />
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
+                {/* Blocks grouped by where they usually go in an email —
+                    a nudge toward the typical top → pitch → close flow. */}
+                {PALETTE_GROUPS.map((g, gi) => (
+                  <div key={g.title} className={clsx(gi > 0 && "mt-4 border-t border-gray-100 pt-3")}>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{g.title}</div>
+                    <div className="mb-2 text-[10px] leading-tight text-gray-400">{g.hint}</div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {g.types.map((type) => {
+                        const b = BLOCK_PALETTE.find((x) => x.type === type)!;
+                        // Promotion needs the picker, so it stays click-only. The rest
+                        // can be dragged onto any spot in the canvas.
+                        const draggable = b.type !== "promotion";
+                        return (
+                          <button
+                            key={b.type}
+                            draggable={draggable}
+                            onDragStart={(e) => {
+                              if (!draggable) return;
+                              e.dataTransfer.setData(NEW_BLOCK_MIME, b.type);
+                              e.dataTransfer.effectAllowed = "copy";
+                            }}
+                            onClick={() => addBlock(b.type)}
+                            title={draggable ? "Click to add, or drag onto the canvas" : undefined}
+                            className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition text-[10px] font-medium cursor-grab active:cursor-grabbing"
+                          >
+                            <b.icon size={16} />
+                            {b.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {g.withSections && (
+                      <>
+                        {/* Section layouts — multi-column containers with backgrounds */}
+                        <div className="mt-3 mb-1.5 text-[10px] font-semibold text-gray-400">Section layouts</div>
+                        <div className="space-y-1.5">
+                          {SECTION_PRESETS.map((p) => (
+                            <button
+                              key={p.preset}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData(NEW_BLOCK_MIME, `section:${p.preset}`);
+                                e.dataTransfer.effectAllowed = "copy";
+                              }}
+                              onClick={() => addSection(p.preset)}
+                              title="Click to add, or drag above/below a section"
+                              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition text-[11px] font-medium cursor-grab active:cursor-grabbing"
+                            >
+                              <PresetGlyph preset={p.preset} />
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
 
             </div>
