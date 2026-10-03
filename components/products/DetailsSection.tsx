@@ -1,17 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, LayoutGroup } from "framer-motion";
+import { LayoutGroup } from "framer-motion";
 import clsx from "clsx";
-import {
-  AlertTriangle,
-  CheckCircle,
-  EyeOff,
-  Globe,
-  Lock,
-  Package,
-  Sparkles,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle } from "lucide-react";
 
 import type { Product, StorefrontChannel } from "@/components/inventory/types";
 import { composeDisplayName, normalizeHexColor } from "./copySheet";
@@ -28,8 +20,6 @@ export type CopyKey =
   | "ingredients_text"
   | "how_to_use"
   | "retailer_notes";
-
-const EASE = [0.22, 1, 0.36, 1] as const;
 
 // ---------------------------------------------------------------------------
 // Brand → collection options
@@ -77,144 +67,6 @@ function getNotes(p: Product): FragranceNotes {
     return m.notes as FragranceNotes;
   }
   return {};
-}
-
-// ---------------------------------------------------------------------------
-// Channel toggle
-// ---------------------------------------------------------------------------
-const CHANNELS: {
-  value: StorefrontChannel;
-  label: string;
-  hint: string;
-  Icon: typeof CheckCircle;
-  activeClass: string;
-  iconClass: string;
-}[] = [
-  {
-    value: "off",
-    label: "Off",
-    hint: "Draft mode",
-    Icon: EyeOff,
-    activeClass: "bg-gray-900 text-white border-gray-900",
-    iconClass: "text-gray-500",
-  },
-  {
-    value: "d2c",
-    label: "D2C only",
-    hint: "Retail only",
-    Icon: Globe,
-    activeClass: "bg-pink-50 text-pink-700 border-pink-300 ring-2 ring-pink-200",
-    iconClass: "text-pink-500",
-  },
-  {
-    value: "wholesale",
-    label: "Wholesale only",
-    hint: "Stockists only",
-    Icon: Package,
-    activeClass:
-      "bg-indigo-50 text-indigo-700 border-indigo-300 ring-2 ring-indigo-200",
-    iconClass: "text-indigo-500",
-  },
-  {
-    value: "both",
-    label: "Both",
-    hint: "Retail + wholesale",
-    Icon: Sparkles,
-    activeClass:
-      "bg-gradient-to-br from-pink-50 to-indigo-50 text-gray-900 border-gray-900 ring-2 ring-gray-300",
-    iconClass: "text-pink-500",
-  },
-];
-
-function ChannelToggle({
-  value,
-  onChange,
-}: {
-  value: StorefrontChannel;
-  onChange: (v: StorefrontChannel) => void;
-}) {
-  return (
-    <div className="grid grid-cols-4 gap-2">
-      {CHANNELS.map((c) => {
-        const active = value === c.value;
-        return (
-          <button
-            key={c.value}
-            type="button"
-            onClick={() => onChange(c.value)}
-            className={clsx(
-              "relative rounded-xl border px-3 py-3 text-left transition-all",
-              active
-                ? c.activeClass
-                : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <c.Icon size={16} className={active ? "" : c.iconClass} />
-              <span className="text-sm font-semibold">{c.label}</span>
-            </div>
-            <p
-              className={clsx(
-                "mt-1 text-[11px] leading-tight",
-                active ? "opacity-80" : "text-gray-400"
-              )}
-            >
-              {c.hint}
-            </p>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function StatusBanner({ channel }: { channel: StorefrontChannel }) {
-  const map: Record<
-    StorefrontChannel,
-    { bg: string; text: string; label: string; sub: string }
-  > = {
-    off: {
-      bg: "bg-gray-100",
-      text: "text-gray-700",
-      label: "Draft — hidden from storefront",
-      sub: "Both pricing columns stay editable so you can prep data before publishing.",
-    },
-    d2c: {
-      bg: "bg-pink-100",
-      text: "text-pink-700",
-      label: "Live on sassyandco.com (D2C only)",
-      sub: "Wholesale column is locked. Switch to Both to also sell to stockists.",
-    },
-    wholesale: {
-      bg: "bg-indigo-100",
-      text: "text-indigo-700",
-      label: "Live for wholesale (only)",
-      sub: "D2C column is locked. Switch to Both to also sell on sassyandco.com.",
-    },
-    both: {
-      bg: "bg-gradient-to-r from-pink-100 to-indigo-100",
-      text: "text-gray-800",
-      label: "Live on both channels",
-      sub: "Visible to retail shoppers and approved stockists.",
-    },
-  };
-  const s = map[channel];
-  return (
-    <motion.div
-      layout
-      key={channel}
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: EASE }}
-      className={clsx("flex items-center gap-3 rounded-xl px-4 py-3", s.bg)}
-    >
-      <CheckCircle size={18} className={s.text} />
-      <div>
-        <div className={clsx("text-sm font-semibold", s.text)}>{s.label}</div>
-        <div className="text-xs text-gray-600">{s.sub}</div>
-      </div>
-    </motion.div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -595,135 +447,231 @@ function Card({
 }
 
 // ---------------------------------------------------------------------------
-// Pricing columns
+// Pricing — two aligned rows (Retail / Wholesale) on the Product card's
+// 3-column grid. Never locked: a channel that isn't selling gets a quiet tag,
+// so prices can be prepped before publishing.
 // ---------------------------------------------------------------------------
-function D2cColumn({
-  form,
-  update,
-  active,
+function RowHeading({
+  title,
+  selling,
+  notSellingLabel,
 }: {
-  form: Product;
-  update: Update;
-  active: boolean;
+  title: string;
+  selling: boolean;
+  notSellingLabel: string;
 }) {
-  const msrp = form.msrp ?? null;
-  const compareAt = form.compare_at_price ?? null;
-  const showDiscount = msrp != null && compareAt != null && compareAt > msrp;
-  const discountPct = showDiscount
-    ? Math.round(((compareAt! - msrp!) / compareAt!) * 100)
-    : null;
-
   return (
-    <motion.div
-      layout
-      animate={{ opacity: active ? 1 : 0.45 }}
-      transition={{ duration: 0.2, ease: EASE }}
-      className={clsx(
-        "rounded-xl border p-4 transition-colors",
-        active
-          ? "border-pink-200 bg-pink-50/30"
-          : "border-gray-200 bg-gray-50/40"
+    <div className="mb-2 flex items-center gap-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-700">{title}</h3>
+      {selling ? null : (
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+          {notSellingLabel}
+        </span>
       )}
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Globe size={14} className={active ? "text-pink-500" : "text-gray-400"} />
-          <h3 className={clsx("text-sm font-semibold", active ? "text-pink-700" : "text-gray-500")}>
-            D2C
-          </h3>
-          {active ? null : <Lock size={11} className="text-gray-400" aria-label="locked" />}
-        </div>
-        {active && showDiscount ? (
-          <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[11px] font-semibold text-pink-700">
-            −{discountPct}% off
-          </span>
-        ) : null}
-      </div>
-      <div className="space-y-3">
-        <MoneyField
-          label="Price (MSRP)"
-          value={form.msrp}
-          onChange={(v) => update("msrp", v)}
-          disabled={!active}
-        />
-        <MoneyField
-          label="Compare-at"
-          value={form.compare_at_price}
-          onChange={(v) => update("compare_at_price", v)}
-          disabled={!active}
-          hint="Shown as strikethrough if higher than MSRP."
-        />
-      </div>
-    </motion.div>
+    </div>
   );
 }
 
-function WholesaleColumn({
+/** Read-only value styled like an input, so computed numbers sit in the grid. */
+function ReadoutField({
+  label,
+  value,
+  tone = "muted",
+}: {
+  label: string;
+  value: string;
+  tone?: "muted" | "good" | "warn";
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-gray-500">{label}</label>
+      <div
+        className={clsx(
+          "flex h-[38px] items-center rounded-lg border border-dashed px-3 text-sm tabular-nums",
+          tone === "good" && "border-green-200 bg-green-50/60 text-green-700",
+          tone === "warn" && "border-amber-200 bg-amber-50/60 text-amber-700",
+          tone === "muted" && "border-gray-200 bg-gray-50/60 text-gray-400",
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function PricingRows({
   form,
   update,
-  active,
+  channel,
 }: {
   form: Product;
   update: Update;
-  active: boolean;
+  channel: StorefrontChannel;
 }) {
+  const sellsD2c = channel === "d2c" || channel === "both";
+  const sellsWholesale = channel === "wholesale" || channel === "both";
+
+  const msrp = form.msrp ?? null;
+  const compareAt = form.compare_at_price ?? null;
+  const discountPct =
+    msrp != null && compareAt != null && compareAt > msrp
+      ? Math.round(((compareAt - msrp) / compareAt) * 100)
+      : null;
+
   const unit = form.wholesale_price ?? null;
   const pack = form.case_pack ?? null;
   const caseTotal = unit != null && pack != null ? unit * pack : null;
+  // What a retailer keeps between wholesale cost and MSRP (50% = keystone).
+  const margin = unit != null && msrp != null && msrp > 0 ? (msrp - unit) / msrp : null;
 
   return (
-    <motion.div
-      layout
-      animate={{ opacity: active ? 1 : 0.45 }}
-      transition={{ duration: 0.2, ease: EASE }}
-      className={clsx(
-        "rounded-xl border p-4 transition-colors",
-        active
-          ? "border-indigo-200 bg-indigo-50/30"
-          : "border-gray-200 bg-gray-50/40"
-      )}
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Package size={14} className={active ? "text-indigo-500" : "text-gray-400"} />
-          <h3 className={clsx("text-sm font-semibold", active ? "text-indigo-700" : "text-gray-500")}>
-            Wholesale
-          </h3>
-          {active ? null : <Lock size={11} className="text-gray-400" aria-label="locked" />}
+    <div className="space-y-5">
+      <div>
+        <RowHeading title="Retail (D2C)" selling={sellsD2c || channel === "off"} notSellingLabel="Not selling D2C" />
+        <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
+          <MoneyField label="Price (MSRP)" value={form.msrp} onChange={(v) => update("msrp", v)} />
+          <MoneyField
+            label="Compare-at price"
+            value={form.compare_at_price}
+            onChange={(v) => update("compare_at_price", v)}
+            placeholder="Optional"
+          />
+          <ReadoutField
+            label="Shoppers see"
+            value={discountPct != null ? `−${discountPct}% off` : "Full price"}
+            tone={discountPct != null ? "good" : "muted"}
+          />
         </div>
-        {active && caseTotal !== null ? (
-          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 tabular-nums">
-            {formatMoney(caseTotal)} / case
-          </span>
-        ) : null}
       </div>
-      <div className="space-y-3">
-        <MoneyField
-          label="Per-unit price"
-          value={form.wholesale_price}
-          onChange={(v) => update("wholesale_price", v)}
-          disabled={!active}
+
+      <div className="border-t border-gray-100 pt-5">
+        <RowHeading
+          title="Wholesale"
+          selling={sellsWholesale || channel === "off"}
+          notSellingLabel="Not selling wholesale"
         />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
+          <MoneyField
+            label="Unit price"
+            value={form.wholesale_price}
+            onChange={(v) => update("wholesale_price", v)}
+          />
           <IntField
             label="Case pack"
             value={form.case_pack}
             onChange={(v) => update("case_pack", v)}
             suffix="units"
             placeholder="12"
-            disabled={!active}
           />
           <IntField
-            label="MOQ"
+            label="Minimum order"
             value={form.moq}
             onChange={(v) => update("moq", v)}
             suffix="cases"
             placeholder="1"
-            disabled={!active}
           />
         </div>
+        {caseTotal != null || margin != null ? (
+          <p className="mt-3 flex flex-wrap gap-x-3 text-xs tabular-nums text-gray-500">
+            {caseTotal != null ? (
+              <span>
+                <span className="font-semibold text-gray-900">{formatMoney(caseTotal)}</span> per case
+              </span>
+            ) : null}
+            {caseTotal != null && margin != null ? <span className="text-gray-300">·</span> : null}
+            {margin != null ? (
+              <span className={margin < 0.4 ? "text-amber-700" : undefined}>
+                Retailer margin{" "}
+                <span className={clsx("font-semibold", margin < 0.4 ? "text-amber-700" : "text-gray-900")}>
+                  {Math.round(margin * 100)}%
+                </span>
+                {margin < 0.4 ? " — below the usual 50%" : null}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
       </div>
-    </motion.div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Availability — where it sells, whether it's purchasable, live on-hand.
+// ---------------------------------------------------------------------------
+const BRAND_SITE: Record<"NI" | "Sassy", string> = {
+  Sassy: "sassyandco.com",
+  NI: "naturalinspirations.com",
+};
+
+function availabilityLine(channel: StorefrontChannel, brand: "NI" | "Sassy"): string {
+  const site = BRAND_SITE[brand] ?? "the storefront";
+  switch (channel) {
+    case "d2c":
+      return `Live for shoppers on ${site}.`;
+    case "wholesale":
+      return "Live for approved stockists only.";
+    case "both":
+      return `Live for shoppers on ${site} and for approved stockists.`;
+    default:
+      return "Draft — hidden from the storefronts.";
+  }
+}
+
+function AvailabilityRow({
+  form,
+  update,
+  channel,
+  onHand,
+}: {
+  form: Product;
+  update: Update;
+  channel: StorefrontChannel;
+  onHand: number;
+}) {
+  const archived = form.is_forecasted === false;
+  return (
+    <div>
+      <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
+        <SelectField
+          label="Sell on"
+          value={channel}
+          onChange={(v) => update("storefront_channel", v as StorefrontChannel)}
+          options={[
+            { value: "off", label: "Off (draft)" },
+            { value: "d2c", label: "D2C only" },
+            { value: "wholesale", label: "Wholesale only" },
+            { value: "both", label: "D2C + wholesale" },
+          ]}
+        />
+        <SelectField
+          label="In stock?"
+          value={form.storefront_in_stock === false ? "no" : "yes"}
+          onChange={(v) => update("storefront_in_stock", v === "yes")}
+          options={[
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No — show it, but disable buying" },
+          ]}
+        />
+        <ReadoutField label="On hand" value={onHand.toLocaleString()} />
+      </div>
+      <p
+        className={clsx(
+          "mt-3 flex items-center gap-1.5 text-xs",
+          channel === "off" ? "text-gray-500" : "text-green-700",
+        )}
+      >
+        <span
+          className={clsx(
+            "h-1.5 w-1.5 rounded-full",
+            channel === "off" ? "bg-gray-400" : "bg-green-500",
+          )}
+        />
+        {availabilityLine(channel, form.brand)}
+        {archived ? (
+          <span className="text-amber-700"> Archived products always stay draft.</span>
+        ) : null}
+      </p>
+    </div>
   );
 }
 
@@ -749,10 +697,6 @@ export function DetailsSection({
   onHand = 0,
 }: DetailsSectionProps) {
   const channel: StorefrontChannel = form.storefront_channel ?? "off";
-
-  const d2cActive = channel === "off" || channel === "d2c" || channel === "both";
-  const wholesaleActive =
-    channel === "off" || channel === "wholesale" || channel === "both";
 
   const brandCollections = COLLECTIONS[form.brand] ?? [];
   const collectionInThisBrand = brandCollections.some(
@@ -907,61 +851,14 @@ export function DetailsSection({
           </div>
         </Card>
 
-        {/* ── PUBLISH ── */}
-        <Card title="Publish" hint="Where this product is visible.">
-          <div className="space-y-4">
-            <ChannelToggle
-              value={channel}
-              onChange={(v) => update("storefront_channel", v)}
-            />
-            <StatusBanner channel={channel} />
-
-            {/* Availability — manual flag + live on-hand the storefronts read. */}
-            <div className="flex items-start justify-between gap-3 rounded-xl border border-gray-200 px-4 py-3">
-              <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={form.storefront_in_stock !== false}
-                  onChange={(e) =>
-                    update("storefront_in_stock", e.target.checked)
-                  }
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
-                />
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">
-                    In stock
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    Uncheck to mark out of stock — keeps the product visible but
-                    lets the storefronts disable purchasing.
-                  </p>
-                </div>
-              </label>
-              <div className="shrink-0 text-right">
-                <div className="text-base font-semibold text-gray-900 tabular-nums">
-                  {onHand.toLocaleString()}
-                </div>
-                <div className="text-[11px] uppercase tracking-wider text-gray-400">
-                  On hand
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* ── PRICING ── right under Product: what it is, then what it costs. */}
+        <Card title="Pricing & quantity">
+          <PricingRows form={form} update={update} channel={channel} />
         </Card>
 
-        {/* ── PRICING (side-by-side) ── */}
-        <Card
-          title="Pricing & quantity"
-          hint="D2C and wholesale run in parallel. The channel above controls which side is locked."
-        >
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <D2cColumn form={form} update={update} active={d2cActive} />
-            <WholesaleColumn
-              form={form}
-              update={update}
-              active={wholesaleActive}
-            />
-          </div>
+        {/* ── AVAILABILITY ── */}
+        <Card title="Availability">
+          <AvailabilityRow form={form} update={update} channel={channel} onHand={onHand} />
         </Card>
 
         {/* ── MARKETING COPY (merged with old Copy tab) ── */}
