@@ -494,8 +494,27 @@ export default function TemplateEditorPage() {
   }
 
   function closeEditor() {
-    // Save edits made in the last moments before leaving.
-    if (autosaveDirty) void saveRef.current({ auto: true });
+    if (retryTimerRef.current) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    // Save edits made in the last moments before leaving. The payload is
+    // captured now (state is about to reset) and queued behind any save
+    // still in flight, taking a new template's id from that save's result
+    // so it updates the row instead of inserting a second copy.
+    if ((autosaveDirty || saveAgainRef.current) && !htmlBlocked) {
+      const payload = buildPayload();
+      const prev = savingRef.current ? inflightRef.current : Promise.resolve(null);
+      void prev.then((r) => {
+        const id = payload.id ?? r?.id;
+        return save(id ? { ...payload, id } : payload);
+      });
+    }
+    saveAgainRef.current = false;
+    failCountRef.current = 0;
+    setSaveFailed(false);
+    sessionRef.current += 1;
+    editorOpenRef.current = false;
     autosaveBaseline.current = null;
     templateIdRef.current = null;
     setEditingId(null);
@@ -594,14 +613,39 @@ export default function TemplateEditorPage() {
   const saveRef = useRef<(opts?: { auto?: boolean }) => Promise<EmailTemplate | null>>(async () => null);
   const snapshotRef = useRef(autosaveSnapshot);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  // The in-flight save, so closing the editor can queue its final save
+  // behind it (and learn a brand-new template's id from it) instead of
+  // racing it into a duplicate insert.
+  const inflightRef = useRef<Promise<EmailTemplate | null>>(Promise.resolve(null));
+  // Failed saves retry on a backoff until one lands or the editor closes.
+  const retryTimerRef = useRef<number | null>(null);
+  const failCountRef = useRef(0);
+  const [saveFailed, setSaveFailed] = useState(false);
   const editorOpen = !!editingId || isNew;
+  const editorOpenRef = useRef(editorOpen);
+  // Bumped on every close, so a save that outlives its editor is ignored.
+  const sessionRef = useRef(0);
   const autosaveDirty =
     editorOpen && autosaveBaseline.current !== null && autosaveSnapshot !== autosaveBaseline.current;
+  // Uploaded HTML with a broken merge field is never autosaved (it would send
+  // the literal {{token}}); the status label says so instead of "Saving…".
+  const htmlBlocked = useMemo(
+    () => source === "html" && !validateTemplateBody(rawHtml, "html").ok,
+    [source, rawHtml],
+  );
 
   useEffect(() => {
     snapshotRef.current = autosaveSnapshot;
     saveRef.current = handleSave;
+    editorOpenRef.current = editorOpen;
   });
+
+  useEffect(
+    () => () => {
+      if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!editorOpen) return;
@@ -647,9 +691,58 @@ export default function TemplateEditorPage() {
       }
     }
     setValidationError(null);
+    if (retryTimerRef.current) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     savingRef.current = true;
     setSaving(true);
     const snapshot = snapshotRef.current;
+    const payload = buildPayload();
+
+    const session = sessionRef.current;
+    const pending = save(payload);
+    inflightRef.current = pending;
+    const result = await pending;
+    // The editor this save belongs to may have closed (or another template
+    // opened) while it ran — then its result must not touch the current one.
+    const live = session === sessionRef.current && editorOpenRef.current;
+    if (result && live) {
+      templateIdRef.current = result.id;
+      autosaveBaseline.current = snapshot;
+      setLastSavedAt(Date.now());
+      failCountRef.current = 0;
+      setSaveFailed(false);
+      if (isNew) {
+        setEditingId(result.id);
+        setIsNew(false);
+      }
+    } else if (!result && live) {
+      // Network blip / DB error: try again on a backoff (2s, 5s, 15s, then
+      // every 30s) — a new edit also retries immediately via the autosave.
+      const delays = [2000, 5000, 15000, 30000];
+      const delay = delays[Math.min(failCountRef.current, delays.length - 1)];
+      failCountRef.current += 1;
+      setSaveFailed(true);
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        if (session === sessionRef.current && editorOpenRef.current) void saveRef.current({ auto: true });
+      }, delay);
+    }
+    savingRef.current = false;
+    setSaving(false);
+    // Edits made while this save ran. closeEditor clears the flag, so if it's
+    // set now it belongs to whichever editor is open (possibly a newly opened
+    // one whose first save was held back by this stale one).
+    if (saveAgainRef.current && editorOpenRef.current) {
+      saveAgainRef.current = false;
+      window.setTimeout(() => void saveRef.current({ auto: true }), 0);
+    }
+    return result ?? null;
+  }
+
+  /** The row as the editor currently has it (id included once known). */
+  function buildPayload(): Partial<EmailTemplate> {
     const payload: Partial<EmailTemplate> = {
       name: name || "Untitled Template",
       subject,
@@ -669,24 +762,7 @@ export default function TemplateEditorPage() {
     };
     const id = templateIdRef.current ?? editingId;
     if (id) payload.id = id;
-
-    const result = await save(payload);
-    if (result) {
-      templateIdRef.current = result.id;
-      autosaveBaseline.current = snapshot;
-      setLastSavedAt(Date.now());
-      if (isNew) {
-        setEditingId(result.id);
-        setIsNew(false);
-      }
-    }
-    savingRef.current = false;
-    setSaving(false);
-    if (saveAgainRef.current) {
-      saveAgainRef.current = false;
-      window.setTimeout(() => void saveRef.current({ auto: true }), 0);
-    }
-    return result ?? null;
+    return payload;
   }
 
   /* ─── LIST VIEW ─── */
@@ -761,7 +837,6 @@ export default function TemplateEditorPage() {
                     <th className="px-4 py-2.5 font-semibold">Template</th>
                     <th className="px-3 py-2.5 font-semibold">Type</th>
                     <th className="px-3 py-2.5 font-semibold hidden md:table-cell">Audience</th>
-                    <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">Status</th>
                     <th className="px-3 py-2.5 font-semibold">Grade</th>
                     <th className="px-3 py-2.5 font-semibold text-right">Sends</th>
                     <th className="px-3 py-2.5 font-semibold hidden lg:table-cell">Updated</th>
@@ -819,18 +894,6 @@ export default function TemplateEditorPage() {
                               <span className="text-[11px] text-gray-300">—</span>
                             )}
                           </div>
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-3 py-3 hidden sm:table-cell">
-                          <span className={clsx(
-                            "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                            t.status === "draft" && "bg-gray-100 text-gray-500",
-                            t.status === "active" && "bg-emerald-100 text-emerald-700",
-                            t.status === "archived" && "bg-red-100 text-red-600",
-                          )}>
-                            {t.status}
-                          </span>
                         </td>
 
                         {/* Grade */}
@@ -1067,7 +1130,17 @@ export default function TemplateEditorPage() {
             </button>
           )}
           <span className="min-w-[6.5rem] text-right text-xs text-gray-400" aria-live="polite">
-            {saving || autosaveDirty ? "Saving…" : lastSavedAt ? "All changes saved" : ""}
+            {autosaveDirty && htmlBlocked ? (
+              <span className="text-amber-600">Waiting on merge fields</span>
+            ) : saveFailed && !saving ? (
+              <span className="text-red-600">Not saved — retrying</span>
+            ) : saving || autosaveDirty ? (
+              "Saving…"
+            ) : lastSavedAt ? (
+              "All changes saved"
+            ) : (
+              ""
+            )}
           </span>
         </div>
       </div>
