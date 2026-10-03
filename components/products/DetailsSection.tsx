@@ -35,8 +35,8 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 // ---------------------------------------------------------------------------
 const COLLECTIONS: Record<"NI" | "Sassy", { slug: string; label: string }[]> = {
   Sassy: [
-    { slug: "everyday", label: "Everyday" },
     { slug: "love", label: "Love" },
+    { slug: "everyday", label: "Everyday" },
     { slug: "holiday", label: "Holiday" },
   ],
   NI: [
@@ -271,6 +271,58 @@ function TextField({
         placeholder={placeholder}
         disabled={disabled}
       />
+      {hint ? <p className="text-[11px] text-gray-400">{hint}</p> : null}
+    </div>
+  );
+}
+
+/** Native select styled to match TextField (same label, height and hint). */
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+  disabled?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-gray-500">{label}</label>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          className={clsx(
+            "w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 pr-9 text-sm transition focus:outline-none focus:ring-2 focus:ring-gray-300",
+            disabled && "cursor-not-allowed bg-gray-50 text-gray-400",
+            !value && !disabled && "text-gray-400",
+          )}
+        >
+          {placeholder !== undefined ? <option value="">{placeholder}</option> : null}
+          {options.map((o) => (
+            <option key={o.value} value={o.value} className="text-gray-900">
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <svg
+          viewBox="0 0 20 20"
+          fill="none"
+          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+        >
+          <path d="M6 8l4 4 4-4" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+        </svg>
+      </div>
       {hint ? <p className="text-[11px] text-gray-400">{hint}</p> : null}
     </div>
   );
@@ -713,8 +765,6 @@ export function DetailsSection({
   if (!copy.ingredients_text.trim()) missingCopy.push("Ingredients");
   const copyComplete = missingCopy.length === 0;
 
-  const composed = composeDisplayName(form);
-  const displayNameGenerated = composed.length > 0;
   const notes = getNotes(form);
 
   /** Update a structured name part and recompose display_name with it. */
@@ -744,45 +794,89 @@ export function DetailsSection({
   return (
     <LayoutGroup>
       <div className="space-y-5">
-        {/* ── PRODUCT ── */}
+        {/* ── PRODUCT ── one 3-column grid so every input lines up:
+            Brand · Collection · Type / name parts + fragrance / SKU · Barcode · Size.
+            display_name is still recomposed from the name parts (the
+            storefronts parse it), it just isn't shown. */}
         <Card title="Product">
-          {/* Structured name parts — these compose the display name. */}
-          <div
-            className={clsx(
-              "grid grid-cols-1 gap-5",
-              form.brand === "Sassy"
-                ? "md:grid-cols-2"
-                : "md:grid-cols-[1fr_auto]"
-            )}
-          >
+          <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
+            <SelectField
+              label="Brand"
+              value={form.brand}
+              onChange={(v) => {
+                const b = v as "NI" | "Sassy";
+                update("brand", b);
+                if (
+                  form.collection &&
+                  !COLLECTIONS[b].some((c) => c.slug === form.collection)
+                ) {
+                  update("collection", null);
+                }
+                // Brand changes the display-name convention.
+                const next = composeDisplayName({ ...form, brand: b });
+                if (next) update("display_name", next);
+              }}
+              options={[
+                { value: "NI", label: "Natural Inspirations" },
+                { value: "Sassy", label: "Sassy" },
+              ]}
+              hint={BRAND_DESTINATION[form.brand]}
+            />
+            <SelectField
+              label="Collection"
+              value={form.collection ?? ""}
+              onChange={(v) => update("collection", v || null)}
+              placeholder="Select a collection"
+              options={[
+                ...brandCollections.map((c) => ({ value: c.slug, label: c.label })),
+                ...(form.collection && !collectionInThisBrand
+                  ? [{ value: form.collection, label: `${form.collection} (legacy)` }]
+                  : []),
+              ]}
+              disabled={!form.brand}
+              hint={form.brand === "Sassy" ? "Love, Everyday or Holiday" : "One per fragrance line"}
+            />
+            <SelectField
+              label="Product type"
+              value={form.product_type}
+              onChange={(v) => update("product_type", v as Product["product_type"])}
+              options={[
+                { value: "FG", label: "Finished good (FG)" },
+                { value: "BOM", label: "Component (BOM)" },
+              ]}
+            />
+
             {form.brand === "Sassy" ? (
               <TextField
                 label="Product name"
                 value={form.product_name}
                 onChange={(v) => applyNameParts({ product_name: v || null })}
                 placeholder="Bougie Babe"
-                hint="The personality. Pairs with the form to build the display name."
+                hint="The personality"
               />
             ) : null}
             <TextField
               label="Form / format"
               value={form.product_form}
               onChange={(v) => applyNameParts({ product_form: v || null })}
-              placeholder={
-                form.brand === "Sassy" ? "Mini Hand Crème" : "Hand + Body Lotion"
-              }
-              hint="The physical format shoppers see."
+              placeholder={form.brand === "Sassy" ? "Mini Hand Crème" : "Hand + Body Lotion"}
+              hint="The physical format shoppers see"
+            />
+            <TextField
+              label="Fragrance"
+              value={form.fragrance}
+              onChange={(v) => update("fragrance", v)}
+              placeholder={form.brand === "Sassy" ? "Eucalyptus Mint" : "Sea Salt"}
+              hint={form.brand === "Sassy" ? "The scent, not the product name" : "The NI site groups by this"}
             />
             {form.brand === "NI" ? (
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-500">
-                  Tester unit
-                </label>
+                <label className="text-xs font-medium text-gray-500">Tester unit</label>
                 <button
                   type="button"
                   onClick={() => applyNameParts({ is_tester: !form.is_tester })}
                   className={clsx(
-                    "flex h-[38px] items-center rounded-lg border px-4 text-sm font-medium transition",
+                    "flex h-[38px] w-full items-center justify-center rounded-lg border px-4 text-sm font-medium transition",
                     form.is_tester
                       ? "border-indigo-300 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
                       : "border-gray-200 bg-white text-gray-400 hover:border-gray-300"
@@ -792,138 +886,14 @@ export function DetailsSection({
                 </button>
               </div>
             ) : null}
-          </div>
 
-          {/* Display Name — composed from the parts above; the storefronts
-              parse this string, so hand-typing it is the legacy fallback. */}
-          <div className="mt-5 space-y-1.5">
-            <div className="flex items-baseline justify-between">
-              <label className="text-xs font-medium text-gray-500">
-                Display name
-              </label>
-              {displayNameGenerated ? (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
-                  auto-composed
-                </span>
-              ) : null}
-            </div>
-            <TextInput
-              value={form.display_name}
-              onChange={(v) => update("display_name", v)}
-              disabled={displayNameGenerated}
-              placeholder={
-                form.brand === "Sassy"
-                  ? "Bougie Babe – Mini Hand Crème"
-                  : "Hand + Body Lotion"
-              }
-              className="!py-3 !text-base font-medium"
-            />
-            <p className="text-[11px] text-gray-400">
-              {displayNameGenerated
-                ? form.brand === "Sassy"
-                  ? "Composed as “name – form”. The storefront splits on that dash — composing keeps it exact."
-                  : "Composed from the form (plus TESTER when flagged). The NI storefront adds the fragrance to titles."
-                : "Fill the fields above to compose this automatically. Manual entries must match the brand convention exactly."}
-            </p>
-          </div>
-
-          {/* Brand + Collection */}
-          <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">Brand</label>
-              <div className="flex gap-2">
-                {(["NI", "Sassy"] as const).map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => {
-                      update("brand", b);
-                      if (
-                        form.collection &&
-                        !COLLECTIONS[b].some((c) => c.slug === form.collection)
-                      ) {
-                        update("collection", null);
-                      }
-                      // Brand changes the display-name convention.
-                      const next = composeDisplayName({ ...form, brand: b });
-                      if (next) update("display_name", next);
-                    }}
-                    className={clsx(
-                      "flex-1 rounded-lg border px-4 py-2 text-sm font-medium transition",
-                      form.brand === b
-                        ? b === "NI"
-                          ? "bg-blue-50 text-blue-700 border-blue-300 ring-2 ring-blue-100"
-                          : "bg-pink-50 text-pink-700 border-pink-300 ring-2 ring-pink-100"
-                        : "bg-white text-gray-400 border-gray-200 hover:border-gray-300"
-                    )}
-                  >
-                    {b}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[11px] text-gray-400">
-                {BRAND_DESTINATION[form.brand]}
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">
-                Collection
-              </label>
-              <div className="relative">
-                <select
-                  value={form.collection ?? ""}
-                  onChange={(e) =>
-                    update("collection", e.target.value || null)
-                  }
-                  className="w-full appearance-none rounded-lg border border-gray-200 bg-white px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-                >
-                  <option value="">— Select a collection —</option>
-                  {brandCollections.map((c) => (
-                    <option key={c.slug} value={c.slug}>
-                      {c.label}
-                    </option>
-                  ))}
-                  {form.collection && !collectionInThisBrand ? (
-                    <option value={form.collection}>
-                      {form.collection} (legacy)
-                    </option>
-                  ) : null}
-                </select>
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-                >
-                  <path
-                    d="M6 8l4 4 4-4"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </div>
-              <p className="text-[11px] text-gray-400">
-                {form.brand === "Sassy"
-                  ? "Sassy: everyday, love, or holiday."
-                  : "NI: per fragrance line."}
-              </p>
-            </div>
-          </div>
-
-          {/* SKU + Barcode side-by-side */}
-          <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
             <TextField
               label="SKU / Part #"
               value={form.part}
               onChange={(v) => update("part", v)}
               disabled={!isNewProduct}
               placeholder="123-00-01"
-              hint={
-                isNewProduct
-                  ? "Locks once saved."
-                  : "Locked after a product has shipped."
-              }
+              hint={isNewProduct ? "Locks once saved" : "Locked after it has shipped"}
             />
             <TextField
               label="Barcode (UPC / EAN)"
@@ -931,51 +901,12 @@ export function DetailsSection({
               onChange={(v) => update("barcode", v)}
               placeholder="816141017384"
             />
-          </div>
-
-          {/* Product Type + Fragrance + Size */}
-          <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-500">
-                Product type
-              </label>
-              <div className="flex gap-2">
-                {(["FG", "BOM"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => update("product_type", t)}
-                    className={clsx(
-                      "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition",
-                      form.product_type === t
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "bg-white text-gray-400 border-gray-200 hover:border-gray-300"
-                    )}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <TextField
-              label="Fragrance"
-              value={form.fragrance}
-              onChange={(v) => update("fragrance", v)}
-              placeholder={
-                form.brand === "Sassy" ? "Eucalyptus Mint" : "Sea Salt"
-              }
-              hint={
-                form.brand === "Sassy"
-                  ? "The scent, not the product name."
-                  : "NI storefront matches collections on this value."
-              }
-            />
             <TextField
               label="Size"
               value={form.size}
               onChange={(v) => update("size", v)}
               placeholder="2oz"
-              hint="Leave blank if not applicable — placeholder text like “N/A” shows up on storefronts."
+              hint="Leave blank if not applicable"
             />
           </div>
         </Card>
