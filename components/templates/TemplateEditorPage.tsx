@@ -153,6 +153,16 @@ function SmsEditor({
 /** Pause after the last edit before an autosave runs. */
 const AUTOSAVE_DELAY = 1500;
 
+/** Inputs whose edits wait for blur: anything you type into. Checkboxes,
+ * color swatches, buttons etc. save on the normal idle timer. */
+const NON_TYPING_INPUTS = new Set(["checkbox", "radio", "button", "submit", "reset", "color", "range", "file"]);
+function isTypingTarget(el: Element | null): boolean {
+  if (!el) return false;
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) return !NON_TYPING_INPUTS.has(el.type);
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
 /* ─── Main Template Editor ─── */
 export default function TemplateEditorPage() {
   const { templates, loading, save, saveError, remove, duplicate, refresh } = useTemplates();
@@ -610,7 +620,7 @@ export default function TemplateEditorPage() {
   const templateIdRef = useRef<string | null>(null);
   const savingRef = useRef(false);
   const saveAgainRef = useRef(false);
-  const saveRef = useRef<(opts?: { auto?: boolean }) => Promise<EmailTemplate | null>>(async () => null);
+  const saveRef = useRef<(opts?: { auto?: boolean; blur?: boolean }) => Promise<EmailTemplate | null>>(async () => null);
   const snapshotRef = useRef(autosaveSnapshot);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   // The in-flight save, so closing the editor can queue its final save
@@ -662,6 +672,31 @@ export default function TemplateEditorPage() {
     return () => window.clearTimeout(t);
   }, [autosaveSnapshot, editorOpen]);
 
+  // Never save while someone is typing in a field: the idle timer above
+  // skips (see handleSave), and leaving the field saves instead.
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    if (!editorOpen) return;
+    const onFocusIn = (e: FocusEvent) => setTyping(isTypingTarget(e.target as Element));
+    const onFocusOut = (e: FocusEvent) => {
+      if (!isTypingTarget(e.target as Element)) return;
+      setTyping(false);
+      // Next tick, so the field's own blur handler (e.g. NumberInput's clamp)
+      // has updated state first. Saves even if focus moved to another field.
+      window.setTimeout(() => {
+        if (autosaveBaseline.current !== null && snapshotRef.current !== autosaveBaseline.current) {
+          void saveRef.current({ auto: true, blur: true });
+        }
+      }, 0);
+    };
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, [editorOpen]);
+
   // Closing the tab with unsaved edits asks first.
   useEffect(() => {
     if (!autosaveDirty && !saving) return;
@@ -671,7 +706,9 @@ export default function TemplateEditorPage() {
   }, [autosaveDirty, saving]);
 
   // Save: manual (button / send test / grade) or autosave ({ auto: true }).
-  async function handleSave(opts?: { auto?: boolean }): Promise<EmailTemplate | null> {
+  async function handleSave(opts?: { auto?: boolean; blur?: boolean }): Promise<EmailTemplate | null> {
+    // Autosave holds off while a text field has focus; leaving it (blur) saves.
+    if (opts?.auto && !opts.blur && isTypingTarget(document.activeElement)) return null;
     // One save at a time; changes made meanwhile are saved right after.
     if (savingRef.current) {
       saveAgainRef.current = true;
@@ -1134,6 +1171,8 @@ export default function TemplateEditorPage() {
               <span className="text-amber-600">Waiting on merge fields</span>
             ) : saveFailed && !saving ? (
               <span className="text-red-600">Not saved — retrying</span>
+            ) : autosaveDirty && typing && !saving ? (
+              "Saves when you leave the field"
             ) : saving || autosaveDirty ? (
               "Saving…"
             ) : lastSavedAt ? (
