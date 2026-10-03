@@ -91,6 +91,19 @@ const PALETTE_GROUPS: { title: string; hint: string; types: BlockType[]; withSec
   { title: "Spacing", hint: "Use anywhere", types: ["divider", "spacer"] },
 ];
 
+/** Every block type in the email, including blocks nested in sections. */
+function usedBlockTypes(blocks: EmailBlock[]): Set<BlockType> {
+  const out = new Set<BlockType>();
+  const walk = (list: EmailBlock[]) => {
+    for (const b of list) {
+      out.add(b.type);
+      if (b.type === "section") for (const c of b.columns ?? []) walk(c.blocks ?? []);
+    }
+  };
+  walk(blocks);
+  return out;
+}
+
 /* Mini glyph illustrating a section layout in the palette. */
 function PresetGlyph({ preset }: { preset: SectionPreset }) {
   const cols =
@@ -646,6 +659,8 @@ export default function TemplateEditorPage() {
   const failCountRef = useRef(0);
   const [saveFailed, setSaveFailed] = useState(false);
   const editorOpen = !!editingId || isNew;
+  // Block types already in the email, for the palette's dim / highlight nudges.
+  const usedTypes = useMemo(() => usedBlockTypes(blocks), [blocks]);
   const editorOpenRef = useRef(editorOpen);
   // Bumped on every close, so a save that outlives its editor is ignored.
   const sessionRef = useRef(0);
@@ -1243,6 +1258,8 @@ export default function TemplateEditorPage() {
               <div className="p-3">
                 {/* Blocks grouped by where they usually go in an email —
                     a nudge toward the typical top → pitch → close flow. */}
+                {/* Nudges: a Beginning block the email already has is dimmed
+                    (still usable), and Footer glows until the email has one. */}
                 {PALETTE_GROUPS.map((g, gi) => (
                   <div key={g.title} className={clsx(gi > 0 && "mt-4 border-t border-gray-100 pt-3")}>
                     <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{g.title}</div>
@@ -1253,6 +1270,8 @@ export default function TemplateEditorPage() {
                         // Promotion needs the picker, so it stays click-only. The rest
                         // can be dragged onto any spot in the canvas.
                         const draggable = b.type !== "promotion";
+                        const alreadyHas = g.title === "Beginning" && usedTypes.has(b.type);
+                        const needsFooter = b.type === "footer" && blocks.length > 0 && !usedTypes.has("footer");
                         return (
                           <button
                             key={b.type}
@@ -1263,8 +1282,22 @@ export default function TemplateEditorPage() {
                               e.dataTransfer.effectAllowed = "copy";
                             }}
                             onClick={() => addBlock(b.type)}
-                            title={draggable ? "Click to add, or drag onto the canvas" : undefined}
-                            className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition text-[10px] font-medium cursor-grab active:cursor-grabbing"
+                            title={
+                              alreadyHas
+                                ? `This email already has a ${b.label.toLowerCase()} — you can still add another`
+                                : needsFooter
+                                  ? "Every email needs a footer with an unsubscribe link"
+                                  : draggable
+                                    ? "Click to add, or drag onto the canvas"
+                                    : undefined
+                            }
+                            className={clsx(
+                              "flex flex-col items-center gap-1 px-2 py-2.5 rounded-lg border transition text-[10px] font-medium cursor-grab active:cursor-grabbing hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200",
+                              needsFooter
+                                ? "border-amber-300 bg-amber-50 text-amber-700 ring-2 ring-amber-200"
+                                : "border-gray-200 text-gray-500",
+                              alreadyHas && "opacity-40 hover:opacity-100",
+                            )}
                           >
                             <b.icon size={16} />
                             {b.label}
