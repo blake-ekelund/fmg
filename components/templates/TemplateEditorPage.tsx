@@ -5,7 +5,6 @@ import { supabase } from "@/lib/supabaseClient";
 import {
   Plus,
   Trash2,
-  Save,
   X,
   Mail,
   MessageSquare,
@@ -1068,17 +1067,8 @@ export default function TemplateEditorPage() {
             </button>
           )}
           <span className="min-w-[6.5rem] text-right text-xs text-gray-400" aria-live="polite">
-            {saving ? "Saving…" : autosaveDirty ? "Unsaved changes" : lastSavedAt ? "All changes saved" : ""}
+            {saving || autosaveDirty ? "Saving…" : lastSavedAt ? "All changes saved" : ""}
           </span>
-          <button
-            onClick={() => void handleSave()}
-            disabled={saving}
-            title="Changes save automatically; this saves right now"
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition shadow-sm disabled:opacity-50"
-          >
-            <Save size={12} />
-            Save
-          </button>
         </div>
       </div>
 
