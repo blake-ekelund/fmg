@@ -44,12 +44,15 @@ function brandSwatches(brand: Brand): Swatch[] {
 }
 
 /* ─── Generic input helpers ─── */
+/** A labelled row. Deliberately a <div>, not a <label>: a block-level label
+ * makes the whole row (caption + empty space beside a narrow input) a click
+ * target that focuses the input, so near-misses would select fields. */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block">
+    <div>
       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{label}</span>
       <div className="mt-1">{children}</div>
-    </label>
+    </div>
   );
 }
 
@@ -120,9 +123,8 @@ function toHex6(v: string): string {
 /**
  * Compact color field: one chip showing the current color (and its preset
  * name, if it is one). Clicking opens a popover with the brand presets and a
- * custom picker + hex field. The popover is portalled to <body> because every
- * ColorInput sits inside a <label> (Field) — clicks on the popover's blank
- * space would otherwise re-activate the trigger button and close it.
+ * custom picker + hex field. The popover is portalled to <body> so it can
+ * escape the inspector panel's overflow clipping.
  */
 function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const swatches = useContext(SwatchContext);
@@ -624,10 +626,10 @@ export default function BlockEditor({
           <Field label="Subheading"><TextInput value={block.subheading} onChange={(v) => set("subheading" as any, v)} /></Field>
           <Field label="Button Text"><TextInput value={block.buttonText} onChange={(v) => set("buttonText" as any, v)} /></Field>
           <Field label="Button URL"><TextInput value={block.buttonUrl} onChange={(v) => set("buttonUrl" as any, v)} /></Field>
-          <div className="flex items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-2">
             <input type="checkbox" checked={block.overlay} onChange={(e) => set("overlay" as any, e.target.checked)} className="rounded" />
             <span className="text-xs text-gray-600">Dark overlay</span>
-          </div>
+          </label>
           <Field label="Text Color"><ColorInput value={block.textColor} onChange={(v) => set("textColor" as any, v)} /></Field>
         </>
       )}
@@ -751,7 +753,7 @@ export default function BlockEditor({
               { label: "Bottom", value: "bottom" },
             ]} />
           </Field>
-          <label className="flex items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-2">
             <input type="checkbox" checked={block.stackOnMobile} onChange={(e) => set("stackOnMobile" as any, e.target.checked)} className="rounded" />
             <span className="text-xs text-gray-600">Stack columns on mobile</span>
           </label>
