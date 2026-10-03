@@ -196,13 +196,16 @@ function formatMoney(n: number | null | undefined): string {
 
 function MoneyField({
   label,
+  ariaLabel,
   value,
   onChange,
   placeholder,
   disabled,
   hint,
 }: {
-  label: string;
+  label?: string;
+  /** Accessible name when the visible label lives elsewhere (table header). */
+  ariaLabel?: string;
   value: number | null | undefined;
   onChange: (v: number | null) => void;
   placeholder?: string;
@@ -236,9 +239,10 @@ function MoneyField({
 
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-gray-500">{label}</label>
+      {label ? <label className="text-xs font-medium text-gray-500">{label}</label> : null}
       <input
         type="text"
+        aria-label={label ?? ariaLabel}
         inputMode="decimal"
         value={text}
         placeholder={placeholder ?? "$0.00"}
@@ -273,13 +277,16 @@ function formatInt(n: number | null | undefined): string {
 
 function IntField({
   label,
+  ariaLabel,
   value,
   onChange,
   suffix,
   placeholder,
   disabled,
 }: {
-  label: string;
+  label?: string;
+  /** Accessible name when the visible label lives elsewhere (table header). */
+  ariaLabel?: string;
   value: number | null | undefined;
   onChange: (v: number | null) => void;
   suffix?: string;
@@ -312,10 +319,11 @@ function IntField({
 
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-gray-500">{label}</label>
+      {label ? <label className="text-xs font-medium text-gray-500">{label}</label> : null}
       <div className="relative">
         <input
           type="text"
+          aria-label={label ?? ariaLabel}
           inputMode="numeric"
           value={text}
           placeholder={placeholder ?? "0"}
@@ -453,59 +461,32 @@ function Card({
 }
 
 // ---------------------------------------------------------------------------
-// Pricing — two aligned rows (Retail / Wholesale) on the Product card's
-// 3-column grid. Never locked: a channel that isn't selling gets a quiet tag,
-// so prices can be prepped before publishing.
+// Pricing — a 2-row table: Retail (D2C) and Wholesale across Price,
+// Compare-at, Case pack, Min. order and a computed Summary. Cells a channel
+// doesn't use show "—". Never locked by channel: a side that isn't selling
+// just gets a quiet "Not selling" tag, so prices can be prepped ahead.
 // ---------------------------------------------------------------------------
-function RowHeading({
-  title,
-  selling,
-  notSellingLabel,
-}: {
-  title: string;
-  selling: boolean;
-  notSellingLabel: string;
-}) {
+function NotApplicable({ title }: { title: string }) {
   return (
-    <div className="mb-2 flex items-center gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-700">{title}</h3>
-      {selling ? null : (
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
-          {notSellingLabel}
-        </span>
-      )}
-    </div>
+    <span className="block px-3 text-sm text-gray-300" title={title}>
+      —
+    </span>
   );
 }
 
-/** Read-only value styled like an input, so computed numbers sit in the grid. */
-function ReadoutField({
-  label,
-  value,
-  tone = "muted",
-}: {
-  label: string;
-  value: string;
-  tone?: "muted" | "good" | "warn";
-}) {
+function ChannelCell({ title, sub, selling }: { title: string; sub: string; selling: boolean }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-medium text-gray-500">{label}</label>
-      <div
-        className={clsx(
-          "flex h-[38px] items-center rounded-lg border border-dashed px-3 text-sm tabular-nums",
-          tone === "good" && "border-green-200 bg-green-50/60 text-green-700",
-          tone === "warn" && "border-amber-200 bg-amber-50/60 text-amber-700",
-          tone === "muted" && "border-gray-200 bg-gray-50/60 text-gray-400",
-        )}
-      >
-        {value}
+    <div>
+      <div className="text-sm font-medium text-gray-900">{title}</div>
+      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-gray-400">
+        <span className={clsx("h-1.5 w-1.5 rounded-full", selling ? "bg-green-500" : "bg-gray-300")} />
+        {selling ? sub : "Not selling"}
       </div>
     </div>
   );
 }
 
-function PricingRows({
+function PricingTable({
   form,
   update,
   channel,
@@ -529,74 +510,123 @@ function PricingRows({
   const caseTotal = unit != null && pack != null ? unit * pack : null;
   // What a retailer keeps between wholesale cost and MSRP (50% = keystone).
   const margin = unit != null && msrp != null && msrp > 0 ? (msrp - unit) / msrp : null;
+  const lowMargin = margin != null && margin < 0.4;
+
+  const th = "px-3 pb-2 text-left text-[11px] font-medium uppercase tracking-wider text-gray-400";
+  const td = "px-3 py-3 align-middle";
 
   return (
-    <div className="space-y-5">
-      <div>
-        <RowHeading title="Retail (D2C)" selling={sellsD2c || channel === "off"} notSellingLabel="Not selling D2C" />
-        <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
-          <MoneyField label="Price (MSRP)" value={form.msrp} onChange={(v) => update("msrp", v)} />
-          <MoneyField
-            label="Compare-at price"
-            value={form.compare_at_price}
-            onChange={(v) => update("compare_at_price", v)}
-            placeholder="Optional"
-          />
-          <ReadoutField
-            label="Shoppers see"
-            value={discountPct != null ? `−${discountPct}% off` : "Full price"}
-            tone={discountPct != null ? "good" : "muted"}
-          />
-        </div>
-      </div>
-
-      <div className="border-t border-gray-100 pt-5">
-        <RowHeading
-          title="Wholesale"
-          selling={sellsWholesale || channel === "off"}
-          notSellingLabel="Not selling wholesale"
-        />
-        <div className="grid grid-cols-1 items-start gap-x-5 gap-y-4 md:grid-cols-3">
-          <MoneyField
-            label="Unit price"
-            value={form.wholesale_price}
-            onChange={(v) => update("wholesale_price", v)}
-          />
-          <IntField
-            label="Case pack"
-            value={form.case_pack}
-            onChange={(v) => update("case_pack", v)}
-            suffix="units"
-            placeholder="12"
-          />
-          <IntField
-            label="Minimum order"
-            value={form.moq}
-            onChange={(v) => update("moq", v)}
-            suffix="cases"
-            placeholder="1"
-          />
-        </div>
-        {caseTotal != null || margin != null ? (
-          <p className="mt-3 flex flex-wrap gap-x-3 text-xs tabular-nums text-gray-500">
-            {caseTotal != null ? (
-              <span>
-                <span className="font-semibold text-gray-900">{formatMoney(caseTotal)}</span> per case
-              </span>
-            ) : null}
-            {caseTotal != null && margin != null ? <span className="text-gray-300">·</span> : null}
-            {margin != null ? (
-              <span className={margin < 0.4 ? "text-amber-700" : undefined}>
-                Retailer margin{" "}
-                <span className={clsx("font-semibold", margin < 0.4 ? "text-amber-700" : "text-gray-900")}>
-                  {Math.round(margin * 100)}%
+    <div className="-mx-5 overflow-x-auto">
+      <table className="w-full min-w-[720px] table-fixed border-collapse">
+        <colgroup>
+          <col className="w-[18%]" />
+          <col className="w-[16%]" />
+          <col className="w-[16%]" />
+          <col className="w-[16%]" />
+          <col className="w-[16%]" />
+          <col className="w-[18%]" />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-gray-100">
+            <th className={clsx(th, "pl-5")}>Channel</th>
+            <th className={th}>Price</th>
+            <th className={th}>Compare-at</th>
+            <th className={th}>Case pack</th>
+            <th className={th}>Min. order</th>
+            <th className={clsx(th, "pr-5")}>Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-b border-gray-100">
+            <td className={clsx(td, "pl-5")}>
+              <ChannelCell title="Retail (D2C)" sub="Selling to shoppers" selling={sellsD2c} />
+            </td>
+            <td className={td}>
+              <MoneyField ariaLabel="Retail price (MSRP)" value={form.msrp} onChange={(v) => update("msrp", v)} />
+            </td>
+            <td className={td}>
+              <MoneyField
+                ariaLabel="Compare-at price"
+                value={form.compare_at_price}
+                onChange={(v) => update("compare_at_price", v)}
+                placeholder="Optional"
+              />
+            </td>
+            <td className={td}>
+              <NotApplicable title="Retail sells single units" />
+            </td>
+            <td className={td}>
+              <NotApplicable title="No minimum for shoppers" />
+            </td>
+            <td className={clsx(td, "pr-5 text-sm tabular-nums")}>
+              {discountPct != null ? (
+                <span className="inline-flex rounded-md bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700">
+                  −{discountPct}% off
                 </span>
-                {margin < 0.4 ? " — below the usual 50%" : null}
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-      </div>
+              ) : msrp != null ? (
+                <span className="text-xs text-gray-400">Full price</span>
+              ) : (
+                <span className="text-xs text-gray-300">—</span>
+              )}
+            </td>
+          </tr>
+          <tr>
+            <td className={clsx(td, "pl-5")}>
+              <ChannelCell title="Wholesale" sub="Selling to stockists" selling={sellsWholesale} />
+            </td>
+            <td className={td}>
+              <MoneyField
+                ariaLabel="Wholesale unit price"
+                value={form.wholesale_price}
+                onChange={(v) => update("wholesale_price", v)}
+              />
+            </td>
+            <td className={td}>
+              <NotApplicable title="No compare-at price for wholesale" />
+            </td>
+            <td className={td}>
+              <IntField
+                ariaLabel="Case pack (units per case)"
+                value={form.case_pack}
+                onChange={(v) => update("case_pack", v)}
+                suffix="units"
+                placeholder="12"
+              />
+            </td>
+            <td className={td}>
+              <IntField
+                ariaLabel="Minimum order (cases)"
+                value={form.moq}
+                onChange={(v) => update("moq", v)}
+                suffix="cases"
+                placeholder="1"
+              />
+            </td>
+            <td className={clsx(td, "pr-5 text-xs tabular-nums")}>
+              {caseTotal == null && margin == null ? (
+                <span className="text-gray-300">—</span>
+              ) : (
+                <div className="space-y-0.5">
+                  {caseTotal != null ? (
+                    <div className="text-gray-500">
+                      <span className="font-semibold text-gray-900">{formatMoney(caseTotal)}</span> / case
+                    </div>
+                  ) : null}
+                  {margin != null ? (
+                    <div
+                      className={lowMargin ? "text-amber-700" : "text-gray-500"}
+                      title={lowMargin ? "Below the usual 50% retailer margin" : "Retailer margin vs. MSRP"}
+                    >
+                      <span className="font-semibold">{Math.round(margin * 100)}%</span> margin
+                      {lowMargin ? " · low" : null}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -993,7 +1023,7 @@ export function DetailsSection({
 
         {/* ── PRICING ── right under Product: what it is, then what it costs. */}
         <Card title="Pricing & quantity">
-          <PricingRows form={form} update={update} channel={channel} />
+          <PricingTable form={form} update={update} channel={channel} />
         </Card>
 
         {/* ── MARKETING COPY (merged with old Copy tab) ── */}
