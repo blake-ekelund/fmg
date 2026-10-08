@@ -49,6 +49,7 @@ work happens after the handler's own gating.
 | `renew-email-subscriptions` | `0 */6 * * *` | every 6 h | Keeps email-account tokens/subscriptions fresh. |
 | `markettime-order-sync` | *(not in `vercel.json`)* | **manual** | Import MarketTime open orders. Live + working; deliberately **not scheduled** — pulled by the Orders-page cron path / on demand. |
 | `fishbowl-reconcile-marketplace` | `27 13,22 * * *` | 2×/day | Stamp Faire/MarketTime orders already hand-keyed into Fishbowl (match bare ref in SO `customerPO`) so Status stops showing "Needs Fishbowl". |
+| `social-publish` | `*/5 * * * *` | every 5 min | Publish due `social_posts` to Facebook / Instagram via the Meta Graph API; resume reels Instagram is still processing. No-op until `META_ACCESS_TOKEN` is set. |
 | `charge-wholesale-due` | `40 15 * * *` | daily | Wholesale card-on-file: off-session-charge the saved card 30 days after ship. **Dark** until `WHOLESALE_CHARGE_ENABLED='on'`; `?dry=1` previews. |
 
 ---
@@ -240,6 +241,56 @@ secret. Requires the Slack app to be installed in the workspace.
 
 ---
 
+## Meta — Facebook Page + Instagram publishing
+
+**What it is.** Marketing → Social Media Posts (`/marketing/social`). Write a
+post once (single image, carousel of 2–10, or a reel), pick the brand and
+Instagram and/or Facebook, then **Publish now** or **Schedule**. The
+`social-publish` cron sends scheduled posts within 5 minutes of their time.
+
+**Files.** `lib/social/meta.ts` (Graph client), `lib/social/publish.ts`
+(claim + publish + Instagram image prep), `lib/social/types.ts` (limits +
+validation, client-safe), `app/api/social/*`, `app/api/cron/social-publish`.
+Table `social_posts` + public storage bucket `social-media` (migration
+`20261008000000_social_posts.sql`).
+
+**How a post goes out.** The row is claimed atomically (`status='publishing'`,
+`claimed_at`), each platform is published and its result written to
+`results` right away, so a retry never reposts a platform already marked
+`published`. Instagram only takes JPEGs between 4:5 and 1.91:1, so images
+are re-encoded and **padded with white (never cropped)** into
+`social-media/renders/…`; Facebook gets the original. Reels can take
+minutes to process: the container id is saved and the next tick finishes it.
+Rate-limit / transient Graph errors retry on later ticks (up to 6 attempts).
+End states: `published`, `partial` (one platform failed — "Retry failed"
+re-attempts only that one), `failed`.
+
+**Auth.** One long-lived **System User token** from Meta Business Manager.
+Setup, once:
+1. Each brand's Instagram must be a **Business** (or Creator) account,
+   **linked to the brand's Facebook Page** (IG app → Settings → Account type;
+   then Page settings → Linked accounts).
+2. business.facebook.com → Settings → **Apps** → create (or add) an app of type
+   *Business*; add the **Facebook Login for Business** and **Instagram Graph API**
+   products. Our own Pages only, so no App Review is needed.
+3. Settings → **System users** → add an Admin system user → **Assign assets**:
+   both Pages (full control) and both Instagram accounts.
+4. **Generate token** for that system user on the app, expiry *Never*, with
+   `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`,
+   `instagram_basic`, `instagram_content_publish` (`business_management` too
+   if offered).
+5. Vercel env: `META_ACCESS_TOKEN`, then reload `/marketing/social` — while a
+   Page id is missing, the page lists every Page the token can see with its
+   id. Set `META_PAGE_ID_SASSY` and `META_PAGE_ID_NI`, redeploy.
+
+The Instagram account is discovered from the Page; `META_IG_USER_ID_<BRAND>`
+pins it if ever needed. `META_GRAPH_VERSION` defaults to `v23.0`. Limits:
+~100 API posts / 24 h per IG account (shown on the page), 2,200-char
+captions, 30 hashtags. Deleting a post in the portal does **not** delete it
+from Facebook / Instagram.
+
+---
+
 ## Carrier tracking — USPS / FedEx / UPS
 
 **What it is.** Free carrier tracking APIs used to detect delivery (the last leg
@@ -285,6 +336,7 @@ the repo.
 | **Resend** | `RESEND_API_KEY`, `RESEND_FROM_DOMAIN`, `RESEND_FROM_LOCAL`, `RESEND_REPLY_TO` |
 | **Outlook / Graph** | `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `EMAIL_TOKEN_ENC_KEY` |
 | **Slack** | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` |
+| **Meta (FB/IG)** | `META_ACCESS_TOKEN`, `META_PAGE_ID_SASSY`, `META_PAGE_ID_NI`, optional `META_IG_USER_ID_SASSY` / `META_IG_USER_ID_NI`, `META_GRAPH_VERSION` |
 | **Carriers** | per-carrier keys — see `lib/carrierTracking.ts` |
 | **Cross-cutting** | `CRON_SECRET` (auth for every cron), `STOREFRONT_NOTIFY_SECRET` (portal→storefront shipped/delivered pings), `NEXT_PUBLIC_APP_URL`, `FISHBOWL_ESTIMATE_CUSTOMER` (pilot switch that parks pushed estimates on a test customer) |
 
