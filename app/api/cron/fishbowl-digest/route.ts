@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { wholesalePortalAdmin } from "@/lib/wholesalePortal";
-import { supabaseServer } from "@/lib/supabaseServer";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import { resolveSystemSenderUserId } from "@/lib/email/systemSender";
 import { getAuthUser } from "@/lib/email/server-auth";
@@ -32,10 +31,6 @@ const DIGEST_TO: { address: string; name?: string }[] = [
 ];
 const DIGEST_TZ = "America/New_York";
 const SEND_HOURS = new Set([6, 15]); // 6 AM and 3 PM Eastern
-
-// Owner for the auto-created "Enter <SO> into Fishbowl" tasks
-// (tasks.owner = profiles.first_name). Change to reassign.
-const TASK_OWNER = "Blake";
 
 /** Current hour (0–23) in a named timezone, DST-aware. */
 function hourInTz(tz: string): number {
@@ -154,7 +149,7 @@ export async function GET(request: Request) {
   // "Requires Fishbowl entry" = not yet entered (queried above), not
   // cancelled, and a real order: wholesale, or D2C that was actually paid. An
   // unpaid D2C row is an abandoned checkout — the estimate sweep never pushes
-  // those, so they must not become tasks either. Filtering in JS keeps
+  // those, so they don't belong in the digest either. Filtering in JS keeps
   // null-status rows, which a PostgREST `neq` filter would wrongly drop.
   const orders = ((data ?? []) as StorefrontOrder[]).filter(
     (o) =>
@@ -168,12 +163,6 @@ export async function GET(request: Request) {
     timeStyle: "short",
   }).format(new Date());
 
-  // Keep the task list in lockstep at the same times the email goes out: one
-  // "Enter <SO> into Fishbowl" task per order needing entry, removed once an
-  // order is entered/cancelled. (Marking an order in Fishbowl also clears its
-  // task instantly — see app/api/storefront-orders/[id]/route.ts.)
-  const taskSync = await syncFishbowlTasks(orders, dry);
-
   if (dry) {
     return NextResponse.json({
       dry: true,
@@ -181,15 +170,13 @@ export async function GET(request: Request) {
       tz: DIGEST_TZ,
       to: DIGEST_TO,
       count: orders.length,
-      taskSync,
       orders: orders.map((o) => ({ ref: orderRef(o), id: o.id, total: o.total })),
     });
   }
 
   // Nothing to enter → don't send, so an empty inbox isn't pinged twice a day.
-  // (Task sync already ran above, so resolved tasks still get cleaned up.)
   if (orders.length === 0) {
-    return NextResponse.json({ sent: false, reason: "nothing needs Fishbowl entry", taskSync });
+    return NextResponse.json({ sent: false, reason: "nothing needs Fishbowl entry" });
   }
 
   // Sender: the mailbox designated in Settings → Email connection, falling back
@@ -214,66 +201,9 @@ export async function GET(request: Request) {
       bodyHtml: buildHtml(orders, origin, label),
       to: DIGEST_TO,
     });
-    return NextResponse.json({ sent: true, count: orders.length, to: DIGEST_TO, taskSync });
+    return NextResponse.json({ sent: true, count: orders.length, to: DIGEST_TO });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
-}
-
-/**
- * Reconcile the FMG task list against the orders that still need Fishbowl
- * entry: create one "Enter <SO> into Fishbowl" task per order that lacks an
- * open one, and delete auto-tasks whose order is no longer in the list
- * (entered or cancelled). Scoped to tasks carrying `fishbowl_order_id`, so
- * human-created tasks are never touched. Fails soft if the FMG migration
- * isn't in yet, so the email still sends.
- */
-async function syncFishbowlTasks(
-  orders: StorefrontOrder[],
-  dry: boolean,
-): Promise<{ created: number; removed: number }> {
-  const needById = new Map(orders.map((o) => [o.id, o]));
-
-  const { data, error } = await supabaseServer
-    .from("tasks")
-    .select("id, fishbowl_order_id")
-    .not("fishbowl_order_id", "is", null)
-    .neq("status", "done");
-  if (error) return { created: 0, removed: 0 };
-
-  const openTasks = (data ?? []) as { id: string; fishbowl_order_id: string }[];
-  const haveTaskFor = new Set(openTasks.map((t) => t.fishbowl_order_id));
-
-  const toCreate = orders.filter((o) => !haveTaskFor.has(o.id));
-  const toRemove = openTasks.filter((t) => !needById.has(t.fishbowl_order_id));
-
-  if (dry) return { created: toCreate.length, removed: toRemove.length };
-
-  let created = 0;
-  let removed = 0;
-  if (toCreate.length > 0) {
-    const rows = toCreate.map((o) => ({
-      name: `Enter ${orderRef(o)} into Fishbowl`,
-      description: "Storefront sales order awaiting entry into Fishbowl.",
-      owner: TASK_OWNER,
-      priority: "High",
-      status: "todo" as const,
-      completed: false,
-      fishbowl_order_id: o.id,
-    }));
-    const { error: insErr } = await supabaseServer.from("tasks").insert(rows);
-    if (!insErr) created = rows.length;
-  }
-  if (toRemove.length > 0) {
-    const { error: delErr } = await supabaseServer
-      .from("tasks")
-      .delete()
-      .in(
-        "id",
-        toRemove.map((t) => t.id),
-      );
-    if (!delErr) removed = toRemove.length;
-  }
-  return { created, removed };
 }

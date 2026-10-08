@@ -1,5 +1,4 @@
 import { type SupabaseClient } from "@supabase/supabase-js";
-import { supabaseServer } from "@/lib/supabaseServer";
 import { createEstimate } from "@/lib/fishbowl";
 import { estimateRowsForOrder } from "@/lib/fishbowlEstimate";
 import {
@@ -76,7 +75,7 @@ export function clearStockCache(): void {
  * pushed (cancelled, already entered, no line items, no Point B stock,
  * Fishbowl error). On success the order is stamped like the manual "Mark in
  * Fishbowl" action (fishbowl_entered_at/by) plus fishbowl_estimate_num/_at
- * when those columns exist, and its "Enter into Fishbowl" task is cleared.
+ * when those columns exist.
  */
 export async function pushOrderEstimate(
   admin: SupabaseClient,
@@ -185,9 +184,6 @@ export async function pushOrderEstimate(
       `Estimate ${soNum} was created in Fishbowl, but stamping the order failed: ${updateError.message}`,
     );
   }
-
-  // Clear the "Enter into Fishbowl" task immediately (same as the manual path).
-  await supabaseServer.from("tasks").delete().eq("fishbowl_order_id", order.id);
 
   return { soNum, soId, created, qbClass, stock };
 }
