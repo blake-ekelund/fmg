@@ -140,7 +140,7 @@ export async function GET(request: Request) {
   const { data, error } = await admin
     .from("orders")
     .select(
-      "id, number, store, channel, business_name, contact_name, email, total, created_at, fishbowl_entered_at, status",
+      "id, number, store, channel, business_name, contact_name, email, total, created_at, fishbowl_entered_at, status, payment_status",
     )
     .is("fishbowl_entered_at", null)
     .order("created_at", { ascending: true });
@@ -151,11 +151,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // "Requires Fishbowl entry" = not yet entered (queried above) and not
-  // cancelled. Filtering cancelled in JS keeps null-status rows, which a
-  // PostgREST `neq` filter would wrongly drop.
+  // "Requires Fishbowl entry" = not yet entered (queried above), not
+  // cancelled, and a real order: wholesale, or D2C that was actually paid. An
+  // unpaid D2C row is an abandoned checkout — the estimate sweep never pushes
+  // those, so they must not become tasks either. Filtering in JS keeps
+  // null-status rows, which a PostgREST `neq` filter would wrongly drop.
   const orders = ((data ?? []) as StorefrontOrder[]).filter(
-    (o) => o.status !== "cancelled",
+    (o) =>
+      o.status !== "cancelled" &&
+      (o.channel === "wholesale" || o.payment_status === "paid"),
   );
 
   const label = new Intl.DateTimeFormat("en-US", {
