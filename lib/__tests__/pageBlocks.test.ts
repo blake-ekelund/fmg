@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { safeHref, safeImage, sanitizeRichHtml, type PageBlock } from "../site/pageBlocks";
 import { SITE_PAGES, defaultBlocks, normalizePage } from "../site/pageDefaults";
 import { NI_SITE_PAGES, niDefaultBlocks, normalizeNiPage } from "../site/pageDefaultsNi";
-import { embedSrc, newBlockFor, parseInline, resolveWidgetRefs } from "../site/pageBlocks";
+import { THEME_TOKENS, blockStyle, embedSrc, newBlockFor, parseInline, resolveWidgetRefs, themeCss } from "../site/pageBlocks";
 
 describe("normalizePage", () => {
   it.each(SITE_PAGES.map((p) => p.slug))("keeps the %s default unchanged", (slug) => {
@@ -166,5 +166,48 @@ describe("palette starters", () => {
       for (const page of pages) for (const t of page.addable) expect(newBlockFor(t, "x", pages).type).toBe(t);
     }
     expect(newBlockFor("embed", "x", SITE_PAGES).type).toBe("embed");
+  });
+});
+
+describe("colors", () => {
+  it("keeps valid block colors, drops junk, and adds nothing to blocks without them", () => {
+    const [, row] = normalizePage("home", [
+      { type: "hero", slides: [] },
+      { id: "r", type: "promo_banner", text: "x", colors: { pink: "#00FF00", section: "#123456", bad: "red", "x-y": "#000000" } },
+    ])!;
+    expect(row.colors).toEqual({ pink: "#00FF00", section: "#123456" });
+    const [, plain] = normalizePage("home", [{ type: "hero", slides: [] }, { id: "p", type: "promo_banner", text: "x", colors: { a: "nope" } }])!;
+    expect("colors" in plain).toBe(false);
+  });
+
+  it("site theme becomes :root variables, skipping unchanged colors", () => {
+    expect(themeCss("Sassy", {})).toBe("");
+    expect(themeCss("Sassy", { pink: "#ff3e86" })).toBe("");
+    expect(themeCss("NI", { gold: "#112233", nope: "#000000" })).toBe(":root{--gold:#112233}");
+    expect(themeCss("Sassy", { pink: "#000000" })).toBe(":root{--pink-pop:#000000;--ink:#000000;--foreground:#000000}");
+  });
+
+  it("block style sets its variables and band, even when equal to the default", () => {
+    expect(blockStyle("NI", undefined)).toBeUndefined();
+    expect(blockStyle("NI", { eucalyptus: "#44705F", section: "#FFFFFF" })).toEqual({
+      "--eucalyptus": "#44705F",
+      backgroundColor: "#FFFFFF",
+    });
+  });
+
+  it("theme page keeps its palette; widget links keep their own colors", () => {
+    const [t] = normalizePage("theme", [{ id: "theme", type: "theme", palette: { pink: "#000000", x: 1 } }])!;
+    expect(t).toEqual({ id: "theme", type: "theme", palette: { pink: "#000000" } });
+    const page = SITE_PAGES.find((p) => p.slug === "story")!;
+    const out = resolveWidgetRefs(
+      [{ id: "w", type: "widget", widgetId: "a", colors: { blush: "#000000" } }] as PageBlock[],
+      page,
+      () => ({ type: "quote", text: "Hi", colors: { blush: "#FFFFFF" } }),
+    );
+    expect(out[0].colors).toEqual({ blush: "#000000" });
+  });
+
+  it("every theme token default matches between brands' lists and is valid", () => {
+    for (const list of Object.values(THEME_TOKENS)) for (const t of list) expect(t.value).toMatch(/^#[0-9A-F]{6}$/);
   });
 });

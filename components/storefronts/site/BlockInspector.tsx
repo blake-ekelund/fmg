@@ -23,6 +23,7 @@ import {
 } from "@/lib/site/pageBlocks";
 import RichTextEditor from "@/components/marketing/blog/RichTextEditor";
 import { EMBED_LABEL } from "./blockMeta";
+import { PaletteForm } from "./ColorsPanel";
 import {
   ColorInput,
   Field,
@@ -54,6 +55,8 @@ function uid(prefix: string) {
 /**
  * The form for one block. Every field is content — the look of each block is
  * fixed by the storefront, so there are no font/size/spacing controls here.
+ * Colors are the exception: SiteEditorPage adds a Colors section under this
+ * form (ColorsPanel.tsx), and the Colors page edits the site palette.
  */
 export default function BlockInspector({
   block,
@@ -1028,6 +1031,8 @@ export default function BlockInspector({
     case "collections_copy":
       return <CollectionsCopyForm block={block} onChange={onChange} />;
 
+    case "theme":
+      return <PaletteForm brand={brand} palette={block.palette} onChange={(palette) => onChange({ ...block, palette })} />;
     case "embed": {
       const src = embedSrc(block);
       const hint: Record<EmbedKind, string> = {

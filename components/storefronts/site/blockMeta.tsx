@@ -18,6 +18,7 @@ import {
   MessageSquareQuote,
   MousePointerClick,
   Package,
+  Palette,
   PanelTop,
   Rows3,
   Sparkles,
@@ -81,6 +82,7 @@ export const BLOCK_ICON: Record<PageBlockType, LucideIcon> = {
   collections_copy: Leaf,
   widget: Puzzle,
   embed: MonitorPlay,
+  theme: Palette,
 };
 
 /** One-line summary under each block in the list. */
@@ -165,6 +167,8 @@ export function summary(b: PageBlock): string {
       return `${b.items.length} collections`;
     case "widget":
       return "Saved widget";
+    case "theme":
+      return `${Object.keys(b.palette).length || "No"} color${Object.keys(b.palette).length === 1 ? "" : "s"} changed`;
     case "embed":
       return `${EMBED_LABEL[b.kind]}${b.heading ? ` · ${b.heading}` : ""}`;
   }

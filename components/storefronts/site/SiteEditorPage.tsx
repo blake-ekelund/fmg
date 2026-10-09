@@ -33,6 +33,8 @@ import {
   LIMITS,
   canBeWidget,
   pageAddable,
+  themePalette,
+  type BlockColors,
   type PageBlock,
   type PageBlockType,
 } from "@/lib/site/pageBlocks";
@@ -45,6 +47,7 @@ import {
   type SiteBrand,
 } from "@/lib/site/registry";
 import BlockInspector, { type CatalogItem } from "./BlockInspector";
+import { BlockColorsPanel } from "./ColorsPanel";
 import { BLOCK_ICON, summary } from "./blockMeta";
 import { IconButton, move } from "./fields";
 import { useWidgets, type SiteWidget } from "./useWidgets";
@@ -59,6 +62,9 @@ type PageState = {
   notReady?: boolean;
   hint?: string;
 };
+
+/** Blocks that are whole pages or data, not a section to recolor. */
+const NO_COLORS = new Set<PageBlockType>(["theme", "quiz", "collections_copy"]);
 
 type PageStatus = { slug: string; publishedAt: string | null; updatedAt: string | null; unpublished: boolean };
 
@@ -224,6 +230,26 @@ function PageEditor({
   useEffect(() => {
     load();
   }, [load]);
+
+  // The site palette (the Colors page's draft) under each block's Colors.
+  const [sitePalette, setSitePalette] = useState<BlockColors>({});
+  useEffect(() => {
+    if (slug === "theme" || !sitePageFor(brand, "theme")) return;
+    let cancelled = false;
+    call<PageState>(brand, "theme", "GET")
+      .then((data) => {
+        const t = data.draft.find((b) => b.type === "theme");
+        if (!cancelled && t?.type === "theme") setSitePalette(t.palette);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [brand, slug]);
+  const palette = useMemo(() => {
+    const t = slug === "theme" ? blocks.find((b) => b.type === "theme") : undefined;
+    return themePalette(brand, t?.type === "theme" ? t.palette : sitePalette);
+  }, [brand, slug, blocks, sitePalette]);
 
   // Published products for the product pickers.
   useEffect(() => {
@@ -455,6 +481,11 @@ function PageEditor({
           if (!id) hint = type;
         } else {
           id = m.id && list.some((x) => x.id === m.id) ? m.id : list.length === 1 ? list[0].id : null;
+        }
+        // On the Colors page the header and footer are just part of the sample.
+        if (!id && list.length === 1 && list[0].type === "theme") {
+          id = list[0].id;
+          hint = null;
         }
         setSelected(id);
         selectedRef.current = id;
@@ -995,6 +1026,24 @@ function PageEditor({
                     onOpenPage={(next) => (sitePageFor(brand, next) ? onNavigate(brand, next) : undefined)}
                     onChange={(nb) => update(blocks.map((x) => (x.id === nb.id ? nb : x)))}
                   />
+                  )}
+                  {NO_COLORS.has(current.type) ? null : (
+                    <BlockColorsPanel
+                      key={`colors:${current.id}`}
+                      brand={brand}
+                      colors={current.colors}
+                      palette={palette}
+                      onChange={(colors) =>
+                        update(
+                          blocks.map((x) => {
+                            if (x.id !== current.id) return x;
+                            const { colors: _old, ...rest } = x;
+                            void _old;
+                            return (colors ? { ...rest, colors } : rest) as PageBlock;
+                          }),
+                        )
+                      }
+                    />
                   )}
                 </div>
               </>

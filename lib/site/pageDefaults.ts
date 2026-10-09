@@ -31,7 +31,8 @@ export type SitePageSlug =
   | "terms"
   | "privacy"
   | "quiz"
-  | "site";
+  | "site"
+  | "theme";
 
 // ── defaults ───────────────────────────────────────────────────────────────
 
@@ -1014,6 +1015,16 @@ export const SITE_PAGES: SitePageDef[] = [
     addable: [],
     fixed: true,
     defaults: SITE,
+  },
+  {
+    slug: "theme",
+    label: "Colors",
+    path: " (every page)",
+    group: "Site-wide",
+    note: "The site's colors. Each one is used all over the site — change it here and every page follows. To recolor just one block, use the Colors section of that block instead.",
+    addable: [],
+    fixed: true,
+    defaults: [{ id: "theme", type: "theme", palette: {} }],
   },
 ];
 

@@ -12,8 +12,10 @@
  * break a page, and both fall back to the page's default — the page exactly
  * as it was hand-coded — when nothing is published.
  *
- * Blocks carry content only (words, images, links, product picks). Layout
- * and styling stay in the store's components, so pages always look on-brand.
+ * Blocks carry content (words, images, links, product picks). Layout and
+ * type stay in the store's components, so pages always look on-brand; color
+ * is the one style editors control — the site theme (Colors page) and an
+ * optional per-block override, both as the store's own color tokens.
  * "Locked" blocks stand for parts built by the store's code (the hero quiz,
  * the live product grid, the product details on a product page …): they can't
  * be added or deleted, only edited where they have fields.
@@ -138,7 +140,12 @@ export type Tone = "blush" | "pink" | "ink";
 
 // ── blocks ─────────────────────────────────────────────────────────────────
 
-type Base = { id: string; hidden?: boolean };
+type Base = {
+  id: string;
+  hidden?: boolean;
+  /** This block's own colors (theme-token key → #hex) over the site theme. */
+  colors?: BlockColors;
+};
 
 // Homepage
 export type HeroBlock = Base & { type: "hero"; slides: HeroSlide[] };
@@ -398,6 +405,9 @@ export type CollectionsCopyBlock = Base & { type: "collections_copy"; items: Col
 /** A link to a saved widget (site_widgets): the page shows the widget's
  *  current content, so editing the widget updates every page using it. */
 export type WidgetBlock = Base & { type: "widget"; widgetId: string };
+/** The site theme (Colors page): theme-token key → #hex. Missing keys keep
+ *  the store's built-in color. */
+export type ThemeBlock = Base & { type: "theme"; palette: BlockColors };
 export type EmbedKind = "video" | "instagram" | "map" | "form" | "countdown";
 /** A trusted embed — never raw code. Only the id / query is kept from what
  *  the editor pastes; the store builds the frame URL itself (embedSrc). */
@@ -460,6 +470,7 @@ export type PageBlock =
   | FooterBlock
   | CollectionsCopyBlock
   | WidgetBlock
+  | ThemeBlock
   | EmbedBlock;
 
 export type PageBlockType = PageBlock["type"];
@@ -533,6 +544,7 @@ export const BLOCK_INFO: Record<
   footer: { label: "Footer", description: "The footer on every page: tagline, link columns and the sister brand.", locked: true },
   widget: { label: "Widget", description: "A saved block shared across pages — edit it once, every page updates." },
   embed: { label: "Embed", description: "A video, Instagram post, map, Google Form or countdown." },
+  theme: { label: "Site colors", description: "The colors every page is built from.", locked: true },
   collections_copy: {
     label: "Fragrance collections",
     description: "Each collection's words — on the homepage hero and panels, the collections page and its own page.",
@@ -735,6 +747,103 @@ export function embedSrc(b: Pick<EmbedBlock, "kind" | "source">): string | null 
 
 /** Block types that can be saved as a widget (not page parts, not site-wide,
  *  not single-per-page sections). */
+// ── colors ─────────────────────────────────────────────────────────────────
+
+/** Theme-token key → #rrggbb (see THEME_TOKENS). */
+export type BlockColors = Record<string, string>;
+
+/** One editable theme color: the store CSS variables it sets and their
+ *  built-in value (globals.css). */
+export type ThemeToken = { key: string; label: string; hint: string; value: string; vars: string[] };
+
+/** A block's full-width background band — not a theme token. */
+export const SECTION_BG = "section";
+
+/**
+ * Each store's editable colors. The values are the stores' globals.css
+ * defaults — KEEP IN SYNC with them. Every block renderer colors itself with
+ * these variables, so overriding them (site-wide on :root, or on one block's
+ * wrapper) recolors without touching the components. A token's FIRST variable
+ * must be one no section remaps (Sassy's .readable-ink remaps --ink) — the
+ * Colors preview's swatches read it.
+ */
+export const THEME_TOKENS: Record<"Sassy" | "NI", ThemeToken[]> = {
+  Sassy: [
+    { key: "pink", label: "Hot pink", hint: "The brand pink — big type, accents, badges.", value: "#FF3E86", vars: ["--pink-pop", "--ink", "--foreground"] },
+    { key: "roseDeep", label: "Deep rose", hint: "Links, highlighted words, button hovers.", value: "#B3295C", vars: ["--rose-deep"] },
+    { key: "heading", label: "Headings", hint: "Section headings.", value: "#1A1A1A", vars: ["--heading"] },
+    { key: "text", label: "Text", hint: "Body text and dark buttons.", value: "#2E2428", vars: ["--charcoal"] },
+    { key: "textSoft", label: "Soft text", hint: "Notes, captions, secondary lines.", value: "#6E5F66", vars: ["--charcoal-soft"] },
+    { key: "blush", label: "Blush", hint: "Soft card and band backgrounds.", value: "#F1E6E4", vars: ["--blush"] },
+    { key: "rose", label: "Rose", hint: "Soft accents and backdrops.", value: "#E7B5A4", vars: ["--rose"] },
+    { key: "burgundy", label: "Burgundy", hint: "Borders and deep accents.", value: "#761E0B", vars: ["--burgundy", "--ink-soft"] },
+    { key: "burnt", label: "Burnt orange", hint: "Selected options.", value: "#EE542F", vars: ["--burnt"] },
+    { key: "surface", label: "Cards & light text", hint: "Card backgrounds, and text on dark bands.", value: "#FFFFFF", vars: ["--cream"] },
+    { key: "background", label: "Page background", hint: "Behind everything.", value: "#FFFFFF", vars: ["--background"] },
+  ],
+  NI: [
+    { key: "spruce", label: "Spruce", hint: "Headings and dark bands (header bar, footer).", value: "#1F3D35", vars: ["--spruce"] },
+    { key: "text", label: "Text", hint: "Body text.", value: "#2A3B35", vars: ["--ink", "--foreground"] },
+    { key: "textSoft", label: "Soft text", hint: "Notes, captions, secondary lines.", value: "#5E7068", vars: ["--ink-soft"] },
+    { key: "eucalyptus", label: "Eucalyptus", hint: "Buttons and links.", value: "#44705F", vars: ["--eucalyptus"] },
+    { key: "eucalyptusDeep", label: "Deep eucalyptus", hint: "Button hovers and accents.", value: "#2F5446", vars: ["--eucalyptus-deep"] },
+    { key: "gold", label: "Gold", hint: "Small labels above headings, fine details.", value: "#A8895A", vars: ["--gold"] },
+    { key: "mist", label: "Mist", hint: "Soft sage bands and cards.", value: "#E9EEE7", vars: ["--mist"] },
+    { key: "linen", label: "Linen", hint: "Warm cards.", value: "#F2EDE2", vars: ["--linen"] },
+    { key: "paper", label: "Ivory", hint: "Page background, and text on dark bands.", value: "#FBF9F4", vars: ["--paper", "--background"] },
+  ],
+};
+
+function themeTokens(brand: string): ThemeToken[] {
+  return THEME_TOKENS[brand as "Sassy" | "NI"] ?? [];
+}
+
+/** Valid colors only, known-looking keys only; undefined when empty. */
+export function normalizeColors(v: unknown): BlockColors | undefined {
+  const out: BlockColors = {};
+  for (const [k, val] of Object.entries(obj(v)).slice(0, 24)) {
+    const h = hex(val, "");
+    if (/^[a-zA-Z]{1,24}$/.test(k) && h) out[k] = h;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** CSS variables for a set of colors. `skipDefaults` leaves out colors that
+ *  match the built-in value (the site theme; a block override always counts,
+ *  since the site theme may have moved away from the default). */
+export function themeVars(brand: string, colors: BlockColors | undefined, skipDefaults = false): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!colors) return out;
+  for (const t of themeTokens(brand)) {
+    const v = colors[t.key];
+    if (!v || (skipDefaults && v.toLowerCase() === t.value.toLowerCase())) continue;
+    for (const name of t.vars) out[name] = v;
+  }
+  return out;
+}
+
+/** The site theme as a stylesheet (":root{…}"), or "" when it's all
+ *  default. `all` states every color given, defaults too (the preview, which
+ *  must override a published theme). */
+export function themeCss(brand: string, palette: BlockColors | undefined, all = false): string {
+  const vars = Object.entries(themeVars(brand, palette, !all));
+  return vars.length ? `:root{${vars.map(([k, v]) => `${k}:${v}`).join(";")}}` : "";
+}
+
+/** The site palette, every token filled (theme over built-in). */
+export function themePalette(brand: string, palette: BlockColors | undefined): BlockColors {
+  return Object.fromEntries(themeTokens(brand).map((t) => [t.key, palette?.[t.key] ?? t.value]));
+}
+
+/** A block wrapper's inline style: its color variables plus, with a section
+ *  background, the background itself. Undefined when the block has none. */
+export function blockStyle(brand: string, colors: BlockColors | undefined): Record<string, string> | undefined {
+  if (!colors) return undefined;
+  const style: Record<string, string> = themeVars(brand, colors);
+  if (colors[SECTION_BG]) style.backgroundColor = colors[SECTION_BG];
+  return Object.keys(style).length ? style : undefined;
+}
+
 export function canBeWidget(type: PageBlockType): boolean {
   const info = BLOCK_INFO[type];
   return !info.locked && !info.single && type !== "widget";
@@ -742,7 +851,7 @@ export function canBeWidget(type: PageBlockType): boolean {
 
 /** Normalize the fields of one block (id/hidden handled by the caller).
  *  Returns null for an unknown type. */
-export type BlockFields = PageBlock extends infer B ? (B extends PageBlock ? Omit<B, "id" | "hidden"> : never) : never;
+export type BlockFields = PageBlock extends infer B ? (B extends PageBlock ? Omit<B, "id" | "hidden" | "colors"> : never) : never;
 
 export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | null {
   switch (r.type) {
@@ -1204,6 +1313,8 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
         ctaHref: safeHref(r.ctaHref),
       };
     }
+    case "theme":
+      return { type: "theme", palette: normalizeColors(r.palette) ?? {} };
     case "collections_copy":
       return {
         type: "collections_copy",
@@ -1241,7 +1352,8 @@ export function normalizeBlock(raw: unknown, ids: Set<string>): PageBlock | null
   while (ids.has(id)) id = `${id}-x`;
   ids.add(id);
   const hidden = r.hidden === true && !BLOCK_INFO[fields.type].locked ? { hidden: true } : {};
-  return { id, ...hidden, ...fields } as PageBlock;
+  const colors = fields.type === "theme" ? undefined : normalizeColors(r.colors);
+  return { id, ...hidden, ...(colors ? { colors } : {}), ...fields } as PageBlock;
 }
 
 // ── pages ──────────────────────────────────────────────────────────────────
@@ -1435,7 +1547,9 @@ export function resolveWidgetRefs(
     }
     const fields = normalizeBlockFields(obj(lookup(b.widgetId)));
     if (!fields || fields.type === "widget" || !allowed.has(fields.type) || !canBeWidget(fields.type)) continue;
-    out.push({ ...fields, id: b.id, ...(b.hidden ? { hidden: true } : {}) } as PageBlock);
+    // The link's own colors win; else the widget's.
+    const colors = b.colors ?? normalizeColors(obj(lookup(b.widgetId)).colors);
+    out.push({ ...fields, id: b.id, ...(b.hidden ? { hidden: true } : {}), ...(colors ? { colors } : {}) } as PageBlock);
   }
   return out;
 }
