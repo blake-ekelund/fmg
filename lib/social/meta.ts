@@ -11,7 +11,7 @@
  * Every call sends access_token in the POST body / header, never logged.
  */
 
-import type { SocialBrand } from "./types";
+import type { IgGridItem, IgProfile, SocialBrand } from "./types";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v23.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -314,4 +314,57 @@ export async function igQuota(acct: BrandAccount): Promise<{ used: number; total
   } catch {
     return null;
   }
+}
+
+/* ─── Instagram profile + grid (read-only, for the feed preview) ───── */
+
+export async function igProfile(acct: BrandAccount): Promise<IgProfile> {
+  const ig = requireIg(acct);
+  const r = await graph<{
+    username?: string;
+    name?: string;
+    biography?: string;
+    profile_picture_url?: string;
+    followers_count?: number;
+    follows_count?: number;
+    media_count?: number;
+  }>("GET", ig, { fields: "username,name,biography,profile_picture_url,followers_count,follows_count,media_count" }, acct.pageToken);
+  return {
+    username: r.username ?? acct.igUsername,
+    name: r.name ?? null,
+    biography: r.biography ?? null,
+    profilePictureUrl: r.profile_picture_url ?? null,
+    followers: r.followers_count ?? null,
+    following: r.follows_count ?? null,
+    mediaCount: r.media_count ?? null,
+  };
+}
+
+/** The account's most recent posts, newest first (what the profile grid shows). */
+export async function igRecentMedia(acct: BrandAccount, limit = 60): Promise<IgGridItem[]> {
+  const ig = requireIg(acct);
+  const r = await graph<{
+    data: {
+      id: string;
+      media_type: IgGridItem["mediaType"];
+      media_url?: string;
+      thumbnail_url?: string;
+      permalink?: string;
+      timestamp: string;
+      caption?: string;
+    }[];
+  }>(
+    "GET",
+    `${ig}/media`,
+    { fields: "id,media_type,media_url,thumbnail_url,permalink,timestamp,caption", limit: Math.min(limit, 100) },
+    acct.pageToken,
+  );
+  return r.data.map((m) => ({
+    id: m.id,
+    mediaType: m.media_type,
+    imageUrl: (m.media_type === "VIDEO" ? m.thumbnail_url : m.media_url) ?? m.thumbnail_url ?? null,
+    permalink: m.permalink ?? null,
+    timestamp: m.timestamp,
+    caption: m.caption ?? null,
+  }));
 }

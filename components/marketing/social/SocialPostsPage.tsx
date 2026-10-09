@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Film, Images, Loader2, Plus, Share2 } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Film, Grid3x3, Images, Loader2, Plus, Share2 } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import TabNav, { type Tab } from "@/components/ui/TabNav";
 import { useBrand } from "@/components/BrandContext";
@@ -15,6 +15,7 @@ import {
   type SocialPost,
 } from "@/lib/social/types";
 import { getSocialStatus, listSocialPosts } from "./api";
+import FeedPreview from "./FeedPreview";
 import NewSocialWizard from "./NewSocialWizard";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { SocialStatusPill } from "./bits";
@@ -58,6 +59,7 @@ export default function SocialPostsPage() {
   const [bucket, setBucket] = useState<Bucket>("scheduled");
   const [conn, setConn] = useState<MetaConnectionStatus | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [feedOpen, setFeedOpen] = useState(false);
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -110,6 +112,13 @@ export default function SocialPostsPage() {
       <SlideFonts />
       <PageHeader subtitle="Write a post once and send it to the brand's Instagram and Facebook — right now, or at a time you pick. Scheduled posts go out within five minutes of their time.">
         <button
+          onClick={() => setFeedOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+        >
+          <Grid3x3 size={14} />
+          Preview grid
+        </button>
+        <button
           onClick={() => setWizardOpen(true)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800"
         >
@@ -147,6 +156,13 @@ export default function SocialPostsPage() {
           ))}
         </div>
       )}
+
+      <FeedPreview
+        open={feedOpen}
+        onClose={() => setFeedOpen(false)}
+        posts={posts}
+        initialBrand={(brand === "Sassy" ? "Sassy" : "NI") as SocialBrand}
+      />
 
       {wizardOpen && (
         <NewSocialWizard

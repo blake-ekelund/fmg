@@ -65,6 +65,29 @@ export type MetaConnectionStatus = {
   visiblePagesError?: string;
 };
 
+/** GET /api/social/feed — the live Instagram profile + grid for the feed preview. */
+export type IgProfile = {
+  username: string | null;
+  name: string | null;
+  biography: string | null;
+  profilePictureUrl: string | null;
+  followers: number | null;
+  following: number | null;
+  mediaCount: number | null;
+};
+
+export type IgGridItem = {
+  id: string;
+  mediaType: "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM";
+  /** What the grid shows: the image, or the video's cover. */
+  imageUrl: string | null;
+  permalink: string | null;
+  timestamp: string;
+  caption: string | null;
+};
+
+export type InstagramFeed = { profile: IgProfile | null; items: IgGridItem[]; error: string | null };
+
 export const SOCIAL_BRANDS: SocialBrand[] = ["Sassy", "NI"];
 export const SOCIAL_PLATFORMS: SocialPlatform[] = ["instagram", "facebook"];
 export const SOCIAL_POST_TYPES: SocialPostType[] = ["image", "carousel", "reel"];

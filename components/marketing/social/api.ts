@@ -1,6 +1,6 @@
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { supabase } from "@/lib/supabaseClient";
-import { SOCIAL_BUCKET, type MetaConnectionStatus, type SocialBrand, type SocialPlatform, type SocialPost } from "@/lib/social/types";
+import { SOCIAL_BUCKET, type InstagramFeed, type MetaConnectionStatus, type SocialBrand, type SocialPlatform, type SocialPost } from "@/lib/social/types";
 import type { PostDesign } from "@/lib/social/design";
 
 /** Browser-side client for /api/social. Every call carries the session token. */
@@ -112,3 +112,5 @@ export type GenerateInput = {
 export async function generateSocialPost(input: GenerateInput): Promise<{ title: string; design: PostDesign }> {
   return call<{ title: string; design: PostDesign }>("POST", "/api/social/generate", input);
 }
+
+export const getInstagramFeed = (brand: SocialBrand) => call<InstagramFeed>("GET", `/api/social/feed?brand=${brand}`);
