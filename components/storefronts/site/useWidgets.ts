@@ -45,6 +45,8 @@ export function useWidgets(brand: SiteBrand, onSaved: () => void) {
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pending = useRef(new Map<string, PageBlock>());
   const onSavedRef = useRef(onSaved);
+  // Widgets with a pending edit that should reload the canvas once saved.
+  const loud = useRef(new Set<string>());
   useEffect(() => {
     onSavedRef.current = onSaved;
   }, [onSaved]);
@@ -80,9 +82,10 @@ export function useWidgets(brand: SiteBrand, onSaved: () => void) {
       const block = pending.current.get(id);
       if (!block) return;
       pending.current.delete(id);
+      const reload = loud.current.delete(id);
       try {
         await call(`${base}/${id}`, "PUT", { block });
-        onSavedRef.current();
+        if (reload) onSavedRef.current();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Widget save failed.");
       }
@@ -90,11 +93,13 @@ export function useWidgets(brand: SiteBrand, onSaved: () => void) {
     [base],
   );
 
-  /** Edit a widget's draft content (autosaved). */
+  /** Edit a widget's draft content (autosaved). `quiet`: typed on the
+   *  canvas itself, so the save doesn't reload it. */
   const updateDraft = useCallback(
-    (id: string, block: PageBlock) => {
+    (id: string, block: PageBlock, quiet = false) => {
       setWidgets((list) => list.map((w) => (w.id === id ? { ...w, draft: block } : w)));
       pending.current.set(id, block);
+      if (!quiet) loud.current.add(id);
       clearTimeout(timers.current.get(id));
       timers.current.set(
         id,

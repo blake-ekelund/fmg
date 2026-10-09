@@ -204,22 +204,27 @@ export function BlockColorsPanel({
   colors,
   palette,
   onChange,
+  bare,
 }: {
   brand: SiteBrand;
   colors: BlockColors | undefined;
   /** The site palette (Colors page draft), every token filled. */
   palette: BlockColors;
   onChange: (c: BlockColors | undefined) => void;
+  /** No collapsible header — always open (the canvas toolbar's pop-over). */
+  bare?: boolean;
 }) {
   const count = Object.keys(colors ?? {}).length;
-  const [open, setOpen] = useState(count > 0);
+  const [isOpen, setOpen] = useState(count > 0);
+  const open = bare || isOpen;
   const chips = chipsFor(brand, palette);
   const set = (key: string, v: string | undefined) => {
     const next = setKey(colors, key, v);
     onChange(Object.keys(next).length ? next : undefined);
   };
   return (
-    <div className="mt-5 border-t border-gray-100 pt-3">
+    <div className={bare ? "" : "mt-5 border-t border-gray-100 pt-3"}>
+      {bare ? null : (
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -232,8 +237,9 @@ export function BlockColorsPanel({
         </span>
         <ChevronDown size={14} className={`text-gray-400 transition ${open ? "rotate-180" : ""}`} />
       </button>
+      )}
       {open ? (
-        <div className="mt-2 space-y-0.5">
+        <div className={bare ? "space-y-0.5" : "mt-2 space-y-0.5"}>
           <p className="mb-2 text-[11px] leading-relaxed text-gray-500">
             For this block only. Anything left on <em>Site color</em> follows the site&apos;s Colors page.
           </p>

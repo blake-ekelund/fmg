@@ -25,6 +25,7 @@ import {
   Smartphone,
   Trash2,
   Undo2,
+  X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -42,12 +43,17 @@ import {
   SITE_BRANDS,
   isSiteBrand,
   newSiteBlock,
+  normalizeSitePage,
   sitePageFor,
   sitePagesFor,
   type SiteBrand,
 } from "@/lib/site/registry";
 import BlockInspector, { type CatalogItem } from "./BlockInspector";
 import { BlockColorsPanel } from "./ColorsPanel";
+import { CanvasToolbar, type EditingKind, type FormatCmd } from "./CanvasToolbar";
+import MediaLibraryModal from "@/components/templates/MediaLibraryModal";
+import { uploadBlogImageResult } from "@/components/marketing/blog/api";
+import { setBlockPath } from "@/lib/site/editPath";
 import { BLOCK_ICON, summary } from "./blockMeta";
 import { IconButton, move } from "./fields";
 import { useWidgets, type SiteWidget } from "./useWidgets";
@@ -63,6 +69,28 @@ type PageState = {
   hint?: string;
 };
 
+/** Where the canvas toolbar sits: just above the selected block, pinned to
+ *  the top of the canvas while the block's top is scrolled away; hidden once
+ *  the block is off screen. */
+function toolbarPos(b: {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  frameTop: number;
+  frameBottom: number;
+  frameLeft: number;
+  frameWidth: number;
+}): { top: number; left: number; maxWidth: number } | null {
+  if (b.top + b.height < b.frameTop + 48 || b.top > b.frameBottom - 40) return null;
+  const left = Math.max(b.left, b.frameLeft) + 6;
+  return {
+    top: Math.max(b.top - 40, b.frameTop + 6),
+    left,
+    maxWidth: b.frameLeft + b.frameWidth - left - 6,
+  };
+}
+
 /** Blocks that are whole pages or data, not a section to recolor. */
 const NO_COLORS = new Set<PageBlockType>(["theme", "quiz", "collections_copy"]);
 
@@ -73,6 +101,10 @@ type FromBridge =
   | { src: "site-edit"; type: "ready"; ids: string[] }
   | { src: "site-edit"; type: "scroll"; y: number }
   | { src: "site-edit"; type: "select"; id: string | null }
+  | { src: "site-edit"; type: "edit"; id: string; path: string; value: string }
+  | { src: "site-edit"; type: "editing"; id: string | null; path: string | null; kind: EditingKind | null }
+  | { src: "site-edit"; type: "rect"; id: string | null; rect: { top: number; left: number; width: number; height: number } | null }
+  | { src: "site-edit"; type: "image"; id: string; path: string }
   | { src: "site-edit"; type: "drop"; blockType: string; widgetId?: string; targetId: string; pos: "before" | "after" };
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -181,6 +213,18 @@ function PageEditor({
   const [blocks, setBlocks] = useState<PageBlock[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<"block" | "page">("block");
+  // The side panel: closed by default (editing happens on the page); pages
+  // that are one big form (quiz, colors, collection words) start with it open.
+  const [panelOpen, setPanelOpen] = useState(slug === "quiz" || slug === "theme" || slug === "collection-copy");
+  // The selected block's box on the canvas (section coordinates) and what's
+  // being typed on the page, both from the store's bridge.
+  const [selBox, setSelBox] = useState<{ top: number; left: number; width: number; height: number; frameTop: number; frameBottom: number; frameLeft: number; frameWidth: number } | null>(null);
+  const [editing, setEditing] = useState<EditingKind | null>(null);
+  const [imagePick, setImagePick] = useState<{ id: string; path: string } | null>(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  // Whether the next save should reload the canvas: not when the edit was
+  // typed on the canvas itself (or recolored live) — it already shows it.
+  const reloadRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [busy, setBusy] = useState<string | null>(null);
@@ -282,15 +326,18 @@ function PageEditor({
     }
     savingRef.current = true;
     setSaveState("saving");
+    const reload = reloadRef.current;
+    reloadRef.current = false;
     try {
       const res = await call<{ updatedAt: string | null; previewUrl: string | null }>(brand, slug, "PUT", {
         blocks: blocksRef.current,
       });
       setPage((p) => (p ? { ...p, updatedAt: res.updatedAt, previewUrl: res.previewUrl ?? p.previewUrl } : p));
       setSaveState("saved");
-      setFrameKey((k) => k + 1);
+      if (reload) setFrameKey((k) => k + 1);
       onChanged();
     } catch (e) {
+      reloadRef.current ||= reload;
       setSaveState("error");
       setError(e instanceof Error ? e.message : "Save failed.");
     } finally {
@@ -315,7 +362,8 @@ function PageEditor({
   );
 
   const update = useCallback(
-    (next: PageBlock[]) => {
+    (next: PageBlock[], opts?: { reload?: boolean }) => {
+      if (opts?.reload !== false) reloadRef.current = true;
       setBlocks(next);
       blocksRef.current = next;
       setSaveState("dirty");
@@ -433,6 +481,35 @@ function PageEditor({
   const currentInfo = current ? BLOCK_INFO[current.type] : null;
   const movable = !!current && !def.fixed && !currentInfo?.pinned;
   const removable = !!current && !def.fixed && !currentInfo?.locked;
+  const moveBy = (dir: -1 | 1) => update(move(blocks, currentIndex, currentIndex + dir));
+  const duplicate = () => {
+    if (!current) return;
+    const id = uid(current.type);
+    const next = [...blocks];
+    next.splice(currentIndex + 1, 0, { ...structuredClone(current), id });
+    update(next);
+    select(id, false);
+  };
+  const toggleHidden = () =>
+    current && update(blocks.map((x) => (x.id === current.id ? { ...x, hidden: !x.hidden || undefined } : x)));
+  const saveAsWidget = async () => {
+    if (!current || !currentInfo) return;
+    const name = prompt("Name this widget (only you see it):", currentInfo.label);
+    if (!name?.trim()) return;
+    const made = await w.create(name.trim(), current);
+    if (!made) return;
+    // This block becomes a link to the new widget.
+    update(blocks.map((x) => (x.id === current.id ? { id: x.id, type: "widget", widgetId: made.id } : x)));
+  };
+  const removeCurrent = () => {
+    if (!current) return;
+    update(blocks.filter((x) => x.id !== current.id));
+    select(null);
+  };
+  const canMoveUp = movable && currentIndex > pinnedCount;
+  const canMoveDown = movable && currentIndex < blocks.length - 1;
+  const canDuplicate = removable && !currentInfo?.single && blocks.length < LIMITS.blocks;
+  const canWidget = !!current && removable && canBeWidget(current.type) && !w.notReady;
 
   // ── canvas bridge ──────────────────────────────────────────────────────
   const labels = useMemo(
@@ -453,6 +530,56 @@ function PageEditor({
     labelsRef.current = labels;
     frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "labels", labels }, "*");
   }, [labels]);
+
+  // ── on-page editing ────────────────────────────────────────────────────
+  const wRef = useRef(w);
+  useEffect(() => {
+    wRef.current = w;
+  }, [w]);
+  /** A canvas id ("__site:footer" on the Header & footer page) → block id. */
+  const fromCanvasId = useCallback(
+    (id: string) =>
+      id.startsWith("__site:")
+        ? (blocksRef.current.find((x) => x.type === id.slice("__site:".length))?.id ?? id)
+        : id,
+    [],
+  );
+  /** Set a field of a block (or of the widget a block links to). */
+  const setField = useCallback(
+    (canvasId: string, path: string, value: string, reload: boolean) => {
+      const id = fromCanvasId(canvasId);
+      const list = blocksRef.current;
+      const b = list.find((x) => x.id === id);
+      if (!b) return;
+      if (b.type === "widget") {
+        const draft = wRef.current.widgets.find((x) => x.id === b.widgetId)?.draft;
+        const next = draft ? setBlockPath(draft, path, value) : null;
+        if (next) wRef.current.updateDraft(b.widgetId, next, !reload);
+        return;
+      }
+      // List positions on the page are those of the saved (normalized) block —
+      // empty items are dropped there — so resolve the path against that.
+      const shown = normalizeSitePage(brand, slug, [b])?.find((x) => x.id === id) ?? b;
+      const next = setBlockPath(shown, path, value);
+      if (next) update(list.map((x) => (x.id === id ? next : x)), { reload });
+    },
+    [fromCanvasId, update, brand, slug],
+  );
+  const postToCanvas = (m: Record<string, unknown>) =>
+    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", ...m }, "*");
+  /** A block's own colors: saved, and shown on the canvas without a reload. */
+  const setColors = (id: string, colors: BlockColors | undefined) => {
+    update(
+      blocksRef.current.map((x) => {
+        if (x.id !== id) return x;
+        const { colors: _old, ...rest } = x;
+        void _old;
+        return (colors ? { ...rest, colors } : rest) as PageBlock;
+      }),
+      { reload: false },
+    );
+    postToCanvas({ type: "style", id: toCanvasId(id), colors: colors ?? null });
+  };
 
   useEffect(() => {
     const onMessage = (e: MessageEvent<FromBridge>) => {
@@ -491,16 +618,40 @@ function PageEditor({
         selectedRef.current = id;
         setSiteHint(hint);
         if (id || hint) setTab("block");
+        if (hint) setPanelOpen(true);
         if (toCanvasId(id) !== m.id && !hint) {
           frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(id), scroll: false }, "*");
         }
       } else if (m.type === "drop") {
         insert(m.blockType as PageBlockType, m.targetId, m.pos, m.widgetId);
+      } else if (m.type === "edit") {
+        setField(m.id, m.path, m.value, false);
+      } else if (m.type === "editing") {
+        setEditing(m.kind);
+      } else if (m.type === "image") {
+        setImagePick({ id: m.id, path: m.path });
+      } else if (m.type === "rect") {
+        const frame = frameRef.current?.getBoundingClientRect();
+        const sec = sectionRef.current?.getBoundingClientRect();
+        setSelBox(
+          m.rect && frame && sec
+            ? {
+                top: m.rect.top + frame.top - sec.top,
+                left: m.rect.left + frame.left - sec.left,
+                width: m.rect.width,
+                height: m.rect.height,
+                frameTop: frame.top - sec.top,
+                frameBottom: frame.bottom - sec.top,
+                frameLeft: frame.left - sec.left,
+                frameWidth: frame.width,
+              }
+            : null,
+        );
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [insert, toCanvasId]);
+  }, [insert, toCanvasId, setField]);
 
   const hoverInCanvas = (id: string | null) =>
     frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "hover", id: toCanvasId(id) }, "*");
@@ -632,6 +783,18 @@ function PageEditor({
               </button>
             ))}
           </div>
+          <IconButton
+            label="Page settings — publishing, history, widgets"
+            onClick={() => {
+              if (panelOpen && tab === "page") setPanelOpen(false);
+              else {
+                setTab("page");
+                setPanelOpen(true);
+              }
+            }}
+          >
+            <PanelTop size={14} />
+          </IconButton>
           <IconButton label="Reload canvas" onClick={() => setFrameKey((k) => k + 1)}>
             {canvasLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           </IconButton>
@@ -665,7 +828,12 @@ function PageEditor({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 md:grid-cols-[220px_minmax(0,1fr)_340px]">
+      <div
+        className={clsx(
+          "grid min-h-0 flex-1",
+          panelOpen ? "md:grid-cols-[220px_minmax(0,1fr)_340px]" : "md:grid-cols-[220px_minmax(0,1fr)]",
+        )}
+      >
         {/* ── palette + layers ─────────────────────────────────────────── */}
         <aside className="min-h-0 space-y-5 overflow-y-auto border-b border-gray-100 bg-gray-50/60 p-4 md:border-b-0 md:border-r">
           <div>
@@ -831,7 +999,7 @@ function PageEditor({
         </aside>
 
         {/* ── canvas ───────────────────────────────────────────────────── */}
-        <section className="relative flex min-h-[60vh] min-w-0 justify-center overflow-hidden bg-gray-100 p-4">
+        <section ref={sectionRef} className="relative flex min-h-[60vh] min-w-0 justify-center overflow-hidden bg-gray-100 p-4">
           {bridgeMissing ? (
             <div className="absolute left-1/2 top-6 z-10 -translate-x-1/2 rounded-lg bg-gray-900/90 px-3 py-2 text-[11px] text-white shadow-lg">
               Clicking the page to select isn&apos;t connected — pick parts from “On this page” on the left.
@@ -855,9 +1023,61 @@ function PageEditor({
               The canvas needs the store connection (SUPABASE_SERVICE_ROLE_KEY) — your edits still save.
             </div>
           )}
+          {current && currentInfo && selBox && !canvasLoading && toolbarPos(selBox) ? (
+            <CanvasToolbar
+              key={current.id}
+              pos={toolbarPos(selBox)!}
+              label={current.type === "widget" ? (widgetById.get(current.widgetId)?.name ?? "Widget") : currentInfo.label}
+              editing={editing}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+              canDuplicate={canDuplicate}
+              canHide={removable}
+              hidden={!!current.hidden}
+              canDelete={removable}
+              canWidget={canWidget}
+              showColors={!NO_COLORS.has(current.type)}
+              colorsCount={Object.keys(current.colors ?? {}).length}
+              colorsPanel={
+                <BlockColorsPanel
+                  bare
+                  brand={brand}
+                  colors={current.colors}
+                  palette={palette}
+                  onChange={(colors) => setColors(current.id, colors)}
+                />
+              }
+              onMove={moveBy}
+              onDuplicate={duplicate}
+              onToggleHidden={toggleHidden}
+              onWidget={saveAsWidget}
+              onDelete={removeCurrent}
+              onSettings={() => {
+                setTab("block");
+                setPanelOpen(true);
+              }}
+              onFormat={(cmd: FormatCmd, value?: string) => postToCanvas({ type: "format", cmd, value })}
+            />
+          ) : null}
+          {previewSrc && !selected && !canvasLoading && !bridgeMissing ? (
+            <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-gray-900/80 px-3.5 py-1.5 text-[11px] text-white shadow">
+              Click any text to type over it · click a block for its toolbar · drag blocks in from the left
+            </div>
+          ) : null}
         </section>
+        <MediaLibraryModal
+          open={!!imagePick}
+          onClose={() => setImagePick(null)}
+          onSelect={(url) => {
+            if (imagePick) setField(imagePick.id, imagePick.path, url, true);
+            setImagePick(null);
+          }}
+          uploader={uploadBlogImageResult}
+          inbox="website-uploads"
+        />
 
-        {/* ── right rail ───────────────────────────────────────────────── */}
+        {/* ── side panel (Settings / Page settings) ─────────────────────── */}
+        {panelOpen ? (
         <aside className="min-h-0 overflow-y-auto border-t border-gray-100 bg-white md:border-l md:border-t-0">
           <div className="sticky top-0 z-[1] flex gap-1 border-b border-gray-100 bg-white p-2">
             {(
@@ -879,6 +1099,9 @@ function PageEditor({
                 {label}
               </button>
             ))}
+            <IconButton label="Close panel" onClick={() => setPanelOpen(false)}>
+              <X size={14} />
+            </IconButton>
           </div>
 
           <div className="p-4">
@@ -931,53 +1154,26 @@ function PageEditor({
                   </div>
                 </div>
                 <div className="mt-3 flex items-center gap-0.5 border-b border-gray-100 pb-3">
-                  <IconButton
-                    label="Move up"
-                    disabled={!movable || currentIndex <= pinnedCount}
-                    onClick={() => update(move(blocks, currentIndex, currentIndex - 1))}
-                  >
+                  <IconButton label="Move up" disabled={!canMoveUp} onClick={() => moveBy(-1)}>
                     <ArrowUp size={14} />
                   </IconButton>
-                  <IconButton
-                    label="Move down"
-                    disabled={!movable || currentIndex === blocks.length - 1}
-                    onClick={() => update(move(blocks, currentIndex, currentIndex + 1))}
-                  >
+                  <IconButton label="Move down" disabled={!canMoveDown} onClick={() => moveBy(1)}>
                     <ArrowDown size={14} />
                   </IconButton>
-                  <IconButton
-                    label="Duplicate"
-                    disabled={!removable || !!currentInfo.single || blocks.length >= LIMITS.blocks}
-                    onClick={() => {
-                      const id = uid(current.type);
-                      const next = [...blocks];
-                      next.splice(currentIndex + 1, 0, { ...structuredClone(current), id });
-                      update(next);
-                      select(id, false);
-                    }}
-                  >
+                  <IconButton label="Duplicate" disabled={!canDuplicate} onClick={duplicate}>
                     <Copy size={14} />
                   </IconButton>
                   <IconButton
                     label={current.hidden ? "Show on site" : "Hide from site"}
                     disabled={!removable}
-                    onClick={() =>
-                      update(blocks.map((x) => (x.id === current.id ? { ...x, hidden: !x.hidden || undefined } : x)))
-                    }
+                    onClick={toggleHidden}
                   >
                     {current.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
                   </IconButton>
                   <IconButton
                     label="Save as widget (reuse on other pages)"
-                    disabled={!removable || !canBeWidget(current.type) || !!w.notReady}
-                    onClick={async () => {
-                      const name = prompt("Name this widget (only you see it):", currentInfo.label);
-                      if (!name?.trim()) return;
-                      const made = await w.create(name.trim(), current);
-                      if (!made) return;
-                      // This block becomes a link to the new widget.
-                      update(blocks.map((x) => (x.id === current.id ? { id: x.id, type: "widget", widgetId: made.id } : x)));
-                    }}
+                    disabled={!canWidget}
+                    onClick={saveAsWidget}
                   >
                     <Puzzle size={14} />
                   </IconButton>
@@ -986,10 +1182,7 @@ function PageEditor({
                     label="Delete"
                     danger
                     disabled={!removable}
-                    onClick={() => {
-                      update(blocks.filter((x) => x.id !== current.id));
-                      select(null);
-                    }}
+                    onClick={removeCurrent}
                   >
                     <Trash2 size={14} />
                   </IconButton>
@@ -1033,16 +1226,7 @@ function PageEditor({
                       brand={brand}
                       colors={current.colors}
                       palette={palette}
-                      onChange={(colors) =>
-                        update(
-                          blocks.map((x) => {
-                            if (x.id !== current.id) return x;
-                            const { colors: _old, ...rest } = x;
-                            void _old;
-                            return (colors ? { ...rest, colors } : rest) as PageBlock;
-                          }),
-                        )
-                      }
+                      onChange={(colors) => setColors(current.id, colors)}
                     />
                   )}
                 </div>
@@ -1056,6 +1240,7 @@ function PageEditor({
             )}
           </div>
         </aside>
+        ) : null}
       </div>
     </div>
   );

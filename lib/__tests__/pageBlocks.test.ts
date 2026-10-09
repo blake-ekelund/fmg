@@ -211,3 +211,21 @@ describe("colors", () => {
     for (const list of Object.values(THEME_TOKENS)) for (const t of list) expect(t.value).toMatch(/^#[0-9A-F]{6}$/);
   });
 });
+
+describe("on-page edit paths", () => {
+  it("sets existing string fields only", async () => {
+    const { setBlockPath, getBlockPath } = await import("../site/editPath");
+    const faq = { id: "f", type: "faq", heading: "Q", items: [{ id: "a", q: "One?", a: "Yes" }] } as PageBlock;
+    expect(setBlockPath(faq, "heading", "New")).toMatchObject({ heading: "New" });
+    expect(setBlockPath(faq, "items.0.q", "Two?")).toMatchObject({ items: [{ id: "a", q: "Two?", a: "Yes" }] });
+    expect(faq).toMatchObject({ heading: "Q", items: [{ q: "One?" }] });
+    expect(setBlockPath(faq, "items.3.q", "x")).toBeNull();
+    expect(setBlockPath(faq, "items", "x")).toBeNull();
+    expect(setBlockPath(faq, "nope", "x")).toBeNull();
+    expect(setBlockPath(faq, "type", "x")).toBeNull();
+    expect(setBlockPath(faq, "__proto__.x", "x")).toBeNull();
+    const strip = { id: "v", type: "value_strip", items: ["a", "b"] } as PageBlock;
+    expect(setBlockPath(strip, "items.1", "c")).toMatchObject({ items: ["a", "c"] });
+    expect(getBlockPath(faq, "items.0.a")).toBe("Yes");
+  });
+});
