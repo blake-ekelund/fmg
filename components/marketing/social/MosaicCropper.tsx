@@ -4,7 +4,15 @@ import { useRef, useState } from "react";
 import { ImagePlus, Images, Loader2, ZoomIn } from "lucide-react";
 import MediaLibraryModal from "@/components/templates/MediaLibraryModal";
 import { uploadSocialImage } from "./api";
-import { MOSAIC_BLEED, MOSAIC_VISIBLE_W, mosaicSize, mosaicSlice, type GridRows } from "@/lib/social/gridPlan";
+import {
+  MOSAIC_BLEED,
+  MOSAIC_MIN_SCALE,
+  MOSAIC_VISIBLE_W,
+  mosaicFits,
+  mosaicSize,
+  mosaicSlice,
+  type GridRows,
+} from "@/lib/social/gridPlan";
 
 /**
  * Split one picture across the grid: pick a photo, zoom and drag it into the
@@ -73,10 +81,13 @@ export async function loadPicture(file: File): Promise<Loaded> {
 /**
  * A picture from our Image Library / product photos / brand photography.
  * Loaded with CORS so it can be cut up on a canvas (Supabase storage and
- * Unsplash both allow it). Unsplash picks come at 1600px — ask for 3200.
+ * Unsplash both allow it). Unsplash picks come at 1600px — ask for up to
+ * UNSPLASH_MAX_W (the picker's size check assumes the same cap).
  */
+const UNSPLASH_MAX_W = 5000;
+
 export async function loadPictureFromUrl(url: string): Promise<Loaded> {
-  const big = /images.unsplash.com/.test(url) ? url.replace(/([?&])w=d+/, "$1w=3200") : url;
+  const big = /images\.unsplash\.com/.test(url) ? url.replace(/([?&])w=\d+/, `$1w=${UNSPLASH_MAX_W}`) : url;
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.src = big;
@@ -133,6 +144,11 @@ export default function MosaicCropper({
     <MediaLibraryModal
       open={library}
       stacked
+      sizeFilter={{
+        label: `a ${rows * 3}-post grid`,
+        fits: (w, h) => mosaicFits(w, h, rows),
+        unsplashMaxWidth: UNSPLASH_MAX_W,
+      }}
       onClose={() => setLibrary(false)}
       onSelect={(url) => {
         setLibrary(false);
@@ -179,7 +195,7 @@ export default function MosaicCropper({
 
   const r = cropRect(picture, rows, crop);
   const s = FRAME_W / r.width; // frame px per image px
-  const soft = r.scale < 0.6; // each post would be upscaled noticeably
+  const soft = r.scale < MOSAIC_MIN_SCALE; // each post would be upscaled noticeably
 
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start">

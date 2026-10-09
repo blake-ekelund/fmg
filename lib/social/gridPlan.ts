@@ -163,6 +163,18 @@ export type GridCaptions = {
  */
 export const MOSAIC_VISIBLE_W = (1350 * 3) / 4;
 export const MOSAIC_BLEED = (1080 - MOSAIC_VISIBLE_W) / 2;
+/**
+ * Below this many picture pixels per post pixel the pieces get upscaled enough
+ * to look soft. The crop tool warns under it; the picker hides such images.
+ */
+export const MOSAIC_MIN_SCALE = 0.6;
+
+/** Is a w×h picture big enough to fill a `rows`-row grid sharply (at zoom 1)? */
+export function mosaicFits(w: number, h: number, rows: GridRows): boolean {
+  const { w: fw, h: fh } = mosaicSize(rows);
+  return Math.min(w, h * (fw / fh)) / fw >= MOSAIC_MIN_SCALE;
+}
+
 /** The picture area for `rows` rows, in post pixels (bleed included). */
 export function mosaicSize(rows: GridRows): { w: number; h: number } {
   return { w: MOSAIC_VISIBLE_W * 3 + MOSAIC_BLEED * 2, h: 1350 * rows };

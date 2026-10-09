@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Image as ImageIcon } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import type { UnsplashPhoto } from "@/lib/unsplash";
+import type { SizeFilter } from "@/components/image-library/ImageLibraryPage";
 
 /** What the picker hands back alongside the URL for an Unsplash photo. */
 export type UnsplashPick = {
@@ -33,7 +34,16 @@ async function authHeader(): Promise<Record<string, string>> {
  * filterable by source and by the photo's own description. Choosing one pings
  * Unsplash's download tracker (guideline-required) and returns a hotlink URL.
  */
-export default function UnsplashPanel({ query, onSelect }: { query: string; onSelect: (url: string, pick: UnsplashPick) => void }) {
+export default function UnsplashPanel({
+  query,
+  onSelect,
+  sizeFilter,
+}: {
+  query: string;
+  onSelect: (url: string, pick: UnsplashPick) => void;
+  /** Only offer photos big enough for this use (sizes come from Unsplash). */
+  sizeFilter?: SizeFilter;
+}) {
   const [source, setSource] = useState<string>("");
   const [sources, setSources] = useState<Source[]>([]);
   const [sourceErrors, setSourceErrors] = useState<string[]>([]);
@@ -103,9 +113,16 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
   }
 
   const q = query.trim().toLowerCase();
-  const filtered = q
+  const matching = q
     ? photos.filter((p) => `${p.alt ?? ""} ${p.photographer.name} ${p.photographer.username}`.toLowerCase().includes(q))
     : photos;
+  const bigEnough = (p: UnsplashPhoto) => {
+    if (!sizeFilter) return true;
+    const cap = sizeFilter.unsplashMaxWidth && p.width > sizeFilter.unsplashMaxWidth ? sizeFilter.unsplashMaxWidth / p.width : 1;
+    return sizeFilter.fits(p.width * cap, p.height * cap);
+  };
+  const filtered = matching.filter(bigEnough);
+  const hiddenSmall = matching.length - filtered.length;
 
   return (
     <div>
@@ -128,6 +145,11 @@ export default function UnsplashPanel({ query, onSelect }: { query: string; onSe
             </button>
           ))}
         </div>
+      )}
+      {sizeFilter && hiddenSmall > 0 && (
+        <p className="mb-3 text-xs text-gray-500">
+          Showing photos big enough for {sizeFilter.label} — {hiddenSmall} smaller {hiddenSmall === 1 ? "one is" : "ones are"} hidden.
+        </p>
       )}
       {sourceErrors.map((m) => (
         <div key={m} className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{m}</div>

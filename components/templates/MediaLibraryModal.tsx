@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { X, Search } from "lucide-react";
 import ImageLibraryPage from "@/components/image-library/ImageLibraryPage";
 import UnsplashPanel, { type UnsplashPick } from "./UnsplashPanel";
+import type { SizeFilter } from "@/components/image-library/ImageLibraryPage";
 
 type Props = {
   open: boolean;
@@ -19,6 +20,8 @@ type Props = {
   emptyHint?: string;
   /** Opened from another modal — sit above it. */
   stacked?: boolean;
+  /** Only offer images big enough for this use (e.g. a grid of social posts). */
+  sizeFilter?: SizeFilter;
 };
 
 /**
@@ -32,7 +35,7 @@ export default function MediaLibraryModal(props: Props) {
   return props.open ? <Picker {...props} /> : null;
 }
 
-function Picker({ onClose, onSelect, inbox = "email-uploads", uploader, stacked }: Props) {
+function Picker({ onClose, onSelect, inbox = "email-uploads", uploader, stacked, sizeFilter }: Props) {
   const [tab, setTab] = useState<"library" | "unsplash">("library");
   const [query, setQuery] = useState("");
 
@@ -91,10 +94,10 @@ function Picker({ onClose, onSelect, inbox = "email-uploads", uploader, stacked 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
           {tab === "library" ? (
-            <ImageLibraryPage pick={{ onPick: (url) => onSelect(url), inbox, uploader }} />
+            <ImageLibraryPage pick={{ onPick: (url) => onSelect(url), inbox, uploader, sizeFilter }} />
           ) : (
             <div className="p-5">
-              <UnsplashPanel query={query} onSelect={onSelect} />
+              <UnsplashPanel query={query} onSelect={onSelect} sizeFilter={sizeFilter} />
             </div>
           )}
         </div>

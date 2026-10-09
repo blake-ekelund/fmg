@@ -86,8 +86,18 @@ function isFileDrag(e: React.DragEvent): boolean {
  * open folder) and the first one is used straight away. Filing tools (select,
  * drag-to-move, the detail editor) stay on the Image Library page.
  */
+/** "Only images big enough for X" — sizes come from the images as they load. */
+export type SizeFilter = {
+  fits: (width: number, height: number) => boolean;
+  /** "a 9-post grid" */
+  label: string;
+  /** Unsplash photos are loaded at most this wide; their size check uses the same cap. */
+  unsplashMaxWidth?: number;
+};
+
 export type PickOptions = {
   onPick: (url: string) => void;
+  sizeFilter?: SizeFilter;
   /** Inbox uploads land in when no writable folder is open. */
   inbox: string;
   /** Replaces the email resize-and-upload (the blog keeps full resolution). */
@@ -96,6 +106,10 @@ export type PickOptions = {
 
 export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) {
   const [images, setImages] = useState<LibraryImage[]>([]);
+  // Pick mode with a size filter: each image's real size, read as its thumbnail loads.
+  const [dims, setDims] = useState<Record<string, [number, number]>>({});
+  const [showSmall, setShowSmall] = useState(false);
+  const sizeFilter = pick?.sizeFilter;
   const [folderList, setFolderList] = useState<LibraryFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -450,7 +464,13 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   useEffect(() => setVisible(BATCH), [folder, query, scope]);
 
   const pickable = filtered.filter((i) => i.source === "library");
-  const shown = filtered.slice(0, visible);
+  const tooSmall = (i: LibraryImage) => {
+    const d = dims[i.url];
+    return !!(sizeFilter && d && !sizeFilter.fits(d[0], d[1]));
+  };
+  const sized = sizeFilter && !showSmall ? filtered.filter((i) => !tooSmall(i)) : filtered;
+  const hiddenSmall = filtered.length - sized.length;
+  const shown = sized.slice(0, visible);
   const folderTotal = folder ? folderStats.get(folder)?.count ?? 0 : images.length;
   const folderEmpty = !!folder && folderTotal === 0 && childrenOf(folder).length === 0;
   const crumbs: string[] = [];
@@ -809,6 +829,20 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
           </div>
         ) : (
           <>
+          {sizeFilter && (
+            <p className="mb-4 text-sm text-gray-500">
+              {showSmall ? "Showing every image — ones too small are marked." : `Showing images big enough for ${sizeFilter.label}.`}
+              {(hiddenSmall > 0 || showSmall) && (
+                <>
+                  {" "}
+                  {!showSmall && `${hiddenSmall} smaller ${hiddenSmall === 1 ? "one is" : "ones are"} hidden. `}
+                  <button onClick={() => setShowSmall((v) => !v)} className="font-medium text-gray-800 underline-offset-2 hover:underline">
+                    {showSmall ? "Hide small ones" : "Show them anyway"}
+                  </button>
+                </>
+              )}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {shown.map((img) => {
               const isLibrary = img.source === "library";
@@ -842,7 +876,21 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
                       draggable={false}
                       loading="lazy"
                       className="h-full w-full object-contain p-2"
+                      onLoad={
+                        sizeFilter
+                          ? (e) => {
+                              const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+                              setDims((d) => (d[img.url] ? d : { ...d, [img.url]: [w, h] }));
+                            }
+                          : undefined
+                      }
                     />
+
+                    {sizeFilter && tooSmall(img) && (
+                      <span className="absolute left-2.5 top-2.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 shadow-sm">
+                        Too small
+                      </span>
+                    )}
 
                     {selecting && isLibrary && (
                       <span

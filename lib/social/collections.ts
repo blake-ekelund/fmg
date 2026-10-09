@@ -62,7 +62,7 @@ const NI_KEYS: { slug: string; name: string; keys: string[] }[] = [
   { slug: "cypres", name: "Cyprès", keys: ["Cypres", "Cyprès"] },
 ];
 
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 
 function copyItems(blocks: unknown): CollectionsCopyBlock["items"] {
   if (!Array.isArray(blocks)) return [];
