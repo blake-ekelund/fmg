@@ -8,6 +8,7 @@ import {
   type FormTile,
   type HeroSlide,
   type PageBlock,
+  type SeedItem,
   type Tone,
 } from "@/lib/site/pageBlocks";
 import RichTextEditor from "@/components/marketing/blog/RichTextEditor";
@@ -48,12 +49,15 @@ export default function BlockInspector({
   onChange,
   catalog,
   slug,
+  brand,
 }: {
   block: PageBlock;
   onChange: (b: PageBlock) => void;
   catalog: CatalogItem[];
   /** The page being edited (a few fields only apply to one page). */
   slug: string;
+  /** The store — a few fields only exist on one store's design. */
+  brand: "Sassy" | "NI";
 }) {
   switch (block.type) {
     case "hero":
@@ -210,9 +214,11 @@ export default function BlockInspector({
           <Field label="Fine print">
             <TextInput value={block.footnote} maxLength={120} onChange={(footnote) => onChange({ ...block, footnote })} />
           </Field>
-          <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
-            The signup gives the WELCOME15 code — the offer itself is set in Discounts, not here.
-          </p>
+          {brand === "Sassy" ? (
+            <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
+              The signup gives the WELCOME15 code — the offer itself is set in Discounts, not here.
+            </p>
+          ) : null}
         </div>
       );
 
@@ -362,11 +368,7 @@ export default function BlockInspector({
       return (
         <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
           Nothing to edit here — this part fills itself
-          {block.type === "catalog"
-            ? slug === "blog"
-              ? " from the posts in Marketing → Blog Posts."
-              : " from the products in Products."
-            : " with the six Everyday character photos."}{" "}
+          {block.type === "catalog" ? CATALOG_SOURCE[slug] ?? " from the products in Products." : " with the six Everyday character photos."}{" "}
           Move the blocks around it to change what comes before and after.
         </p>
       );
@@ -412,7 +414,9 @@ export default function BlockInspector({
               onChange({ ...block, cards: block.cards.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
             return (
               <div key={c.id} className="space-y-3 rounded-xl border border-gray-200 p-3">
-                <p className="text-xs font-medium text-gray-700">{c.tone === "ink" ? "Dark card" : "Light card"}</p>
+                <p className="text-xs font-medium text-gray-700">
+                  {c.tone === "ink" ? "Dark card" : c.tone === "plain" ? "White card" : "Tinted card"}
+                </p>
                 <Field label="Small label">
                   <TextInput value={c.label} maxLength={40} onChange={(label) => set({ label })} />
                 </Field>
@@ -425,6 +429,22 @@ export default function BlockInspector({
                 <Field label="Email (optional)">
                   <TextInput value={c.email} maxLength={120} onChange={(email) => set({ email })} />
                 </Field>
+                {brand === "NI" ? (
+                  <>
+                    <Field label="Phone (optional)">
+                      <TextInput value={c.phone} maxLength={30} onChange={(phone) => set({ phone })} />
+                    </Field>
+                    <Field label="Small rows (optional)" hint="One per line: left | right — e.g. Consumer (CST) | Mon–Fri, 8:00–4:30">
+                      <TextArea value={c.details} rows={2} maxLength={400} onChange={(details) => set({ details })} />
+                    </Field>
+                    <LinkFields
+                      title="Link"
+                      label={c.linkLabel}
+                      href={c.linkHref}
+                      onChange={(linkLabel, linkHref) => set({ linkLabel, linkHref })}
+                    />
+                  </>
+                ) : null}
               </div>
             );
           })}
@@ -435,6 +455,11 @@ export default function BlockInspector({
       return (
         <div className="space-y-4">
           <HeaderFields eyebrow={block.eyebrow} title={block.title} lede={block.lede} onChange={(p) => onChange({ ...block, ...p })} />
+          {brand === "NI" ? (
+            <Field label="Last updated" hint="Shown under the title.">
+              <TextInput value={block.highlightTitle} maxLength={80} onChange={(highlightTitle) => onChange({ ...block, highlightTitle })} />
+            </Field>
+          ) : (
           <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
             <p className="text-xs font-medium text-gray-700">Side card</p>
             <Field label="Small label" hint="e.g. last updated, the short version">
@@ -447,9 +472,12 @@ export default function BlockInspector({
               <TextArea value={block.highlightBody} rows={2} maxLength={400} onChange={(highlightBody) => onChange({ ...block, highlightBody })} />
             </Field>
           </div>
-          <Field label="“Get in touch” lead-in">
-            <TextInput value={block.help} maxLength={160} onChange={(help) => onChange({ ...block, help })} />
-          </Field>
+          )}
+          {brand === "Sassy" ? (
+            <Field label="“Get in touch” lead-in">
+              <TextInput value={block.help} maxLength={160} onChange={(help) => onChange({ ...block, help })} />
+            </Field>
+          ) : null}
           <Field label="Policy text">
             <RichField value={block.html} onChange={(html) => onChange({ ...block, html })} />
           </Field>
@@ -610,7 +638,320 @@ export default function BlockInspector({
           </Field>
         </div>
       );
+
+    case "living_hero":
+      return (
+        <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+          Nothing to edit here — the hero shows one slide per fragrance collection, using each collection&apos;s own
+          photo and colors.
+        </p>
+      );
+
+    case "collection_showcase":
+      return (
+        <div className="space-y-4">
+          <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+            One panel per fragrance collection with its two bestsellers — filled automatically. The words around them
+            are set here.
+          </p>
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Intro">
+            <TextArea value={block.lede} rows={2} maxLength={500} onChange={(lede) => onChange({ ...block, lede })} />
+          </Field>
+          <Field label="Link text (to all collections)">
+            <TextInput value={block.linkLabel} maxLength={40} onChange={(linkLabel) => onChange({ ...block, linkLabel })} />
+          </Field>
+          <Field label="Reassurance line" hint="Short promises under the panels. Links: [text](/page).">
+            <StringList items={block.comfort} max={4} placeholder="Free shipping over $75" onChange={(comfort) => onChange({ ...block, comfort })} />
+          </Field>
+        </div>
+      );
+
+    case "seed_band":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading" hint="Enter makes a new line.">
+            <TextArea value={block.heading} rows={2} maxLength={120} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Text">
+            <RichField value={block.html} onChange={(html) => onChange({ ...block, html })} />
+          </Field>
+          <SeedItems items={block.items} onChange={(items) => onChange({ ...block, items })} />
+          <LinkFields
+            title="Link"
+            label={block.ctaLabel}
+            href={block.ctaHref}
+            onChange={(ctaLabel, ctaHref) => onChange({ ...block, ctaLabel, ctaHref })}
+          />
+        </div>
+      );
+
+    case "seed_cards":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <ObjList
+            label="Seeds"
+            items={block.items}
+            max={LIMITS.seeds}
+            onChange={(items) => onChange({ ...block, items })}
+            make={(id) => ({ id, name: "Black Cumin", origin: "", body: "" })}
+            title={(x) => x.name}
+            subtitle={(x) => x.origin}
+            render={(x, set) => (
+              <>
+                <Field label="Seed" hint={SEED_HINT}>
+                  <TextInput value={x.name} maxLength={40} onChange={(name) => set({ name })} />
+                </Field>
+                <Field label="Where it comes from">
+                  <TextInput value={x.origin} maxLength={200} onChange={(origin) => set({ origin })} />
+                </Field>
+                <Field label="What it does">
+                  <TextArea value={x.body} rows={3} maxLength={600} onChange={(body) => set({ body })} />
+                </Field>
+              </>
+            )}
+          />
+          <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-medium text-gray-700">Closing card</p>
+            <Field label="Heading">
+              <TextInput value={block.closingHeading} maxLength={100} onChange={(closingHeading) => onChange({ ...block, closingHeading })} />
+            </Field>
+            <Field label="Text">
+              <TextArea value={block.closingBody} rows={2} maxLength={400} onChange={(closingBody) => onChange({ ...block, closingBody })} />
+            </Field>
+            <LinkFields
+              title="Button"
+              label={block.ctaLabel}
+              href={block.ctaHref}
+              onChange={(ctaLabel, ctaHref) => onChange({ ...block, ctaLabel, ctaHref })}
+            />
+          </div>
+        </div>
+      );
+
+    case "statement":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Big line">
+            <TextArea value={block.heading} rows={2} maxLength={160} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Text">
+            <TextArea value={block.body} rows={3} maxLength={600} onChange={(body) => onChange({ ...block, body })} />
+          </Field>
+        </div>
+      );
+
+    case "checklist":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Intro">
+            <TextArea value={block.intro} rows={3} maxLength={600} onChange={(intro) => onChange({ ...block, intro })} />
+          </Field>
+          <Field label="Points">
+            <StringList items={block.items} max={LIMITS.checklist} onChange={(items) => onChange({ ...block, items })} />
+          </Field>
+          <Field label="Marker">
+            <Segmented
+              value={block.marker}
+              onChange={(marker) => onChange({ ...block, marker })}
+              options={[
+                { value: "check", label: "✓ Check" },
+                { value: "leaf", label: "Leaf" },
+              ]}
+            />
+          </Field>
+        </div>
+      );
+
+    case "two_lists":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label (optional)">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading (optional)" hint="Enter makes a new line.">
+            <TextArea value={block.heading} rows={2} maxLength={120} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <div className="space-y-3 rounded-xl border border-gray-200 p-3">
+            <Field label="Left list title">
+              <TextInput value={block.leftTitle} maxLength={60} onChange={(leftTitle) => onChange({ ...block, leftTitle })} />
+            </Field>
+            <StringList items={block.leftItems} max={LIMITS.listItems} onChange={(leftItems) => onChange({ ...block, leftItems })} />
+          </div>
+          <div className="space-y-3 rounded-xl border border-gray-200 p-3">
+            <Field label="Right list title">
+              <TextInput value={block.rightTitle} maxLength={60} onChange={(rightTitle) => onChange({ ...block, rightTitle })} />
+            </Field>
+            <StringList items={block.rightItems} max={LIMITS.listItems} onChange={(rightItems) => onChange({ ...block, rightItems })} />
+          </div>
+        </div>
+      );
+
+    case "pillars":
+      return (
+        <ObjList
+          label="Cards"
+          items={block.items}
+          max={LIMITS.pillars}
+          onChange={(items) => onChange({ ...block, items })}
+          make={(id) => ({ id, title: "A title", body: "" })}
+          title={(x) => x.title}
+          render={(x, set) => (
+            <>
+              <Field label="Title">
+                <TextInput value={x.title} maxLength={80} onChange={(title) => set({ title })} />
+              </Field>
+              <Field label="Text">
+                <TextArea value={x.body} rows={4} maxLength={600} onChange={(body) => set({ body })} />
+              </Field>
+            </>
+          )}
+        />
+      );
+
+    case "link_grid":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <ObjList
+            label="Links"
+            items={block.items}
+            max={LIMITS.linkGrid}
+            onChange={(items) => onChange({ ...block, items })}
+            make={(id) => ({ id, label: "New link", href: "/ingredients" })}
+            title={(x) => x.label}
+            subtitle={(x) => x.href}
+            render={(x, set) => (
+              <>
+                <Field label="Text">
+                  <TextInput value={x.label} maxLength={60} onChange={(label) => set({ label })} />
+                </Field>
+                <Field label="Link" hint={LINK_HINT}>
+                  <TextInput value={x.href} onChange={(href) => set({ href })} />
+                </Field>
+              </>
+            )}
+          />
+        </div>
+      );
+
+    case "link_cards":
+      return (
+        <ObjList
+          label="Cards"
+          items={block.cards}
+          max={LIMITS.linkCards}
+          onChange={(cards) => onChange({ ...block, cards })}
+          make={(id) => ({ id, eyebrow: "", title: "A title →", body: "", href: "/shop" })}
+          title={(x) => x.title}
+          subtitle={(x) => x.href}
+          render={(x, set) => (
+            <>
+              <Field label="Small label">
+                <TextInput value={x.eyebrow} maxLength={60} onChange={(eyebrow) => set({ eyebrow })} />
+              </Field>
+              <Field label="Title">
+                <TextInput value={x.title} maxLength={100} onChange={(title) => set({ title })} />
+              </Field>
+              <Field label="Text">
+                <TextArea value={x.body} rows={2} maxLength={300} onChange={(body) => set({ body })} />
+              </Field>
+              <Field label="Link" hint={LINK_HINT}>
+                <TextInput value={x.href} onChange={(href) => set({ href })} />
+              </Field>
+            </>
+          )}
+        />
+      );
+
+    case "faq":
+      return (
+        <div className="space-y-4">
+          <Field label="Section heading (optional)">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <ObjList
+            label="Questions"
+            items={block.items}
+            max={LIMITS.faqs}
+            onChange={(items) => onChange({ ...block, items })}
+            make={(id) => ({ id, q: "A question?", a: "" })}
+            title={(x) => x.q}
+            render={(x, set) => (
+              <>
+                <Field label="Question">
+                  <TextInput value={x.q} maxLength={200} onChange={(q) => set({ q })} />
+                </Field>
+                <Field label="Answer">
+                  <TextArea value={x.a} rows={4} maxLength={1200} onChange={(a) => set({ a })} />
+                </Field>
+              </>
+            )}
+          />
+        </div>
+      );
   }
+}
+
+const CATALOG_SOURCE: Record<string, string> = {
+  blog: " from the posts in Marketing → Blog Posts.",
+  collections: " with a tile per fragrance collection.",
+  ingredients: " with the ingredient glossary — reference data kept in the store's code.",
+  "ingredients-by-product": " from each product's ingredient label in Products.",
+};
+
+const SEED_HINT = "Black Cumin, Pomegranate, Cranberry, Carrot or Grape get their botanical drawing.";
+
+function SeedItems({ items, onChange }: { items: SeedItem[]; onChange: (items: SeedItem[]) => void }) {
+  return (
+    <ObjList
+      label="Seeds"
+      items={items}
+      max={LIMITS.seeds}
+      onChange={onChange}
+      make={(id) => ({ id, name: "Black Cumin", note: "" })}
+      title={(x) => x.name}
+      subtitle={(x) => x.note}
+      render={(x, set) => (
+        <>
+          <Field label="Seed" hint={SEED_HINT}>
+            <TextInput value={x.name} maxLength={40} onChange={(name) => set({ name })} />
+          </Field>
+          <Field label="Note">
+            <TextInput value={x.note} maxLength={200} onChange={(note) => set({ note })} />
+          </Field>
+        </>
+      )}
+    />
+  );
 }
 
 /** Rich text (headings, bold, italic, lists, links) — the blog's editor. */
@@ -638,10 +979,10 @@ function HeaderFields({
       <Field label="Small label">
         <TextInput value={eyebrow} maxLength={60} onChange={(v) => onChange({ eyebrow: v })} />
       </Field>
-      <Field label="Title">
-        <TextInput value={title} maxLength={80} onChange={(v) => onChange({ title: v })} />
+      <Field label="Title" hint="Wrap words in *stars* for the accent color. Enter makes a new line.">
+        <TextArea value={title} rows={2} maxLength={160} onChange={(v) => onChange({ title: v })} />
       </Field>
-      <Field label="Intro">
+      <Field label="Intro" hint="Links: [text](/page).">
         <TextArea value={lede} rows={3} maxLength={800} onChange={(v) => onChange({ lede: v })} />
       </Field>
     </>

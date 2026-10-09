@@ -2,9 +2,10 @@
  * Storefront page blocks — the content model behind FMG's Website editor
  * (/storefronts/website) and the storefront pages that render it.
  *
- * KEEP IN SYNC: this file and pageDefaults.ts are byte-identical in
+ * KEEP IN SYNC: this file is byte-identical in
  *   fmg          lib/site/
- *   store/sassy  src/lib/fmg/
+ *   store/sassy  src/lib/fmg/   (with pageDefaults.ts — the Sassy pages)
+ *   store/ni     src/lib/fmg/   (with pageDefaultsNi.ts — the NI pages)
  * FMG writes `site_pages.draft_blocks` / `published_blocks`; the store reads
  * the published copy through the `storefront_site_pages` view. Both sides
  * normalize (pageDefaults.ts `normalizePage`) so a bad or older row can never
@@ -57,13 +58,25 @@ export type Stat = { id: string; value: string; label: string };
 export type LinkItem = { id: string; label: string; note: string; href: string };
 export type InfoCard = {
   id: string;
-  tone: "blush" | "ink";
+  /** blush = soft tint, ink = dark, plain = white with a border. */
+  tone: "blush" | "ink" | "plain";
   label: string;
   title: string;
   body: string;
   /** Shown as a mailto link under the body. */
   email: string;
+  /** Shown as a tel: link. */
+  phone: string;
+  /** Small two-column rows, one per line: "Consumer (CST) | Mon–Fri, 8–4:30". */
+  details: string;
+  linkLabel: string;
+  linkHref: string;
 };
+export type FaqItem = { id: string; q: string; a: string };
+export type SeedItem = { id: string; name: string; note: string };
+export type SeedCard = { id: string; name: string; origin: string; body: string };
+export type Pillar = { id: string; title: string; body: string };
+export type LinkCard = { id: string; eyebrow: string; title: string; body: string; href: string };
 export type Benefit = { id: string; lead: string; punch: string };
 export type StoryColumn = {
   id: string;
@@ -244,6 +257,64 @@ export type ReviewsNoteBlock = Base & {
   message: string;
 };
 
+// Natural Inspirations sections
+export type LivingHeroBlock = Base & { type: "living_hero" };
+export type CollectionShowcaseBlock = Base & {
+  type: "collection_showcase";
+  eyebrow: string;
+  heading: string;
+  lede: string;
+  linkLabel: string;
+  /** Reassurance line under the panels. [text](/path) makes a link. */
+  comfort: string[];
+};
+export type SeedBandBlock = Base & {
+  type: "seed_band";
+  eyebrow: string;
+  heading: string;
+  html: string;
+  items: SeedItem[];
+  ctaLabel: string;
+  ctaHref: string;
+};
+export type SeedCardsBlock = Base & {
+  type: "seed_cards";
+  eyebrow: string;
+  heading: string;
+  items: SeedCard[];
+  closingHeading: string;
+  closingBody: string;
+  ctaLabel: string;
+  ctaHref: string;
+};
+export type StatementBlock = Base & { type: "statement"; eyebrow: string; heading: string; body: string };
+export type ChecklistBlock = Base & {
+  type: "checklist";
+  eyebrow: string;
+  heading: string;
+  intro: string;
+  items: string[];
+  marker: "check" | "leaf";
+};
+export type TwoListsBlock = Base & {
+  type: "two_lists";
+  eyebrow: string;
+  heading: string;
+  leftTitle: string;
+  leftItems: string[];
+  rightTitle: string;
+  rightItems: string[];
+};
+export type PillarsBlock = Base & { type: "pillars"; items: Pillar[] };
+export type LinkGridBlock = Base & {
+  type: "link_grid";
+  eyebrow: string;
+  heading: string;
+  items: { id: string; label: string; href: string }[];
+};
+export type LinkCardsBlock = Base & { type: "link_cards"; cards: LinkCard[] };
+export type FaqBlock = Base & { type: "faq"; heading: string; items: FaqItem[] };
+
 export type PageBlock =
   | HeroBlock
   | ValueStripBlock
@@ -271,7 +342,18 @@ export type PageBlock =
   | BenefitsBannerBlock
   | PhilosophyBlock
   | RelatedProductsBlock
-  | ReviewsNoteBlock;
+  | ReviewsNoteBlock
+  | LivingHeroBlock
+  | CollectionShowcaseBlock
+  | SeedBandBlock
+  | SeedCardsBlock
+  | StatementBlock
+  | ChecklistBlock
+  | TwoListsBlock
+  | PillarsBlock
+  | LinkGridBlock
+  | LinkCardsBlock
+  | FaqBlock;
 
 export type PageBlockType = PageBlock["type"];
 
@@ -315,6 +397,26 @@ export const BLOCK_INFO: Record<
   philosophy: { label: "Brand story (two columns)", description: "Two columns of brand copy.", single: true },
   related_products: { label: "Pairs well with", description: "Four related products, picked automatically.", single: true },
   reviews_note: { label: "Reviews", description: "The reviews section (a placeholder until reviews go live).", single: true },
+  living_hero: {
+    label: "Collection hero",
+    description: "The living photo hero — one slide per fragrance collection, from the collection pages.",
+    locked: true,
+    pinned: true,
+  },
+  collection_showcase: {
+    label: "Fragrance collections",
+    description: "A panel per collection with its two bestsellers — filled automatically.",
+    locked: true,
+  },
+  seed_band: { label: "ExSeed band", description: "The dark seed-oil band: heading, text and the seeds with a note each." },
+  seed_cards: { label: "Seed cards", description: "A card per seed oil, plus a closing card with a button." },
+  statement: { label: "Statement band", description: "A dark band with one big line." },
+  checklist: { label: "Checklist", description: "A heading and intro beside a list of short commitments." },
+  two_lists: { label: "Always in / never in", description: "Two lists side by side." },
+  pillars: { label: "Numbered cards", description: "Three numbered cards with a title and text." },
+  link_grid: { label: "Link grid", description: "A tinted box of linked tiles." },
+  link_cards: { label: "Link cards", description: "Two big linked cards." },
+  faq: { label: "Questions", description: "A heading and question / answer cards." },
 };
 
 export const QUIZ_PERSONAS: { key: string; name: string }[] = [
@@ -340,6 +442,13 @@ export const LIMITS = {
   columns: 2,
   tags: 5,
   trust: 4,
+  seeds: 8,
+  checklist: 12,
+  listItems: 16,
+  pillars: 4,
+  linkGrid: 12,
+  linkCards: 3,
+  faqs: 12,
 };
 
 // ── sanitizing ─────────────────────────────────────────────────────────────
@@ -450,6 +559,10 @@ function list(v: unknown, max: number): unknown[] {
 
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function strings(v: unknown, max: number, len: number): string[] {
+  return list(v, max).map((x) => str(x, len)).filter(Boolean);
 }
 
 function itemId(o: Record<string, unknown>, prefix: string, i: number): string {
@@ -597,7 +710,7 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
       return {
         type: "page_header",
         eyebrow: str(r.eyebrow, 60),
-        title: str(r.title, 80),
+        title: text(r.title, 160),
         lede: text(r.lede, 500),
         wholesaleEyebrow: str(r.wholesaleEyebrow, 60),
         wholesaleTitle: str(r.wholesaleTitle, 80),
@@ -625,11 +738,15 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
           const email = str(o.email, 120);
           return {
             id: itemId(o, "card", i),
-            tone: pick(o.tone, ["blush", "ink"] as const, "blush"),
+            tone: pick(o.tone, ["blush", "ink", "plain"] as const, "blush"),
             label: str(o.label, 40),
             title: str(o.title, 80),
             body: text(o.body, 400),
             email: /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(email) ? email : "",
+            phone: str(o.phone, 30).replace(/[^\d+()\-. ]/g, ""),
+            details: text(o.details, 400),
+            linkLabel: str(o.linkLabel, 40),
+            linkHref: safeHref(o.linkHref),
           };
         }),
       };
@@ -702,6 +819,116 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
         heading: str(r.heading, 100),
         message: text(r.message, 400),
       };
+    case "living_hero":
+      return { type: "living_hero" };
+    case "collection_showcase":
+      return {
+        type: "collection_showcase",
+        eyebrow: str(r.eyebrow, 60),
+        heading: str(r.heading, 100),
+        lede: text(r.lede, 500),
+        linkLabel: str(r.linkLabel, 40),
+        comfort: strings(r.comfort, 4, 120),
+      };
+    case "seed_band":
+      return {
+        type: "seed_band",
+        eyebrow: str(r.eyebrow, 60),
+        heading: text(r.heading, 120),
+        html: sanitizeRichHtml(r.html, 4000),
+        items: list(r.items, LIMITS.seeds)
+          .map((x, i): SeedItem => {
+            const o = obj(x);
+            return { id: itemId(o, "seed", i), name: str(o.name, 40), note: str(o.note, 200) };
+          })
+          .filter((x) => x.name),
+        ctaLabel: str(r.ctaLabel, 40),
+        ctaHref: safeHref(r.ctaHref),
+      };
+    case "seed_cards":
+      return {
+        type: "seed_cards",
+        eyebrow: str(r.eyebrow, 60),
+        heading: str(r.heading, 100),
+        items: list(r.items, LIMITS.seeds)
+          .map((x, i): SeedCard => {
+            const o = obj(x);
+            return { id: itemId(o, "seed", i), name: str(o.name, 40), origin: str(o.origin, 200), body: text(o.body, 600) };
+          })
+          .filter((x) => x.name),
+        closingHeading: str(r.closingHeading, 100),
+        closingBody: text(r.closingBody, 400),
+        ctaLabel: str(r.ctaLabel, 40),
+        ctaHref: safeHref(r.ctaHref),
+      };
+    case "statement":
+      return { type: "statement", eyebrow: str(r.eyebrow, 60), heading: text(r.heading, 160), body: text(r.body, 600) };
+    case "checklist":
+      return {
+        type: "checklist",
+        eyebrow: str(r.eyebrow, 60),
+        heading: str(r.heading, 100),
+        intro: text(r.intro, 600),
+        items: strings(r.items, LIMITS.checklist, 200),
+        marker: pick(r.marker, ["check", "leaf"] as const, "check"),
+      };
+    case "two_lists":
+      return {
+        type: "two_lists",
+        eyebrow: str(r.eyebrow, 60),
+        heading: text(r.heading, 120),
+        leftTitle: str(r.leftTitle, 60),
+        leftItems: strings(r.leftItems, LIMITS.listItems, 120),
+        rightTitle: str(r.rightTitle, 60),
+        rightItems: strings(r.rightItems, LIMITS.listItems, 120),
+      };
+    case "pillars":
+      return {
+        type: "pillars",
+        items: list(r.items, LIMITS.pillars)
+          .map((x, i): Pillar => {
+            const o = obj(x);
+            return { id: itemId(o, "pillar", i), title: str(o.title, 80), body: text(o.body, 600) };
+          })
+          .filter((x) => x.title || x.body),
+      };
+    case "link_grid":
+      return {
+        type: "link_grid",
+        eyebrow: str(r.eyebrow, 60),
+        heading: str(r.heading, 100),
+        items: list(r.items, LIMITS.linkGrid)
+          .map((x, i) => {
+            const o = obj(x);
+            return { id: itemId(o, "link", i), label: str(o.label, 60), href: safeHref(o.href) };
+          })
+          .filter((x) => x.label),
+      };
+    case "link_cards":
+      return {
+        type: "link_cards",
+        cards: list(r.cards, LIMITS.linkCards).map((x, i): LinkCard => {
+          const o = obj(x);
+          return {
+            id: itemId(o, "card", i),
+            eyebrow: str(o.eyebrow, 60),
+            title: str(o.title, 100),
+            body: text(o.body, 300),
+            href: safeHref(o.href),
+          };
+        }),
+      };
+    case "faq":
+      return {
+        type: "faq",
+        heading: str(r.heading, 100),
+        items: list(r.items, LIMITS.faqs)
+          .map((x, i): FaqItem => {
+            const o = obj(x);
+            return { id: itemId(o, "faq", i), q: str(o.q, 200), a: text(o.a, 1200) };
+          })
+          .filter((x) => x.q),
+      };
   }
   return null;
 }
@@ -716,4 +943,155 @@ export function normalizeBlock(raw: unknown, ids: Set<string>): PageBlock | null
   ids.add(id);
   const hidden = r.hidden === true && !BLOCK_INFO[fields.type].locked ? { hidden: true } : {};
   return { id, ...hidden, ...fields } as PageBlock;
+}
+
+// ── pages ──────────────────────────────────────────────────────────────────
+
+export type SitePageDef = {
+  slug: string;
+  label: string;
+  /** Where it lives on the site (shown in the editor). */
+  path: string;
+  group: string;
+  /** One-line explanation in the editor. */
+  note: string;
+  /** Block types editors may add (locked blocks come from the default). */
+  addable: PageBlockType[];
+  /** Fixed pages: fields only — no adding, deleting or reordering. */
+  fixed?: boolean;
+  defaults: PageBlock[];
+};
+
+/**
+ * Coerce anything into a valid block list for `page`: unknown or
+ * not-allowed types dropped, every locked block of the default present
+ * exactly once (missing ones restored from the default), pinned blocks
+ * first, single-use blocks deduped. Fixed pages keep the default's blocks
+ * and order — only their fields come from the input. A hero with no usable
+ * slides gets the default's slides. Null for input that isn't an array.
+ */
+export function normalizePageFor(page: SitePageDef, input: unknown): PageBlock[] | null {
+  if (!Array.isArray(input)) return null;
+  const ids = new Set<string>();
+  const lockedTypes = new Set(page.defaults.filter((b) => BLOCK_INFO[b.type].locked).map((b) => b.type));
+  const allowed = new Set<PageBlockType>([...page.addable, ...lockedTypes]);
+
+  const seen = new Set<PageBlockType>();
+  const out: PageBlock[] = [];
+  for (const raw of input.slice(0, LIMITS.blocks)) {
+    const b = normalizeBlock(raw, ids);
+    if (!b || !allowed.has(b.type)) continue;
+    const info = BLOCK_INFO[b.type];
+    if ((info.locked || info.single) && seen.has(b.type)) continue;
+    seen.add(b.type);
+    out.push(b);
+  }
+
+  if (page.fixed) {
+    return page.defaults.map((d) => out.find((b) => b.type === d.type) ?? d);
+  }
+
+  // Restore missing locked blocks at their default position.
+  page.defaults.forEach((d, i) => {
+    if (lockedTypes.has(d.type) && !seen.has(d.type)) out.splice(Math.min(i, out.length), 0, d);
+  });
+  const defaultHero = page.defaults.find((b): b is HeroBlock => b.type === "hero");
+  for (let i = 0; i < out.length; i++) {
+    const b = out[i];
+    if (b.type === "hero" && b.slides.length === 0 && defaultHero) out[i] = { ...b, slides: defaultHero.slides };
+  }
+  const pinned = out.filter((b) => BLOCK_INFO[b.type].pinned);
+  return [...pinned, ...out.filter((b) => !BLOCK_INFO[b.type].pinned)];
+}
+
+/** Inline text segments: *accent*, [label](/link) and line breaks. */
+export type InlineSeg =
+  | { t: "text"; v: string }
+  | { t: "em"; v: string }
+  | { t: "link"; v: string; href: string }
+  | { t: "br" };
+
+/**
+ * Parse the tiny inline syntax editors may use in titles and short lines:
+ * `*words*` (accent / italic), `[label](/path)` (link — same allow-list as
+ * every other link) and line breaks. Renderers map segments to elements, so
+ * nothing here is HTML.
+ */
+export function parseInline(s: string): InlineSeg[] {
+  const out: InlineSeg[] = [];
+  const re = /\*([^*\n]+)\*|\[([^\]\n]+)\]\(([^)\s]+)\)|\n/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    if (m.index > last) out.push({ t: "text", v: s.slice(last, m.index) });
+    if (m[1] !== undefined) out.push({ t: "em", v: m[1] });
+    else if (m[2] !== undefined) {
+      const href = safeHref(m[3]);
+      out.push(href ? { t: "link", v: m[2], href } : { t: "text", v: m[2] });
+    } else out.push({ t: "br" });
+    last = re.lastIndex;
+  }
+  if (last < s.length) out.push({ t: "text", v: s.slice(last) });
+  return out;
+}
+
+/** Plain text of an inline string (for alt text, titles, summaries). */
+export function inlinePlain(s: string): string {
+  return parseInline(s)
+    .map((x) => (x.t === "br" ? " " : x.v))
+    .join("");
+}
+
+/** A fresh block of `type` for the editor's "Add block" menu: starter copy
+ *  for the generic blocks, else a copy of the first default that has one. */
+export function newBlockFor(type: PageBlockType, id: string, pages: SitePageDef[]): PageBlock {
+  const fromDefaults = pages.flatMap((p) => p.defaults).find((b) => b.type === type);
+  switch (type) {
+    case "product_row":
+      return { id, type, heading: "New arrivals", linkLabel: "Shop all →", linkHref: "/shop", source: "pick", parts: [], count: 4 };
+    case "promo_banner":
+      return { id, type, eyebrow: "limited time", text: "Free shipping on orders over $50", ctaLabel: "Shop now", ctaHref: "/shop", tone: "pink" };
+    case "image_text":
+      return {
+        id,
+        type,
+        image: "",
+        imageAlt: "",
+        imageSide: "left",
+        eyebrow: "our story",
+        heading: "A heading",
+        body: "Tell the story here.",
+        ctaLabel: "Read more",
+        ctaHref: "/story",
+        tone: "blush",
+      };
+    case "rich_text":
+      return { id, type, html: "<h2>A heading</h2><p>Write something here.</p>" };
+    case "quote":
+      return { id, type, eyebrow: "", text: "Something worth saying big.", highlight: "", footnote: "" };
+    case "stats":
+      return {
+        id,
+        type,
+        items: [
+          { id: "s1", value: "6", label: "Label" },
+          { id: "s2", value: "100%", label: "Label" },
+        ],
+      };
+    case "cta":
+      return { id, type, heading: "Ready when you are.", primaryLabel: "Shop now", primaryHref: "/shop", secondaryLabel: "", secondaryHref: "" };
+    case "callout":
+      return { id, type, eyebrow: "heads up", heading: "A short heading", html: "<p>A sentence or two.</p>" };
+    case "link_list":
+      return { id, type, heading: "A list of links", subheading: "", items: [{ id: "l1", label: "First link", note: "", href: "/shop" }] };
+    case "faq":
+      return { id, type, heading: "More questions", items: [{ id: "q1", q: "A question?", a: "The answer." }] };
+    case "checklist":
+      return { id, type, eyebrow: "", heading: "A heading", intro: "", items: ["First point"], marker: "check" };
+    case "statement":
+      return { id, type, eyebrow: "", heading: "One big line.", body: "" };
+    default:
+      if (fromDefaults) return { ...structuredClone(fromDefaults), id } as PageBlock;
+      return { id, type: "rich_text", html: "" };
+  }
 }

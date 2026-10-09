@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { safeHref, safeImage, sanitizeRichHtml, type PageBlock } from "../site/pageBlocks";
 import { SITE_PAGES, defaultBlocks, normalizePage } from "../site/pageDefaults";
+import { NI_SITE_PAGES, niDefaultBlocks, normalizeNiPage } from "../site/pageDefaultsNi";
+import { parseInline } from "../site/pageBlocks";
 
 describe("normalizePage", () => {
   it.each(SITE_PAGES.map((p) => p.slug))("keeps the %s default unchanged", (slug) => {
@@ -80,5 +82,33 @@ describe("sanitizeRichHtml", () => {
 
   it("decodes entities once and re-escapes", () => {
     expect(sanitizeRichHtml("<p>Tom &amp; Jerry&rsquo;s &lt;b&gt;</p>")).toBe("<p>Tom &amp; Jerry’s <strong></p>".replace("<strong>", "&lt;b&gt;"));
+  });
+});
+
+describe("NI pages", () => {
+  it.each(NI_SITE_PAGES.map((p) => p.slug))("keeps the NI %s default unchanged", (slug) => {
+    expect(normalizeNiPage(slug, niDefaultBlocks(slug))).toEqual(JSON.parse(JSON.stringify(niDefaultBlocks(slug))));
+  });
+
+  it("collection hero stays first and can't be dropped", () => {
+    const out = normalizeNiPage("home", [{ id: "n", type: "newsletter" }])!;
+    expect(out[0].type).toBe("living_hero");
+    expect(out.map((b) => b.type)).toContain("collection_showcase");
+  });
+});
+
+describe("parseInline", () => {
+  it("splits accents, links and line breaks", () => {
+    expect(parseInline("The wholesale *program*")).toEqual([
+      { t: "text", v: "The wholesale " },
+      { t: "em", v: "program" },
+    ]);
+    expect(parseInline("A\n[go](/shop) [bad](javascript:x)")).toEqual([
+      { t: "text", v: "A" },
+      { t: "br" },
+      { t: "link", v: "go", href: "/shop" },
+      { t: "text", v: " " },
+      { t: "text", v: "bad" },
+    ]);
   });
 });

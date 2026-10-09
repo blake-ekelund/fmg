@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { isBlogBrand } from "@/lib/blogPosts";
 import type { PageBlock } from "@/lib/site/pageBlocks";
-import { SITE_PAGES, defaultBlocks, normalizePage } from "@/lib/site/pageDefaults";
+import { isSiteBrand, normalizeSitePage, siteDefaults, sitePageFor, type SiteBrand } from "@/lib/site/registry";
 import { sitePagePreviewUrl } from "@/lib/site/preview";
 
 export const runtime = "nodejs";
 
 /**
- * One storefront page in the Website editor (Sassy pages: lib/site/pageDefaults.ts).
+ * One storefront page in the Website editor (pages per brand: lib/site/registry.ts).
  *
  *   GET   — draft + published blocks, publish history and the preview link.
  *           No row yet = the store's built-in default, returned as the draft.
@@ -23,8 +22,6 @@ export const runtime = "nodejs";
  *
  * Internal-only; writes use the service role (site_pages has RLS, no policies).
  */
-
-const PAGES: Record<string, readonly string[]> = { Sassy: SITE_PAGES.map((p) => p.slug), NI: [] };
 
 type Ctx = { params: Promise<{ brand: string; slug: string }> };
 
@@ -47,7 +44,7 @@ async function resolve(request: Request, ctx: Ctx) {
   const user = await requireInternalUser(request);
   if (!user) return { error: NextResponse.json({ error: "Not authenticated" }, { status: 401 }) };
   const { brand, slug } = await ctx.params;
-  if (!isBlogBrand(brand) || !PAGES[brand]?.includes(slug)) {
+  if (!isSiteBrand(brand) || !sitePageFor(brand, slug)) {
     return { error: NextResponse.json({ error: "Unknown page" }, { status: 404 }) };
   }
   return { user, brand, slug };
@@ -62,12 +59,12 @@ async function loadRow(brand: string, slug: string) {
     .maybeSingle<PageRow>();
 }
 
-async function respond(brand: "Sassy" | "NI", slug: string) {
+async function respond(brand: SiteBrand, slug: string) {
   const { data: row, error } = await loadRow(brand, slug);
   if (error) {
     if (notReady(error.message)) {
       return NextResponse.json({
-        draft: defaultBlocks(slug),
+        draft: siteDefaults(brand, slug),
         published: null,
         publishedAt: null,
         updatedAt: null,
@@ -92,8 +89,8 @@ async function respond(brand: "Sassy" | "NI", slug: string) {
   }
 
   return NextResponse.json({
-    draft: normalizePage(slug, row?.draft_blocks) ?? defaultBlocks(slug),
-    published: row?.published_blocks ? normalizePage(slug, row.published_blocks) : null,
+    draft: normalizeSitePage(brand, slug, row?.draft_blocks) ?? siteDefaults(brand, slug),
+    published: row?.published_blocks ? normalizeSitePage(brand, slug, row.published_blocks) : null,
     publishedAt: row?.published_at ?? null,
     updatedAt: row?.updated_at ?? null,
     versions,
@@ -130,7 +127,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   const r = await resolve(request, ctx);
   if ("error" in r) return r.error;
   const body = (await request.json().catch(() => ({}))) as { blocks?: unknown };
-  const blocks = normalizePage(r.slug, body.blocks);
+  const blocks = normalizeSitePage(r.brand, r.slug, body.blocks);
   if (!blocks) return NextResponse.json({ error: "blocks must be an array" }, { status: 400 });
   const failed = await saveDraft(r.brand, r.slug, blocks, r.user.id);
   if (failed) return failed;
@@ -157,7 +154,7 @@ export async function POST(request: Request, ctx: Ctx) {
   switch (body.action) {
     case "publish": {
       if (!row) return NextResponse.json({ error: "Nothing saved yet." }, { status: 400 });
-      const blocks = normalizePage(r.slug, row.draft_blocks) ?? defaultBlocks(r.slug);
+      const blocks = normalizeSitePage(r.brand, r.slug, row.draft_blocks) ?? siteDefaults(r.brand, r.slug);
       const now = new Date().toISOString();
       const { error: upErr } = await supabaseServer
         .from("site_pages")
@@ -176,7 +173,7 @@ export async function POST(request: Request, ctx: Ctx) {
       const failed = await saveDraft(
         r.brand,
         r.slug,
-        normalizePage(r.slug, row.published_blocks) ?? defaultBlocks(r.slug),
+        normalizeSitePage(r.brand, r.slug, row.published_blocks) ?? siteDefaults(r.brand, r.slug),
         r.user.id,
       );
       if (failed) return failed;
@@ -196,14 +193,14 @@ export async function POST(request: Request, ctx: Ctx) {
       const failed = await saveDraft(
         r.brand,
         r.slug,
-        normalizePage(r.slug, v.blocks) ?? defaultBlocks(r.slug),
+        normalizeSitePage(r.brand, r.slug, v.blocks) ?? siteDefaults(r.brand, r.slug),
         r.user.id,
       );
       if (failed) return failed;
       break;
     }
     case "reset": {
-      const failed = await saveDraft(r.brand, r.slug, defaultBlocks(r.slug), r.user.id);
+      const failed = await saveDraft(r.brand, r.slug, siteDefaults(r.brand, r.slug), r.user.id);
       if (failed) return failed;
       break;
     }

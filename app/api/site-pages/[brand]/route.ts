@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { SITE_PAGES } from "@/lib/site/pageDefaults";
+import { isSiteBrand, sitePagesFor } from "@/lib/site/registry";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ brand: stri
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   const { brand } = await ctx.params;
-  if (brand !== "Sassy") return NextResponse.json({ pages: [] });
+  if (!isSiteBrand(brand)) return NextResponse.json({ pages: [] });
 
   const { data, error } = await supabaseServer
     .from("site_pages")
@@ -24,7 +24,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ brand: stri
   const rows = error ? [] : (data ?? []);
 
   return NextResponse.json({
-    pages: SITE_PAGES.map((p) => {
+    pages: sitePagesFor(brand).map((p) => {
       const row = rows.find((r) => r.slug === p.slug);
       return {
         slug: p.slug,

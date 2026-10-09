@@ -23,7 +23,8 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { BLOCK_INFO, LIMITS, type PageBlock } from "@/lib/site/pageBlocks";
-import { SITE_PAGES, getSitePage, newPageBlock, type SitePageDef } from "@/lib/site/pageDefaults";
+import type { SitePageDef } from "@/lib/site/pageBlocks";
+import { SITE_BRANDS, isSiteBrand, newSiteBlock, sitePageFor, sitePagesFor, type SiteBrand } from "@/lib/site/registry";
 import BlockInspector, { type CatalogItem } from "./BlockInspector";
 import { IconButton, move } from "./fields";
 
@@ -38,7 +39,6 @@ type PageState = {
   hint?: string;
 };
 
-const BRAND = "Sassy";
 
 type PageStatus = { slug: string; publishedAt: string | null; updatedAt: string | null; unpublished: boolean };
 
@@ -48,8 +48,8 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function call<T>(slug: string, method: string, body?: unknown): Promise<T> {
-  const res = await fetch(`/api/site-pages/${BRAND}/${slug}`, {
+async function call<T>(brand: SiteBrand, slug: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/site-pages/${brand}/${slug}`, {
     method,
     headers: { "Content-Type": "application/json", ...(await authHeader()) },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -118,7 +118,27 @@ function summary(b: PageBlock): string {
       return b.heading;
     case "catalog":
     case "story_cover":
+    case "living_hero":
       return "Filled automatically";
+    case "collection_showcase":
+      return `${b.heading} · panels fill automatically`;
+    case "seed_band":
+    case "seed_cards":
+      return `${b.heading.replace(/\n/g, " ")} · ${b.items.map((x) => x.name).join(", ")}`;
+    case "statement":
+      return b.heading.replace(/\n/g, " ");
+    case "checklist":
+      return `${b.heading} · ${b.items.length} points`;
+    case "two_lists":
+      return [b.leftTitle, b.rightTitle].filter(Boolean).join(" / ");
+    case "pillars":
+      return b.items.map((x) => x.title).join(" · ");
+    case "link_grid":
+      return `${b.heading} · ${b.items.length} links`;
+    case "link_cards":
+      return b.cards.map((c) => c.title).join(" · ");
+    case "faq":
+      return `${b.heading || "Questions"} · ${b.items.length}`;
   }
 }
 
@@ -132,39 +152,65 @@ function summary(b: PageBlock): string {
  * draft; nothing reaches the live site until Publish.
  */
 export default function SiteEditorPage() {
-  // The page being edited lives in the URL (?page=<slug>) so it deep-links.
+  // Store + page live in the URL (?brand=…&page=…) so they deep-link.
   const router = useRouter();
-  const q = useSearchParams().get("page");
-  const slug = q && getSitePage(q) ? q : "home";
+  const params = useSearchParams();
+  const b = params.get("brand");
+  const brand: SiteBrand = isSiteBrand(b) ? b : "Sassy";
+  const q = params.get("page");
+  const slug = q && sitePageFor(brand, q) ? q : "home";
   const [statuses, setStatuses] = useState<PageStatus[]>([]);
   const [statusTick, setStatusTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
-    fetchStatuses().then((pages) => {
-      if (alive && pages) setStatuses(pages);
+    fetchStatuses(brand).then((pages) => {
+      if (alive) setStatuses(pages ?? []);
     });
     return () => {
       alive = false;
     };
-  }, [statusTick]);
+  }, [brand, statusTick]);
 
   const refreshStatuses = useCallback(() => setStatusTick((t) => t + 1), []);
 
+  const go = (nextBrand: SiteBrand, nextSlug: string) =>
+    router.replace(`?brand=${nextBrand}&page=${nextSlug}`, { scroll: false });
+
   const picker = (
-    <PagePicker
+    <div className="space-y-2">
+      <div className="flex rounded-lg bg-gray-100 p-0.5 text-xs font-semibold">
+        {SITE_BRANDS.map((x) => (
+          <button
+            key={x.brand}
+            type="button"
+            onClick={() => go(x.brand, sitePageFor(x.brand, slug) ? slug : "home")}
+            className={`flex-1 rounded-md px-2.5 py-1.5 transition ${
+              brand === x.brand ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <PagePicker brand={brand} slug={slug} statuses={statuses} onChange={(next) => go(brand, next)} />
+    </div>
+  );
+  return (
+    <PageEditor
+      key={`${brand}:${slug}`}
+      brand={brand}
       slug={slug}
-      statuses={statuses}
-      onChange={(next) => router.replace(`?page=${next}`, { scroll: false })}
+      picker={picker}
+      onChanged={refreshStatuses}
     />
   );
-  return <PageEditor key={slug} slug={slug} picker={picker} onChanged={refreshStatuses} />;
 }
 
 /** Every page with its publish state, for the picker (null on failure). */
-async function fetchStatuses(): Promise<PageStatus[] | null> {
+async function fetchStatuses(brand: SiteBrand): Promise<PageStatus[] | null> {
   try {
-    const res = await fetch(`/api/site-pages/${BRAND}`, { headers: await authHeader() });
+    const res = await fetch(`/api/site-pages/${brand}`, { headers: await authHeader() });
     return res.ok ? ((await res.json()) as { pages: PageStatus[] }).pages : null;
   } catch {
     return null;
@@ -172,15 +218,18 @@ async function fetchStatuses(): Promise<PageStatus[] | null> {
 }
 
 function PagePicker({
+  brand,
   slug,
   statuses,
   onChange,
 }: {
+  brand: SiteBrand;
   slug: string;
   statuses: PageStatus[];
   onChange: (slug: string) => void;
 }) {
-  const groups = [...new Set(SITE_PAGES.map((p) => p.group))];
+  const pages = sitePagesFor(brand);
+  const groups = [...new Set(pages.map((p) => p.group))];
   const label = (p: SitePageDef) => {
     const st = statuses.find((x) => x.slug === p.slug);
     const tag = !st?.updatedAt ? "" : st.unpublished ? "  — unpublished changes" : "  — published";
@@ -195,7 +244,7 @@ function PagePicker({
     >
       {groups.map((g) => (
         <optgroup key={g} label={g}>
-          {SITE_PAGES.filter((p) => p.group === g).map((p) => (
+          {pages.filter((p) => p.group === g).map((p) => (
             <option key={p.slug} value={p.slug}>
               {label(p)}
             </option>
@@ -207,15 +256,18 @@ function PagePicker({
 }
 
 function PageEditor({
+  brand,
   slug,
   picker,
   onChanged,
 }: {
+  brand: SiteBrand;
   slug: string;
   picker: React.ReactNode;
   onChanged: () => void;
 }) {
-  const def = getSitePage(slug)!;
+  const def = sitePageFor(brand, slug)!;
+  const host = SITE_BRANDS.find((x) => x.brand === brand)!.host;
   const [previewPart, setPreviewPart] = useState("");
   const [page, setPage] = useState<PageState | null>(null);
   const [blocks, setBlocks] = useState<PageBlock[]>([]);
@@ -238,7 +290,7 @@ function PageEditor({
 
   const load = useCallback(async () => {
     try {
-      const data = await call<PageState>(slug, "GET");
+      const data = await call<PageState>(brand, slug, "GET");
       setPage(data);
       setBlocks(data.draft);
       blocksRef.current = data.draft;
@@ -247,7 +299,7 @@ function PageEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load the page.");
     }
-  }, [slug]);
+  }, [brand, slug]);
 
   useEffect(() => {
     load();
@@ -260,7 +312,7 @@ function PageEditor({
       const { data } = await supabaseBrowser()
         .from("storefront_products")
         .select("part, display_name")
-        .eq("brand", BRAND)
+        .eq("brand", brand)
         .order("display_name")
         .limit(2000);
       if (cancelled || !data) return;
@@ -274,7 +326,7 @@ function PageEditor({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [brand]);
 
   // ── autosave ───────────────────────────────────────────────────────────
   const save = useCallback(async () => {
@@ -285,7 +337,7 @@ function PageEditor({
     savingRef.current = true;
     setSaveState("saving");
     try {
-      const res = await call<{ updatedAt: string | null; previewUrl: string | null }>(slug, "PUT", {
+      const res = await call<{ updatedAt: string | null; previewUrl: string | null }>(brand, slug, "PUT", {
         blocks: blocksRef.current,
       });
       setPage((p) => (p ? { ...p, updatedAt: res.updatedAt, previewUrl: res.previewUrl ?? p.previewUrl } : p));
@@ -302,7 +354,7 @@ function PageEditor({
         save();
       }
     }
-  }, [slug, onChanged]);
+  }, [brand, slug, onChanged]);
 
   // Switching pages unmounts this editor: save a pending edit right away.
   useEffect(
@@ -354,7 +406,7 @@ function PageEditor({
       await flush();
       // First publish of a never-saved page: create the row first.
       if (name === "publish" && !page?.updatedAt) await save();
-      const data = await call<PageState>(slug, "POST", { action: name, versionId });
+      const data = await call<PageState>(brand, slug, "POST", { action: name, versionId });
       setPage(data);
       setBlocks(data.draft);
       blocksRef.current = data.draft;
@@ -400,7 +452,8 @@ function PageEditor({
           <div className="flex items-end justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="mb-1 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                sassyandco.com{def.path}
+                {host}
+                {def.path}
               </div>
               {picker}
             </div>
@@ -489,6 +542,7 @@ function PageEditor({
                 block={current}
                 catalog={catalog}
                 slug={slug}
+                brand={brand}
                 onChange={(b) => update(blocks.map((x) => (x.id === b.id ? b : x)))}
               />
             </div>
@@ -575,7 +629,7 @@ function PageEditor({
                           type="button"
                           onClick={() => {
                             const id = `${t}-${Math.random().toString(36).slice(2, 8)}`;
-                            update([...blocks, newPageBlock(t, id)]);
+                            update([...blocks, newSiteBlock(brand, t, id)]);
                             setSelected(id);
                             setMenu(null);
                           }}

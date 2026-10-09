@@ -1,18 +1,21 @@
 /**
- * The editable storefront pages, what each may contain, and their defaults
- * (the pages exactly as they were hand-coded, Oct 2026).
+ * The editable SASSY storefront pages, what each may contain, and their
+ * defaults (the pages exactly as they were hand-coded, Oct 2026). NI's
+ * pages live in pageDefaultsNi.ts.
  *
  * KEEP IN SYNC: byte-identical in fmg lib/site/ and store/sassy
  * src/lib/fmg/ — see pageBlocks.ts.
  */
 import {
-  BLOCK_INFO,
-  LIMITS,
-  normalizeBlock,
+  newBlockFor,
+  normalizePageFor,
   type HeroBlock,
   type PageBlock,
   type PageBlockType,
+  type SitePageDef,
 } from "./pageBlocks";
+
+export type { SitePageDef };
 
 export type SitePageSlug =
   | "home"
@@ -27,21 +30,6 @@ export type SitePageSlug =
   | "payment-terms"
   | "terms"
   | "privacy";
-
-export type SitePageDef = {
-  slug: SitePageSlug;
-  label: string;
-  /** Where it lives on the site (shown in the editor). */
-  path: string;
-  group: "Main" | "Shopping" | "About" | "Policies";
-  /** One-line explanation in the editor. */
-  note: string;
-  /** Block types editors may add (locked blocks come from the default). */
-  addable: PageBlockType[];
-  /** Fixed pages: fields only — no adding, deleting or reordering. */
-  fixed?: boolean;
-  defaults: PageBlock[];
-};
 
 // ── defaults ───────────────────────────────────────────────────────────────
 
@@ -362,6 +350,10 @@ const CONTACT: PageBlock[] = [
         title: "We reply as fast as we can",
         body: "We try to get back to everyone at all times — weekends might just be a little slower.",
         email: "",
+        phone: "",
+        details: "",
+        linkLabel: "",
+        linkHref: "",
       },
       {
         id: "press",
@@ -370,6 +362,10 @@ const CONTACT: PageBlock[] = [
         title: "",
         body: "Stockists, PR samples, line sheets:",
         email: "jekelund@fragrancemarketinggroup.com",
+        phone: "",
+        details: "",
+        linkLabel: "",
+        linkHref: "",
       },
     ],
   },
@@ -533,47 +529,11 @@ export function getSitePage(slug: string): SitePageDef | undefined {
   return SITE_PAGES.find((p) => p.slug === slug);
 }
 
-/**
- * Coerce anything into a valid block list for `slug`: unknown or
- * not-allowed types dropped, every locked block of the default present
- * exactly once (missing ones restored from the default), pinned blocks
- * first, single-use blocks deduped. Fixed pages keep the default's blocks
- * and order — only their fields come from the input.
- * Returns null for an unknown page or input that isn't an array.
- */
+/** Normalize a Sassy page (see normalizePageFor). Null for an unknown page
+ *  or input that isn't an array. */
 export function normalizePage(slug: string, input: unknown): PageBlock[] | null {
   const page = getSitePage(slug);
-  if (!page || !Array.isArray(input)) return null;
-  const ids = new Set<string>();
-  const lockedTypes = new Set(page.defaults.filter((b) => BLOCK_INFO[b.type].locked).map((b) => b.type));
-  const allowed = new Set<PageBlockType>([...page.addable, ...lockedTypes]);
-
-  const seen = new Set<PageBlockType>();
-  const out: PageBlock[] = [];
-  for (const raw of input.slice(0, LIMITS.blocks)) {
-    const b = normalizeBlock(raw, ids);
-    if (!b || !allowed.has(b.type)) continue;
-    const info = BLOCK_INFO[b.type];
-    if ((info.locked || info.single) && seen.has(b.type)) continue;
-    seen.add(b.type);
-    out.push(b);
-  }
-
-  if (page.fixed) {
-    return page.defaults.map((d) => out.find((b) => b.type === d.type) ?? d);
-  }
-
-  // Restore missing locked blocks at their default position.
-  page.defaults.forEach((d, i) => {
-    if (lockedTypes.has(d.type) && !seen.has(d.type)) out.splice(Math.min(i, out.length), 0, d);
-  });
-  // Hero with no usable slides → the default slides.
-  for (let i = 0; i < out.length; i++) {
-    const b = out[i];
-    if (b.type === "hero" && b.slides.length === 0) out[i] = { ...b, slides: DEFAULT_HERO.slides };
-  }
-  const pinned = out.filter((b) => BLOCK_INFO[b.type].pinned);
-  return [...pinned, ...out.filter((b) => !BLOCK_INFO[b.type].pinned)];
+  return page ? normalizePageFor(page, input) : null;
 }
 
 /** The default blocks of a page (for "start over" and fallbacks). */
@@ -583,47 +543,5 @@ export function defaultBlocks(slug: string): PageBlock[] {
 
 /** A fresh block of `type` for the editor's "Add block" menu. */
 export function newPageBlock(type: PageBlockType, id: string): PageBlock {
-  const fromDefaults = SITE_PAGES.flatMap((p) => p.defaults).find((b) => b.type === type);
-  switch (type) {
-    case "product_row":
-      return { id, type, heading: "New arrivals", linkLabel: "Shop all →", linkHref: "/shop", source: "pick", parts: [], count: 4 };
-    case "promo_banner":
-      return { id, type, eyebrow: "limited time", text: "Free shipping on orders over $50", ctaLabel: "Shop now", ctaHref: "/shop", tone: "pink" };
-    case "image_text":
-      return {
-        id,
-        type,
-        image: "",
-        imageAlt: "",
-        imageSide: "left",
-        eyebrow: "our story",
-        heading: "Made in small batches",
-        body: "Tell the story here.",
-        ctaLabel: "Read more",
-        ctaHref: "/story",
-        tone: "blush",
-      };
-    case "rich_text":
-      return { id, type, html: "<h2>A heading</h2><p>Write something here.</p>" };
-    case "quote":
-      return { id, type, eyebrow: "", text: "Something worth saying big.", highlight: "", footnote: "" };
-    case "stats":
-      return {
-        id,
-        type,
-        items: [
-          { id: "s1", value: "6", label: "Personalities" },
-          { id: "s2", value: "100%", label: "Vegan" },
-        ],
-      };
-    case "cta":
-      return { id, type, heading: "Ready when you are.", primaryLabel: "Shop now", primaryHref: "/shop", secondaryLabel: "", secondaryHref: "" };
-    case "callout":
-      return { id, type, eyebrow: "heads up", heading: "A short heading", html: "<p>A sentence or two.</p>" };
-    case "link_list":
-      return { id, type, heading: "A list of links", subheading: "", items: [{ id: "l1", label: "First link", note: "", href: "/shop" }] };
-    default:
-      if (fromDefaults) return { ...structuredClone(fromDefaults), id } as PageBlock;
-      return { id, type: "rich_text", html: "" };
-  }
+  return newBlockFor(type, id, SITE_PAGES);
 }
