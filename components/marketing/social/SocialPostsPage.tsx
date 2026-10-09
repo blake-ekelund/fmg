@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Film, Images, Loader2, Plus, Share2 } from "lucide-react";
-import clsx from "clsx";
 import PageHeader from "@/components/ui/PageHeader";
 import TabNav, { type Tab } from "@/components/ui/TabNav";
 import { useBrand } from "@/components/BrandContext";
@@ -238,73 +237,43 @@ function PostRow({ post: p }: { post: SocialPost }) {
   );
 }
 
+/**
+ * Silent when Meta is working. Only speaks up when something is actually
+ * broken: no token at all, or a brand that IS set up failing to connect. A
+ * brand with no Page id yet (Sassy for now) just isn't offered — no warning.
+ */
 function ConnectionStrip({ conn }: { conn: MetaConnectionStatus | null }) {
   if (!conn) return null;
-  if (!conn.configured) {
+  const broken = conn.configured ? conn.brands.filter((b) => b.configured && !b.ok) : [];
+  const noneSetUp = conn.configured && conn.brands.every((b) => !b.configured);
+  if (conn.configured && !noneSetUp && broken.length === 0) return null;
+  if (noneSetUp) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        <span className="font-medium">Meta isn&apos;t connected yet.</span> You can write and schedule posts now; they&apos;ll
-        go out once <code className="text-xs">META_ACCESS_TOKEN</code> and the Page ids are set in Vercel (see
-        docs/integrations.md, Meta section).
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+        Meta is connected but no brand has a Page yet. Set META_PAGE_ID_NI / META_PAGE_ID_SASSY in Vercel:
+        <ul className="mt-1 font-mono text-xs">
+          {(conn.visiblePages ?? []).map((p) => (
+            <li key={p.id}>
+              {p.id} — {p.name}
+              {p.instagram ? ` (IG @${p.instagram})` : ""}
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        {conn.brands.map((b) => (
-          <div
-            key={b.brand}
-            className={clsx(
-              "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs",
-              b.ok ? "border-gray-200 bg-white text-gray-600" : "border-amber-200 bg-amber-50 text-amber-800",
-            )}
-            title={b.error ?? undefined}
-          >
-            <BrandPill brand={b.brand} />
-            {b.facebook ? <span>FB: {b.facebook.name}</span> : <span>No Facebook Page</span>}
-            <span className="text-gray-300">·</span>
-            {b.instagram ? (
-              <span>
-                IG: @{b.instagram.username ?? b.instagram.id}
-                {b.instagram.quota && (
-                  <span className="text-gray-400">
-                    {" "}
-                    ({b.instagram.quota.used}/{b.instagram.quota.total} today)
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span>No Instagram</span>
-            )}
-            {b.error && !b.ok && <AlertTriangle size={12} />}
-          </div>
-        ))}
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+      <div>
+        {!conn.configured
+          ? "Meta isn't connected, so nothing will post. Set META_ACCESS_TOKEN in Vercel (docs/integrations.md, Meta section)."
+          : broken.map((b) => (
+              <div key={b.brand}>
+                {b.brand} can&apos;t post right now: {b.error}
+              </div>
+            ))}
       </div>
-      {conn.brands.some((b) => b.error) && (
-        <ul className="space-y-0.5 text-xs text-amber-700">
-          {conn.brands
-            .filter((b) => b.error)
-            .map((b) => (
-              <li key={b.brand}>
-                {b.brand}: {b.error}
-              </li>
-            ))}
-        </ul>
-      )}
-      {conn.visiblePages && conn.visiblePages.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-          Pages this token can post to (set META_PAGE_ID_SASSY / META_PAGE_ID_NI):
-          <ul className="mt-1 space-y-0.5 font-mono">
-            {conn.visiblePages.map((p) => (
-              <li key={p.id}>
-                {p.id} — {p.name}
-                {p.instagram ? ` (IG @${p.instagram})` : " (no IG linked)"}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

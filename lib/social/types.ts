@@ -50,6 +50,8 @@ export type SocialPost = {
 /** GET /api/social/status — which Page / IG account each brand posts to. */
 export type BrandConnection = {
   brand: SocialBrand;
+  /** A Page id is set for this brand. Unconfigured brands aren't an error. */
+  configured: boolean;
   ok: boolean;
   facebook: { id: string; name: string } | null;
   instagram: { id: string; username: string | null; quota: { used: number; total: number } | null } | null;
