@@ -4,6 +4,10 @@
  * → Satori), so it sticks to what Satori supports: inline styles, flexbox
  * only, every element with more than one child is display:flex, no CSS
  * classes, no grid.
+ *
+ * data-el marks what the canvas editor turns into layers when it converts a
+ * template slide (components/marketing/social/canvas/convertLayout.ts):
+ * "frame" (background), "text", "image", "box" (a shape), "boxtext" (both).
  */
 
 import type { CSSProperties, ReactNode } from "react";
@@ -31,7 +35,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
   const tone = t.tones[s.tone];
 
   const head = (text: string, size?: number, extra: CSSProperties = {}): ReactNode => (
-    <div
+    <div data-el="text"
       style={{
         display: "flex",
         fontFamily: t.headFont,
@@ -49,7 +53,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
 
   const kicker = (color: string): ReactNode =>
     s.kicker ? (
-      <div
+      <div data-el="text"
         style={{
           display: "flex",
           fontFamily: t.bodyFont,
@@ -67,7 +71,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
 
   const body = (text: string, color: string, size = 38, extra: CSSProperties = {}): ReactNode =>
     text ? (
-      <div
+      <div data-el="text"
         style={{
           display: "flex",
           fontFamily: t.bodyFont,
@@ -95,8 +99,8 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
         color,
       }}
     >
-      <div style={{ display: "flex" }}>{t.wordmark}</div>
-      <div style={{ display: "flex", letterSpacing: 2 }}>{total > 1 ? `${index} / ${total}` : ""}</div>
+      <div data-el="text" style={{ display: "flex" }}>{t.wordmark}</div>
+      <div data-el="text" style={{ display: "flex", letterSpacing: 2 }}>{total > 1 ? `${index} / ${total}` : ""}</div>
     </div>
   );
 
@@ -114,7 +118,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
   const fullImage = (src: string): ReactNode =>
     src ? (
       // eslint-disable-next-line @next/next/no-img-element
-      <img
+      <img data-el="image"
         src={src}
         alt=""
         width={SLIDE_W}
@@ -128,10 +132,10 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
       const onPhoto = !!s.image;
       const ink = onPhoto ? "#FFFFFF" : tone.ink;
       return (
-        <div style={frame}>
+        <div data-el="frame" style={frame}>
           {fullImage(s.image)}
           {onPhoto && (
-            <div
+            <div data-el="box"
               style={{
                 position: "absolute",
                 top: 0,
@@ -157,10 +161,10 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
 
     case "photo":
       return (
-        <div style={frame}>
+        <div data-el="frame" style={frame}>
           {fullImage(s.image)}
           {s.headline ? (
-            <div
+            <div data-el="box"
               style={{
                 position: "absolute",
                 left: 0,
@@ -181,10 +185,10 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
 
     case "product":
       return (
-        <div style={{ ...frame, padding: PAD }}>
+        <div data-el="frame" style={{ ...frame, padding: PAD }}>
           {footer(tone.muted)}
           {/* Product shots are on white, so they sit on a white card on purpose. */}
-          <div
+          <div data-el="box"
             style={{
               display: "flex",
               flex: 1,
@@ -198,7 +202,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
           >
             {s.image ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={s.image} alt="" width={760} height={600} style={{ width: 760, height: 600, objectFit: "contain" }} />
+              <img data-el="image" src={s.image} alt="" width={760} height={600} style={{ width: 760, height: 600, objectFit: "contain" }} />
             ) : (
               <div style={{ display: "flex", fontFamily: t.bodyFont, fontSize: 28, color: "#9CA3AF" }}>Add a product photo</div>
             )}
@@ -208,7 +212,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
             {head(s.headline, Math.min(72, headSize(s.headline, t.headUpper)))}
             {body(s.body, tone.muted, 36, { marginTop: 18 })}
             {s.meta ? (
-              <div style={{ display: "flex", marginTop: 22, fontFamily: t.bodyFont, fontWeight: 700, fontSize: 38, color: tone.accent }}>
+              <div data-el="text" style={{ display: "flex", marginTop: 22, fontFamily: t.bodyFont, fontWeight: 700, fontSize: 38, color: tone.accent }}>
                 {s.meta}
               </div>
             ) : null}
@@ -218,7 +222,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
 
     case "list":
       return (
-        <div style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
+        <div data-el="frame" style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
           {footer(tone.muted)}
           <div style={{ display: "flex", flexDirection: "column" }}>
             {kicker(tone.accent)}
@@ -226,7 +230,7 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
             <div style={{ display: "flex", flexDirection: "column", marginTop: 48 }}>
               {s.items.map((item, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", marginTop: i ? 30 : 0 }}>
-                  <div
+                  <div data-el="boxtext"
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -256,10 +260,10 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
 
     case "quote":
       return (
-        <div style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
+        <div data-el="frame" style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
           {footer(tone.muted)}
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", fontFamily: t.headFont, fontWeight: t.headWeight, fontSize: 220, lineHeight: 0.8, color: tone.accent }}>
+            <div data-el="text" style={{ display: "flex", fontFamily: t.headFont, fontWeight: t.headWeight, fontSize: 220, lineHeight: 0.8, color: tone.accent }}>
               “
             </div>
             {head(s.headline, Math.min(76, headSize(s.headline, t.headUpper)), {
@@ -274,14 +278,14 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
 
     case "cta":
       return (
-        <div style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
+        <div data-el="frame" style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
           {footer(tone.muted)}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
             {kicker(tone.accent)}
             {head(s.headline, undefined, { textAlign: "center", justifyContent: "center" })}
             {body(s.body, tone.muted, 40, { marginTop: 30, textAlign: "center", justifyContent: "center" })}
             {s.meta ? (
-              <div
+              <div data-el="boxtext"
                 style={{
                   display: "flex",
                   marginTop: 56,
@@ -306,12 +310,12 @@ export default function SlideView({ slide: s, brand, index, total }: Props) {
     case "text":
     default:
       return (
-        <div style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
+        <div data-el="frame" style={{ ...frame, padding: PAD, justifyContent: "space-between" }}>
           {footer(tone.muted)}
           <div style={{ display: "flex", flexDirection: "column" }}>
             {kicker(tone.accent)}
             {head(s.headline)}
-            <div style={{ display: "flex", width: 96, height: 4, background: tone.accent, margin: "44px 0" }} />
+            <div data-el="box" style={{ display: "flex", width: 96, height: 4, background: tone.accent, margin: "44px 0" }} />
             {body(s.body, tone.muted, 40)}
           </div>
           <div style={{ display: "flex" }} />

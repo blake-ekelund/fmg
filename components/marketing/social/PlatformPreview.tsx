@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import clsx from "clsx";
-import type { Slide } from "@/lib/social/design";
+import type { DesignSlide } from "@/lib/social/design";
 import type { SocialBrand, SocialMedia, SocialPlatform, SocialPostType } from "@/lib/social/types";
 import SlidePreview from "./SlidePreview";
 
@@ -30,7 +30,7 @@ import SlidePreview from "./SlidePreview";
  * screenshot — Meta's apps vary a little by phone and version.
  */
 
-type Visual = { key: string; slide?: Slide; media?: SocialMedia };
+type Visual = { key: string; slide?: DesignSlide; media?: SocialMedia };
 
 type Props = {
   open: boolean;
@@ -38,7 +38,7 @@ type Props = {
   brand: SocialBrand;
   platforms: SocialPlatform[];
   postType: SocialPostType;
-  slides: Slide[] | null;
+  slides: DesignSlide[] | null;
   media: SocialMedia[];
   caption: string;
   igHandle: string | null;

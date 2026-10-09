@@ -1,17 +1,17 @@
 "use client";
 
 import SlideView from "@/lib/social/SlideView";
-import { SLIDE_FONTS, SLIDE_H, SLIDE_W, type Slide } from "@/lib/social/design";
+import CanvasView from "@/lib/social/CanvasView";
+import { isCanvas, SLIDE_H, SLIDE_W, type DesignSlide } from "@/lib/social/design";
+import { fontFaceCss } from "@/lib/social/fonts";
 import type { SocialBrand } from "@/lib/social/types";
 
-/** @font-face for the slide fonts — the same files the server renders with. */
+/** @font-face for every slide font — the same files the server renders with. */
 export function SlideFonts() {
-  const css = SLIDE_FONTS.map(
-    (f) =>
-      `@font-face{font-family:"${f.family}";font-weight:${f.weight};font-style:${f.style};font-display:block;src:url(/fonts/social/${f.file}) format("truetype");}`,
-  ).join("");
-  return <style dangerouslySetInnerHTML={{ __html: css }} />;
+  return <style dangerouslySetInnerHTML={{ __html: fontFaceCss() }} />;
 }
+
+export const textureUrl = (id: string, tone: "dark" | "light") => `/textures/social/${id}-${tone}.png`;
 
 /** A slide drawn at `width` px wide (the real thing is 1080×1350, scaled). */
 export default function SlidePreview({
@@ -21,7 +21,7 @@ export default function SlidePreview({
   total,
   width,
 }: {
-  slide: Slide;
+  slide: DesignSlide;
   brand: SocialBrand;
   index: number;
   total: number;
@@ -31,7 +31,11 @@ export default function SlidePreview({
   return (
     <div style={{ width, height: SLIDE_H * scale, overflow: "hidden", position: "relative", flexShrink: 0 }}>
       <div style={{ width: SLIDE_W, height: SLIDE_H, transform: `scale(${scale})`, transformOrigin: "top left", position: "absolute" }}>
-        <SlideView slide={slide} brand={brand} index={index} total={total} />
+        {isCanvas(slide) ? (
+          <CanvasView slide={slide} index={index} total={total} textureSrc={textureUrl} />
+        ) : (
+          <SlideView slide={slide} brand={brand} index={index} total={total} />
+        )}
       </div>
     </div>
   );

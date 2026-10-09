@@ -13,7 +13,6 @@ import {
   Film,
   ImagePlus,
   Loader2,
-  Package,
   Plus,
   Trash2,
   Upload,
@@ -25,16 +24,16 @@ import { formatDateTime } from "@/components/marketing/blog/bits";
 import {
   LAYOUTS,
   SLIDES_MAX,
-  TONES,
   compileCaption,
+  isCanvas,
   emptyCaption,
   newSlide,
   slideProblems,
   starterDesign,
   type CaptionParts,
   type PostDesign,
+  type DesignSlide,
   type ProductOption,
-  type Slide,
   type SlideLayout,
 } from "@/lib/social/design";
 import {
@@ -69,13 +68,19 @@ import { ConfirmDialog } from "./bits";
 import BuilderHeader from "./BuilderHeader";
 import PlatformPreview from "./PlatformPreview";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
+import CanvasEditor from "./canvas/CanvasEditor";
+import { convertLayoutSlide } from "./canvas/convertLayout";
+import { useHistory } from "./canvas/useHistory";
+import { blankCanvas, type CanvasSlide } from "@/lib/social/canvas";
 
 /**
  * The social post builder (/marketing/social/[id]).
  *
- * Designed posts: a strip of slides on the left, the selected slide large in
- * the middle (drawn by the same SlideView the server renders to JPEG), and
- * an inspector on the right for the slide and the caption blocks. Photo /
+ * Designed posts: a strip of slides on the left, the selected slide on a free
+ * canvas in the middle (text, photos, shapes, textures — drag, resize,
+ * rotate; drawn by the same CanvasView the server renders to JPEG), and a
+ * Design / Layers / Caption panel on the right. Template slides (what the
+ * AI writes) are converted to canvas slides when the post is opened. Photo /
  * video posts swap the slides for a media picker and a plain caption.
  *
  * Everything autosaves 1.5 s after the last change. Schedule and Publish now
@@ -109,17 +114,21 @@ export default function SocialPostBuilder({ id }: { id: string }) {
   const [brand, setBrand] = useState<SocialBrand>("NI");
   const [platforms, setPlatforms] = useState<SocialPlatform[]>([]);
   const [when, setWhen] = useState("");
-  const [design, setDesign] = useState<PostDesign | null>(null);
+  // The design has undo/redo; everything else autosaves as plain state.
+  const history = useHistory<PostDesign | null>(null);
+  const design = history.value;
+  const setDesign = history.set;
+  const [converting, setConverting] = useState(false);
   const [caption, setCaption] = useState("");
   const [media, setMedia] = useState<SocialMedia[]>([]);
   const [postType, setPostType] = useState<SocialPostType>("image");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"slide" | "caption">("slide");
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [busy, setBusy] = useState<null | "schedule" | "publish" | "draft" | "retry" | "delete" | "upload">(null);
   const [error, setError] = useState<string | null>(null);
-  const [picker, setPicker] = useState<null | "library" | "product" | "media">(null);
+  const [picker, setPicker] = useState<null | "media">(null);
+  const [imageRequest, setImageRequest] = useState<{ source: "library" | "product"; onPicked: (url: string) => void } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [confirm, setConfirm] = useState<null | { kind: "publish" | "delete" | "photos" } | { kind: "slide"; index: number }>(null);
 
@@ -133,12 +142,13 @@ export default function SocialPostBuilder({ id }: { id: string }) {
     setBrand(p.brand);
     setPlatforms(p.platforms);
     setWhen(toLocalInput(p.scheduled_at));
-    setDesign(p.design ?? null);
+    history.reset(p.design ?? null);
     setCaption(p.caption);
     setMedia(p.media);
     setPostType(p.post_type);
     setSelectedId((cur) => cur ?? p.design?.slides[0]?.id ?? null);
     setSaveState("saved");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -147,6 +157,27 @@ export default function SocialPostBuilder({ id }: { id: string }) {
       .catch((e) => setLoadError(e instanceof Error ? e.message : "Couldn't load the post."));
     getSocialStatus().then(setConn).catch(() => setConn(null));
   }, [id, hydrate]);
+
+  // Template slides (from the AI wizard or older posts) become editable
+  // canvas slides the first time the post is opened. Posted posts stay as they are.
+  useEffect(() => {
+    if (!design || !design.slides.some((s) => !isCanvas(s)) || converting) return;
+    if (post && (post.status === "published" || post.status === "partial" || post.status === "publishing")) return;
+    let alive = true;
+    setConverting(true);
+    const total = design.slides.length;
+    Promise.all(design.slides.map((s, i) => (isCanvas(s) ? Promise.resolve(s) : convertLayoutSlide(s, brand, i + 1, total))))
+      .then((slides) => {
+        if (!alive) return;
+        history.reset({ ...design, slides });
+      })
+      .catch((e) => alive && setError(`Couldn't open the slides for editing: ${e instanceof Error ? e.message : String(e)}`))
+      .finally(() => alive && setConverting(false));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design, post?.status]);
 
   const status = post?.status ?? "draft";
   const locked = status === "publishing" || status === "published" || status === "partial";
@@ -229,21 +260,27 @@ export default function SocialPostBuilder({ id }: { id: string }) {
 
   /* ── Slide editing ──────────────────────────────────────────── */
 
-  function updateSlide(patch: Partial<Slide>) {
-    if (!design || !selected) return;
-    setDesign({ ...design, slides: design.slides.map((s) => (s.id === selected.id ? { ...s, ...patch } : s)) });
-  }
   function setCaptionParts(patch: Partial<CaptionParts>) {
     if (!design) return;
-    setDesign({ ...design, caption: { ...design.caption, ...patch } });
+    setDesign({ ...design, caption: { ...design.caption, ...patch } }, `caption:${Object.keys(patch).join(",")}`);
   }
-  function addSlide(layout: SlideLayout) {
+  function updateCanvas(next: CanvasSlide, key?: string) {
+    if (!design) return;
+    setDesign({ ...design, slides: design.slides.map((s) => (s.id === next.id ? next : s)) }, key);
+  }
+  async function addSlide(layout: SlideLayout | "blank") {
     if (!design || design.slides.length >= SLIDES_MAX) return;
-    const s = newSlide(layout, brand);
     const at = selectedIndex + 1;
+    const total = design.slides.length + 1;
+    let s: DesignSlide;
+    try {
+      s = layout === "blank" ? blankCanvas(brand) : await convertLayoutSlide(newSlide(layout, brand), brand, at + 1, total);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't add the slide.");
+      return;
+    }
     setDesign({ ...design, slides: [...design.slides.slice(0, at), s, ...design.slides.slice(at)] });
     setSelectedId(s.id);
-    setTab("slide");
   }
   function moveSlide(i: number, dir: -1 | 1) {
     if (!design) return;
@@ -255,7 +292,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
   }
   function duplicateSlide(i: number) {
     if (!design || design.slides.length >= SLIDES_MAX) return;
-    const copy = { ...design.slides[i], id: newSlide("text", brand).id };
+    const copy: DesignSlide = { ...design.slides[i], id: newSlide("text", brand).id };
     const next = [...design.slides];
     next.splice(i + 1, 0, copy);
     setDesign({ ...design, slides: next });
@@ -424,10 +461,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
                     "group relative shrink-0 cursor-pointer rounded-lg border-2 p-0.5 transition",
                     s.id === selected?.id ? "border-gray-900" : "border-transparent hover:border-gray-300",
                   )}
-                  onClick={() => {
-                    setSelectedId(s.id);
-                    setTab("slide");
-                  }}
+                  onClick={() => setSelectedId(s.id)}
                 >
                   <div className="overflow-hidden rounded-md">
                     <SlidePreview slide={s} brand={brand} index={i + 1} total={slides.length} width={120} />
@@ -457,7 +491,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
                 </div>
               ))}
             </div>
-            {!locked && slides.length < SLIDES_MAX && <AddSlideMenu onAdd={addSlide} />}
+            {!locked && slides.length < SLIDES_MAX && <AddSlideMenu onAdd={(l) => void addSlide(l)} />}
             {!locked && (
               <button onClick={switchToPhotos} className="block pt-2 text-left text-[11px] text-gray-400 hover:text-gray-700">
                 Use my own photos instead
@@ -465,72 +499,34 @@ export default function SocialPostBuilder({ id }: { id: string }) {
             )}
           </div>
 
-          {/* Canvas */}
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-            {selected && (
-              <>
-                <div className="overflow-hidden rounded-lg shadow-md">
-                  <SlidePreview slide={selected} brand={brand} index={selectedIndex + 1} total={slides.length} width={420} />
-                </div>
-                <div className="flex items-center gap-3 text-xs text-gray-500">
-                  <button
-                    onClick={() => setSelectedId(slides[Math.max(0, selectedIndex - 1)].id)}
-                    disabled={selectedIndex === 0}
-                    className="rounded-full p-1 hover:bg-gray-200 disabled:opacity-30"
-                    aria-label="Previous slide"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  Slide {selectedIndex + 1} of {slides.length}
-                  <button
-                    onClick={() => setSelectedId(slides[Math.min(slides.length - 1, selectedIndex + 1)].id)}
-                    disabled={selectedIndex === slides.length - 1}
-                    className="rounded-full p-1 hover:bg-gray-200 disabled:opacity-30"
-                    aria-label="Next slide"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              </>
-            )}
-            {!locked && problems.length > 0 && (
-              <ul className="w-full max-w-md space-y-0.5 text-xs text-amber-700">
-                {problems.map((p) => (
-                  <li key={p}>• {p}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Inspector */}
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <div className="flex border-b border-gray-100 p-1">
-              {(["slide", "caption"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={clsx(
-                    "flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition",
-                    tab === t ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-800",
-                  )}
-                >
-                  {t === "slide" ? `Slide ${selectedIndex + 1}` : "Caption"}
-                </button>
-              ))}
+          {selected && isCanvas(selected) && !converting ? (
+            <CanvasEditor
+              key={selected.id}
+              brand={brand}
+              slide={selected}
+              index={selectedIndex + 1}
+              total={slides.length}
+              locked={locked}
+              onChange={updateCanvas}
+              undo={history.undo}
+              redo={history.redo}
+              canUndo={history.canUndo}
+              canRedo={history.canRedo}
+              requestImage={(source, onPicked) => setImageRequest({ source, onPicked })}
+              problems={problems}
+              captionPanel={<CaptionInspector caption={design.caption} onChange={setCaptionParts} compiled={effectiveCaption} platforms={platforms} />}
+            />
+          ) : selected && !isCanvas(selected) && locked ? (
+            <div className="flex justify-center rounded-2xl border border-gray-200 bg-gray-50 p-6 lg:col-span-2">
+              <div className="overflow-hidden rounded-lg shadow-md">
+                <SlidePreview slide={selected} brand={brand} index={selectedIndex + 1} total={slides.length} width={420} />
+              </div>
             </div>
-            <fieldset disabled={locked} className="space-y-4 p-4 disabled:opacity-70">
-              {tab === "slide" && selected ? (
-                <SlideInspector
-                  slide={selected}
-                  onChange={updateSlide}
-                  onPickImage={() => setPicker("library")}
-                  onPickProduct={() => setPicker("product")}
-                />
-              ) : (
-                <CaptionInspector caption={design.caption} onChange={setCaptionParts} compiled={effectiveCaption} platforms={platforms} />
-              )}
-            </fieldset>
-          </div>
+          ) : (
+            <div className="flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-16 text-sm text-gray-500 lg:col-span-2">
+              <Loader2 size={16} className="animate-spin" /> Getting the slides ready to edit…
+            </div>
+          )}
         </div>
       ) : (
         <PhotoMode
@@ -635,157 +631,34 @@ export default function SocialPostBuilder({ id }: { id: string }) {
         ) : null}
       </ConfirmDialog>
 
-      {(picker === "library" || picker === "media") && (
+      {(picker === "media" || imageRequest?.source === "library") && (
         <MediaLibraryModal
           open
-          onClose={() => setPicker(null)}
+          onClose={() => {
+            setPicker(null);
+            setImageRequest(null);
+          }}
           onSelect={(url) => {
-            if (picker === "library") updateSlide({ image: url });
+            if (imageRequest) imageRequest.onPicked(url);
             else setMedia((m) => (postType === "image" ? [{ url, kind: "image" }] : [...m, { url, kind: "image" as const }].slice(0, CAROUSEL_MAX)));
             setPicker(null);
+            setImageRequest(null);
           }}
           inbox="social-uploads"
           uploader={uploadSocialImage}
         />
       )}
-      {picker === "product" && selected && (
+      {imageRequest?.source === "product" && (
         <ProductPicker
           brand={brand}
-          onClose={() => setPicker(null)}
-          onPick={(p, url) => {
-            const patch: Partial<Slide> = { image: url };
-            if (selected.layout === "product") {
-              patch.headline = p.name;
-              if (p.price != null) patch.meta = `$${p.price}`;
-              if (!selected.body.trim() || selected.body === newSlide("product", brand).body) {
-                patch.body = (p.blurb.match(/^[^.!?]+[.!?]/)?.[0] ?? p.blurb).slice(0, 160);
-              }
-            }
-            updateSlide(patch);
-            setPicker(null);
+          onClose={() => setImageRequest(null)}
+          onPick={(_p, url) => {
+            imageRequest.onPicked(url);
+            setImageRequest(null);
           }}
         />
       )}
     </div>
-  );
-}
-
-/* ─── Slide inspector ─────────────────────────────────────────────── */
-
-const FIELD_LABELS: Record<SlideLayout, { kicker?: string; headline?: string; body?: string; meta?: string; items?: boolean; image?: boolean }> = {
-  cover: { kicker: "Label", headline: "Headline", body: "Subhead", image: true },
-  photo: { headline: "Caption on the photo (optional)", image: true },
-  product: { kicker: "Label", headline: "Product name", body: "Benefit", meta: "Price", image: true },
-  text: { kicker: "Label", headline: "Headline", body: "Text" },
-  list: { kicker: "Label", headline: "Headline", items: true },
-  quote: { headline: "Quote", meta: "Who said it" },
-  cta: { kicker: "Label", headline: "Headline", body: "Line", meta: "Button text" },
-};
-
-function SlideInspector({
-  slide: s,
-  onChange,
-  onPickImage,
-  onPickProduct,
-}: {
-  slide: Slide;
-  onChange: (patch: Partial<Slide>) => void;
-  onPickImage: () => void;
-  onPickProduct: () => void;
-}) {
-  const f = FIELD_LABELS[s.layout];
-  return (
-    <>
-      <Field label="Layout">
-        <div className="flex flex-wrap gap-1.5">
-          {LAYOUTS.map((l) => (
-            <button
-              key={l.value}
-              type="button"
-              title={l.hint}
-              onClick={() => onChange({ layout: l.value })}
-              className={clsx(
-                "rounded-lg border px-2.5 py-1 text-xs transition",
-                s.layout === l.value ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:border-gray-300",
-              )}
-            >
-              {l.label}
-            </button>
-          ))}
-        </div>
-      </Field>
-      {s.layout !== "photo" && (
-        <Field label="Colour">
-          <Segmented options={TONES} value={s.tone} onChange={(tone) => onChange({ tone })} />
-        </Field>
-      )}
-
-      {f.image && (
-        <Field label={s.layout === "product" ? "Product photo" : "Photo"}>
-          <div className="flex items-center gap-3">
-            <div className="h-20 w-16 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
-              {s.image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.image} alt="" className="h-full w-full object-cover" />
-              )}
-            </div>
-            <div className="flex flex-col items-start gap-1">
-              <button type="button" onClick={onPickProduct} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 hover:text-gray-900">
-                <Package size={13} /> Product photo
-              </button>
-              <button type="button" onClick={onPickImage} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 hover:text-gray-900">
-                <ImagePlus size={13} /> Library / Unsplash
-              </button>
-              {s.image && (
-                <button type="button" onClick={() => onChange({ image: "" })} className="text-xs text-gray-400 hover:text-red-600">
-                  Remove
-                </button>
-              )}
-            </div>
-          </div>
-        </Field>
-      )}
-
-      {f.kicker && <TextInput label={f.kicker} value={s.kicker} max={40} onChange={(kicker) => onChange({ kicker })} />}
-      {f.headline && (
-        <TextArea label={f.headline} value={s.headline} rows={2} max={s.layout === "quote" ? 140 : 90} onChange={(headline) => onChange({ headline })} />
-      )}
-      {f.body && <TextArea label={f.body} value={s.body} rows={3} max={220} onChange={(body) => onChange({ body })} />}
-      {f.items && (
-        <Field label="Items">
-          <div className="space-y-1.5">
-            {s.items.map((item, i) => (
-              <div key={i} className="flex gap-1.5">
-                <input
-                  value={item}
-                  maxLength={80}
-                  onChange={(e) => onChange({ items: s.items.map((x, j) => (j === i ? e.target.value : x)) })}
-                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-gray-400 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => onChange({ items: s.items.filter((_, j) => j !== i) })}
-                  className="rounded p-1 text-gray-400 hover:text-red-600"
-                  aria-label="Remove item"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
-            {s.items.length < 5 && (
-              <button
-                type="button"
-                onClick={() => onChange({ items: [...s.items, ""] })}
-                className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900"
-              >
-                <Plus size={12} /> Add item
-              </button>
-            )}
-          </div>
-        </Field>
-      )}
-      {f.meta && <TextInput label={f.meta} value={s.meta} max={60} onChange={(meta) => onChange({ meta })} />}
-    </>
   );
 }
 
@@ -1070,7 +943,7 @@ function ProductPicker({
 
 /* ─── Small pieces ────────────────────────────────────────────────── */
 
-function AddSlideMenu({ onAdd }: { onAdd: (l: SlideLayout) => void }) {
+function AddSlideMenu({ onAdd }: { onAdd: (l: SlideLayout | "blank") => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -1083,6 +956,18 @@ function AddSlideMenu({ onAdd }: { onAdd: (l: SlideLayout) => void }) {
       </button>
       {open && (
         <div className="absolute z-20 mt-1 w-64 rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
+          <button
+            type="button"
+            onClick={() => {
+              onAdd("blank");
+              setOpen(false);
+            }}
+            className="block w-full rounded-lg px-3 py-2 text-left hover:bg-gray-50"
+          >
+            <span className="block text-sm font-medium text-gray-900">Blank slide</span>
+            <span className="block text-[11px] text-gray-400">Start from an empty canvas</span>
+          </button>
+          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Start from a layout</div>
           {LAYOUTS.map((l) => (
             <button
               key={l.value}
@@ -1145,18 +1030,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function TextInput({ label, value, onChange, max }: { label: string; value: string; onChange: (v: string) => void; max?: number }) {
-  return (
-    <Field label={label}>
-      <input
-        value={value}
-        maxLength={max}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-gray-400 focus:outline-none"
-      />
-    </Field>
-  );
-}
 
 function TextArea({
   label,

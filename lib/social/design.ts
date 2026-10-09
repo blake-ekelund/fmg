@@ -13,16 +13,18 @@
  */
 
 import type { SocialBrand } from "./types";
+import { normalizeCanvasSlide, type CanvasSlide } from "./canvas";
+import { SLIDE_FONTS, SLIDE_H, SLIDE_THEMES, SLIDE_W, type SlideTheme, type SlideTone } from "./theme";
 
-export const SLIDE_W = 1080;
-export const SLIDE_H = 1350;
+export { SLIDE_FONTS, SLIDE_H, SLIDE_THEMES, SLIDE_W, type SlideTheme };
+
 export const SLIDES_MAX = 10;
 
 /** Bump when SlideView's look changes so every slide re-renders. */
 export const RENDER_VERSION = 1;
 
 export type SlideLayout = "cover" | "photo" | "product" | "text" | "list" | "quote" | "cta";
-export type SlideTone = "light" | "tint" | "dark";
+export type { SlideTone } from "./theme";
 
 export type Slide = {
   id: string;
@@ -48,8 +50,15 @@ export type CaptionParts = {
   hashtags: string[];
 };
 
+/** A slide in a post: a template layout (what the AI writes) or a free canvas (what the editor makes). */
+export type DesignSlide = Slide | CanvasSlide;
+
+export function isCanvas(s: DesignSlide): s is CanvasSlide {
+  return (s as CanvasSlide).kind === "canvas";
+}
+
 export type PostDesign = {
-  slides: Slide[];
+  slides: DesignSlide[];
   caption: CaptionParts;
 };
 
@@ -67,65 +76,6 @@ export const TONES: { value: SlideTone; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "tint", label: "Tint" },
   { value: "dark", label: "Bold" },
-];
-
-export type SlideTheme = {
-  /** Page colours per tone. */
-  tones: Record<SlideTone, { bg: string; ink: string; muted: string; accent: string; onAccent: string }>;
-  headFont: string;
-  headWeight: number;
-  headItalicQuote: boolean;
-  headUpper: boolean;
-  headTracking: number;
-  bodyFont: string;
-  wordmark: string;
-  site: string;
-};
-
-/** Brand looks. Fonts are files in public/fonts/social (see SLIDE_FONTS). */
-export const SLIDE_THEMES: Record<SocialBrand, SlideTheme> = {
-  NI: {
-    tones: {
-      light: { bg: "#FBF8F3", ink: "#1F3D35", muted: "#5F6B66", accent: "#1F3D35", onAccent: "#FBF8F3" },
-      tint: { bg: "#E6ECE6", ink: "#1F3D35", muted: "#55625C", accent: "#1F3D35", onAccent: "#F4F1EA" },
-      dark: { bg: "#1F3D35", ink: "#F4F1EA", muted: "#C9D3CC", accent: "#D9CFBF", onAccent: "#1F3D35" },
-    },
-    headFont: "EB Garamond",
-    headWeight: 500,
-    headItalicQuote: true,
-    headUpper: false,
-    headTracking: -0.5,
-    bodyFont: "Figtree",
-    wordmark: "NATURAL INSPIRATIONS",
-    site: "naturalinspirations.com",
-  },
-  Sassy: {
-    tones: {
-      light: { bg: "#FFFFFF", ink: "#1A1A1A", muted: "#5B5B5B", accent: "#B3295C", onAccent: "#FFFFFF" },
-      tint: { bg: "#F1E6E4", ink: "#1A1A1A", muted: "#5B5B5B", accent: "#B3295C", onAccent: "#FFFFFF" },
-      dark: { bg: "#B3295C", ink: "#FFFFFF", muted: "#FBDDE7", accent: "#1A1A1A", onAccent: "#FFFFFF" },
-    },
-    headFont: "Geist",
-    headWeight: 800,
-    headItalicQuote: false,
-    headUpper: true,
-    headTracking: -1,
-    bodyFont: "Geist",
-    wordmark: "SASSY",
-    site: "sassyandco.com",
-  },
-};
-
-/** Font files the renderer loads and the editor declares with @font-face. */
-export const SLIDE_FONTS: { family: string; weight: number; style: "normal" | "italic"; file: string }[] = [
-  { family: "Figtree", weight: 400, style: "normal", file: "Figtree-400.ttf" },
-  { family: "Figtree", weight: 600, style: "normal", file: "Figtree-600.ttf" },
-  { family: "Figtree", weight: 700, style: "normal", file: "Figtree-700.ttf" },
-  { family: "EB Garamond", weight: 500, style: "normal", file: "EBGaramond-500.ttf" },
-  { family: "EB Garamond", weight: 500, style: "italic", file: "EBGaramond-500-italic.ttf" },
-  { family: "Geist", weight: 400, style: "normal", file: "Geist-400.ttf" },
-  { family: "Geist", weight: 600, style: "normal", file: "Geist-600.ttf" },
-  { family: "Geist", weight: 800, style: "normal", file: "Geist-800.ttf" },
 ];
 
 /* ─── Constructors ─────────────────────────────────────────────────── */
@@ -194,13 +144,21 @@ const TONE_SET = new Set<SlideTone>(["light", "tint", "dark"]);
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\r/g, "").trim().slice(0, max) : "");
 
-export function normalizeSlides(input: unknown): Slide[] {
+export function normalizeSlides(input: unknown): DesignSlide[] {
   if (!Array.isArray(input)) return [];
-  const out: Slide[] = [];
+  const out: DesignSlide[] = [];
   const seen = new Set<string>();
   for (const raw of input) {
     if (!raw || typeof raw !== "object") continue;
     const r = raw as Record<string, unknown>;
+    if (r.kind === "canvas") {
+      const c = normalizeCanvasSlide(r);
+      if (seen.has(c.id)) c.id = newSlideId();
+      seen.add(c.id);
+      out.push(c);
+      if (out.length >= SLIDES_MAX) break;
+      continue;
+    }
     const layout = LAYOUT_SET.has(r.layout as SlideLayout) ? (r.layout as SlideLayout) : "text";
     let id = str(r.id, 60) || newSlideId();
     if (seen.has(id)) id = newSlideId();
@@ -254,7 +212,10 @@ export function compileCaption(c: CaptionParts): string {
 }
 
 /** Problems that would make a slide look broken once rendered. */
-export function slideProblems(s: Slide, n: number): string[] {
+export function slideProblems(s: DesignSlide, n: number): string[] {
+  if (isCanvas(s)) {
+    return s.layers.some((l) => !l.hidden) || s.bg.image ? [] : [`Slide ${n} is empty.`];
+  }
   const p: string[] = [];
   const at = `Slide ${n}`;
   if ((s.layout === "photo" || s.layout === "product") && !s.image) p.push(`${at} needs an image.`);
@@ -264,8 +225,10 @@ export function slideProblems(s: Slide, n: number): string[] {
 }
 
 /** Stable short hash (FNV-1a) — names a slide's render so unchanged slides are reused. */
-export function slideHash(s: Slide, brand: SocialBrand): string {
-  const src = JSON.stringify([RENDER_VERSION, brand, s.layout, s.tone, s.kicker, s.headline, s.body, s.items, s.meta, s.image]);
+export function slideHash(s: DesignSlide, brand: SocialBrand): string {
+  const src = isCanvas(s)
+    ? JSON.stringify([RENDER_VERSION, "canvas", s.bg, s.layers])
+    : JSON.stringify([RENDER_VERSION, brand, s.layout, s.tone, s.kicker, s.headline, s.body, s.items, s.meta, s.image]);
   let h = 0x811c9dc5;
   for (let i = 0; i < src.length; i++) {
     h ^= src.charCodeAt(i);

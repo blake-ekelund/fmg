@@ -1,11 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // The social slide renderer reads its brand fonts from disk
+  // The social slide renderer reads its fonts and textures from disk
   // (lib/social/renderSlides.tsx); ship them with the routes that render.
   outputFileTracingIncludes: {
-    "/api/social/**": ["./public/fonts/social/**"],
-    "/api/cron/social-publish": ["./public/fonts/social/**"],
+    "/api/social/**": ["./public/fonts/social/**", "./public/textures/social/**"],
+    "/api/cron/social-publish": ["./public/fonts/social/**", "./public/textures/social/**"],
   },
 };
 

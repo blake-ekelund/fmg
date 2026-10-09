@@ -15,6 +15,7 @@ import {
   SLIDE_THEMES,
   SLIDES_MAX,
   SOCIAL_PURPOSES,
+  isCanvas,
   type PostDesign,
   type ProductOption,
   type SocialPurpose,
@@ -215,6 +216,7 @@ export function checkDesignImages(
   const used = new Map<string, ImageCandidate>();
 
   const slides = design.slides.map((s) => {
+    if (isCanvas(s)) return s; // the AI only writes layout slides
     const url = s.image.trim();
     if (!url) return s;
     if (productUrls.has(url)) return s;

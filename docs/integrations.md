@@ -283,6 +283,21 @@ products' photos, the Image Library and the brand's Unsplash collection;
 any other URL is blanked (`checkDesignImages`). Migration
 `20261008010000_social_post_design.sql` adds `design` + `title`.
 
+**Free canvas (Oct 2026).** The editor is now Canva-style: each slide is a
+canvas (`lib/social/canvas.ts`) — background colour/gradient/photo/texture
+plus layers (text, image, shape) placed in slide pixels with size, rotation
+and opacity. Drawn by `lib/social/CanvasView.tsx` in the editor and in the
+server render (Satori), so what you see is what posts. Template slides (what
+the AI writes, `SlideView`) are converted to layers in the browser the first
+time a post is opened (`components/marketing/social/canvas/convertLayout.ts`
+renders SlideView off-screen and reads each `data-el` element back). Editor
+pieces live in `components/marketing/social/canvas/` (stage with drag /
+resize / rotate / snap / double-click text, inspector, layers, undo/redo).
+Fonts: 12 families in `lib/social/fonts.ts` (TTFs in public/fonts/social —
+add a family there and drop its TTFs in). Textures: generated PNGs in
+public/textures/social (dark + light ink). Keep CanvasView hook-free: route
+handlers import it; the in-place text editor is in canvas/EditableText.tsx.
+
 **Auth.** One long-lived **System User token** from Meta Business Manager.
 Setup, once:
 1. Each brand's Instagram must be a **Business** (or Creator) account,

@@ -10,6 +10,7 @@ import {
   normalizeDesign,
   slideHash,
   slideProblems,
+  type Slide,
 } from "@/lib/social/design";
 import { buildSocialPrompt, checkDesignImages } from "@/lib/social/generate";
 import { renderSlideJpeg } from "@/lib/social/renderSlides";
@@ -25,11 +26,12 @@ describe("normalizeDesign", () => {
       ],
       caption: { hook: "Hook", hashtags: "#spa, selfcare #spa" },
     })!;
-    expect(d.slides.map((s) => s.layout)).toEqual(["cover", "text", "list"]);
-    expect(d.slides[1].id).not.toBe("a");
-    expect(d.slides[1].tone).toBe("light");
-    expect(d.slides[1].image).toBe("");
-    expect(d.slides[2].items).toHaveLength(5);
+    const slides = d.slides as Slide[];
+    expect(slides.map((s) => s.layout)).toEqual(["cover", "text", "list"]);
+    expect(slides[1].id).not.toBe("a");
+    expect(slides[1].tone).toBe("light");
+    expect(slides[1].image).toBe("");
+    expect(slides[2].items).toHaveLength(5);
     expect(d.caption.hashtags).toEqual(["spa", "selfcare"]);
   });
 
@@ -74,7 +76,7 @@ describe("checkDesignImages", () => {
       ],
     })!;
     const { design, usedUnsplash } = checkDesignImages(d, [lib, stock], [product]);
-    expect(design.slides.map((s) => s.image)).toEqual([stock.url, "", product.images[0].url, "", lib.url]);
+    expect((design.slides as Slide[]).map((s) => s.image)).toEqual([stock.url, "", product.images[0].url, "", lib.url]);
     expect(usedUnsplash.map((u) => u.url)).toEqual([stock.url]);
   });
 
