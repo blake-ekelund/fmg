@@ -10,6 +10,7 @@ import {
   type PageBlock,
   type Tone,
 } from "@/lib/site/pageBlocks";
+import RichTextEditor from "@/components/marketing/blog/RichTextEditor";
 import {
   ColorInput,
   Field,
@@ -46,10 +47,13 @@ export default function BlockInspector({
   block,
   onChange,
   catalog,
+  slug,
 }: {
   block: PageBlock;
   onChange: (b: PageBlock) => void;
   catalog: CatalogItem[];
+  /** The page being edited (a few fields only apply to one page). */
+  slug: string;
 }) {
   switch (block.type) {
     case "hero":
@@ -211,7 +215,493 @@ export default function BlockInspector({
           </p>
         </div>
       );
+
+    case "rich_text":
+      return <RichField value={block.html} onChange={(html) => onChange({ ...block, html })} />;
+
+    case "stats":
+      return (
+        <ObjList
+          label="Numbers"
+          items={block.items}
+          max={LIMITS.stats}
+          onChange={(items) => onChange({ ...block, items })}
+          make={(id) => ({ id, value: "1", label: "Label" })}
+          title={(x) => `${x.value} — ${x.label}`}
+          render={(x, set) => (
+            <>
+              <Field label="Number">
+                <TextInput value={x.value} maxLength={20} onChange={(value) => set({ value })} />
+              </Field>
+              <Field label="Label">
+                <TextInput value={x.label} maxLength={80} onChange={(label) => set({ label })} />
+              </Field>
+            </>
+          )}
+        />
+      );
+
+    case "quote":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label (optional)">
+            <TextInput value={block.eyebrow} maxLength={40} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Quote">
+            <TextArea value={block.text} rows={3} maxLength={400} onChange={(text) => onChange({ ...block, text })} />
+          </Field>
+          <Field label="Accent ending (optional)" hint="Added after the quote in pink.">
+            <TextInput value={block.highlight} maxLength={200} onChange={(highlight) => onChange({ ...block, highlight })} />
+          </Field>
+          <Field label="Small line under it (optional)">
+            <TextInput value={block.footnote} maxLength={120} onChange={(footnote) => onChange({ ...block, footnote })} />
+          </Field>
+        </div>
+      );
+
+    case "link_list":
+      return (
+        <div className="space-y-4">
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={80} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Small line under it">
+            <TextInput value={block.subheading} maxLength={80} onChange={(subheading) => onChange({ ...block, subheading })} />
+          </Field>
+          <ObjList
+            label="Links"
+            items={block.items}
+            max={LIMITS.links}
+            onChange={(items) => onChange({ ...block, items })}
+            make={(id) => ({ id, label: "New link", note: "", href: "/shop" })}
+            title={(x) => x.label}
+            subtitle={(x) => x.note}
+            render={(x, set) => (
+              <>
+                <Field label="Name">
+                  <TextInput value={x.label} maxLength={60} onChange={(label) => set({ label })} />
+                </Field>
+                <Field label="Note on the right">
+                  <TextInput value={x.note} maxLength={80} onChange={(note) => set({ note })} />
+                </Field>
+                <Field label="Link" hint={LINK_HINT}>
+                  <TextInput value={x.href} onChange={(href) => set({ href })} />
+                </Field>
+              </>
+            )}
+          />
+        </div>
+      );
+
+    case "cta":
+      return (
+        <div className="space-y-4">
+          <Field label="Line">
+            <TextInput value={block.heading} maxLength={120} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <LinkFields
+            title="Main button"
+            label={block.primaryLabel}
+            href={block.primaryHref}
+            onChange={(primaryLabel, primaryHref) => onChange({ ...block, primaryLabel, primaryHref })}
+          />
+          <LinkFields
+            title="Second button"
+            label={block.secondaryLabel}
+            href={block.secondaryHref}
+            onChange={(secondaryLabel, secondaryHref) => onChange({ ...block, secondaryLabel, secondaryHref })}
+          />
+        </div>
+      );
+
+    case "callout":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={40} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <RichField value={block.html} onChange={(html) => onChange({ ...block, html })} />
+        </div>
+      );
+
+    case "page_header":
+      return (
+        <div className="space-y-4">
+          <HeaderFields
+            eyebrow={block.eyebrow}
+            title={block.title}
+            lede={block.lede}
+            onChange={(p) => onChange({ ...block, ...p })}
+          />
+          {slug === "shop" ? (
+            <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+              <p className="text-xs font-medium text-gray-700">Signed-in wholesale buyers see instead</p>
+              <HeaderFields
+                eyebrow={block.wholesaleEyebrow}
+                title={block.wholesaleTitle}
+                lede={block.wholesaleLede}
+                onChange={(p) =>
+                  onChange({
+                    ...block,
+                    ...(p.eyebrow !== undefined ? { wholesaleEyebrow: p.eyebrow } : {}),
+                    ...(p.title !== undefined ? { wholesaleTitle: p.title } : {}),
+                    ...(p.lede !== undefined ? { wholesaleLede: p.lede } : {}),
+                  })
+                }
+              />
+            </div>
+          ) : null}
+        </div>
+      );
+
+    case "catalog":
+    case "story_cover":
+      return (
+        <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+          Nothing to edit here — this part fills itself
+          {block.type === "catalog"
+            ? slug === "blog"
+              ? " from the posts in Marketing → Blog Posts."
+              : " from the products in Products."
+            : " with the six Everyday character photos."}{" "}
+          Move the blocks around it to change what comes before and after.
+        </p>
+      );
+
+    case "article_header":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.kicker} maxLength={60} onChange={(kicker) => onChange({ ...block, kicker })} />
+          </Field>
+          <Field label="Headline">
+            <TextInput value={block.title} maxLength={100} onChange={(title) => onChange({ ...block, title })} />
+          </Field>
+          <Field label="Headline, pink part">
+            <TextInput value={block.titleAccent} maxLength={100} onChange={(titleAccent) => onChange({ ...block, titleAccent })} />
+          </Field>
+          <Field label="Tags">
+            <StringList items={block.tags} max={LIMITS.tags} placeholder="Playful" onChange={(tags) => onChange({ ...block, tags })} />
+          </Field>
+        </div>
+      );
+
+    case "contact_form":
+      return (
+        <div className="space-y-4">
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={80} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Line under it">
+            <TextInput value={block.subheading} maxLength={200} onChange={(subheading) => onChange({ ...block, subheading })} />
+          </Field>
+          <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
+            The form fields themselves are fixed; messages arrive in Storefronts → Conversations.
+          </p>
+        </div>
+      );
+
+    case "info_cards":
+      return (
+        <div className="space-y-3">
+          {block.cards.map((c, i) => {
+            const set = (patch: Partial<typeof c>) =>
+              onChange({ ...block, cards: block.cards.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+            return (
+              <div key={c.id} className="space-y-3 rounded-xl border border-gray-200 p-3">
+                <p className="text-xs font-medium text-gray-700">{c.tone === "ink" ? "Dark card" : "Light card"}</p>
+                <Field label="Small label">
+                  <TextInput value={c.label} maxLength={40} onChange={(label) => set({ label })} />
+                </Field>
+                <Field label="Title">
+                  <TextInput value={c.title} maxLength={80} onChange={(title) => set({ title })} />
+                </Field>
+                <Field label="Text">
+                  <TextArea value={c.body} rows={2} maxLength={400} onChange={(body) => set({ body })} />
+                </Field>
+                <Field label="Email (optional)">
+                  <TextInput value={c.email} maxLength={120} onChange={(email) => set({ email })} />
+                </Field>
+              </div>
+            );
+          })}
+        </div>
+      );
+
+    case "policy":
+      return (
+        <div className="space-y-4">
+          <HeaderFields eyebrow={block.eyebrow} title={block.title} lede={block.lede} onChange={(p) => onChange({ ...block, ...p })} />
+          <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-medium text-gray-700">Side card</p>
+            <Field label="Small label" hint="e.g. last updated, the short version">
+              <TextInput value={block.highlightLabel} maxLength={40} onChange={(highlightLabel) => onChange({ ...block, highlightLabel })} />
+            </Field>
+            <Field label="Title">
+              <TextInput value={block.highlightTitle} maxLength={80} onChange={(highlightTitle) => onChange({ ...block, highlightTitle })} />
+            </Field>
+            <Field label="Text">
+              <TextArea value={block.highlightBody} rows={2} maxLength={400} onChange={(highlightBody) => onChange({ ...block, highlightBody })} />
+            </Field>
+          </div>
+          <Field label="“Get in touch” lead-in">
+            <TextInput value={block.help} maxLength={160} onChange={(help) => onChange({ ...block, help })} />
+          </Field>
+          <Field label="Policy text">
+            <RichField value={block.html} onChange={(html) => onChange({ ...block, html })} />
+          </Field>
+        </div>
+      );
+
+    case "wholesale_intro":
+      return (
+        <div className="space-y-4">
+          <HeaderFields eyebrow={block.eyebrow} title={block.title} lede={block.lede} onChange={(p) => onChange({ ...block, ...p })} />
+          <Field label="Stat tiles">
+            <div className="space-y-2">
+              {block.stats.map((x, i) => (
+                <div key={x.id} className="grid grid-cols-2 gap-2">
+                  <TextInput
+                    value={x.label}
+                    maxLength={40}
+                    onChange={(label) => onChange({ ...block, stats: block.stats.map((s, j) => (j === i ? { ...s, label } : s)) })}
+                  />
+                  <TextInput
+                    value={x.value}
+                    maxLength={20}
+                    onChange={(value) => onChange({ ...block, stats: block.stats.map((s, j) => (j === i ? { ...s, value } : s)) })}
+                  />
+                </div>
+              ))}
+            </div>
+          </Field>
+          <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
+            The buttons (first order, line sheet, dashboard) and the “you’re in” notice are fixed.
+          </p>
+        </div>
+      );
+
+    case "wholesale_catalog":
+      return (
+        <div className="space-y-4">
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={80} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Link text">
+            <TextInput value={block.linkLabel} maxLength={40} onChange={(linkLabel) => onChange({ ...block, linkLabel })} />
+          </Field>
+          <Field label="How many" hint="Cheapest case price first.">
+            <Select
+              value={String(block.count)}
+              onChange={(v) => onChange({ ...block, count: Number(v) })}
+              options={[4, 8].map((n) => ({ value: String(n), label: `${n} products` }))}
+            />
+          </Field>
+        </div>
+      );
+
+    case "product_details":
+      return (
+        <div className="space-y-4">
+          <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+            Photos, name, price, description, benefits, ingredients, how to use and the buy button come from each
+            product in <strong>Products</strong> — edit them there. Page colors are set per product there too.
+          </p>
+          <Field label="Trust line" hint="The short claims above the details, separated by dots.">
+            <StringList items={block.trust} max={LIMITS.trust} placeholder="vegan + cruelty-free" onChange={(trust) => onChange({ ...block, trust })} />
+          </Field>
+        </div>
+      );
+
+    case "benefits_banner":
+      return (
+        <div className="space-y-4">
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={80} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Only on products whose form contains" hint="Comma-separated words, e.g. hand cr. Blank = every product.">
+            <TextInput value={block.formMatch} maxLength={120} onChange={(formMatch) => onChange({ ...block, formMatch })} />
+          </Field>
+          <ObjList
+            label="Lines"
+            items={block.items}
+            max={LIMITS.benefits}
+            onChange={(items) => onChange({ ...block, items })}
+            make={(id) => ({ id, lead: "Something true,", punch: "said with attitude." })}
+            title={(x) => `${x.lead} ${x.punch}`}
+            render={(x, set) => (
+              <>
+                <Field label="Start">
+                  <TextInput value={x.lead} maxLength={80} onChange={(lead) => set({ lead })} />
+                </Field>
+                <Field label="Punch line (italic)">
+                  <TextInput value={x.punch} maxLength={80} onChange={(punch) => set({ punch })} />
+                </Field>
+              </>
+            )}
+          />
+        </div>
+      );
+
+    case "philosophy":
+      return (
+        <ObjList
+          label="Columns"
+          items={block.columns}
+          max={LIMITS.columns}
+          onChange={(columns) => onChange({ ...block, columns })}
+          make={(id) => ({ id, eyebrow: "", heading: "A heading", intro: "", subheading: "", body: "", pullQuote: "" })}
+          title={(x) => x.heading}
+          subtitle={(x) => x.eyebrow}
+          render={(x, set) => (
+            <>
+              <Field label="Small label">
+                <TextInput value={x.eyebrow} maxLength={60} onChange={(eyebrow) => set({ eyebrow })} />
+              </Field>
+              <Field label="Heading">
+                <TextInput value={x.heading} maxLength={120} onChange={(heading) => set({ heading })} />
+              </Field>
+              <Field label="Intro">
+                <TextArea value={x.intro} rows={3} maxLength={600} onChange={(intro) => set({ intro })} />
+              </Field>
+              <Field label="Subheading (optional)">
+                <TextInput value={x.subheading} maxLength={100} onChange={(subheading) => set({ subheading })} />
+              </Field>
+              <Field label="Text (optional)">
+                <RichField value={x.body} onChange={(body) => set({ body })} />
+              </Field>
+              <Field label="Pull quote (optional)">
+                <TextArea value={x.pullQuote} rows={2} maxLength={240} onChange={(pullQuote) => set({ pullQuote })} />
+              </Field>
+            </>
+          )}
+        />
+      );
+
+    case "related_products":
+      return (
+        <div className="space-y-4">
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={80} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Heading for wholesale buyers">
+            <TextInput value={block.wholesaleHeading} maxLength={80} onChange={(wholesaleHeading) => onChange({ ...block, wholesaleHeading })} />
+          </Field>
+          <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
+            The four products are picked automatically for each product page.
+          </p>
+        </div>
+      );
+
+    case "reviews_note":
+      return (
+        <div className="space-y-4">
+          <Field label="Small label">
+            <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
+          </Field>
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Message">
+            <TextArea value={block.message} rows={3} maxLength={400} onChange={(message) => onChange({ ...block, message })} />
+          </Field>
+        </div>
+      );
   }
+}
+
+/** Rich text (headings, bold, italic, lists, links) — the blog's editor. */
+function RichField({ value, onChange }: { value: string; onChange: (html: string) => void }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white text-sm">
+      <RichTextEditor value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+function HeaderFields({
+  eyebrow,
+  title,
+  lede,
+  onChange,
+}: {
+  eyebrow: string;
+  title: string;
+  lede: string;
+  onChange: (p: { eyebrow?: string; title?: string; lede?: string }) => void;
+}) {
+  return (
+    <>
+      <Field label="Small label">
+        <TextInput value={eyebrow} maxLength={60} onChange={(v) => onChange({ eyebrow: v })} />
+      </Field>
+      <Field label="Title">
+        <TextInput value={title} maxLength={80} onChange={(v) => onChange({ title: v })} />
+      </Field>
+      <Field label="Intro">
+        <TextArea value={lede} rows={3} maxLength={800} onChange={(v) => onChange({ lede: v })} />
+      </Field>
+    </>
+  );
+}
+
+/** A repeating list of small objects shown as collapsible cards. */
+function ObjList<T extends { id: string }>({
+  label,
+  items,
+  max,
+  onChange,
+  make,
+  title,
+  subtitle,
+  render,
+}: {
+  label: string;
+  items: T[];
+  max: number;
+  onChange: (items: T[]) => void;
+  make: (id: string) => T;
+  title: (x: T) => string;
+  subtitle?: (x: T) => string;
+  render: (x: T, set: (patch: Partial<T>) => void) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  return (
+    <Field label={label}>
+      <div className="space-y-2">
+        {items.map((x, i) => (
+          <ItemCard
+            key={x.id}
+            title={title(x)}
+            subtitle={subtitle?.(x)}
+            open={open === x.id}
+            onToggle={() => setOpen(open === x.id ? null : x.id)}
+            onUp={i > 0 ? () => onChange(move(items, i, i - 1)) : undefined}
+            onDown={i < items.length - 1 ? () => onChange(move(items, i, i + 1)) : undefined}
+            onRemove={() => onChange(items.filter((_, j) => j !== i))}
+          >
+            {render(x, (patch) => onChange(items.map((y, j) => (j === i ? { ...y, ...patch } : y))))}
+          </ItemCard>
+        ))}
+        {items.length < max ? (
+          <button
+            type="button"
+            onClick={() => {
+              const id = uid("item");
+              onChange([...items, make(id)]);
+              setOpen(id);
+            }}
+            className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+          >
+            <Plus size={13} /> Add
+          </button>
+        ) : null}
+      </div>
+    </Field>
+  );
 }
 
 function LinkFields({

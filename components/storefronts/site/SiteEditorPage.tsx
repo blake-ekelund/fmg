@@ -20,14 +20,10 @@ import {
   Smartphone,
   Trash2,
 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import {
-  BLOCK_INFO,
-  LIMITS,
-  newPageBlock,
-  type PageBlock,
-  type PageBlockType,
-} from "@/lib/site/pageBlocks";
+import { BLOCK_INFO, LIMITS, type PageBlock } from "@/lib/site/pageBlocks";
+import { SITE_PAGES, getSitePage, newPageBlock, type SitePageDef } from "@/lib/site/pageDefaults";
 import BlockInspector, { type CatalogItem } from "./BlockInspector";
 import { IconButton, move } from "./fields";
 
@@ -43,8 +39,8 @@ type PageState = {
 };
 
 const BRAND = "Sassy";
-const SLUG = "home";
-const API = `/api/site-pages/${BRAND}/${SLUG}`;
+
+type PageStatus = { slug: string; publishedAt: string | null; updatedAt: string | null; unpublished: boolean };
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabaseBrowser().auth.getSession();
@@ -52,8 +48,8 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function call<T>(method: string, body?: unknown): Promise<T> {
-  const res = await fetch(API, {
+async function call<T>(slug: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/site-pages/${BRAND}/${slug}`, {
     method,
     headers: { "Content-Type": "application/json", ...(await authHeader()) },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -89,18 +85,138 @@ function summary(b: PageBlock): string {
       return b.heading || "No heading";
     case "newsletter":
       return b.heading.replace(/\n/g, " ");
+    case "rich_text":
+    case "callout":
+      return b.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 90) || "Empty";
+    case "stats":
+      return b.items.map((x) => `${x.value} ${x.label}`).join(" · ");
+    case "quote":
+      return [b.text, b.highlight].filter(Boolean).join(" ");
+    case "link_list":
+      return `${b.heading} · ${b.items.length} links`;
+    case "cta":
+    case "contact_form":
+      return b.heading;
+    case "page_header":
+    case "policy":
+    case "wholesale_intro":
+      return [b.eyebrow, b.title].filter(Boolean).join(" · ");
+    case "article_header":
+      return `${b.title} ${b.titleAccent}`;
+    case "info_cards":
+      return b.cards.map((c) => c.label).join(" · ");
+    case "wholesale_catalog":
+      return `${b.heading} · ${b.count} products`;
+    case "product_details":
+      return `Trust line: ${b.trust.join(" · ")}`;
+    case "benefits_banner":
+      return `${b.heading} · ${b.items.length} lines`;
+    case "philosophy":
+      return b.columns.map((c) => c.heading).join(" / ");
+    case "related_products":
+    case "reviews_note":
+      return b.heading;
+    case "catalog":
+    case "story_cover":
+      return "Filled automatically";
   }
 }
 
 /**
- * Website editor — the storefront homepage as a stack of blocks.
+ * Website editor — each Sassy storefront page as a stack of blocks
+ * (pages + their rules: lib/site/pageDefaults.ts).
  *
- * Left: the block list (reorder, hide, add, delete) or, with a block
- * selected, its form. Right: the store's own /preview page rendering the
- * DRAFT, reloaded after each autosave. Edits autosave to the draft; nothing
- * reaches the live site until Publish. v1 covers the Sassy homepage only.
+ * Left: page picker, then the block list (reorder, hide, add, delete) or,
+ * with a block selected, its form. Right: the store's own /preview page
+ * rendering the DRAFT, reloaded after each autosave. Edits autosave to the
+ * draft; nothing reaches the live site until Publish.
  */
 export default function SiteEditorPage() {
+  // The page being edited lives in the URL (?page=<slug>) so it deep-links.
+  const router = useRouter();
+  const q = useSearchParams().get("page");
+  const slug = q && getSitePage(q) ? q : "home";
+  const [statuses, setStatuses] = useState<PageStatus[]>([]);
+  const [statusTick, setStatusTick] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    fetchStatuses().then((pages) => {
+      if (alive && pages) setStatuses(pages);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [statusTick]);
+
+  const refreshStatuses = useCallback(() => setStatusTick((t) => t + 1), []);
+
+  const picker = (
+    <PagePicker
+      slug={slug}
+      statuses={statuses}
+      onChange={(next) => router.replace(`?page=${next}`, { scroll: false })}
+    />
+  );
+  return <PageEditor key={slug} slug={slug} picker={picker} onChanged={refreshStatuses} />;
+}
+
+/** Every page with its publish state, for the picker (null on failure). */
+async function fetchStatuses(): Promise<PageStatus[] | null> {
+  try {
+    const res = await fetch(`/api/site-pages/${BRAND}`, { headers: await authHeader() });
+    return res.ok ? ((await res.json()) as { pages: PageStatus[] }).pages : null;
+  } catch {
+    return null;
+  }
+}
+
+function PagePicker({
+  slug,
+  statuses,
+  onChange,
+}: {
+  slug: string;
+  statuses: PageStatus[];
+  onChange: (slug: string) => void;
+}) {
+  const groups = [...new Set(SITE_PAGES.map((p) => p.group))];
+  const label = (p: SitePageDef) => {
+    const st = statuses.find((x) => x.slug === p.slug);
+    const tag = !st?.updatedAt ? "" : st.unpublished ? "  — unpublished changes" : "  — published";
+    return `${p.label}${tag}`;
+  };
+  return (
+    <select
+      value={slug}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label="Page"
+      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-indigo-400"
+    >
+      {groups.map((g) => (
+        <optgroup key={g} label={g}>
+          {SITE_PAGES.filter((p) => p.group === g).map((p) => (
+            <option key={p.slug} value={p.slug}>
+              {label(p)}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
+function PageEditor({
+  slug,
+  picker,
+  onChanged,
+}: {
+  slug: string;
+  picker: React.ReactNode;
+  onChanged: () => void;
+}) {
+  const def = getSitePage(slug)!;
+  const [previewPart, setPreviewPart] = useState("");
   const [page, setPage] = useState<PageState | null>(null);
   const [blocks, setBlocks] = useState<PageBlock[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -122,7 +238,7 @@ export default function SiteEditorPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await call<PageState>("GET");
+      const data = await call<PageState>(slug, "GET");
       setPage(data);
       setBlocks(data.draft);
       blocksRef.current = data.draft;
@@ -131,7 +247,7 @@ export default function SiteEditorPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load the page.");
     }
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
     load();
@@ -169,12 +285,13 @@ export default function SiteEditorPage() {
     savingRef.current = true;
     setSaveState("saving");
     try {
-      const res = await call<{ updatedAt: string | null; previewUrl: string | null }>("PUT", {
+      const res = await call<{ updatedAt: string | null; previewUrl: string | null }>(slug, "PUT", {
         blocks: blocksRef.current,
       });
       setPage((p) => (p ? { ...p, updatedAt: res.updatedAt, previewUrl: res.previewUrl ?? p.previewUrl } : p));
       setSaveState("saved");
       setFrameKey((k) => k + 1);
+      onChanged();
     } catch (e) {
       setSaveState("error");
       setError(e instanceof Error ? e.message : "Save failed.");
@@ -185,7 +302,19 @@ export default function SiteEditorPage() {
         save();
       }
     }
-  }, []);
+  }, [slug, onChanged]);
+
+  // Switching pages unmounts this editor: save a pending edit right away.
+  useEffect(
+    () => () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+        save();
+      }
+    },
+    [save],
+  );
 
   const update = useCallback(
     (next: PageBlock[]) => {
@@ -218,19 +347,20 @@ export default function SiteEditorPage() {
   async function action(name: "publish" | "discard" | "reset" | "restore", versionId?: string) {
     setMenu(null);
     if (name === "discard" && !confirm("Throw away your unpublished changes and go back to what's live?")) return;
-    if (name === "reset" && !confirm("Replace the draft with the original homepage? (Nothing goes live until you publish.)")) return;
+    if (name === "reset" && !confirm(`Replace the draft with the original ${def.label.toLowerCase()}? (Nothing goes live until you publish.)`)) return;
     setBusy(name);
     setError(null);
     try {
       await flush();
       // First publish of a never-saved page: create the row first.
       if (name === "publish" && !page?.updatedAt) await save();
-      const data = await call<PageState>("POST", { action: name, versionId });
+      const data = await call<PageState>(slug, "POST", { action: name, versionId });
       setPage(data);
       setBlocks(data.draft);
       blocksRef.current = data.draft;
       setSaveState("saved");
       setFrameKey((k) => k + 1);
+      onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That didn't work.");
     } finally {
@@ -247,18 +377,16 @@ export default function SiteEditorPage() {
 
   const current = blocks.find((b) => b.id === selected) ?? null;
   const present = new Set(blocks.map((b) => b.type));
-  const addable = (Object.keys(BLOCK_INFO) as PageBlockType[]).filter(
-    (t) => !BLOCK_INFO[t].locked && !(BLOCK_INFO[t].single && present.has(t)),
-  );
+  const addable = def.addable.filter((t) => !(BLOCK_INFO[t].single && present.has(t)));
+  const firstMovable = blocks.findIndex((b) => !BLOCK_INFO[b.type].pinned);
 
-  const previewSrc = page?.previewUrl
-    ? `${page.previewUrl}&bare=1&v=${frameKey}`
-    : null;
+  const partParam = slug === "product" && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
+  const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1${partParam}&v=${frameKey}` : null;
 
   if (!page && !error) {
     return (
       <div className="flex h-[calc(100vh-64px)] items-center justify-center text-sm text-gray-500">
-        <Loader2 size={16} className="mr-2 animate-spin" /> Loading the homepage…
+        <Loader2 size={16} className="mr-2 animate-spin" /> Loading {def.label.toLowerCase()}…
       </div>
     );
   }
@@ -269,12 +397,12 @@ export default function SiteEditorPage() {
       <aside className="flex w-full shrink-0 flex-col border-b border-gray-200 bg-white md:w-[400px] md:border-b-0 md:border-r">
         {/* page header */}
         <div className="border-b border-gray-100 px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                sassyandco.com
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                sassyandco.com{def.path}
               </div>
-              <h1 className="truncate text-base font-semibold text-gray-900">Homepage</h1>
+              {picker}
             </div>
             <div className="flex items-center gap-1.5">
               <div className="relative">
@@ -360,6 +488,7 @@ export default function SiteEditorPage() {
                 key={current.id}
                 block={current}
                 catalog={catalog}
+                slug={slug}
                 onChange={(b) => update(blocks.map((x) => (x.id === b.id ? b : x)))}
               />
             </div>
@@ -386,11 +515,11 @@ export default function SiteEditorPage() {
                       </div>
                       <div className="truncate text-[11px] text-gray-500">{summary(b)}</div>
                     </div>
-                    {info.locked ? null : (
+                    {def.fixed || info.pinned ? null : (
                       <div className="flex items-center opacity-60 transition group-hover:opacity-100">
                         <IconButton
                           label="Move up"
-                          disabled={i <= 1}
+                          disabled={i <= firstMovable}
                           onClick={() => update(move(blocks, i, i - 1))}
                         >
                           <ArrowUp size={13} />
@@ -402,30 +531,34 @@ export default function SiteEditorPage() {
                         >
                           <ArrowDown size={13} />
                         </IconButton>
-                        <IconButton
-                          label={b.hidden ? "Show on site" : "Hide from site"}
-                          onClick={() =>
-                            update(blocks.map((x) => (x.id === b.id ? { ...x, hidden: !x.hidden || undefined } : x)))
-                          }
-                        >
-                          {b.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
-                        </IconButton>
-                        <IconButton
-                          label="Delete"
-                          danger
-                          onClick={() => {
-                            if (confirm(`Delete the “${info.label}” block?`)) update(blocks.filter((x) => x.id !== b.id));
-                          }}
-                        >
-                          <Trash2 size={13} />
-                        </IconButton>
+                        {info.locked ? null : (
+                          <>
+                            <IconButton
+                              label={b.hidden ? "Show on site" : "Hide from site"}
+                              onClick={() =>
+                                update(blocks.map((x) => (x.id === b.id ? { ...x, hidden: !x.hidden || undefined } : x)))
+                              }
+                            >
+                              {b.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+                            </IconButton>
+                            <IconButton
+                              label="Delete"
+                              danger
+                              onClick={() => {
+                                if (confirm(`Delete the “${info.label}” block?`)) update(blocks.filter((x) => x.id !== b.id));
+                              }}
+                            >
+                              <Trash2 size={13} />
+                            </IconButton>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
                 );
               })}
 
-              {blocks.length < LIMITS.blocks ? (
+              {!def.fixed && addable.length > 0 && blocks.length < LIMITS.blocks ? (
                 <div className="relative pt-1">
                   <button
                     type="button"
@@ -458,9 +591,8 @@ export default function SiteEditorPage() {
               ) : null}
 
               <p className="px-1 pt-3 text-[11px] leading-relaxed text-gray-400">
-                Changes save as a draft automatically and show in the preview. Customers see them only after you
-                Publish — the live site picks them up within a minute. Wholesale buyers see the wholesale homepage,
-                which isn&apos;t edited here.
+                {def.note} Changes save as a draft automatically and show in the preview. Customers see them only
+                after you Publish — the live site picks them up within a minute.
               </p>
             </div>
           )}
@@ -489,6 +621,21 @@ export default function SiteEditorPage() {
             ))}
           </div>
           <span className="text-xs text-gray-500">Draft preview</span>
+          {slug === "product" ? (
+            <select
+              value={previewPart}
+              onChange={(e) => setPreviewPart(e.target.value)}
+              aria-label="Preview with product"
+              className="max-w-[16rem] rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 outline-none"
+            >
+              <option value="">Preview with: first product</option>
+              {catalog.map((c) => (
+                <option key={c.part} value={c.part}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {loadedFrame !== `${device}:${frameKey}` && previewSrc ? <Loader2 size={13} className="animate-spin text-gray-400" /> : null}
           <div className="ml-auto flex items-center gap-1">
             <IconButton label="Reload preview" onClick={() => setFrameKey((k) => k + 1)}>
@@ -496,7 +643,7 @@ export default function SiteEditorPage() {
             </IconButton>
             {page?.previewUrl ? (
               <a
-                href={page.previewUrl}
+                href={`${page.previewUrl}${partParam}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
@@ -511,7 +658,7 @@ export default function SiteEditorPage() {
             <iframe
               key={device}
               src={previewSrc}
-              title="Homepage draft preview"
+              title={`${def.label} draft preview`}
               onLoad={() => setLoadedFrame(`${device}:${frameKey}`)}
               className={`h-full rounded-xl border border-gray-200 bg-white shadow-sm ${
                 device === "mobile" ? "w-[390px]" : "w-full"

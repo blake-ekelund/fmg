@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { isBlogBrand } from "@/lib/blogPosts";
-import { DEFAULT_SASSY_HOME, normalizePageBlocks, type PageBlock } from "@/lib/site/pageBlocks";
+import type { PageBlock } from "@/lib/site/pageBlocks";
+import { SITE_PAGES, defaultBlocks, normalizePage } from "@/lib/site/pageDefaults";
 import { sitePagePreviewUrl } from "@/lib/site/preview";
 
 export const runtime = "nodejs";
 
 /**
- * One storefront page in the Website editor (v1: Sassy / home).
+ * One storefront page in the Website editor (Sassy pages: lib/site/pageDefaults.ts).
  *
  *   GET   — draft + published blocks, publish history and the preview link.
  *           No row yet = the store's built-in default, returned as the draft.
@@ -18,10 +19,12 @@ export const runtime = "nodejs";
  *         { action: "restore", versionId } — a past publish copied into the draft.
  *         { action: "reset" }       — draft reset to the original hand-coded page.
  *
+ * GET /api/site-pages/<brand> (sibling route) lists every page with its state.
+ *
  * Internal-only; writes use the service role (site_pages has RLS, no policies).
  */
 
-const PAGES: Record<string, readonly string[]> = { Sassy: ["home"], NI: [] };
+const PAGES: Record<string, readonly string[]> = { Sassy: SITE_PAGES.map((p) => p.slug), NI: [] };
 
 type Ctx = { params: Promise<{ brand: string; slug: string }> };
 
@@ -64,7 +67,7 @@ async function respond(brand: "Sassy" | "NI", slug: string) {
   if (error) {
     if (notReady(error.message)) {
       return NextResponse.json({
-        draft: DEFAULT_SASSY_HOME,
+        draft: defaultBlocks(slug),
         published: null,
         publishedAt: null,
         updatedAt: null,
@@ -89,8 +92,8 @@ async function respond(brand: "Sassy" | "NI", slug: string) {
   }
 
   return NextResponse.json({
-    draft: normalizePageBlocks(row?.draft_blocks) ?? DEFAULT_SASSY_HOME,
-    published: row?.published_blocks ? normalizePageBlocks(row.published_blocks) : null,
+    draft: normalizePage(slug, row?.draft_blocks) ?? defaultBlocks(slug),
+    published: row?.published_blocks ? normalizePage(slug, row.published_blocks) : null,
     publishedAt: row?.published_at ?? null,
     updatedAt: row?.updated_at ?? null,
     versions,
@@ -127,7 +130,7 @@ export async function PUT(request: Request, ctx: Ctx) {
   const r = await resolve(request, ctx);
   if ("error" in r) return r.error;
   const body = (await request.json().catch(() => ({}))) as { blocks?: unknown };
-  const blocks = normalizePageBlocks(body.blocks);
+  const blocks = normalizePage(r.slug, body.blocks);
   if (!blocks) return NextResponse.json({ error: "blocks must be an array" }, { status: 400 });
   const failed = await saveDraft(r.brand, r.slug, blocks, r.user.id);
   if (failed) return failed;
@@ -154,7 +157,7 @@ export async function POST(request: Request, ctx: Ctx) {
   switch (body.action) {
     case "publish": {
       if (!row) return NextResponse.json({ error: "Nothing saved yet." }, { status: 400 });
-      const blocks = normalizePageBlocks(row.draft_blocks) ?? DEFAULT_SASSY_HOME;
+      const blocks = normalizePage(r.slug, row.draft_blocks) ?? defaultBlocks(r.slug);
       const now = new Date().toISOString();
       const { error: upErr } = await supabaseServer
         .from("site_pages")
@@ -173,7 +176,7 @@ export async function POST(request: Request, ctx: Ctx) {
       const failed = await saveDraft(
         r.brand,
         r.slug,
-        normalizePageBlocks(row.published_blocks) ?? DEFAULT_SASSY_HOME,
+        normalizePage(r.slug, row.published_blocks) ?? defaultBlocks(r.slug),
         r.user.id,
       );
       if (failed) return failed;
@@ -193,14 +196,14 @@ export async function POST(request: Request, ctx: Ctx) {
       const failed = await saveDraft(
         r.brand,
         r.slug,
-        normalizePageBlocks(v.blocks) ?? DEFAULT_SASSY_HOME,
+        normalizePage(r.slug, v.blocks) ?? defaultBlocks(r.slug),
         r.user.id,
       );
       if (failed) return failed;
       break;
     }
     case "reset": {
-      const failed = await saveDraft(r.brand, r.slug, DEFAULT_SASSY_HOME, r.user.id);
+      const failed = await saveDraft(r.brand, r.slug, defaultBlocks(r.slug), r.user.id);
       if (failed) return failed;
       break;
     }
