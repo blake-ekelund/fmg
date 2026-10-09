@@ -7,6 +7,7 @@ import {
   CalendarClock,
   Check,
   ChevronDown,
+  Eye,
   Facebook,
   ImageIcon,
   Instagram,
@@ -73,6 +74,7 @@ type Props = {
   onPublishNow: () => void;
   onRetry: () => void;
   onDelete: () => void;
+  onPreview: () => void;
   /** Extra "More" menu item, e.g. switching between slides and own photos. */
   extraAction?: { label: string; onClick: () => void } | null;
 };
@@ -106,6 +108,14 @@ export default function BuilderHeader(p: Props) {
           <SaveIndicator state={p.saveState} locked={p.locked} />
 
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={p.onPreview}
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+            >
+              <Eye size={18} />
+              <span className="hidden md:inline">Preview</span>
+            </button>
             <MoreMenu
               items={[
                 ...(p.extraAction && !p.locked ? [{ label: p.extraAction.label, icon: ImageIcon, onClick: p.extraAction.onClick }] : []),

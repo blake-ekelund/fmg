@@ -67,6 +67,7 @@ import {
 } from "./api";
 import { ConfirmDialog } from "./bits";
 import BuilderHeader from "./BuilderHeader";
+import PlatformPreview from "./PlatformPreview";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 
 /**
@@ -119,6 +120,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
   const [busy, setBusy] = useState<null | "schedule" | "publish" | "draft" | "retry" | "delete" | "upload">(null);
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<null | "library" | "product" | "media">(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [confirm, setConfirm] = useState<null | { kind: "publish" | "delete" | "photos" } | { kind: "slide"; index: number }>(null);
 
   const hydrated = useRef(false);
@@ -378,6 +380,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
         onPublishNow={() => setConfirm({ kind: "publish" })}
         onRetry={() => void retry()}
         onDelete={() => setConfirm({ kind: "delete" })}
+        onPreview={() => setPreviewOpen(true)}
         extraAction={design ? { label: "Use my own photos instead", onClick: () => setConfirm({ kind: "photos" }) } : null}
       />
 
@@ -557,6 +560,19 @@ export default function SocialPostBuilder({ id }: { id: string }) {
       )}
 
       </div>
+
+      <PlatformPreview
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        brand={brand}
+        platforms={platforms}
+        postType={design ? (design.slides.length === 1 ? "image" : "carousel") : postType}
+        slides={design?.slides ?? null}
+        media={media}
+        caption={effectiveCaption}
+        igHandle={brandConn?.instagram?.username ?? null}
+        fbName={brandConn?.facebook?.name ?? null}
+      />
 
       <ConfirmDialog
         open={confirm?.kind === "publish"}
