@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   ChevronLeft,
   ChevronRight,
@@ -17,8 +15,6 @@ import {
   Loader2,
   Package,
   Plus,
-  RotateCcw,
-  Send,
   Trash2,
   Upload,
   X,
@@ -47,7 +43,6 @@ import {
   IG_HASHTAG_MAX,
   PLATFORM_LABEL,
   POST_TYPE_LABEL,
-  SOCIAL_BRANDS,
   SOCIAL_PLATFORMS,
   SOCIAL_POST_TYPES,
   countHashtags,
@@ -70,7 +65,8 @@ import {
   uploadSocialVideo,
   type PostFields,
 } from "./api";
-import { SocialStatusPill } from "./bits";
+import { ConfirmDialog } from "./bits";
+import BuilderHeader from "./BuilderHeader";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 
 /**
@@ -123,6 +119,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
   const [busy, setBusy] = useState<null | "schedule" | "publish" | "draft" | "retry" | "delete" | "upload">(null);
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<null | "library" | "product" | "media">(null);
+  const [confirm, setConfirm] = useState<null | { kind: "publish" | "delete" | "photos" } | { kind: "slide"; index: number }>(null);
 
   const hydrated = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -227,7 +224,6 @@ export default function SocialPostBuilder({ id }: { id: string }) {
   }, [design, brand, platforms, postType, caption, media, effectiveCaption]);
 
   const brandConn = conn?.brands.find((b) => b.brand === brand);
-  const whenIso = fromLocalInput(when);
 
   /* ── Slide editing ──────────────────────────────────────────── */
 
@@ -270,14 +266,13 @@ export default function SocialPostBuilder({ id }: { id: string }) {
     setSelectedId(next[Math.min(i, next.length - 1)].id);
   }
 
-  function useDesign() {
+  function switchToDesign() {
     const d = starterDesign(brand);
     if (caption.trim()) d.caption = { ...emptyCaption(), body: caption.trim() };
     setDesign(d);
     setSelectedId(d.slides[0].id);
   }
-  function usePhotos() {
-    if (!window.confirm("Switch to your own photos? The slides are removed from this post.")) return;
+  function switchToPhotos() {
     setCaption(effectiveCaption);
     setMedia([]);
     setPostType("image");
@@ -301,25 +296,29 @@ export default function SocialPostBuilder({ id }: { id: string }) {
     }
   }
 
-  const schedule = () => act("schedule", () => updateSocialPost(post!.id, { ...fields(), action: "schedule" }));
+  const schedule = (iso: string) => {
+    setWhen(toLocalInput(iso));
+    void act("schedule", () => updateSocialPost(post!.id, { ...fields(), scheduled_at: iso, action: "schedule" }));
+  };
   const unschedule = () => act("draft", () => updateSocialPost(post!.id, { ...fields(), action: "draft" }));
   const retry = () => act("retry", () => updateSocialPost(post!.id, { action: "retry" }));
-  const publishNow = () => {
-    const where = platforms.map((p) => PLATFORM_LABEL[p]).join(" and ");
-    if (!window.confirm(`Post this to ${brand}'s ${where} right now?`)) return;
-    void act("publish", () => publishSocialPostNow(post!.id, fields()));
-  };
-  const remove = () => {
-    const live = status === "published" || status === "partial";
-    const msg = live
-      ? "Remove this from the list? It stays up on Facebook / Instagram — delete it there if you want it gone."
-      : "Delete this post?";
-    if (!window.confirm(msg)) return;
-    void act("delete", async () => {
+  const publishNow = () => act("publish", () => publishSocialPostNow(post!.id, fields()));
+  const remove = () =>
+    act("delete", async () => {
       await deleteSocialPost(post!.id);
       router.push("/marketing/social");
     });
-  };
+
+  /** Runs the confirmed dialog's action. */
+  function onConfirm() {
+    const c = confirm;
+    setConfirm(null);
+    if (!c) return;
+    if (c.kind === "publish" && problems.length === 0) void publishNow();
+    else if (c.kind === "delete") void remove();
+    else if (c.kind === "photos") switchToPhotos();
+    else if (c.kind === "slide") deleteSlide(c.index);
+  }
 
   async function onVideo(file: File | undefined) {
     if (!file) return;
@@ -354,118 +353,58 @@ export default function SocialPostBuilder({ id }: { id: string }) {
   }
 
   return (
-    <div className="w-full space-y-4 p-4 md:px-8 md:py-6">
+    <div className="min-h-screen w-full bg-gray-50/50">
       <SlideFonts />
 
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Link href="/marketing/social" className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100" aria-label="Back to social posts">
-          <ArrowLeft size={18} />
-        </Link>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          disabled={locked}
-          placeholder="Untitled post"
-          className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1 text-lg font-semibold text-gray-900 hover:border-gray-200 focus:border-gray-300 focus:outline-none disabled:hover:border-transparent"
-        />
-        <SocialStatusPill status={status} />
-        <span className="text-xs text-gray-400">
-          {saveState === "saving" ? "Saving…" : saveState === "dirty" ? "Unsaved" : saveState === "error" ? "Not saved" : "Saved"}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          {post && (
-            <Btn onClick={remove} busy={busy === "delete"} disabled={!!busy || status === "publishing"} variant="danger" icon={<Trash2 size={14} />}>
-              {status === "published" || status === "partial" ? "Remove" : "Delete"}
-            </Btn>
-          )}
-          {locked ? (
-            status === "partial" && (
-              <Btn onClick={retry} busy={busy === "retry"} icon={<RotateCcw size={14} />}>
-                Retry failed
-              </Btn>
-            )
-          ) : (
-            <>
-              {status === "scheduled" && (
-                <Btn onClick={unschedule} busy={busy === "draft"} disabled={!!busy} variant="ghost">
-                  Unschedule
-                </Btn>
-              )}
-              <Btn onClick={schedule} busy={busy === "schedule"} disabled={!!busy || problems.length > 0 || !whenIso}>
-                {status === "scheduled" ? "Update schedule" : "Schedule"}
-              </Btn>
-              <Btn
-                onClick={publishNow}
-                busy={busy === "publish"}
-                disabled={!!busy || problems.length > 0 || conn?.configured === false}
-                icon={<Send size={14} />}
-                variant="dark"
-              >
-                {status === "failed" ? "Try again now" : "Publish now"}
-              </Btn>
-            </>
-          )}
-        </div>
-      </div>
+      <BuilderHeader
+        title={title}
+        onTitle={setTitle}
+        brand={brand}
+        onBrand={setBrand}
+        platforms={platforms}
+        onTogglePlatform={(p) =>
+          setPlatforms((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : SOCIAL_PLATFORMS.filter((x) => x === p || cur.includes(x))))
+        }
+        status={status}
+        scheduledAt={post.scheduled_at}
+        publishedAt={post.published_at}
+        saveState={saveState}
+        locked={locked}
+        busy={busy}
+        connection={conn}
+        problems={problems}
+        onSchedule={schedule}
+        onUnschedule={() => void unschedule()}
+        onPublishNow={() => setConfirm({ kind: "publish" })}
+        onRetry={() => void retry()}
+        onDelete={() => setConfirm({ kind: "delete" })}
+        extraAction={design ? { label: "Use my own photos instead", onClick: () => setConfirm({ kind: "photos" }) } : null}
+      />
 
+      <div className="space-y-4 px-4 pb-10 pt-4 md:px-8">
+      {brandConn && !brandConn.ok && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle size={16} className="shrink-0" />
+          {brand === "NI" ? "Natural Inspirations" : "Sassy"} can&apos;t post yet: {brandConn.error}
+        </div>
+      )}
       {(busy === "schedule" || busy === "publish") && design && (
-        <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
-          <Loader2 size={14} className="animate-spin" /> Rendering the slides{busy === "publish" ? " and posting" : ""}…
+        <div className="flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm text-gray-600 shadow-sm">
+          <Loader2 size={16} className="animate-spin" /> {busy === "publish" ? "Preparing the slides and posting…" : "Preparing the slides…"}
         </div>
       )}
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span className="flex-1">{error}</span>
           <button onClick={() => setError(null)} aria-label="Dismiss">
-            <X size={14} />
+            <X size={16} />
           </button>
         </div>
       )}
       {locked && <Results post={post} />}
       {post.status === "failed" && post.last_error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">Last try failed: {post.last_error}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">It didn&apos;t post: {post.last_error}</div>
       )}
-
-      {/* Settings */}
-      <fieldset disabled={locked} className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-gray-200 bg-white px-4 py-3 disabled:opacity-70">
-        <Inline label="Brand">
-          <Segmented options={SOCIAL_BRANDS.map((b) => ({ value: b, label: b }))} value={brand} onChange={setBrand} />
-        </Inline>
-        <Inline label="Post to">
-          <div className="flex gap-1.5">
-            {SOCIAL_PLATFORMS.map((p) => {
-              const on = platforms.includes(p);
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPlatforms((cur) => (on ? cur.filter((x) => x !== p) : SOCIAL_PLATFORMS.filter((x) => x === p || cur.includes(x))))}
-                  className={clsx(
-                    "rounded-lg border px-2.5 py-1 text-sm transition",
-                    on ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:border-gray-300",
-                  )}
-                >
-                  {PLATFORM_LABEL[p]}
-                </button>
-              );
-            })}
-          </div>
-        </Inline>
-        <Inline label="When">
-          <input
-            type="datetime-local"
-            value={when}
-            onChange={(e) => setWhen(e.target.value)}
-            className="rounded-lg border border-gray-200 px-2.5 py-1 text-sm focus:border-gray-400 focus:outline-none"
-          />
-        </Inline>
-        {brandConn && !brandConn.ok && (
-          <span className="flex items-center gap-1 text-xs text-amber-700">
-            <AlertTriangle size={12} /> {brandConn.error}
-          </span>
-        )}
-      </fieldset>
 
       {design ? (
         <div className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)_380px]">
@@ -507,7 +446,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
                       <IconBtn label="Duplicate" onClick={() => duplicateSlide(i)} disabled={slides.length >= SLIDES_MAX}>
                         <Copy size={12} />
                       </IconBtn>
-                      <IconBtn label="Delete" onClick={() => deleteSlide(i)} disabled={slides.length <= 1}>
+                      <IconBtn label="Delete" onClick={() => setConfirm({ kind: "slide", index: i })} disabled={slides.length <= 1}>
                         <Trash2 size={12} />
                       </IconBtn>
                     </div>
@@ -517,7 +456,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
             </div>
             {!locked && slides.length < SLIDES_MAX && <AddSlideMenu onAdd={addSlide} />}
             {!locked && (
-              <button onClick={usePhotos} className="block pt-2 text-left text-[11px] text-gray-400 hover:text-gray-700">
+              <button onClick={switchToPhotos} className="block pt-2 text-left text-[11px] text-gray-400 hover:text-gray-700">
                 Use my own photos instead
               </button>
             )}
@@ -613,9 +552,72 @@ export default function SocialPostBuilder({ id }: { id: string }) {
           uploading={busy === "upload"}
           onAddImage={() => setPicker("media")}
           onVideo={onVideo}
-          onUseDesign={useDesign}
+          onUseDesign={switchToDesign}
         />
       )}
+
+      </div>
+
+      <ConfirmDialog
+        open={confirm?.kind === "publish"}
+        title={problems.length ? "Not ready to post yet" : "Post this now?"}
+        confirmLabel={problems.length ? "OK" : "Post now"}
+        onCancel={() => setConfirm(null)}
+        onConfirm={onConfirm}
+      >
+        {problems.length ? (
+          <ul className="list-disc space-y-1 pl-5">
+            {problems.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        ) : (
+          <>
+            This goes live on <strong className="text-gray-900">{platforms.map((p) => PLATFORM_LABEL[p]).join(" and ")}</strong> for{" "}
+            <strong className="text-gray-900">{brand === "NI" ? "Natural Inspirations" : "Sassy"}</strong> right away. After that,
+            changes have to be made on {platforms.map((p) => PLATFORM_LABEL[p]).join(" and ")} directly.
+          </>
+        )}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={confirm?.kind === "delete"}
+        title={status === "published" || status === "partial" ? "Remove this post from the list?" : "Delete this post?"}
+        confirmLabel={status === "published" || status === "partial" ? "Remove" : "Delete post"}
+        tone="danger"
+        onCancel={() => setConfirm(null)}
+        onConfirm={onConfirm}
+      >
+        {status === "published" || status === "partial"
+          ? "It stays up on Facebook and Instagram — delete it there if you want it gone."
+          : "The draft and its slides are deleted. This can't be undone."}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={confirm?.kind === "photos"}
+        title="Use your own photos instead?"
+        confirmLabel="Remove slides"
+        tone="danger"
+        onCancel={() => setConfirm(null)}
+        onConfirm={onConfirm}
+      >
+        The designed slides are removed from this post. The caption is kept.
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={confirm?.kind === "slide"}
+        title={confirm?.kind === "slide" ? `Delete slide ${confirm.index + 1}?` : "Delete slide?"}
+        confirmLabel="Delete slide"
+        tone="danger"
+        onCancel={() => setConfirm(null)}
+        onConfirm={onConfirm}
+      >
+        {confirm?.kind === "slide" && design?.slides[confirm.index] ? (
+          <div className="flex items-center gap-4">
+            <div className="shrink-0 overflow-hidden rounded-lg border border-gray-200">
+              <SlidePreview slide={design.slides[confirm.index]} brand={brand} index={confirm.index + 1} total={design.slides.length} width={72} />
+            </div>
+            <span>This slide and everything on it is removed from the post.</span>
+          </div>
+        ) : null}
+      </ConfirmDialog>
 
       {(picker === "library" || picker === "media") && (
         <MediaLibraryModal
@@ -1117,14 +1119,6 @@ function Results({ post }: { post: SocialPost }) {
   );
 }
 
-function Inline({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-[11px] font-medium uppercase tracking-wider text-gray-500">{label}</span>
-      {children}
-    </div>
-  );
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -1210,35 +1204,3 @@ function IconBtn({ label, onClick, disabled, children }: { label: string; onClic
   );
 }
 
-function Btn({
-  children,
-  onClick,
-  busy,
-  disabled,
-  icon,
-  variant = "outline",
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  busy?: boolean;
-  disabled?: boolean;
-  icon?: React.ReactNode;
-  variant?: "outline" | "dark" | "ghost" | "danger";
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled || busy}
-      className={clsx(
-        "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:opacity-40",
-        variant === "dark" && "bg-gray-900 text-white hover:bg-gray-800",
-        variant === "outline" && "border border-gray-200 text-gray-800 hover:bg-gray-50",
-        variant === "ghost" && "text-gray-600 hover:bg-gray-100",
-        variant === "danger" && "text-red-600 hover:bg-red-50",
-      )}
-    >
-      {busy ? <Loader2 size={14} className="animate-spin" /> : icon}
-      {children}
-    </button>
-  );
-}
