@@ -91,6 +91,10 @@ function toolbarPos(b: {
   };
 }
 
+/** Blocks the store draws in client components (state of their own), so
+ *  text typed into them on the canvas is re-rendered from the save. */
+const CLIENT_DRAWN = new Set<PageBlockType>(["hero"]);
+
 /** Blocks that are whole pages or data, not a section to recolor. */
 const NO_COLORS = new Set<PageBlockType>(["theme", "quiz", "collections_copy"]);
 
@@ -221,10 +225,19 @@ function PageEditor({
   const [selBox, setSelBox] = useState<{ top: number; left: number; width: number; height: number; frameTop: number; frameBottom: number; frameLeft: number; frameWidth: number } | null>(null);
   const [editing, setEditing] = useState<EditingKind | null>(null);
   const [imagePick, setImagePick] = useState<{ id: string; path: string } | null>(null);
+  // The "click any text…" hint shows for the first few seconds only.
+  const [showHint, setShowHint] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setShowHint(false), 7000);
+    return () => clearTimeout(t);
+  }, []);
   const sectionRef = useRef<HTMLElement | null>(null);
   // Whether the next save should reload the canvas: not when the edit was
   // typed on the canvas itself (or recolored live) — it already shows it.
   const reloadRef = useRef(false);
+  // Typed into a block the store draws on the client (the hero slideshow):
+  // reload the canvas once the typing stops, so it re-renders from the save.
+  const reloadOnStopRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [busy, setBusy] = useState<string | null>(null);
@@ -264,12 +277,18 @@ function PageEditor({
       setPage(data);
       setBlocks(data.draft);
       blocksRef.current = data.draft;
+      // A page that is one block (quiz, colors, collection words): select it,
+      // so its form is ready in the panel.
+      if (def.fixed && data.draft.length === 1 && !selectedRef.current) {
+        setSelected(data.draft[0].id);
+        selectedRef.current = data.draft[0].id;
+      }
       setSaveState("saved");
       setFrameKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load the page.");
     }
-  }, [brand, slug]);
+  }, [brand, slug, def.fixed]);
 
   useEffect(() => {
     load();
@@ -320,6 +339,8 @@ function PageEditor({
 
   // ── autosave ───────────────────────────────────────────────────────────
   const save = useCallback(async () => {
+    // Whatever was queued is being saved now.
+    timer.current = null;
     if (savingRef.current) {
       againRef.current = true;
       return;
@@ -561,7 +582,9 @@ function PageEditor({
       // empty items are dropped there — so resolve the path against that.
       const shown = normalizeSitePage(brand, slug, [b])?.find((x) => x.id === id) ?? b;
       const next = setBlockPath(shown, path, value);
-      if (next) update(list.map((x) => (x.id === id ? next : x)), { reload });
+      if (!next) return;
+      if (!reload && CLIENT_DRAWN.has(b.type)) reloadOnStopRef.current = true;
+      update(list.map((x) => (x.id === id ? next : x)), { reload });
     },
     [fromCanvasId, update, brand, slug],
   );
@@ -627,7 +650,29 @@ function PageEditor({
       } else if (m.type === "edit") {
         setField(m.id, m.path, m.value, false);
       } else if (m.type === "editing") {
+        // Typing into something this page doesn't own (the footer on the
+        // homepage): stop, and point to where it's edited.
+        if (m.id && !blocksRef.current.some((x) => x.id === fromCanvasId(m.id!))) {
+          frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "stopEditing" }, "*");
+          if (m.id.startsWith("__site:")) {
+            setSiteHint(m.id.slice("__site:".length));
+            setPanelOpen(true);
+          }
+          return;
+        }
         setEditing(m.kind);
+        if (!m.kind && reloadOnStopRef.current) {
+          reloadOnStopRef.current = false;
+          reloadRef.current = true;
+          // Nothing queued to save it: reload now (or after the save in flight).
+          if (!timer.current) {
+            if (savingRef.current) againRef.current = true;
+            else {
+              reloadRef.current = false;
+              setFrameKey((k) => k + 1);
+            }
+          }
+        }
       } else if (m.type === "image") {
         setImagePick({ id: m.id, path: m.path });
       } else if (m.type === "rect") {
@@ -651,7 +696,7 @@ function PageEditor({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [insert, toCanvasId, setField]);
+  }, [insert, toCanvasId, setField, fromCanvasId]);
 
   const hoverInCanvas = (id: string | null) =>
     frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "hover", id: toCanvasId(id) }, "*");
@@ -1059,7 +1104,7 @@ function PageEditor({
               onFormat={(cmd: FormatCmd, value?: string) => postToCanvas({ type: "format", cmd, value })}
             />
           ) : null}
-          {previewSrc && !selected && !canvasLoading && !bridgeMissing ? (
+          {previewSrc && showHint && !selected && !canvasLoading && !bridgeMissing ? (
             <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-gray-900/80 px-3.5 py-1.5 text-[11px] text-white shadow">
               Click any text to type over it · click a block for its toolbar · drag blocks in from the left
             </div>
