@@ -10,20 +10,38 @@ import {
   MOSAIC_VISIBLE_W,
   mosaicFits,
   mosaicSize,
-  mosaicSlice,
   type GridRows,
 } from "@/lib/social/gridPlan";
 
 /**
  * Split one picture across the grid: pick a photo, zoom and drag it into the
- * frame (the shape the 2/3/4 rows make on the profile), then slice it into
- * one 1080×1350 post per square — see mosaicSlice in lib/social/gridPlan.ts.
- * Everything happens in the browser on the original file (full resolution).
+ * frame (the shape the 2/3/4 rows make on the profile). The planner turns
+ * that framing into a big canvas (lib/social/mosaicDesign.ts) the team can
+ * design further, then splits it into one post per square.
  */
 
 export type Crop = { zoom: number; cx: number; cy: number };
 
-type Loaded = { img: HTMLImageElement; w: number; h: number; name: string };
+type Loaded = {
+  img: HTMLImageElement;
+  w: number;
+  h: number;
+  name: string;
+  /** Public URL — set for library picks, and once an uploaded file has been stored. */
+  src?: string;
+  /** The file, for pictures from the computer (uploaded on first use). */
+  file?: File;
+};
+
+/** A public URL for the picture (posts are rendered on the server from it). Uploads a local file once. */
+export async function ensurePictureUrl(l: Loaded): Promise<string> {
+  if (l.src) return l.src;
+  if (!l.file) throw new Error("The picture is missing — choose it again.");
+  const up = await uploadSocialImage(l.file, "social-grid");
+  if ("error" in up) throw new Error(up.error);
+  l.src = up.url; // remembered on the picture so later steps don't upload it again
+  return up.url;
+}
 
 /** The part of the picture in the frame, in image pixels. */
 export function cropRect(l: { w: number; h: number }, rows: GridRows, c: Crop) {
@@ -35,26 +53,6 @@ export function cropRect(l: { w: number; h: number }, rows: GridRows, c: Crop) {
   const left = Math.min(Math.max(c.cx - width / 2, 0), l.w - width);
   const top = Math.min(Math.max(c.cy - height / 2, 0), l.h - height);
   return { left, top, width, height, scale: width / fw };
-}
-
-/** Slice the framed picture into `rows * 3` JPEG posts, in posting order. */
-export async function slicePicture(l: Loaded, rows: GridRows, c: Crop): Promise<Blob[]> {
-  const total = rows * 3;
-  const r = cropRect(l, rows, c);
-  const canvas = document.createElement("canvas");
-  canvas.width = 1080;
-  canvas.height = 1350;
-  const ctx = canvas.getContext("2d")!;
-  ctx.imageSmoothingQuality = "high";
-  const out: Blob[] = [];
-  for (let n = 1; n <= total; n++) {
-    const { x, y } = mosaicSlice(n, total);
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, 1080, 1350);
-    ctx.drawImage(l.img, r.left + x * r.scale, r.top + y * r.scale, 1080 * r.scale, 1350 * r.scale, 0, 0, 1080, 1350);
-    out.push(await new Promise<Blob>((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("Couldn't cut the picture."))), "image/jpeg", 0.92)));
-  }
-  return out;
 }
 
 /** The whole framed picture, small, as base64 JPEG — what Claude looks at to write captions. */
@@ -75,7 +73,7 @@ export async function loadPicture(file: File): Promise<Loaded> {
   const img = new Image();
   img.src = url;
   await img.decode();
-  return { img, w: img.naturalWidth, h: img.naturalHeight, name: file.name };
+  return { img, w: img.naturalWidth, h: img.naturalHeight, name: file.name, file };
 }
 
 /**
@@ -96,7 +94,7 @@ export async function loadPictureFromUrl(url: string): Promise<Loaded> {
   } catch {
     throw new Error("Couldn't load that picture. Try another, or upload it from your computer.");
   }
-  return { img, w: img.naturalWidth, h: img.naturalHeight, name: decodeURIComponent(big.split("?")[0].split("/").pop() ?? "picture") };
+  return { img, w: img.naturalWidth, h: img.naturalHeight, name: decodeURIComponent(big.split("?")[0].split("/").pop() ?? "picture"), src: big };
 }
 
 export type { Loaded as LoadedPicture };

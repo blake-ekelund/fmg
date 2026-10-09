@@ -11,9 +11,8 @@
 import { useSyncExternalStore } from "react";
 import { dismissToast, toast, updateToast } from "@/lib/toast";
 import { gridSchedule, type GridDraft, type GridRows } from "@/lib/social/gridPlan";
-import { isCanvas } from "@/lib/social/design";
 import type { SocialBrand, SocialPlatform, SocialPost } from "@/lib/social/types";
-import { createSocialPost, updateSocialPost, uploadSocialImage } from "./api";
+import { createSocialPost, updateSocialPost } from "./api";
 
 export type GridKind = "story" | "picture";
 
@@ -43,8 +42,6 @@ export type GridJob = {
   failedAt?: "writing" | "saving";
   error?: string;
   draft?: GridDraft;
-  /** One-picture sets: the cut pieces, uploaded on save. */
-  pieces?: Blob[];
   created: SocialPost[];
   progress?: string;
   scheduleErrors: string[];
@@ -163,13 +160,13 @@ function notify(id: string, t: Parameters<typeof toast>[0]) {
 /* ─── Steps ───────────────────────────────────────────────────────── */
 
 /** Start writing a set. `run` does the AI work (and, for pictures, the cutting). */
-export function startGridWrite(config: GridConfig, run: () => Promise<{ draft: GridDraft; pieces?: Blob[] }>): string {
+export function startGridWrite(config: GridConfig, run: () => Promise<{ draft: GridDraft }>): string {
   const id = `job-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   jobs.set(id, { id, config, status: "writing", created: [], scheduleErrors: [] });
   emit();
   run()
-    .then(({ draft, pieces }) => {
-      patch(id, { status: "ready", draft, pieces });
+    .then(({ draft }) => {
+      patch(id, { status: "ready", draft });
       notify(id, {
         tone: "success",
         title: `“${draft.story.title}” is ready`,
@@ -225,7 +222,7 @@ export function leaveGridJob(id: string) {
 export function saveGridJob(id: string): void {
   const j = jobs.get(id);
   if (!j?.draft || j.status === "saving") return;
-  const { config, draft, pieces } = j;
+  const { config, draft } = j;
   const dates = planDates(config);
   const platforms: SocialPlatform[] = config.alsoFacebook ? ["instagram", "facebook"] : ["instagram"];
   patch(id, { status: "saving", error: undefined });
@@ -235,17 +232,8 @@ export function saveGridJob(id: string): void {
     try {
       for (let i = 0; i < draft.posts.length; i++) {
         const p = draft.posts[i];
-        let design = p.design;
-        if (config.kind === "picture" && pieces?.[i]) {
-          progress(id, `Uploading piece ${i + 1} of ${draft.posts.length}…`);
-          const file = new File([pieces[i]], `${design.grid?.id ?? "grid"}-${i + 1}.jpg`, { type: "image/jpeg" });
-          const up = await uploadSocialImage(file, "social-grid");
-          if ("error" in up) throw new Error(up.error);
-          const s = design.slides[0];
-          if (isCanvas(s)) design = { ...design, slides: [{ ...s, bg: { ...s.bg, image: up.url } }] };
-        }
         progress(id, `Creating post ${i + 1} of ${draft.posts.length}…`);
-        out.push(await createSocialPost({ brand: config.brand, platforms, title: p.title, design, scheduled_at: dates[i].toISOString() }));
+        out.push(await createSocialPost({ brand: config.brand, platforms, title: p.title, design: p.design, scheduled_at: dates[i].toISOString() }));
       }
       patch(id, { status: "saved", created: out, progress: undefined });
       postsChanged();

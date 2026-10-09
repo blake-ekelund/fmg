@@ -7,6 +7,9 @@
  * content + position, so an unchanged slide keeps its URL and isn't redrawn.
  * Photos are fetched and inlined as resized JPEG data URIs first — Satori
  * can't decode every format (WebP, HEIC) and big originals slow it down.
+ * A canvas photo bigger than the slide (a grid picture piece, a zoomed-in
+ * photo) is cut down to just the part the slide shows, at full resolution,
+ * so it isn't blurred by the 1600px cap.
  */
 
 import { readFile } from "node:fs/promises";
@@ -17,7 +20,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import SlideView from "./SlideView";
 import CanvasView from "./CanvasView";
 import { isCanvas, SLIDE_FONTS, SLIDE_H, SLIDE_W, slideHash, type DesignSlide, type PostDesign, type Slide } from "./design";
-import { fontsUsed, type CanvasSlide } from "./canvas";
+import { fontsUsed, type CanvasSlide, type ImageLayer, type Layer } from "./canvas";
 import { fontById } from "./fonts";
 import { SOCIAL_BUCKET, type SocialBrand, type SocialMedia } from "./types";
 
@@ -171,13 +174,76 @@ export function designIsRendered(postId: string, brand: SocialBrand, design: Pos
   return design.slides.every((s, i) => media[i]?.url.endsWith(`/slides/${postId}/${fileName(s, brand, i + 1, total)}`));
 }
 
+/** Original image bytes (EXIF-rotated) per render batch, for cropping big photo layers. */
+const originals = new WeakMap<Map<string, string>, Map<string, Promise<{ data: Buffer; width: number; height: number; alpha: boolean } | null>>>();
+
+function original(url: string, cache: Map<string, string>) {
+  let m = originals.get(cache);
+  if (!m) originals.set(cache, (m = new Map()));
+  let p = m.get(url);
+  if (!p) {
+    p = (async () => {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return null;
+        const { data, info } = await sharp(Buffer.from(await res.arrayBuffer()), { failOn: "none" })
+          .rotate()
+          .toBuffer({ resolveWithObject: true });
+        return { data, width: info.width, height: info.height, alpha: info.channels === 4 };
+      } catch {
+        return null;
+      }
+    })();
+    m.set(url, p);
+  }
+  return p;
+}
+
+/**
+ * A photo layer that spills past the slide or is drawn bigger than the 1600px
+ * cap: crop the original to just the visible part (after cover/contain
+ * fitting) at the size it's shown. Rotated or rounded/bordered photos keep the
+ * simple path (their shape depends on the whole box). Null = nothing visible.
+ */
+async function croppedLayer(l: ImageLayer, cache: Map<string, string>): Promise<ImageLayer | null> {
+  const spills = l.x < 0 || l.y < 0 || l.x + l.w > SLIDE_W || l.y + l.h > SLIDE_H;
+  const big = l.w > 1600 || l.h > 1600;
+  if ((!spills && !big) || l.rotation || l.radius || l.borderWidth) return { ...l, src: await inlineImage(l.src, cache) };
+  const img = await original(l.src, cache);
+  if (!img) return { ...l, src: "" };
+
+  // Where the whole image is drawn (object-fit inside the layer box)…
+  const s = l.fit === "contain" ? Math.min(l.w / img.width, l.h / img.height) : Math.max(l.w / img.width, l.h / img.height);
+  const dw = img.width * s;
+  const dh = img.height * s;
+  const ox = l.x + (l.w - dw) / 2;
+  const oy = l.y + (l.h - dh) / 2;
+  // …and the part of it inside both the layer box (cover crops to it) and the slide.
+  const x0 = Math.max(0, l.x, ox);
+  const y0 = Math.max(0, l.y, oy);
+  const x1 = Math.min(SLIDE_W, l.x + l.w, ox + dw);
+  const y1 = Math.min(SLIDE_H, l.y + l.h, oy + dh);
+  const outW = Math.round(x1 - x0);
+  const outH = Math.round(y1 - y0);
+  if (outW < 1 || outH < 1) return null;
+
+  const left = Math.max(0, Math.min(img.width - 1, Math.round((x0 - ox) / s)));
+  const top = Math.max(0, Math.min(img.height - 1, Math.round((y0 - oy) / s)));
+  const width = Math.max(1, Math.min(img.width - left, Math.round((x1 - x0) / s)));
+  const height = Math.max(1, Math.min(img.height - top, Math.round((y1 - y0) / s)));
+  const piece = sharp(img.data).extract({ left, top, width, height }).resize(outW, outH, { fit: "fill" });
+  const src = img.alpha
+    ? `data:image/png;base64,${(await piece.png({ compressionLevel: 6 }).toBuffer()).toString("base64")}`
+    : `data:image/jpeg;base64,${(await piece.jpeg({ quality: 90 }).toBuffer()).toString("base64")}`;
+  return { ...l, src, x: Math.round(x0), y: Math.round(y0), w: outW, h: outH, fit: "cover" };
+}
+
 async function renderCanvasJpeg(slide: CanvasSlide, index: number, total: number, cache: Map<string, string>): Promise<Buffer> {
+  const layers = await Promise.all(slide.layers.map(async (l): Promise<Layer | null> => (l.type === "image" ? croppedLayer(l, cache) : l)));
   const resolved: CanvasSlide = {
     ...slide,
     bg: { ...slide.bg, image: await inlineImage(slide.bg.image, cache) },
-    layers: await Promise.all(
-      slide.layers.map(async (l) => (l.type === "image" ? { ...l, src: await inlineImage(l.src, cache) } : l)),
-    ),
+    layers: layers.filter((l): l is Layer => l !== null),
   };
   const textures = new Map<string, string>();
   if (slide.bg.texture) textures.set(`${slide.bg.texture}-${slide.bg.textureTone}`, await textureDataUri(slide.bg.texture, slide.bg.textureTone));

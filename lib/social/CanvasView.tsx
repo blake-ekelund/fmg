@@ -1,5 +1,5 @@
 /**
- * Draws a free-canvas slide at full size (1080×1350). The SAME component
+ * Draws a free-canvas slide at full size (1080×1350, or the slide's own w×h). The SAME component
  * renders in the editor (scaled with CSS) and on the server (next/og →
  * Satori → JPEG), so it sticks to what Satori supports: inline styles,
  * flexbox, absolute positioning, no classes.
@@ -11,7 +11,7 @@
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { CANVAS_H, CANVAS_W, fillTokens, type CanvasSlide, type Layer, type TextLayer } from "./canvas";
+import { fillTokens, slideH, slideW, type CanvasSlide, type Layer, type TextLayer } from "./canvas";
 import { resolveVariant } from "./fonts";
 
 type Props = {
@@ -62,11 +62,13 @@ function box(l: Layer, extra: CSSProperties = {}): CSSProperties {
 
 export default function CanvasView({ slide, index, total, textureSrc, editing }: Props) {
   const bg = slide.bg;
+  const W = slideW(slide);
+  const H = slideH(slide);
   return (
     <div
       style={clean({
-        width: CANVAS_W,
-        height: CANVAS_H,
+        width: W,
+        height: H,
         display: "flex",
         position: "relative",
         overflow: "hidden",
@@ -79,9 +81,9 @@ export default function CanvasView({ slide, index, total, textureSrc, editing }:
         <img
           src={bg.image}
           alt=""
-          width={CANVAS_W}
-          height={CANVAS_H}
-          style={{ position: "absolute", left: 0, top: 0, width: CANVAS_W, height: CANVAS_H, objectFit: "cover", opacity: bg.imageOpacity }}
+          width={W}
+          height={H}
+          style={{ position: "absolute", left: 0, top: 0, width: W, height: H, objectFit: "cover", opacity: bg.imageOpacity }}
         />
       ) : null}
       {bg.texture && !bg.textureOnTop ? (
@@ -89,9 +91,9 @@ export default function CanvasView({ slide, index, total, textureSrc, editing }:
         <img
           src={textureSrc(bg.texture, bg.textureTone)}
           alt=""
-          width={CANVAS_W}
-          height={CANVAS_H}
-          style={{ position: "absolute", left: 0, top: 0, width: CANVAS_W, height: CANVAS_H, opacity: bg.textureOpacity }}
+          width={W}
+          height={H}
+          style={{ position: "absolute", left: 0, top: 0, width: W, height: H, opacity: bg.textureOpacity }}
         />
       ) : null}
 
@@ -170,9 +172,9 @@ export default function CanvasView({ slide, index, total, textureSrc, editing }:
         <img
           src={textureSrc(bg.texture, bg.textureTone)}
           alt=""
-          width={CANVAS_W}
-          height={CANVAS_H}
-          style={{ position: "absolute", left: 0, top: 0, width: CANVAS_W, height: CANVAS_H, opacity: bg.textureOpacity }}
+          width={W}
+          height={H}
+          style={{ position: "absolute", left: 0, top: 0, width: W, height: H, opacity: bg.textureOpacity }}
         />
       ) : null}
     </div>

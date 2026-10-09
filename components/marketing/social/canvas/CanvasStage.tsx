@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import CanvasView from "@/lib/social/CanvasView";
 import EditableText from "./EditableText";
-import { CANVAS_H, CANVAS_W, type CanvasSlide, type Layer } from "@/lib/social/canvas";
+import { slideH, slideW, type CanvasSlide, type Layer } from "@/lib/social/canvas";
 
 /**
  * The editable canvas: the slide drawn by CanvasView at `width` px, with a
@@ -46,10 +46,14 @@ type Props = {
   onText: (id: string, text: string) => void;
   editingId: string | null;
   onEditing: (id: string | null) => void;
+  /** Drawn over the slide, not interactive (e.g. where a grid picture is cut). */
+  overlay?: (scale: number) => React.ReactNode;
 };
 
 export default function CanvasStage(p: Props) {
-  const scale = p.width / CANVAS_W;
+  const W = slideW(p.slide);
+  const H = slideH(p.slide);
+  const scale = p.width / W;
   const viewRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -114,8 +118,8 @@ export default function CanvasStage(p: Props) {
 
   function snapMove(l: Layer, x: number, y: number) {
     const h = hOf(l);
-    const xs = [0, CANVAS_W / 2, CANVAS_W];
-    const ys = [0, CANVAS_H / 2, CANVAS_H];
+    const xs = [0, W / 2, W];
+    const ys = [0, H / 2, H];
     for (const o of p.slide.layers) {
       if (o.id === l.id || o.hidden) continue;
       const oh = hOf(o);
@@ -247,7 +251,7 @@ export default function CanvasStage(p: Props) {
     <div
       ref={stageRef}
       className="relative select-none"
-      style={{ width: p.width, height: CANVAS_H * scale, touchAction: "none" }}
+      style={{ width: p.width, height: H * scale, touchAction: "none" }}
       onPointerDown={() => {
         p.onSelect(null);
         p.onEditing(null);
@@ -260,7 +264,7 @@ export default function CanvasStage(p: Props) {
       <div
         ref={viewRef}
         className="absolute left-0 top-0 overflow-hidden shadow-lg"
-        style={{ width: CANVAS_W, height: CANVAS_H, transform: `scale(${scale})`, transformOrigin: "top left" }}
+        style={{ width: W, height: H, transform: `scale(${scale})`, transformOrigin: "top left" }}
       >
         <CanvasView
           slide={shown}
@@ -303,9 +307,11 @@ export default function CanvasStage(p: Props) {
         ),
       )}
 
+      {p.overlay && <div className="pointer-events-none absolute inset-0">{p.overlay(scale)}</div>}
+
       {/* Snap guides */}
       {guides.x.map((g) => (
-        <div key={`gx${g}`} className="pointer-events-none absolute top-0 w-px bg-fuchsia-500" style={{ left: g * scale, height: CANVAS_H * scale }} />
+        <div key={`gx${g}`} className="pointer-events-none absolute top-0 w-px bg-fuchsia-500" style={{ left: g * scale, height: H * scale }} />
       ))}
       {guides.y.map((g) => (
         <div key={`gy${g}`} className="pointer-events-none absolute left-0 h-px bg-fuchsia-500" style={{ top: g * scale, width: p.width }} />

@@ -27,7 +27,6 @@ import {
   type GridPitch,
   type GridRows,
 } from "@/lib/social/gridPlan";
-import { blankCanvas } from "@/lib/social/canvas";
 import { compileCaption, SLIDE_H, SLIDE_W } from "@/lib/social/design";
 import type { SocialBrand, SocialPost } from "@/lib/social/types";
 import {
@@ -39,7 +38,13 @@ import {
   type BlogOption,
   type CollectionOption,
 } from "./api";
-import MosaicCropper, { overviewJpeg, slicePicture, type Crop, type LoadedPicture } from "./MosaicCropper";
+import MosaicCropper, { cropRect, ensurePictureUrl, overviewJpeg, type Crop, type LoadedPicture } from "./MosaicCropper";
+import MosaicDesigner from "./MosaicDesigner";
+import { pictureCanvas, splitPicture } from "@/lib/social/mosaicDesign";
+import { slideH, slideW, type CanvasSlide } from "@/lib/social/canvas";
+import CanvasView from "@/lib/social/CanvasView";
+import { textureUrl } from "./SlidePreview";
+import { Paintbrush } from "lucide-react";
 import SlidePreview from "./SlidePreview";
 import {
   BURST_MINUTES,
@@ -118,6 +123,10 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
   const [pitching, setPitching] = useState(false);
   const [picture, setPicture] = useState<LoadedPicture | null>(null);
   const [crop, setCrop] = useState<Crop>({ zoom: 1, cx: 0, cy: 0 });
+  // The designed picture (a big canvas for `rows` rows), and the editor while it's open.
+  const [designed, setDesigned] = useState<{ rows: GridRows; slide: CanvasSlide } | null>(null);
+  const [designing, setDesigning] = useState<CanvasSlide | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [spread, setSpread] = useState(initial?.spread ?? true);
   const [alsoFacebook, setAlsoFacebook] = useState(initial?.alsoFacebook ?? true);
   const [time, setTime] = useState(initial?.time ?? "10:00");
@@ -204,7 +213,8 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
   const clashes = upcoming.filter((d) => d >= setupDates[0] && d <= setupDates[setupDates.length - 1]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    // Escape closes the planner — unless the picture editor or an image picker is open on top.
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !document.querySelector("[data-stacked-modal]") && close();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
@@ -219,6 +229,24 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
       setError(e instanceof Error ? e.message : "Couldn't get ideas.");
     } finally {
       setPitching(false);
+    }
+  }
+
+  async function openDesigner() {
+    if (!picture) return;
+    setError(null);
+    setPreparing(true);
+    try {
+      const url = await ensurePictureUrl(picture);
+      setDesigning(
+        designed?.rows === rows
+          ? designed.slide
+          : pictureCanvas(brand, rows, { url, width: picture.w, height: picture.h, crop: cropRect(picture, rows, crop) }),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't open the picture.");
+    } finally {
+      setPreparing(false);
     }
   }
 
@@ -240,31 +268,32 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
     const input = { brand, rows, theme: config.theme, startDay, ...source };
     const pic = picture;
     const cropNow = crop;
+    const designedNow = designed;
     const id = startGridWrite(config, async () => {
       if (config.kind === "story") return { draft: await generateGridSet(input) };
       if (!pic) throw new Error("Choose a picture first.");
-      const blobs = await slicePicture(pic, rows, cropNow);
+      const url = await ensurePictureUrl(pic);
+      const big =
+        designedNow?.rows === rows
+          ? designedNow.slide
+          : pictureCanvas(brand, rows, { url, width: pic.w, height: pic.h, crop: cropRect(pic, rows, cropNow) });
+      const slides = splitPicture(big, rows);
       const res = await writeMosaicCaptions({ ...input, image: overviewJpeg(pic, rows, cropNow), spread });
       const setId = `grid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      // Previews use local copies of the pieces; they're uploaded on save.
       const draft: GridDraft = {
         story: res.story,
-        posts: res.captions.map((c, i) => {
-          const slide = blankCanvas(brand);
-          slide.bg = { ...slide.bg, image: blobUrl(blobs[i]), imageOpacity: 1 };
-          return {
-            title: c.title,
-            role: `Piece ${i + 1}`,
-            chapter: "",
-            design: {
-              slides: [slide],
-              caption: c.caption,
-              grid: { id: setId, story: res.story.title, slot: i + 1, size: blobs.length, role: "Piece" },
-            },
-          };
-        }),
+        posts: res.captions.map((c, i) => ({
+          title: c.title,
+          role: `Piece ${i + 1}`,
+          chapter: "",
+          design: {
+            slides: [slides[i]],
+            caption: c.caption,
+            grid: { id: setId, story: res.story.title, slot: i + 1, size: slides.length, role: "Piece" },
+          },
+        })),
       };
-      return { draft, pieces: blobs };
+      return { draft };
     });
     setJobId(id);
     setEditing(false);
@@ -386,7 +415,61 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
 
             {kind === "picture" && (
               <Section title="The picture">
-                <MosaicCropper rows={rows} picture={picture} crop={crop} onPicture={setPicture} onCrop={setCrop} />
+                {designed?.rows === rows ? (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                    <DesignedPicture slide={designed.slide} width={420} />
+                    <div className="space-y-2 text-sm">
+                      <p className="text-xs text-gray-500">Your designed picture. It&apos;s cut into {rows * 3} posts when you split it.</p>
+                      <button
+                        onClick={openDesigner}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+                      >
+                        <Paintbrush size={14} /> Edit the design
+                      </button>
+                      <button onClick={() => setDesigned(null)} className="block text-xs font-medium text-gray-600 underline-offset-2 hover:underline">
+                        Start over from the photo
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <MosaicCropper
+                      rows={rows}
+                      picture={picture}
+                      crop={crop}
+                      onPicture={(pic) => {
+                        setPicture(pic);
+                        setDesigned(null);
+                      }}
+                      onCrop={setCrop}
+                    />
+                    {designed && (
+                      <p className="mt-2 text-xs text-amber-700">You changed the size, so the design starts again from the photo.</p>
+                    )}
+                    {picture && (
+                      <button
+                        onClick={openDesigner}
+                        disabled={preparing}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        {preparing ? <Loader2 size={14} className="animate-spin" /> : <Paintbrush size={14} />}
+                        Design it — opacity, text, shapes, more photos
+                      </button>
+                    )}
+                  </>
+                )}
+                {designing && (
+                  <MosaicDesigner
+                    brand={brand}
+                    rows={rows}
+                    initial={designing}
+                    onCancel={() => setDesigning(null)}
+                    onDone={(slide) => {
+                      setDesigned({ rows, slide });
+                      setDesigning(null);
+                    }}
+                  />
+                )}
               </Section>
             )}
 
@@ -710,15 +793,16 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
   );
 }
 
-/** One object URL per piece, reused across renders. */
-const blobUrls = new WeakMap<Blob, string>();
-function blobUrl(b: Blob): string {
-  let u = blobUrls.get(b);
-  if (!u) {
-    u = URL.createObjectURL(b);
-    blobUrls.set(b, u);
-  }
-  return u;
+/** The designed big canvas, scaled down. */
+function DesignedPicture({ slide, width }: { slide: CanvasSlide; width: number }) {
+  const scale = width / slideW(slide);
+  return (
+    <div className="relative shrink-0 overflow-hidden rounded-lg bg-gray-100" style={{ width, height: slideH(slide) * scale }}>
+      <div style={{ width: slideW(slide), height: slideH(slide), transform: `scale(${scale})`, transformOrigin: "top left", position: "absolute" }}>
+        <CanvasView slide={slide} index={1} total={1} textureSrc={textureUrl} />
+      </div>
+    </div>
+  );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

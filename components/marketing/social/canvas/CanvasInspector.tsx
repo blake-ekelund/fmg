@@ -24,8 +24,6 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import {
-  CANVAS_H,
-  CANVAS_W,
   TEXTURES,
   paletteFor,
   type Palette,
@@ -36,6 +34,8 @@ import {
   type ShapeKind,
   type ShapeLayer,
   type TextLayer,
+  slideH,
+  slideW,
 } from "@/lib/social/canvas";
 import { fontById, fontsForBrand, BRAND_FONTS } from "@/lib/social/fonts";
 import type { SocialBrand } from "@/lib/social/types";
@@ -61,6 +61,8 @@ export default function CanvasInspector(p: Props) {
   if (!p.layer) return <BackgroundPanel {...p} palette={palette} />;
   const l = p.layer;
   const set = (patch: Partial<Layer>, key?: string) => p.onLayer(l.id, patch, key);
+  const W = slideW(p.slide);
+  const H = slideH(p.slide);
 
   return (
     <div>
@@ -85,12 +87,12 @@ export default function CanvasInspector(p: Props) {
       <Section title="Position">
         <div className="flex gap-1">
           <IconButton title="Align left on slide" onClick={() => set({ x: 0 })}><AlignHorizontalJustifyStart size={16} /></IconButton>
-          <IconButton title="Center horizontally" onClick={() => set({ x: Math.round((CANVAS_W - l.w) / 2) })}><AlignHorizontalJustifyCenter size={16} /></IconButton>
-          <IconButton title="Align right on slide" onClick={() => set({ x: CANVAS_W - l.w })}><AlignHorizontalJustifyEnd size={16} /></IconButton>
+          <IconButton title="Center horizontally" onClick={() => set({ x: Math.round((W - l.w) / 2) })}><AlignHorizontalJustifyCenter size={16} /></IconButton>
+          <IconButton title="Align right on slide" onClick={() => set({ x: W - l.w })}><AlignHorizontalJustifyEnd size={16} /></IconButton>
           <span className="mx-1 w-px bg-gray-200" />
           <IconButton title="Align top" onClick={() => set({ y: 0 })}><AlignVerticalJustifyStart size={16} /></IconButton>
-          <IconButton title="Center vertically" onClick={() => set({ y: Math.round((CANVAS_H - l.h) / 2) })}><AlignVerticalJustifyCenter size={16} /></IconButton>
-          <IconButton title="Align bottom" onClick={() => set({ y: CANVAS_H - l.h })}><AlignVerticalJustifyEnd size={16} /></IconButton>
+          <IconButton title="Center vertically" onClick={() => set({ y: Math.round((H - l.h) / 2) })}><AlignVerticalJustifyCenter size={16} /></IconButton>
+          <IconButton title="Align bottom" onClick={() => set({ y: H - l.h })}><AlignVerticalJustifyEnd size={16} /></IconButton>
         </div>
         <div className="flex gap-2">
           <NumberInput label="X" value={l.x} onChange={(x) => set({ x })} />

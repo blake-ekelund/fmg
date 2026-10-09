@@ -105,10 +105,20 @@ export type CanvasSlide = {
   kind: "canvas";
   bg: CanvasBackground;
   layers: Layer[];
+  /**
+   * Canvas size in pixels. Unset = one post (1080×1350). The grid picture
+   * editor uses a bigger canvas spanning several posts (lib/social/mosaicDesign.ts).
+   */
+  w?: number;
+  h?: number;
 };
 
 export const CANVAS_W = SLIDE_W;
 export const CANVAS_H = SLIDE_H;
+
+/** A slide's canvas size (one post unless it says otherwise). */
+export const slideW = (s: Pick<CanvasSlide, "w">) => s.w ?? CANVAS_W;
+export const slideH = (s: Pick<CanvasSlide, "h">) => s.h ?? CANVAS_H;
 
 /* ─── Colors ──────────────────────────────────────────────────────── */
 
@@ -246,10 +256,11 @@ function normLayer(raw: unknown, seen: Set<string>): Layer | null {
   const b: LayerBase = {
     id,
     name: str(r.name, 60, "Layer"),
-    x: num(r.x, 0, -3000, 4000),
-    y: num(r.y, 0, -3000, 4000),
-    w: num(r.w, 100, 1, 5000),
-    h: num(r.h, 100, 1, 5000),
+    // Wide limits: grid pieces carry the whole picture's layers, offset by up to a few posts.
+    x: num(r.x, 0, -20000, 20000),
+    y: num(r.y, 0, -20000, 20000),
+    w: num(r.w, 100, 1, 20000),
+    h: num(r.h, 100, 1, 20000),
     rotation: num(r.rotation, 0, -360, 360),
     opacity: num(r.opacity, 1, 0, 1),
     locked: bool(r.locked),
@@ -307,9 +318,13 @@ export function normalizeCanvasSlide(raw: Record<string, unknown>): CanvasSlide 
   const bgRaw = (raw.bg && typeof raw.bg === "object" ? raw.bg : {}) as Record<string, unknown>;
   const g = bgRaw.gradient as Record<string, unknown> | null | undefined;
   const seen = new Set<string>();
+  const size = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 200 && v <= 20000 ? Math.round(v) : undefined);
+  const w = size(raw.w);
+  const h = size(raw.h);
   return {
     id: str(raw.id, 60) || `s-${Date.now().toString(36)}`,
     kind: "canvas",
+    ...(w && h ? { w, h } : {}),
     bg: {
       color: color(bgRaw.color, "#FFFFFF"),
       gradient: g && typeof g === "object" ? { to: color(g.to, "#FFFFFF"), angle: num(g.angle, 180, 0, 360) } : null,

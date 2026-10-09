@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 import { X, Search } from "lucide-react";
 import ImageLibraryPage from "@/components/image-library/ImageLibraryPage";
@@ -32,7 +33,10 @@ type Props = {
  */
 export default function MediaLibraryModal(props: Props) {
   // Mounting the body only while open gives every opening a fresh tab/search.
-  return props.open ? <Picker {...props} /> : null;
+  if (!props.open) return null;
+  // Stacked on another modal: render at <body> so that modal's backdrop
+  // (blur makes it the positioning box for fixed children) can't offset it.
+  return props.stacked ? createPortal(<Picker {...props} />, document.body) : <Picker {...props} />;
 }
 
 function Picker({ onClose, onSelect, inbox = "email-uploads", uploader, stacked, sizeFilter }: Props) {
@@ -47,6 +51,7 @@ function Picker({ onClose, onSelect, inbox = "email-uploads", uploader, stacked,
 
   return (
     <div
+      data-stacked-modal={stacked ? "" : undefined}
       className={`fixed inset-0 ${stacked ? "z-[70]" : "z-[60]"} flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm`}
       onClick={onClose}
     >

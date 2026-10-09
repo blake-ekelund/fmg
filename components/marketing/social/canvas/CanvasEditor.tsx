@@ -23,8 +23,6 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import {
-  CANVAS_H,
-  CANVAS_W,
   newImageLayer,
   newLayerId,
   newShapeLayer,
@@ -34,6 +32,8 @@ import {
   type Layer,
   type ShapeKind,
   type TextPreset,
+  slideH,
+  slideW,
 } from "@/lib/social/canvas";
 import { LAYOUTS, type SlideLayout } from "@/lib/social/design";
 import type { SocialBrand } from "@/lib/social/types";
@@ -66,6 +66,12 @@ type Props = {
   onAddSlide: (layout: SlideLayout | "blank") => void;
   canAddSlide: boolean;
   problems: string[];
+  /** Hide the "Slide" part of the Add menu (the grid picture editor has one canvas). */
+  hideSlideMenu?: boolean;
+  /** Widest the stage may get (default 620px). */
+  maxStageWidth?: number;
+  /** Drawn over the stage, not interactive. */
+  stageOverlay?: (scale: number) => React.ReactNode;
 };
 
 let clipboard: Layer | null = null;
@@ -85,6 +91,9 @@ export default function CanvasEditor(p: Props) {
   const [tab, setTab] = useState<"design" | "layers">("design");
   const centerRef = useRef<HTMLDivElement>(null);
   const [stageW, setStageW] = useState(460);
+  const W = slideW(p.slide);
+  const H = slideH(p.slide);
+  const maxStage = p.maxStageWidth ?? 620;
 
   // Fit the stage to the space available.
   useEffect(() => {
@@ -92,8 +101,8 @@ export default function CanvasEditor(p: Props) {
     if (!el) return;
     const fit = () => {
       const byWidth = el.clientWidth - 48;
-      const byHeight = (window.innerHeight - 250) * (CANVAS_W / CANVAS_H);
-      setStageW(Math.max(280, Math.min(620, byWidth, byHeight)));
+      const byHeight = (window.innerHeight - 250) * (W / H);
+      setStageW(Math.max(280, Math.min(maxStage, byWidth, byHeight)));
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -103,7 +112,7 @@ export default function CanvasEditor(p: Props) {
       ro.disconnect();
       window.removeEventListener("resize", fit);
     };
-  }, []);
+  }, [W, H, maxStage]);
 
   const slide = p.slide;
   const selected = slide.layers.find((l) => l.id === selectedId) ?? null;
@@ -114,6 +123,8 @@ export default function CanvasEditor(p: Props) {
   const patchBg = (patch: Partial<CanvasBackground>, key?: string) => p.onChange({ ...slide, bg: { ...slide.bg, ...patch } }, key ? `bg:${key}` : undefined);
 
   function add(layer: Layer) {
+    // New layers are made for one post; on a bigger canvas, drop them in the middle.
+    if (slide.w || slide.h) layer = { ...layer, x: Math.round((W - layer.w) / 2), y: Math.round((H - layer.h) / 2) };
     setLayers([...slide.layers, layer]);
     setSelectedId(layer.id);
     setTab("design");
@@ -155,7 +166,7 @@ export default function CanvasEditor(p: Props) {
       case "lock":
         return patchLayer(selected.id, { locked: !selected.locked });
       case "fill":
-        return patchLayer(selected.id, { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, rotation: 0 });
+        return patchLayer(selected.id, { x: 0, y: 0, w: W, h: H, rotation: 0 });
       case "toBackground":
         if (selected.type !== "image") return;
         p.onChange({ ...slide, layers: rest, bg: { ...slide.bg, image: selected.src, imageOpacity: selected.opacity } });
@@ -227,6 +238,7 @@ export default function CanvasEditor(p: Props) {
         {!p.locked && (
           <div className="flex w-full flex-wrap items-center justify-center gap-1.5">
             <AddMenu
+              hideSlideMenu={p.hideSlideMenu}
               canAddSlide={p.canAddSlide}
               onText={addText}
               onPhoto={addPhoto}
@@ -261,6 +273,7 @@ export default function CanvasEditor(p: Props) {
           onText={(id, text) => patchLayer(id, { text }, "type")}
           editingId={p.locked ? null : editingId}
           onEditing={setEditingId}
+          overlay={p.stageOverlay}
         />
 
         {!p.locked && p.problems.length > 0 && (
@@ -320,6 +333,7 @@ export default function CanvasEditor(p: Props) {
 /* ─── The one "+ Add" menu ───────────────────────────────────────── */
 
 function AddMenu({
+  hideSlideMenu,
   canAddSlide,
   onText,
   onPhoto,
@@ -327,6 +341,7 @@ function AddMenu({
   onSlide,
   onBackground,
 }: {
+  hideSlideMenu?: boolean;
   canAddSlide: boolean;
   onText: (p: TextPreset) => void;
   onPhoto: (s: "library" | "product") => void;
@@ -395,7 +410,7 @@ function AddMenu({
           </div>
 
           <div className="mt-3 border-t border-gray-100 pt-3">
-            <MenuHeading>Slide</MenuHeading>
+            <MenuHeading>{hideSlideMenu ? "Picture" : "Slide"}</MenuHeading>
             <div className="space-y-0.5">
               <button
                 type="button"
@@ -404,6 +419,8 @@ function AddMenu({
               >
                 <Palette size={16} className="text-gray-500" /> Change the background
               </button>
+              {!hideSlideMenu && (
+              <>
               <button
                 type="button"
                 disabled={!canAddSlide}
@@ -437,6 +454,8 @@ function AddMenu({
                 </div>
               )}
               {!canAddSlide && <p className="px-2 text-[11px] text-gray-400">A post can have up to 10 slides.</p>}
+              </>
+              )}
             </div>
           </div>
         </div>
