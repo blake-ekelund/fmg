@@ -14,6 +14,7 @@
 
 import type { SocialBrand } from "./types";
 import { normalizeCanvasSlide, type CanvasSlide } from "./canvas";
+import { normalizeGridMeta, type GridMeta } from "./gridPlan";
 import { SLIDE_FONTS, SLIDE_H, SLIDE_THEMES, SLIDE_W, type SlideTheme, type SlideTone } from "./theme";
 
 export { SLIDE_FONTS, SLIDE_H, SLIDE_THEMES, SLIDE_W, type SlideTheme };
@@ -64,6 +65,8 @@ export type PostDesign = {
   slides: DesignSlide[];
   caption: CaptionParts;
   source?: DesignSource | null;
+  /** Part of a 6/9/12-post grid set (lib/social/gridPlan.ts). */
+  grid?: GridMeta | null;
 };
 
 export const LAYOUTS: { value: SlideLayout; label: string; hint: string; image: boolean }[] = [
@@ -215,7 +218,8 @@ export function normalizeDesign(input: unknown): PostDesign | null {
           url: typeof src.url === "string" && /^https:\/\//.test(src.url) ? src.url.slice(0, 500) : null,
         }
       : null;
-  return { slides, caption: normalizeCaption(r.caption), ...(source ? { source } : {}) };
+  const grid = normalizeGridMeta(r.grid);
+  return { slides, caption: normalizeCaption(r.caption), ...(source ? { source } : {}), ...(grid ? { grid } : {}) };
 }
 
 /** The caption that actually posts: hook, body, CTA, then hashtags. */

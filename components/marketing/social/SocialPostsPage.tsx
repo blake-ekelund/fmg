@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Film, Grid3x3, Images, Loader2, Plus, Share2 } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Film, Grid3x3, Images, LayoutGrid, Loader2, Plus, Share2 } from "lucide-react";
 import PageHeader from "@/components/ui/PageHeader";
 import TabNav, { type Tab } from "@/components/ui/TabNav";
 import { useBrand } from "@/components/BrandContext";
@@ -16,6 +16,7 @@ import {
 } from "@/lib/social/types";
 import { getSocialStatus, listSocialPosts } from "./api";
 import FeedPreview from "./FeedPreview";
+import GridPlanner from "./GridPlanner";
 import NewSocialWizard from "./NewSocialWizard";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { SocialStatusPill } from "./bits";
@@ -70,7 +71,8 @@ export default function SocialPostsPage() {
     setWizardOpen(true);
     window.history.replaceState(null, "", window.location.pathname);
   }, []);
-  const [feedOpen, setFeedOpen] = useState(false);
+  const [feed, setFeed] = useState<{ brand: SocialBrand; drafts: boolean } | null>(null);
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -116,6 +118,11 @@ export default function SocialPostsPage() {
     return list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }, [scoped, bucket]);
 
+  const defaultBrand: SocialBrand = brand === "Sassy" ? "Sassy" : "NI";
+  // Unknown (status still loading / failed) stays undefined — don't warn on a guess.
+  const connected: Partial<Record<SocialBrand, boolean>> = {};
+  for (const b of conn?.brands ?? []) connected[b.brand] = b.configured && b.ok;
+
   const tabs = TABS.map((t) => ({ ...t, label: `${t.label} · ${counts[t.value]}` }));
 
   return (
@@ -123,11 +130,18 @@ export default function SocialPostsPage() {
       <SlideFonts />
       <PageHeader subtitle="Write a post once and send it to the brand's Instagram and Facebook — right now, or at a time you pick. Scheduled posts go out within five minutes of their time.">
         <button
-          onClick={() => setFeedOpen(true)}
+          onClick={() => setFeed({ brand: defaultBrand, drafts: false })}
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
         >
           <Grid3x3 size={14} />
           Preview grid
+        </button>
+        <button
+          onClick={() => setPlannerOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+        >
+          <LayoutGrid size={14} />
+          Plan a grid
         </button>
         <button
           onClick={() => setWizardOpen(true)}
@@ -168,16 +182,33 @@ export default function SocialPostsPage() {
         </div>
       )}
 
-      <FeedPreview
-        open={feedOpen}
-        onClose={() => setFeedOpen(false)}
-        posts={posts}
-        initialBrand={(brand === "Sassy" ? "Sassy" : "NI") as SocialBrand}
-      />
+      {feed && (
+        <FeedPreview
+          open
+          onClose={() => setFeed(null)}
+          posts={posts}
+          initialBrand={feed.brand}
+          initialIncludeDrafts={feed.drafts}
+        />
+      )}
+
+      {plannerOpen && (
+        <GridPlanner
+          posts={posts}
+          defaultBrand={defaultBrand}
+          connected={connected}
+          onClose={() => setPlannerOpen(false)}
+          onChanged={load}
+          onOpenPreview={(b) => {
+            setPlannerOpen(false);
+            setFeed({ brand: b, drafts: true });
+          }}
+        />
+      )}
 
       {wizardOpen && (
         <NewSocialWizard
-          defaultBrand={fromBlog?.brand ?? ((brand === "Sassy" ? "Sassy" : "NI") as SocialBrand)}
+          defaultBrand={fromBlog?.brand ?? defaultBrand}
           initialBlogId={fromBlog?.id ?? null}
           onClose={() => {
             setWizardOpen(false);
@@ -220,6 +251,12 @@ function PostRow({ post: p }: { post: SocialPost }) {
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
           <BrandPill brand={p.brand} />
           <SocialStatusPill status={p.status} />
+          {p.design?.grid && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-700" title="Part of a grid set">
+              <LayoutGrid size={10} />
+              {p.design.grid.story} · {p.design.grid.slot}/{p.design.grid.size}
+            </span>
+          )}
           {p.platforms.map((pl) => {
             const r = p.results[pl];
             return (

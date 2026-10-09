@@ -60,15 +60,17 @@ export default function FeedPreview({
   onClose,
   posts,
   initialBrand,
+  initialIncludeDrafts = false,
 }: {
   open: boolean;
   onClose: () => void;
   posts: SocialPost[];
   initialBrand: SocialBrand;
+  initialIncludeDrafts?: boolean;
 }) {
   const [brand, setBrand] = useState<SocialBrand>(initialBrand);
   const [feeds, setFeeds] = useState<Partial<Record<SocialBrand, InstagramFeed>>>({});
-  const [includeDrafts, setIncludeDrafts] = useState(false);
+  const [includeDrafts, setIncludeDrafts] = useState(initialIncludeDrafts);
   const [markUpcoming, setMarkUpcoming] = useState(true);
 
   const lastScheduled = useMemo(() => {
@@ -141,6 +143,18 @@ export default function FeedPreview({
   }, [feed, posts, brand, includeDrafts, cutoff]);
 
   if (!open) return null;
+
+  // A grid set should sit together; anything landing between its posts shifts the block.
+  const brokenSets: { story: string; intruders: number }[] = [];
+  const setIds = new Set(tiles.flatMap((t) => (t.kind === "ours" && t.post.design?.grid ? [t.post.design.grid.id] : [])));
+  for (const id of setIds) {
+    const idx = tiles.flatMap((t, i) => (t.kind === "ours" && t.post.design?.grid?.id === id ? [i] : []));
+    const intruders = idx[idx.length - 1] - idx[0] + 1 - idx.length;
+    if (intruders > 0) {
+      const t = tiles[idx[0]];
+      brokenSets.push({ story: (t.kind === "ours" && t.post.design?.grid?.story) || "a grid set", intruders });
+    }
+  }
 
   const upcomingCount = tiles.filter((t) => t.kind === "ours" && t.upcoming).length;
   const liveShown = tiles.length - upcomingCount;
@@ -247,6 +261,16 @@ export default function FeedPreview({
                 <p className="mt-2 text-xs text-gray-500">Click a scheduled square to edit it; click a posted one to open it on Instagram.</p>
               </div>
             )}
+
+            {brokenSets.map((b) => (
+              <div key={b.story} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  {b.intruders} other {b.intruders === 1 ? "post lands" : "posts land"} in the middle of the &ldquo;{b.story}&rdquo; set, so its
+                  rows won&apos;t line up. Move {b.intruders === 1 ? "it" : "them"} before or after the set.
+                </span>
+              </div>
+            ))}
 
             {feed?.error && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">

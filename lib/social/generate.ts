@@ -73,7 +73,7 @@ export async function listBrandProducts(brand: SocialBrand): Promise<ProductOpti
 
 /* ─── Prompt ───────────────────────────────────────────────────────── */
 
-const VOICE: Record<SocialBrand, string> = {
+export const VOICE: Record<SocialBrand, string> = {
   NI: [
     "Brand: Natural Inspirations (NI Spa, naturalinspirations.com, Instagram @_naturalinspirations) — spa-inspired personal care.",
     "Voice: calm confidence with sensory warmth. Calm, warm, knowledgeable, refined, reassuring. Spa-inspired, nature-rooted language; sensory cues (scent, texture, feel). Never trendy, loud, clinical, fear-based, gimmicky or pushy. No medical claims or buzzwords.",
@@ -141,7 +141,7 @@ ${b.text}
     .join("\n");
 }
 
-function productsBlock(products: ProductOption[], catalog: string[]): string {
+export function productsBlock(products: ProductOption[], catalog: string[]): string {
   const parts: string[] = [];
   if (products.length) {
     parts.push(
@@ -163,7 +163,7 @@ function productsBlock(products: ProductOption[], catalog: string[]): string {
   return parts.join("\n\n");
 }
 
-function imagesBlock(images: ImageCandidate[], products: ProductOption[]): string {
+export function imagesBlock(images: ImageCandidate[], products: ProductOption[]): string {
   const line = (im: ImageCandidate) =>
     `- ${im.url}  (${[im.title, im.description || im.alt].filter(Boolean).join(" — ") || "no description"})`;
   const ours = images.filter((i) => i.source === "library");

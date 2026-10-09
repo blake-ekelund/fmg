@@ -124,3 +124,11 @@ export type BlogOption = import("@/lib/blogPosts").BlogPostSummary;
 export async function listBlogPostsForSocial(brand: SocialBrand): Promise<BlogOption[]> {
   return (await call<{ posts: BlogOption[] }>("GET", `/api/social/blog-posts?brand=${brand}`)).posts;
 }
+
+export type GridInput = { brand: SocialBrand; rows: import("@/lib/social/gridPlan").GridRows; theme: string; startDay: string };
+
+export const pitchGridThemes = (input: GridInput) =>
+  call<import("@/lib/social/gridPlan").GridPitch>("POST", "/api/social/generate-grid", { ...input, action: "pitch" });
+
+export const generateGridSet = (input: GridInput) =>
+  call<import("@/lib/social/gridPlan").GridDraft>("POST", "/api/social/generate-grid", { ...input, action: "write" });
