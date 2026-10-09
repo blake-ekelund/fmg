@@ -33,6 +33,7 @@ import {
   Share2,
   Newspaper,
   Star,
+  PanelsTopLeft,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -213,6 +214,15 @@ export const navSections: readonly NavSection[] = [
         href: "/storefronts/analytics",
         icon: Activity,
         roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
+      },
+      {
+        // Block editor for storefront page content (v1: the Sassy homepage).
+        // Drafts autosave; Publish puts them live (stores read
+        // storefront_site_pages). See lib/site/pageBlocks.ts.
+        label: "Website",
+        href: "/storefronts/website",
+        icon: PanelsTopLeft,
+        roles: [...FULL_ACCESS, "marketing", "operations"],
       },
     ],
   },
