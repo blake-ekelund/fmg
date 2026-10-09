@@ -16,12 +16,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ImageResponse } from "next/og";
 import sharp from "sharp";
+import opentype from "opentype.js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import SlideView from "./SlideView";
 import CanvasView from "./CanvasView";
 import { isCanvas, SLIDE_FONTS, SLIDE_H, SLIDE_W, slideHash, type DesignSlide, type PostDesign, type Slide } from "./design";
-import { fontsUsed, hasPhotoAdjust, type CanvasSlide, type ImageLayer, type Layer, type PhotoAdjust } from "./canvas";
-import { fontById } from "./fonts";
+import { fontsUsed, hasPhotoAdjust, type CanvasSlide, type ImageLayer, type Layer, type PhotoAdjust, type TextLayer } from "./canvas";
+import { fontById, resolveVariant } from "./fonts";
 import { SOCIAL_BUCKET, type SocialBrand, type SocialMedia } from "./types";
 
 type FontOption = { name: string; data: ArrayBuffer; weight: 400 | 500 | 600 | 700 | 800; style: "normal" | "italic" };
@@ -234,7 +235,8 @@ async function croppedLayer(l: ImageLayer, cache: Map<string, string>): Promise<
   const img = await original(l.src, cache);
   if (!img) return { ...plainPhoto(l), src: "" };
 
-  const clip = !l.rotation && !l.radius && !l.borderWidth;
+  // Frames, shadows, rotation, rounding and borders all depend on the whole box.
+  const clip = !l.rotation && !l.radius && !l.borderWidth && !l.frame && !l.shadow;
   const bw = l.borderWidth;
   const box = { x: l.x + bw, y: l.y + bw, w: Math.max(1, l.w - bw * 2), h: Math.max(1, l.h - bw * 2) };
 
@@ -299,6 +301,28 @@ async function croppedLayer(l: ImageLayer, cache: Map<string, string>): Promise<
   };
 }
 
+const parsedFonts = new Map<string, Promise<opentype.Font | null>>();
+
+/** Character widths from the font files themselves — the same advance widths the editor's canvas measures. */
+async function curveMeasure(slide: CanvasSlide): Promise<(ch: string, l: TextLayer) => number> {
+  const files = new Map<string, opentype.Font | null>();
+  for (const l of slide.layers) {
+    if (l.type !== "text" || !l.curve) continue;
+    const v = resolveVariant(l.font, l.weight, l.italic);
+    if (files.has(v.file)) continue;
+    let p = parsedFonts.get(v.file);
+    if (!p) {
+      p = fontFile(v.file).then((buf) => opentype.parse(buf)).catch(() => null);
+      parsedFonts.set(v.file, p);
+    }
+    files.set(v.file, await p);
+  }
+  return (ch, l) => {
+    const font = files.get(resolveVariant(l.font, l.weight, l.italic).file);
+    return font ? font.getAdvanceWidth(ch, l.size, { kerning: false }) : l.size * 0.55;
+  };
+}
+
 async function renderCanvasJpeg(slide: CanvasSlide, index: number, total: number, cache: Map<string, string>): Promise<Buffer> {
   const layers = await Promise.all(slide.layers.map(async (l): Promise<Layer | null> => (l.type === "image" ? croppedLayer(l, cache) : l)));
   const resolved: CanvasSlide = {
@@ -309,7 +333,13 @@ async function renderCanvasJpeg(slide: CanvasSlide, index: number, total: number
   const textures = new Map<string, string>();
   if (slide.bg.texture) textures.set(`${slide.bg.texture}-${slide.bg.textureTone}`, await textureDataUri(slide.bg.texture, slide.bg.textureTone));
   const res = new ImageResponse(
-    <CanvasView slide={resolved} index={index} total={total} textureSrc={(id, tone) => textures.get(`${id}-${tone}`) ?? ""} />,
+    <CanvasView
+      slide={resolved}
+      index={index}
+      total={total}
+      textureSrc={(id, tone) => textures.get(`${id}-${tone}`) ?? ""}
+      measure={await curveMeasure(slide)}
+    />,
     { width: SLIDE_W, height: SLIDE_H, fonts: await canvasFonts(slide) },
   );
   const png = Buffer.from(await res.arrayBuffer());

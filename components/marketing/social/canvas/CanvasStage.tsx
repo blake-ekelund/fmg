@@ -60,6 +60,15 @@ export default function CanvasStage(p: Props) {
   const [preview, setPreview] = useState<{ id: string; patch: Partial<Layer> } | null>(null);
   const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
   const [heights, setHeights] = useState<Record<string, number>>({});
+  // Curved text is laid out with measured letter widths; redraw when a font finishes loading.
+  const [, setFontsLoaded] = useState(0);
+  useEffect(() => {
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    if (!fonts) return;
+    const bump = () => setFontsLoaded((n) => n + 1);
+    fonts.addEventListener("loadingdone", bump);
+    return () => fonts.removeEventListener("loadingdone", bump);
+  }, []);
 
   // Layers with the in-progress drag applied.
   const layers = p.slide.layers.map((l) => (preview && preview.id === l.id ? ({ ...l, ...preview.patch } as Layer) : l));

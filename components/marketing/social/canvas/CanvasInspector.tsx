@@ -40,6 +40,7 @@ import {
   type StickerLayer,
 } from "@/lib/social/canvas";
 import { STICKERS } from "@/lib/social/stickers";
+import { FRAMES, isPathFrame } from "@/lib/social/frames";
 import { fontById, fontsForBrand, BRAND_FONTS } from "@/lib/social/fonts";
 import type { SocialBrand } from "@/lib/social/types";
 import { ColorField, IconButton, NumberInput, Row, Section, Segment, Slider, Toggle } from "./controls";
@@ -220,6 +221,34 @@ function TextPanel({ l, set, brand, palette }: { l: TextLayer; set: (p: Partial<
           </>
         )}
       </Section>
+      <Section title="Effects">
+        <Row label="Shadow">
+          <Slider value={l.shadow ?? 0} min={0} max={100} onChange={(v) => set({ shadow: v || undefined, shadowColor: l.shadowColor ?? "#000000" }, "tshadow")} />
+        </Row>
+        {!!l.shadow && (
+          <Row label="Shadow color">
+            <ColorField value={l.shadowColor ?? "#000000"} onChange={(c) => c && set({ shadowColor: c })} palette={palette} />
+          </Row>
+        )}
+        <Row label="Outline">
+          <Slider value={l.outline ?? 0} min={0} max={20} step={0.5} onChange={(v) => set({ outline: v || undefined, outlineColor: l.outlineColor ?? "#FFFFFF" }, "outline")} suffix="px" />
+        </Row>
+        {!!l.outline && (
+          <Row label="Outline color">
+            <ColorField value={l.outlineColor ?? "#FFFFFF"} onChange={(c) => c && set({ outlineColor: c })} palette={palette} />
+          </Row>
+        )}
+        <Row label="Curve">
+          <Slider
+            value={l.curve ?? 0}
+            min={-100}
+            max={100}
+            onChange={(v) => set({ curve: v || undefined }, "curve")}
+            format={(v) => (v > 0 ? `Arch ${v}` : v < 0 ? `Bowl ${-v}` : "Off")}
+          />
+        </Row>
+        {!!l.curve && <p className="text-[11px] text-gray-400">Curved text is one line; double-click to edit it straight.</p>}
+      </Section>
     </>
   );
 }
@@ -265,16 +294,79 @@ function ImagePanel({
           onChange={(fit) => set({ fit })}
         />
       </Row>
-      <Row label="Rounding">
-        <Slider value={l.radius} min={0} max={Math.round(Math.min(l.w, l.h) / 2)} onChange={(radius) => set({ radius }, "radius")} suffix="px" />
-      </Row>
-      <Row label="Border">
-        <Slider value={l.borderWidth} min={0} max={40} onChange={(borderWidth) => set({ borderWidth }, "bw")} suffix="px" />
-      </Row>
-      {l.borderWidth > 0 && (
+      <div className="space-y-1.5">
+        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Frame</div>
+        <div className="grid grid-cols-6 gap-1">
+          <button
+            type="button"
+            title="No frame"
+            onClick={() => set({ frame: undefined })}
+            className={clsx(
+              "flex aspect-square items-center justify-center rounded-lg border p-1.5",
+              !l.frame ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:bg-gray-50",
+            )}
+          >
+            <span className="h-full w-full rounded-sm border-2 border-gray-500" />
+          </button>
+          {FRAMES.map((fr) => (
+            <button
+              key={fr.id}
+              type="button"
+              title={fr.label}
+              onClick={() => set({ frame: fr.id })}
+              className={clsx(
+                "flex aspect-square items-center justify-center rounded-lg border p-1.5",
+                l.frame === fr.id ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:bg-gray-50",
+              )}
+            >
+              <svg viewBox="0 0 100 100" className="h-full w-full">
+                <path d={fr.preview} className="fill-gray-500" />
+              </svg>
+            </button>
+          ))}
+        </div>
+      </div>
+      {!l.frame && (
+        <Row label="Rounding">
+          <Slider value={l.radius} min={0} max={Math.round(Math.min(l.w, l.h) / 2)} onChange={(radius) => set({ radius }, "radius")} suffix="px" />
+        </Row>
+      )}
+      {!isPathFrame(l.frame) && (
+        <Row label="Border">
+          <Slider value={l.borderWidth} min={0} max={40} onChange={(borderWidth) => set({ borderWidth }, "bw")} suffix="px" />
+        </Row>
+      )}
+      {l.borderWidth > 0 && !isPathFrame(l.frame) && (
         <Row label="Border color">
           <ColorField value={l.borderColor} onChange={(c) => c && set({ borderColor: c })} palette={palette} />
         </Row>
+      )}
+      <Row label="Shadow">
+        <Segment
+          options={[
+            { value: "none", label: "None" },
+            ...(isPathFrame(l.frame) ? [] : [{ value: "soft", label: "Soft", title: "A soft, blurred shadow" }]),
+            { value: "offset", label: "Offset", title: "A solid copy of the shape behind it" },
+          ]}
+          value={l.shadow === "soft" && isPathFrame(l.frame) ? "offset" : (l.shadow ?? "none")}
+          onChange={(v) =>
+            set(
+              v === "none"
+                ? { shadow: undefined, shadowColor: undefined, shadowSize: undefined }
+                : { shadow: v as "soft" | "offset", shadowColor: l.shadowColor ?? "#000000", shadowSize: l.shadowSize ?? 40 },
+            )
+          }
+        />
+      </Row>
+      {l.shadow && (
+        <>
+          <Row label="Shadow size">
+            <Slider value={l.shadowSize ?? 40} min={5} max={100} onChange={(shadowSize) => set({ shadowSize }, "pshadow")} />
+          </Row>
+          <Row label="Shadow color">
+            <ColorField value={l.shadowColor ?? "#000000"} onChange={(c) => c && set({ shadowColor: c })} palette={palette} />
+          </Row>
+        </>
       )}
       <PhotoAdjustments l={l} set={set} />
       <div className="flex flex-wrap gap-2 pt-1">

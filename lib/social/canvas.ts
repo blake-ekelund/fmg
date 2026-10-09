@@ -16,6 +16,7 @@
 
 import { FONT_FAMILIES } from "./fonts";
 import { isStickerId, type StickerId } from "./stickers";
+import { isFrameId, type FrameId } from "./frames";
 import { SLIDE_H, SLIDE_THEMES, SLIDE_W } from "./theme";
 import type { SocialBrand } from "./types";
 
@@ -75,6 +76,14 @@ export type TextLayer = LayerBase & {
   bg: string | null;
   bgRadius: number;
   padding: number;
+  /** Effects (all optional). Shadow strength 0…100 and colour. */
+  shadow?: number;
+  shadowColor?: string;
+  /** Outline width in px and colour. */
+  outline?: number;
+  outlineColor?: string;
+  /** Bend the line into an arc: + arches up, − bowls down (−100…100). One line only. */
+  curve?: number;
 };
 
 export type ImageLayer = LayerBase & {
@@ -84,6 +93,13 @@ export type ImageLayer = LayerBase & {
   radius: number;
   borderWidth: number;
   borderColor: string;
+  /** Cut the photo to a shape (lib/social/frames.ts). */
+  frame?: FrameId;
+  /** Soft (blurred, black) or offset (solid shape behind, any colour). */
+  shadow?: "soft" | "offset";
+  shadowColor?: string;
+  /** 0…100. */
+  shadowSize?: number;
 } & PhotoAdjust;
 
 /**
@@ -302,6 +318,18 @@ const bool = (v: unknown) => v === true;
 const gradientCss = (v: unknown) =>
   typeof v === "string" && /^linear-gradient\([#\w\s.,%()-]+\)$/i.test(v) && v.length < 400 ? v : null;
 
+/** Text effects that are actually on. */
+function textEffects(r: Record<string, unknown>): Partial<TextLayer> {
+  const out: Partial<TextLayer> = {};
+  const shadow = num(r.shadow, 0, 0, 100);
+  if (shadow) Object.assign(out, { shadow, shadowColor: color(r.shadowColor, "#000000") });
+  const outline = num(r.outline, 0, 0, 20);
+  if (outline) Object.assign(out, { outline, outlineColor: color(r.outlineColor, "#FFFFFF") });
+  const curve = num(r.curve, 0, -100, 100);
+  if (curve) out.curve = Math.round(curve);
+  return out;
+}
+
 /** Only the adjustments that are actually set (keeps saved layers small). */
 function normAdjust(r: Record<string, unknown>): PhotoAdjust {
   const out: PhotoAdjust = {};
@@ -360,6 +388,7 @@ function normLayer(raw: unknown, seen: Set<string>): Layer | null {
       bg: r.bg == null ? null : color(r.bg, "transparent"),
       bgRadius: num(r.bgRadius, 0, 0, 999),
       padding: num(r.padding, 0, 0, 200),
+      ...textEffects(r),
     };
   }
   if (r.type === "image") {
@@ -374,6 +403,10 @@ function normLayer(raw: unknown, seen: Set<string>): Layer | null {
       borderWidth: num(r.borderWidth, 0, 0, 100),
       borderColor: color(r.borderColor, "#FFFFFF"),
       ...normAdjust(r),
+      ...(isFrameId(r.frame) ? { frame: r.frame } : {}),
+      ...(r.shadow === "soft" || r.shadow === "offset"
+        ? { shadow: r.shadow, shadowColor: color(r.shadowColor, "#000000"), shadowSize: num(r.shadowSize, 40, 0, 100) }
+        : {}),
     };
   }
   if (r.type === "shape") {
