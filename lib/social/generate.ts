@@ -32,6 +32,7 @@ type ProductRow = {
   part: string;
   display_name: string | null;
   fragrance: string | null;
+  collection: string | null;
   size: string | null;
   msrp: number | null;
   short_description: string | null;
@@ -45,7 +46,7 @@ const IMAGE_ORDER = ["front", "lifestyle", "benefits", "fragrance", "ingredients
 export async function listBrandProducts(brand: SocialBrand): Promise<ProductOption[]> {
   const { data, error } = await supabaseServer
     .from("storefront_products")
-    .select("part, display_name, fragrance, size, msrp, short_description, in_stock, assets")
+    .select("part, display_name, fragrance, collection, size, msrp, short_description, in_stock, assets")
     .eq("brand", brand)
     .eq("is_tester", false)
     .order("in_stock", { ascending: false })
@@ -60,6 +61,7 @@ export async function listBrandProducts(brand: SocialBrand): Promise<ProductOpti
       part: r.part,
       name: [r.fragrance, r.display_name].filter(Boolean).join(" "),
       fragrance: r.fragrance,
+      collection: r.collection,
       size: r.size,
       price: r.msrp,
       blurb: (r.short_description ?? "").trim(),
@@ -118,7 +120,7 @@ export type SocialGenerateInput = {
   blog?: BlogForSocial | null;
 };
 
-function blogBlock(b: BlogForSocial): string {
+export function blogBlock(b: BlogForSocial): string {
   const when = b.liveAt ? new Date(b.liveAt).toUTCString().replace(/:00 GMT$/, " UTC") : null;
   const timing =
     b.status === "published"

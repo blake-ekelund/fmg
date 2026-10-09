@@ -27,7 +27,15 @@ function where(n: number, total: number): string {
 }
 
 /** Ask for three story ideas the team can pick from. */
-export function buildPitchPrompt(input: { brand: SocialBrand; rows: GridRows; hint: string; catalog: string[]; startDay: string }): string {
+export function buildPitchPrompt(input: {
+  brand: SocialBrand;
+  rows: GridRows;
+  hint: string;
+  catalog: string[];
+  startDay: string;
+  /** A blog article or site collection the set must be about (sourceBlock text). */
+  source?: string;
+}): string {
   const n = input.rows * 3;
   return `You are the social media editor for a fragrance and personal-care brand, planning the next ${n} Instagram posts as ONE connected story (about ${Math.round(n * 1.5)} days of posting, starting ${input.startDay}).
 
@@ -35,7 +43,10 @@ ${VOICE[input.brand]}
 
 PRODUCTS IN THE RANGE: ${input.catalog.join("; ") || "(none listed)"}
 
-${input.hint ? `The team's starting thought:\n"""\n${input.hint}\n"""\n` : ""}
+${input.source ? `${input.source}
+
+Pitch three different ANGLES on this source.
+` : ""}${input.hint ? `The team's starting thought:\n"""\n${input.hint}\n"""\n` : ""}
 Pitch THREE different story ideas. Each needs a short title (≤ 6 words) and a one-to-two sentence pitch that says what the arc is and which products it features. Consider the time of year. Don't invent sales, discounts or launches.
 
 Return ONLY valid JSON, no prose or code fences:
@@ -50,6 +61,10 @@ export function buildGridPrompt(input: {
   products: ProductOption[];
   catalog: string[];
   images: ImageCandidate[];
+  /** A blog article or site collection the set must be about (sourceBlock text). */
+  source?: string;
+  /** The source article's own photos (offered first). */
+  sourceImages?: ImageCandidate[];
 }): string {
   const total = input.rows * 3;
   const chapters = gridChapters(input.rows);
@@ -78,9 +93,11 @@ export function buildGridPrompt(input: {
 
 ${VOICE[input.brand]}
 
-THE STORY:
+${input.source ? `${input.source}
+
+` : ""}THE STORY${input.source ? " — the team's angle / notes" : ""}:
 """
-${input.theme || "Choose a fitting story for this time of year that features our products naturally."}
+${input.theme || (input.source ? "Unpack the source above across the set — one idea per post, building as you go." : "Choose a fitting story for this time of year that features our products naturally.")}
 """
 
 HOW THE GRID WORKS — design for it:
@@ -98,7 +115,10 @@ ${productsBlock(input.products, input.catalog)}
 
 ${SLIDE_VOCAB}
 
-${imagesBlock(input.images, input.products)}
+${input.sourceImages?.length ? `THE ARTICLE'S PHOTOS (use these first):
+${input.sourceImages.map((im) => `- ${im.url}  (${[im.title, im.alt].filter(Boolean).join(" — ")})`).join("\n")}
+
+` : ""}${imagesBlock(input.images, input.products)}
 
 CAPTIONS — each post gets its own caption as parts:
 - "hook": the first line, ≤ 120 characters.
@@ -113,4 +133,43 @@ RULES:
 
 Return ONLY valid JSON, no prose or code fences, exactly:
 {"story":{"title":"… (≤ 6 words)","arc":"… one or two sentences"},"posts":[{"title":"… internal name ≤ 60 chars","slides":[ … ],"caption":{"hook":"…","body":"…","cta":"…","hashtags":["…"]}}, … exactly ${total} posts in posting order]}`;
+}
+
+/**
+ * Captions for a picture split across the grid. Each post is one slice of the
+ * photo (Claude sees the whole picture); the captions tell one story in
+ * posting order and explain the puzzle to people who see a single slice.
+ */
+export function buildMosaicPrompt(input: { brand: SocialBrand; rows: GridRows; theme: string; source?: string; spread: boolean }): string {
+  const total = input.rows * 3;
+  const site = SLIDE_THEMES[input.brand].site;
+  const tiles = Array.from({ length: total }, (_, i) => `Post ${i + 1} = the ${where(i + 1, total)} piece`).join("\n");
+  return `You are the social media editor for a fragrance and personal-care brand. The attached picture is being split into ${total} Instagram posts (${input.rows} rows × 3) so that, on our profile grid, the pieces join back into this one big picture.
+
+${VOICE[input.brand]}
+
+${input.source ? `${input.source}
+
+` : ""}${input.theme ? `The team's notes:
+"""
+${input.theme}
+"""
+
+` : ""}POSTING ORDER — Instagram shows the newest post top-left, so we post the bottom-right piece first and the top-left piece last:
+${tiles}
+${input.spread ? "They go out about every day and a half, so the picture builds up over a couple of weeks — let the captions build anticipation (\"piece 3 of 9 — watch our grid\")." : "They all go out within an hour, so the picture appears at once — each caption can stand alone and point people to the grid."}
+
+Write one caption per post, in posting order. In someone's feed each post shows only its slice, so captions should make sense alone and invite people to see the full picture on our profile. Look at what each piece shows and let its caption relate to it when that helps. Together the captions tell one story.
+
+Each caption as parts:
+- "hook": the first line, ≤ 120 characters.
+- "body": 1–4 short lines.
+- "cta": one line. Instagram links aren't clickable: say "link in bio" or name the site (${site}).
+- "hashtags": 5–10 tags without "#", one shared tag on every post.
+Don't invent prices, discounts, awards, reviews, deadlines or medical claims.
+
+Also a short internal "title" (≤ 60 characters) per post, and a story title (≤ 6 words) + one-sentence arc for the set.
+
+Return ONLY valid JSON, no prose or code fences:
+{"story":{"title":"…","arc":"…"},"posts":[{"title":"…","caption":{"hook":"…","body":"…","cta":"…","hashtags":["…"]}}, … exactly ${total} in posting order]}`;
 }

@@ -148,3 +148,27 @@ export type GridDraft = {
   story: { title: string; arc: string };
   posts: { title: string; role: string; chapter: string; design: PostDesign }[];
 };
+/** Split-image sets: captions only — the planner slices the picture itself. */
+export type GridCaptions = {
+  story: { title: string; arc: string };
+  captions: { title: string; caption: import("./design").CaptionParts }[];
+};
+
+/* ─── Split one picture across the grid ───────────────────────────── */
+
+/**
+ * Each post is 1080×1350 (4:5) but the profile grid shows only its centre
+ * 3:4 (1012.5 px wide). So the visible pieces join edge to edge, and each
+ * post carries a 33.75 px bleed from its neighbours on both sides.
+ */
+export const MOSAIC_VISIBLE_W = (1350 * 3) / 4;
+export const MOSAIC_BLEED = (1080 - MOSAIC_VISIBLE_W) / 2;
+/** The picture area for `rows` rows, in post pixels (bleed included). */
+export function mosaicSize(rows: GridRows): { w: number; h: number } {
+  return { w: MOSAIC_VISIBLE_W * 3 + MOSAIC_BLEED * 2, h: 1350 * rows };
+}
+/** Where post `n`'s 1080×1350 slice starts in the picture (post pixels). */
+export function mosaicSlice(n: number, total: number): { x: number; y: number } {
+  const { row, col } = gridPosition(n, total);
+  return { x: col * MOSAIC_VISIBLE_W, y: row * 1350 };
+}

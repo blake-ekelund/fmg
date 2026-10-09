@@ -276,6 +276,8 @@ export type ProductOption = {
   part: string;
   name: string;
   fragrance: string | null;
+  /** Storefront collection slug (Sassy: everyday / love / holiday). */
+  collection?: string | null;
   size: string | null;
   price: number | null;
   blurb: string;

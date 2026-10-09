@@ -125,10 +125,27 @@ export async function listBlogPostsForSocial(brand: SocialBrand): Promise<BlogOp
   return (await call<{ posts: BlogOption[] }>("GET", `/api/social/blog-posts?brand=${brand}`)).posts;
 }
 
-export type GridInput = { brand: SocialBrand; rows: import("@/lib/social/gridPlan").GridRows; theme: string; startDay: string };
+export type GridInput = {
+  brand: SocialBrand;
+  rows: import("@/lib/social/gridPlan").GridRows;
+  theme: string;
+  startDay: string;
+  /** What the set is about (one or neither). */
+  blogId?: string | null;
+  collection?: string | null;
+};
 
 export const pitchGridThemes = (input: GridInput) =>
   call<import("@/lib/social/gridPlan").GridPitch>("POST", "/api/social/generate-grid", { ...input, action: "pitch" });
 
 export const generateGridSet = (input: GridInput) =>
   call<import("@/lib/social/gridPlan").GridDraft>("POST", "/api/social/generate-grid", { ...input, action: "write" });
+
+export const writeMosaicCaptions = (input: GridInput & { image: string; spread: boolean }) =>
+  call<import("@/lib/social/gridPlan").GridCaptions>("POST", "/api/social/generate-grid", { ...input, action: "mosaic" });
+
+export type CollectionOption = { slug: string; name: string; tagline: string; products: number };
+
+export async function listSocialCollections(brand: SocialBrand): Promise<CollectionOption[]> {
+  return (await call<{ collections: CollectionOption[] }>("GET", `/api/social/collections?brand=${brand}`)).collections;
+}
