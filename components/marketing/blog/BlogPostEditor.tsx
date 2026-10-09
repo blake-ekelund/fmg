@@ -12,6 +12,7 @@ import {
   Loader2,
   LayoutTemplate,
   Pencil,
+  Share2,
   Trash2,
   X,
 } from "lucide-react";
@@ -615,6 +616,18 @@ export default function BlogPostEditor({ id }: { id: string }) {
               </button>
             ))}
           </div>
+          <Link
+            href={`/marketing/social?fromBlog=${post.id}&brand=${brand}`}
+            title={
+              dirty
+                ? "Save first — the social post is written from the saved article"
+                : "Turn this article into an Instagram / Facebook post with AI"
+            }
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-800 transition hover:bg-gray-50"
+          >
+            <Share2 size={13} />
+            Make a social post
+          </Link>
           {previewUrl ? (
             <a
               href={previewUrl}

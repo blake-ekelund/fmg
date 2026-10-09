@@ -283,6 +283,16 @@ products' photos, the Image Library and the brand's Unsplash collection;
 any other URL is blanked (`checkDesignImages`). Migration
 `20261008010000_social_post_design.sql` adds `design` + `title`.
 
+**From a blog post.** The wizard's "From a blog post" start (and the blog
+editor's "Make a social post" button → `/marketing/social?fromBlog=<id>&brand=`)
+writes the post from any blog article — draft, scheduled or published.
+`lib/social/fromBlog.ts` loads the article's plain text, cover + in-post
+photos and URL; the prompt gets them as a SOURCE ARTICLE block (photos
+allowed alongside the library/product/Unsplash pool). The design records
+`source: { kind: "blog", id, title, url }` (shown in the builder), and a
+scheduled article's go-live time is pre-set on the draft and offered in the
+Schedule panel as "Same time as the blog post".
+
 **Free canvas (Oct 2026).** The editor is now Canva-style: each slide is a
 canvas (`lib/social/canvas.ts`) — background color/gradient/photo/texture
 plus layers (text, image, shape) placed in slide pixels with size, rotation

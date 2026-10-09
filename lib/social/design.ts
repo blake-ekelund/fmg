@@ -57,9 +57,13 @@ export function isCanvas(s: DesignSlide): s is CanvasSlide {
   return (s as CanvasSlide).kind === "canvas";
 }
 
+/** Where an AI-generated post came from (shown in the builder). */
+export type DesignSource = { kind: "blog"; id: string; title: string; url: string | null };
+
 export type PostDesign = {
   slides: DesignSlide[];
   caption: CaptionParts;
+  source?: DesignSource | null;
 };
 
 export const LAYOUTS: { value: SlideLayout; label: string; hint: string; image: boolean }[] = [
@@ -201,7 +205,17 @@ export function normalizeDesign(input: unknown): PostDesign | null {
   const r = input as Record<string, unknown>;
   const slides = normalizeSlides(r.slides);
   if (!slides.length) return null;
-  return { slides, caption: normalizeCaption(r.caption) };
+  const src = r.source as Record<string, unknown> | null | undefined;
+  const source: DesignSource | null =
+    src && src.kind === "blog" && typeof src.id === "string" && typeof src.title === "string"
+      ? {
+          kind: "blog",
+          id: src.id.slice(0, 60),
+          title: src.title.slice(0, 200),
+          url: typeof src.url === "string" && /^https:\/\//.test(src.url) ? src.url.slice(0, 500) : null,
+        }
+      : null;
+  return { slides, caption: normalizeCaption(r.caption), ...(source ? { source } : {}) };
 }
 
 /** The caption that actually posts: hook, body, CTA, then hashtags. */

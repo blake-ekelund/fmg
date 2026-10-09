@@ -11,6 +11,7 @@ import {
   listBrandProducts,
 } from "@/lib/social/generate";
 import { isSocialBrand, isSocialPlatform } from "@/lib/social/types";
+import { loadBlogForSocial } from "@/lib/social/fromBlog";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -21,7 +22,9 @@ const MAX_PROMPT_CHARS = 3000;
 /**
  * POST /api/social/generate
  *
- * Body: { brand, purpose, platforms, format: "carousel"|"single", slideCount, prompt, parts? }
+ * Body: { brand, purpose, platforms, format: "carousel"|"single", slideCount, prompt, parts?, blogId? }
+ * With blogId the post is written FROM that blog article (any status): its
+ * text, photos and mood; the response suggests the article's go-live time.
  * Returns: { title, design } — slides + caption parts in our vocabulary, images
  * limited to the featured products' photos, the Image Library and the brand's
  * Unsplash photography. Does NOT write the DB; the wizard creates the draft.
@@ -45,7 +48,10 @@ export async function POST(request: Request) {
   const slideCount = Math.round(Number(body.slideCount) || 5);
   const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, MAX_PROMPT_CHARS) : "";
   const parts = Array.isArray(body.parts) ? body.parts.filter((p): p is string => typeof p === "string").slice(0, 4) : [];
-  if (!prompt) return NextResponse.json({ error: "Describe the post you want." }, { status: 400 });
+  const blogId = typeof body.blogId === "string" ? body.blogId : null;
+  const blog = blogId ? await loadBlogForSocial(blogId) : null;
+  if (blogId && !blog) return NextResponse.json({ error: "That blog post couldn't be found." }, { status: 404 });
+  if (!prompt && !blog) return NextResponse.json({ error: "Describe the post you want." }, { status: 400 });
 
   const [allProducts, images] = await Promise.all([
     listBrandProducts(brand),
@@ -67,7 +73,7 @@ export async function POST(request: Request) {
         messages: [
           {
             role: "user",
-            content: buildSocialPrompt({ brand, purpose, platforms, format, slideCount, prompt, products: featured, catalog, images }),
+            content: buildSocialPrompt({ brand, purpose, platforms, format, slideCount, prompt, products: featured, catalog, images, blog }),
           },
         ],
       })
@@ -100,13 +106,18 @@ export async function POST(request: Request) {
   }
   if (format === "single") normalized.slides = normalized.slides.slice(0, 1);
 
-  const { design, usedUnsplash } = checkDesignImages(normalized, images, featured);
+  // The article's own photos are allowed too.
+  const { design, usedUnsplash } = checkDesignImages(normalized, [...(blog?.images ?? []), ...images], featured);
+  if (blog) design.source = { kind: "blog", id: blog.id, title: blog.title, url: blog.url };
   await Promise.allSettled(
     usedUnsplash.flatMap((p) => (p.downloadLocation ? [trackUnsplashDownload(p.downloadLocation)] : [])),
   );
 
+  // A scheduled article suggests posting at the same moment.
+  const suggestAt = blog?.status === "scheduled" && blog.liveAt && new Date(blog.liveAt).getTime() > Date.now() ? blog.liveAt : null;
   return NextResponse.json({
     title: typeof parsed.title === "string" ? parsed.title.trim().slice(0, 120) : "",
     design,
+    scheduleSuggestion: suggestAt,
   });
 }

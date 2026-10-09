@@ -10,6 +10,7 @@
  */
 
 import { supabaseServer } from "@/lib/supabaseServer";
+import type { BlogForSocial } from "./fromBlog";
 import type { ImageCandidate } from "@/lib/generatorImages";
 import {
   SLIDE_THEMES,
@@ -113,7 +114,32 @@ export type SocialGenerateInput = {
   /** Other products in the range, names only, for context. */
   catalog: string[];
   images: ImageCandidate[];
+  /** Write the post FROM this blog article (any status). */
+  blog?: BlogForSocial | null;
 };
+
+function blogBlock(b: BlogForSocial): string {
+  const when = b.liveAt ? new Date(b.liveAt).toUTCString().replace(/:00 GMT$/, " UTC") : null;
+  const timing =
+    b.status === "published"
+      ? `It is already live${b.url ? ` at ${b.url}` : ""}.`
+      : b.status === "scheduled" && when
+        ? `It goes live ${when}${b.url ? ` at ${b.url}` : ""}, and this social post will likely go out at the same time.`
+        : "It is still a draft — write as if it is out (the team will time the post to match).";
+  return [
+    `SOURCE ARTICLE — build this post FROM our blog post below. Carry its message, its key points and its mood/vibe into the slides and caption; make people want to read the full article. Don't copy it word for word — distil it for a phone screen. Use the article's own photos first.`,
+    `Title: ${b.title}`,
+    b.summary ? `Summary: ${b.summary}` : "",
+    b.tags.length ? `Tags: ${b.tags.join(", ")}` : "",
+    timing,
+    `Article text:
+"""
+${b.text}
+"""`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 function productsBlock(products: ProductOption[], catalog: string[]): string {
   const parts: string[] = [];
@@ -168,11 +194,12 @@ export function buildSocialPrompt(input: SocialGenerateInput): string {
 
 ${VOICE[input.brand]}
 
-Purpose: ${purpose ? `${purpose.label} — ${purpose.hint}` : "General"}.
+Purpose: ${input.blog ? "Promote our new blog article — drive people to read it." : purpose ? `${purpose.label} — ${purpose.hint}` : "General"}.
 
+${input.blog ? blogBlock(input.blog) + "\n" : ""}
 What the team wants:
 """
-${input.prompt}
+${input.prompt || (input.blog ? "Turn the article into a post that sends people to read it." : "")}
 """
 
 ${productsBlock(input.products, input.catalog)}
@@ -181,12 +208,15 @@ ${SLIDE_VOCAB}
 
 ${shape}
 
-${imagesBlock(input.images, input.products)}
+${input.blog?.images.length ? `THE ARTICLE'S PHOTOS (use these first — cover, photo and product slides):
+${input.blog.images.map((im) => `- ${im.url}  (${[im.title, im.alt].filter(Boolean).join(" — ")})`).join("\n")}
+
+` : ""}${imagesBlock(input.images, input.products)}
 
 CAPTION (posted under the slides) as parts:
 - "hook": the first line — what shows before "more". ≤ 120 characters, makes them stop.
 - "body": 2–5 short lines that add to the slides (don't just repeat them). Line breaks allowed.
-- "cta": one line — what to do next. Instagram links aren't clickable: say "link in bio" or name the site (${SLIDE_THEMES[input.brand].site}).
+- "cta": one line — what to do next. Instagram links aren't clickable: say "link in bio" or name the site (${SLIDE_THEMES[input.brand].site}).${input.blog ? " Point them to the full article (e.g. \"Read the full story — link in bio\")." : ""}
 - "hashtags": 5–12 tags without "#", relevant and curated.
 Whole caption ≤ 1,800 characters.
 

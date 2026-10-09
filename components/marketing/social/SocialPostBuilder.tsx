@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -13,6 +14,7 @@ import {
   Film,
   ImagePlus,
   Loader2,
+  Newspaper,
   Trash2,
   Upload,
   X,
@@ -405,6 +407,8 @@ export default function SocialPostBuilder({ id }: { id: string }) {
         status={status}
         scheduledAt={post.scheduled_at}
         publishedAt={post.published_at}
+        suggestedAt={post.scheduled_at}
+        suggestedNote={design?.source?.kind === "blog" ? "Same time as the blog post" : "The time already set"}
         saveState={saveState}
         locked={locked}
         busy={busy}
@@ -420,6 +424,20 @@ export default function SocialPostBuilder({ id }: { id: string }) {
       />
 
       <div className="space-y-4 px-4 pb-10 pt-4 md:px-8">
+      {design?.source?.kind === "blog" && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
+          <Newspaper size={15} className="text-gray-400" />
+          Made from the blog post
+          <Link href={`/marketing/blog/${design.source.id}`} className="font-medium text-gray-900 underline-offset-2 hover:underline">
+            {design.source.title}
+          </Link>
+          {design.source.url && (
+            <a href={design.source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700">
+              on the site <ExternalLink size={11} />
+            </a>
+          )}
+        </div>
+      )}
       {brandConn && !brandConn.ok && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle size={16} className="shrink-0" />

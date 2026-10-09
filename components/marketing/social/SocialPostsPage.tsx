@@ -59,6 +59,17 @@ export default function SocialPostsPage() {
   const [bucket, setBucket] = useState<Bucket>("scheduled");
   const [conn, setConn] = useState<MetaConnectionStatus | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  // /marketing/social?fromBlog=<id>&brand=NI — "Make a social post" from the blog editor.
+  const [fromBlog, setFromBlog] = useState<{ id: string; brand: SocialBrand } | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const id = q.get("fromBlog");
+    if (!id) return;
+    const b = q.get("brand") === "Sassy" ? "Sassy" : "NI";
+    setFromBlog({ id, brand: b });
+    setWizardOpen(true);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
   const [feedOpen, setFeedOpen] = useState(false);
   const router = useRouter();
 
@@ -166,8 +177,12 @@ export default function SocialPostsPage() {
 
       {wizardOpen && (
         <NewSocialWizard
-          defaultBrand={(brand === "Sassy" ? "Sassy" : "NI") as SocialBrand}
-          onClose={() => setWizardOpen(false)}
+          defaultBrand={fromBlog?.brand ?? ((brand === "Sassy" ? "Sassy" : "NI") as SocialBrand)}
+          initialBlogId={fromBlog?.id ?? null}
+          onClose={() => {
+            setWizardOpen(false);
+            setFromBlog(null);
+          }}
           onCreated={(post) => router.push(`/marketing/social/${post.id}`)}
         />
       )}

@@ -1,22 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Images, LayoutTemplate, Loader2, Search, Sparkles, Square, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Images, LayoutTemplate, Loader2, Newspaper, Search, Sparkles, Square, X } from "lucide-react";
 import clsx from "clsx";
 import { SOCIAL_PURPOSES, starterDesign, type ProductOption, type SocialPurpose } from "@/lib/social/design";
 import { PLATFORM_LABEL, SOCIAL_PLATFORMS, type SocialBrand, type SocialPlatform, type SocialPost } from "@/lib/social/types";
-import { createSocialPost, generateSocialPost, listSocialProducts } from "./api";
+import { createSocialPost, generateSocialPost, listBlogPostsForSocial, listSocialProducts, type BlogOption } from "./api";
 
 /**
  * New social post — the same walk-through as a new blog post or email:
  * brand, where it goes, the format, then how to start (AI, a blank brand
  * layout, or your own photos/video). For AI: the purpose, optional products
- * to feature, and a description. The AI only uses our images — the products'
- * photos, the Image Library and the brand's Unsplash photography.
+ * to feature, and a description. Or "From a blog post": pick any of the
+ * brand's articles (draft, scheduled or published) and the AI turns it into a
+ * post — its words, photos and mood — timed to go out with a scheduled article.
+ * The AI only uses our images: the article's, the products', the Image Library
+ * and the brand's Unsplash photography.
  */
 
 type Format = "carousel" | "single" | "photos";
-type Start = "ai" | "blank";
+type Start = "ai" | "blog" | "blank";
 
 const BRANDS: { value: SocialBrand; label: string; sub: string }[] = [
   { value: "NI", label: "Natural Inspirations", sub: "@_naturalinspirations — calm, spa-inspired" },
@@ -31,21 +34,26 @@ const FORMATS: { value: Format; label: string; sub: string; icon: typeof Images 
 
 const STARTS: { value: Start; label: string; sub: string; icon: typeof Sparkles }[] = [
   { value: "ai", label: "Generate with AI", sub: "Describe it — Claude writes the slides and caption using our photos", icon: Sparkles },
+  { value: "blog", label: "From a blog post", sub: "Claude turns one of our articles into a post — its words, photos and vibe", icon: Newspaper },
   { value: "blank", label: "Start blank", sub: "Open the slide builder with the brand layouts", icon: LayoutTemplate },
 ];
 
 type Props = {
   defaultBrand: SocialBrand;
+  /** Open straight at the blog step with this article picked (from the blog editor). */
+  initialBlogId?: string | null;
   onClose: () => void;
   onCreated: (post: SocialPost) => void;
 };
 
-export default function NewSocialWizard({ defaultBrand, onClose, onCreated }: Props) {
-  const [step, setStep] = useState(0);
+export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, onCreated }: Props) {
+  // From the blog editor: brand/where/format prefilled, open on the blog step.
+  const [step, setStep] = useState(initialBlogId ? 4 : 0);
   const [brand, setBrand] = useState<SocialBrand>(defaultBrand);
   const [platforms, setPlatforms] = useState<SocialPlatform[]>(["instagram", "facebook"]);
-  const [format, setFormat] = useState<Format | null>(null);
-  const [start, setStart] = useState<Start | null>(null);
+  const [format, setFormat] = useState<Format | null>(initialBlogId ? "carousel" : null);
+  const [start, setStart] = useState<Start | null>(initialBlogId ? "blog" : null);
+  const [blogId, setBlogId] = useState<string | null>(initialBlogId ?? null);
   const [purpose, setPurpose] = useState<SocialPurpose | null>(null);
   const [parts, setParts] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -55,7 +63,15 @@ export default function NewSocialWizard({ defaultBrand, onClose, onCreated }: Pr
 
   const designed = format === "carousel" || format === "single";
   const ai = designed && start === "ai";
-  const labels = ["Brand", "Where", "Format", ...(designed ? ["Start"] : []), ...(ai ? ["Purpose", "Products", "Describe"] : [])];
+  const fromBlog = designed && start === "blog";
+  const labels = [
+    "Brand",
+    "Where",
+    "Format",
+    ...(designed ? ["Start"] : []),
+    ...(ai ? ["Purpose", "Products", "Describe"] : []),
+    ...(fromBlog ? ["Blog", "Describe"] : []),
+  ];
   const last = labels.length - 1;
   const label = labels[step];
 
@@ -68,10 +84,11 @@ export default function NewSocialWizard({ defaultBrand, onClose, onCreated }: Pr
       case "Start": return !!start;
       case "Purpose": return !!purpose;
       case "Products": return true;
-      case "Describe": return prompt.trim().length > 0;
+      case "Blog": return !!blogId;
+      case "Describe": return fromBlog || prompt.trim().length > 0;
       default: return false;
     }
-  }, [label, brand, platforms, format, start, purpose, prompt, busy]);
+  }, [label, brand, platforms, format, start, purpose, prompt, busy, blogId, fromBlog]);
 
   function close() {
     if (!busy) onClose();
@@ -106,20 +123,30 @@ export default function NewSocialWizard({ defaultBrand, onClose, onCreated }: Pr
       setBusy("generating");
       const gen = await generateSocialPost({
         brand,
-        purpose: purpose!,
+        purpose: purpose ?? "education",
         platforms,
         format: format === "single" ? "single" : "carousel",
         slideCount,
         prompt: prompt.trim(),
-        parts,
+        parts: fromBlog ? [] : parts,
+        blogId: fromBlog ? blogId : null,
       });
       setBusy("creating");
-      onCreated(await createSocialPost({ brand, platforms, title: gen.title, design: gen.design }));
+      onCreated(
+        await createSocialPost({
+          brand,
+          platforms,
+          title: gen.title,
+          design: gen.design,
+          // A scheduled article: suggest going out at the same moment.
+          ...(gen.scheduleSuggestion ? { scheduled_at: gen.scheduleSuggestion } : {}),
+        }),
+      );
     });
   }
 
   const cta =
-    step < last ? "Continue" : ai ? (busy ? "Writing…" : "Generate") : busy ? "Creating…" : "Create";
+    step < last ? "Continue" : ai || fromBlog ? (busy ? "Writing…" : "Generate") : busy ? "Creating…" : "Create";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm">
@@ -195,7 +222,33 @@ export default function NewSocialWizard({ defaultBrand, onClose, onCreated }: Pr
 
           {label === "Products" && <ProductStep brand={brand} parts={parts} setParts={setParts} />}
 
-          {label === "Describe" && (
+          {label === "Blog" && <BlogStep brand={brand} blogId={blogId} setBlogId={setBlogId} />}
+
+          {label === "Describe" && fromBlog && (
+            <Step title="Anything to add?" subtitle="Optional — an angle, a product to feature, something to leave out. Leave it blank and Claude works from the article alone.">
+              <textarea
+                autoFocus
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={4}
+                disabled={!!busy}
+                placeholder="e.g. Lead with the ritual steps; end with the Lavender collection."
+                className="w-full resize-y rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-60"
+              />
+              {format === "carousel" && (
+                <label className="flex items-center gap-3 pt-1 text-xs text-gray-600">
+                  Slides
+                  <input type="range" min={3} max={10} value={slideCount} onChange={(e) => setSlideCount(Number(e.target.value))} disabled={!!busy} className="flex-1" />
+                  <span className="w-5 text-right font-medium text-gray-800">{slideCount}</span>
+                </label>
+              )}
+              <p className="text-[11px] text-gray-400">
+                Claude reads the article and uses its photos first. If the article is scheduled, the post is set to go out at the same time — you can change it in the editor.
+              </p>
+            </Step>
+          )}
+
+          {label === "Describe" && !fromBlog && (
             <Step title="Describe the post" subtitle="The angle, the message, anything to include or avoid. Name an offer only if there is one.">
               <textarea
                 autoFocus
@@ -261,6 +314,99 @@ export default function NewSocialWizard({ defaultBrand, onClose, onCreated }: Pr
         </div>
       </div>
     </div>
+  );
+}
+
+/** Some stored titles carry HTML entities (e.g. Don&apos;t). */
+function decodeTitle(t: string): string {
+  return (t ?? "").replace(/&apos;|&#39;|&rsquo;/g, "'").replace(/&quot;|&ldquo;|&rdquo;/g, "\"").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ");
+}
+
+const BLOG_GROUPS: { key: string; label: string; match: (s: string) => boolean }[] = [
+  { key: "scheduled", label: "Scheduled", match: (s) => s === "scheduled" },
+  { key: "draft", label: "Drafts", match: (s) => s !== "scheduled" && s !== "published" },
+  { key: "published", label: "Published", match: (s) => s === "published" },
+];
+
+function BlogStep({ brand, blogId, setBlogId }: { brand: SocialBrand; blogId: string | null; setBlogId: (id: string) => void }) {
+  const [posts, setPosts] = useState<BlogOption[] | null>(null);
+  const [q, setQ] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    listBlogPostsForSocial(brand)
+      .then(setPosts)
+      .catch((e) => setErr(e instanceof Error ? e.message : "Couldn't load blog posts."));
+  }, [brand]);
+
+  const term = q.trim().toLowerCase();
+  const shown = (posts ?? []).filter((p) => !term || p.title.toLowerCase().includes(term));
+  const when = (p: BlogOption) => {
+    const iso = p.status === "published" ? p.published_at ?? p.publish_at : p.publish_at;
+    return iso ? new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+  };
+
+  return (
+    <Step title="Which blog post?" subtitle="Drafts, scheduled and published posts all work.">
+      <div className="relative">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search blog posts…"
+          className="w-full rounded-lg border border-gray-200 py-2 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+        />
+      </div>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      {!posts && !err ? (
+        <div className="flex items-center gap-2 py-6 text-xs text-gray-400">
+          <Loader2 size={14} className="animate-spin" /> Loading blog posts…
+        </div>
+      ) : posts && posts.length === 0 ? (
+        <p className="py-6 text-center text-sm text-gray-400">No {brand === "NI" ? "Natural Inspirations" : "Sassy"} blog posts yet.</p>
+      ) : (
+        <div className="max-h-80 space-y-3 overflow-y-auto">
+          {BLOG_GROUPS.map((g) => {
+            const list = shown.filter((p) => g.match(p.status));
+            if (!list.length) return null;
+            return (
+              <div key={g.key}>
+                <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{g.label}</div>
+                <div className="space-y-1">
+                  {list.map((p) => {
+                    const on = blogId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setBlogId(p.id)}
+                        className={clsx(
+                          "flex w-full items-center gap-3 rounded-lg border p-1.5 text-left transition",
+                          on ? "border-gray-900 bg-gray-50" : "border-gray-100 hover:bg-gray-50",
+                        )}
+                      >
+                        <div className="h-11 w-11 shrink-0 overflow-hidden rounded bg-gray-100">
+                          {p.hero_image_url && /^https:/.test(p.hero_image_url) && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.hero_image_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                          )}
+                        </div>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm text-gray-800">{decodeTitle(p.title) || "Untitled post"}</span>
+                          <span className="block text-[11px] text-gray-400">
+                            {g.key === "scheduled" ? `Goes live ${when(p) ?? "—"}` : g.key === "published" ? `Published ${when(p) ?? ""}` : "Draft"}
+                          </span>
+                        </span>
+                        {on && <Check size={16} className="shrink-0 text-gray-900" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Step>
   );
 }
 

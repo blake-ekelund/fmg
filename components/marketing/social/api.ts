@@ -107,10 +107,20 @@ export type GenerateInput = {
   slideCount: number;
   prompt: string;
   parts: string[];
+  /** Write the post from this blog article. */
+  blogId?: string | null;
 };
 
-export async function generateSocialPost(input: GenerateInput): Promise<{ title: string; design: PostDesign }> {
-  return call<{ title: string; design: PostDesign }>("POST", "/api/social/generate", input);
+export async function generateSocialPost(
+  input: GenerateInput,
+): Promise<{ title: string; design: PostDesign; scheduleSuggestion?: string | null }> {
+  return call<{ title: string; design: PostDesign; scheduleSuggestion?: string | null }>("POST", "/api/social/generate", input);
 }
 
 export const getInstagramFeed = (brand: SocialBrand) => call<InstagramFeed>("GET", `/api/social/feed?brand=${brand}`);
+
+export type BlogOption = import("@/lib/blogPosts").BlogPostSummary;
+
+export async function listBlogPostsForSocial(brand: SocialBrand): Promise<BlogOption[]> {
+  return (await call<{ posts: BlogOption[] }>("GET", `/api/social/blog-posts?brand=${brand}`)).posts;
+}

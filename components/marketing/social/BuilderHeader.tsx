@@ -63,6 +63,9 @@ type Props = {
   status: SocialStatus;
   scheduledAt: string | null;
   publishedAt: string | null;
+  /** A draft with a time already set (e.g. its blog post's go-live) — the Schedule panel starts there. */
+  suggestedAt?: string | null;
+  suggestedNote?: string | null;
   saveState: SaveState;
   locked: boolean;
   busy: string | null;
@@ -142,6 +145,8 @@ export default function BuilderHeader(p: Props) {
               <>
                 <SchedulePopover
                   scheduledAt={p.status === "scheduled" ? p.scheduledAt : null}
+                  suggestedAt={p.status === "scheduled" ? null : p.suggestedAt ?? null}
+                  suggestedNote={p.suggestedNote ?? null}
                   problems={p.problems}
                   busy={p.busy === "schedule"}
                   onSchedule={p.onSchedule}
@@ -375,11 +380,15 @@ function quickPicks(): { label: string; at: Date }[] {
 
 function SchedulePopover({
   scheduledAt,
+  suggestedAt,
+  suggestedNote,
   problems,
   busy,
   onSchedule,
 }: {
   scheduledAt: string | null;
+  suggestedAt: string | null;
+  suggestedNote: string | null;
   problems: string[];
   busy: boolean;
   onSchedule: (iso: string) => void;
@@ -395,7 +404,8 @@ function SchedulePopover({
   function toggle() {
     if (!open) {
       const q = quickPicks();
-      const start = scheduledAt ? new Date(scheduledAt) : q[0]?.at ?? new Date(Date.now() + 3600_000);
+      const suggested = suggestedAt && new Date(suggestedAt).getTime() > Date.now() + 60_000 ? new Date(suggestedAt) : null;
+      const start = scheduledAt ? new Date(scheduledAt) : suggested ?? q[0]?.at ?? new Date(Date.now() + 3600_000);
       setPicks(q);
       setOpenedAt(Date.now());
       setDate(dateValue(start));
@@ -440,6 +450,19 @@ function SchedulePopover({
             </div>
           ) : (
             <>
+              {suggestedAt && suggestedNote && !scheduledAt && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(suggestedAt);
+                    setDate(dateValue(d));
+                    setTime(timeValue(d));
+                  }}
+                  className="mt-3 w-full rounded-xl bg-violet-50 px-3 py-2 text-left text-xs text-violet-900 hover:bg-violet-100"
+                >
+                  <span className="font-semibold">{suggestedNote}</span> — {formatWhen(suggestedAt)}
+                </button>
+              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 {picks.map((q) => (
                   <button
