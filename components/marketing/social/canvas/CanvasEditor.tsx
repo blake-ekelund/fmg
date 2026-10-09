@@ -1,7 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Circle, Image as ImageIcon, Layers, Minus, Package, Palette, Redo2, Square, Type, Undo2 } from "lucide-react";
+import {
+  CaseUpper,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  Heading1,
+  Heading2,
+  Image as ImageIcon,
+  LayoutTemplate,
+  Layers,
+  Minus,
+  Package,
+  Palette,
+  Pilcrow,
+  Plus,
+  RectangleVertical,
+  Redo2,
+  Square,
+  Undo2,
+} from "lucide-react";
 import clsx from "clsx";
 import {
   CANVAS_H,
@@ -16,14 +35,16 @@ import {
   type ShapeKind,
   type TextPreset,
 } from "@/lib/social/canvas";
+import { LAYOUTS, type SlideLayout } from "@/lib/social/design";
 import type { SocialBrand } from "@/lib/social/types";
 import CanvasStage from "./CanvasStage";
 import CanvasInspector, { type ImageTarget, type LayerAction } from "./CanvasInspector";
 import LayersPanel from "./LayersPanel";
 
 /**
- * Editing one canvas slide: the "Add" bar and the stage in the middle, and
- * the Design / Layers / Caption panel on the right. Renders two grid cells
+ * Editing one canvas slide: one "+ Add" menu (slides, text, photos, shapes,
+ * background) and the stage in the middle, and the Design / Layers panel on
+ * the right. The caption lives in its own card below (SocialPostBuilder). Renders two grid cells
  * (center + right) for the builder's three-column layout. Mount it with
  * key={slide.id} so selection resets when you switch slides.
  */
@@ -41,7 +62,9 @@ type Props = {
   canRedo: boolean;
   /** Ask the builder for a photo (library/Unsplash or a product shot). */
   requestImage: (source: "library" | "product", onPicked: (url: string) => void) => void;
-  captionPanel: React.ReactNode;
+  /** Insert a new slide after this one. */
+  onAddSlide: (layout: SlideLayout | "blank") => void;
+  canAddSlide: boolean;
   problems: string[];
 };
 
@@ -59,7 +82,7 @@ function naturalSize(url: string): Promise<{ w: number; h: number } | undefined>
 export default function CanvasEditor(p: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"design" | "layers" | "caption">("design");
+  const [tab, setTab] = useState<"design" | "layers">("design");
   const centerRef = useRef<HTMLDivElement>(null);
   const [stageW, setStageW] = useState(460);
 
@@ -203,44 +226,17 @@ export default function CanvasEditor(p: Props) {
       <div ref={centerRef} className="flex min-w-0 flex-col items-center gap-4 rounded-2xl border border-gray-200 bg-[#f3f3f1] px-4 pb-6 pt-3">
         {!p.locked && (
           <div className="flex w-full flex-wrap items-center justify-center gap-1.5">
-            <Menu
-              icon={<Type size={16} />}
-              label="Text"
-              items={[
-                { label: "Heading", hint: "Big and bold", onClick: () => addText("heading") },
-                { label: "Subheading", onClick: () => addText("subheading") },
-                { label: "Body text", onClick: () => addText("body") },
-                { label: "Small label", hint: "SPACED CAPS", onClick: () => addText("label") },
-              ]}
-            />
-            <Menu
-              icon={<ImageIcon size={16} />}
-              label="Photo"
-              items={[
-                { label: "From the library", hint: "Our photos + Unsplash", onClick: () => addPhoto("library") },
-                { label: "Product photo", hint: "From the product pages", icon: <Package size={14} />, onClick: () => addPhoto("product") },
-              ]}
-            />
-            <Menu
-              icon={<Square size={16} />}
-              label="Shape"
-              items={[
-                { label: "Rectangle", icon: <Square size={14} />, onClick: () => addShape("rect") },
-                { label: "Circle", icon: <Circle size={14} />, onClick: () => addShape("ellipse") },
-                { label: "Arch", hint: "Great as a photo frame", onClick: () => addShape("arch") },
-                { label: "Line", icon: <Minus size={14} />, onClick: () => addShape("line") },
-              ]}
-            />
-            <button
-              type="button"
-              onClick={() => {
+            <AddMenu
+              canAddSlide={p.canAddSlide}
+              onText={addText}
+              onPhoto={addPhoto}
+              onShape={addShape}
+              onSlide={p.onAddSlide}
+              onBackground={() => {
                 setSelectedId(null);
                 setTab("design");
               }}
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-medium text-gray-800 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50"
-            >
-              <Palette size={16} /> Background
-            </button>
+            />
             <span className="mx-1 h-6 w-px bg-gray-300" />
             <button type="button" title="Undo (Ctrl+Z)" onClick={p.undo} disabled={!p.canUndo} className="rounded-xl p-2 text-gray-700 hover:bg-white disabled:opacity-30">
               <Undo2 size={18} />
@@ -260,7 +256,6 @@ export default function CanvasEditor(p: Props) {
           onSelect={(id) => {
             if (p.locked) return;
             setSelectedId(id);
-            if (id) setTab((t) => (t === "caption" ? "design" : t));
           }}
           onChange={(id, patch) => patchLayer(id, patch)}
           onText={(id, text) => patchLayer(id, { text }, "type")}
@@ -284,7 +279,6 @@ export default function CanvasEditor(p: Props) {
             [
               ["design", <Palette key="d" size={14} />, "Design"],
               ["layers", <Layers key="l" size={14} />, "Layers"],
-              ["caption", <Type key="c" size={14} />, "Caption"],
             ] as const
           ).map(([t, icon, label]) => (
             <button
@@ -300,7 +294,8 @@ export default function CanvasEditor(p: Props) {
             </button>
           ))}
         </div>
-        <fieldset disabled={p.locked} className="max-h-[calc(100vh-220px)] overflow-y-auto disabled:opacity-70">
+        {/* min-w-0: a fieldset won't shrink below its content otherwise, pushing rows off the panel */}
+        <fieldset disabled={p.locked} className="max-h-[calc(100vh-220px)] min-w-0 overflow-y-auto disabled:opacity-70">
           {tab === "design" && (
             <CanvasInspector
               brand={p.brand}
@@ -316,64 +311,153 @@ export default function CanvasEditor(p: Props) {
           {tab === "layers" && (
             <LayersPanel slide={slide} selectedId={selectedId} onSelect={setSelectedId} onLayer={(id, patch) => patchLayer(id, patch)} onMove={move} />
           )}
-          {tab === "caption" && <div className="space-y-4 p-4">{p.captionPanel}</div>}
         </fieldset>
       </div>
     </>
   );
 }
 
-/* ─── Add menus ───────────────────────────────────────────────────── */
+/* ─── The one "+ Add" menu ───────────────────────────────────────── */
 
-function Menu({
-  icon,
-  label,
-  items,
+function AddMenu({
+  canAddSlide,
+  onText,
+  onPhoto,
+  onShape,
+  onSlide,
+  onBackground,
 }: {
-  icon: React.ReactNode;
-  label: string;
-  items: { label: string; hint?: string; icon?: React.ReactNode; onClick: () => void }[];
+  canAddSlide: boolean;
+  onText: (p: TextPreset) => void;
+  onPhoto: (s: "library" | "product") => void;
+  onShape: (k: ShapeKind) => void;
+  onSlide: (l: SlideLayout | "blank") => void;
+  onBackground: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [layouts, setLayouts] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", away);
-    return () => document.removeEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
   }, [open]);
+
+  const run = (fn: () => void) => () => {
+    setOpen(false);
+    setLayouts(false);
+    fn();
+  };
+
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-medium text-gray-800 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50"
+        aria-expanded={open}
+        className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800"
       >
-        {icon}
-        {label}
-        <ChevronDown size={14} className="text-gray-400" />
+        <Plus size={16} /> Add
+        <ChevronDown size={14} className="text-white/60" />
       </button>
       {open && (
-        <div className="absolute left-0 z-40 mt-2 w-56 rounded-2xl border border-gray-200 bg-white p-1.5 shadow-xl">
-          {items.map((it) => (
-            <button
-              key={it.label}
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                it.onClick();
-              }}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-gray-50"
-            >
-              {it.icon && <span className="text-gray-500">{it.icon}</span>}
-              <span>
-                <span className="block text-sm text-gray-900">{it.label}</span>
-                {it.hint && <span className="block text-[11px] text-gray-400">{it.hint}</span>}
-              </span>
-            </button>
-          ))}
+        <div className="absolute left-1/2 z-40 mt-2 w-[340px] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl">
+          <MenuHeading>Text</MenuHeading>
+          <div className="grid grid-cols-4 gap-1.5">
+            <Tile icon={<Heading1 size={18} />} label="Heading" onClick={run(() => onText("heading"))} />
+            <Tile icon={<Heading2 size={18} />} label="Subhead" onClick={run(() => onText("subheading"))} />
+            <Tile icon={<Pilcrow size={18} />} label="Body" onClick={run(() => onText("body"))} />
+            <Tile icon={<CaseUpper size={18} />} label="Label" onClick={run(() => onText("label"))} />
+          </div>
+
+          <div className="mt-3">
+            <MenuHeading>Photo</MenuHeading>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Tile icon={<ImageIcon size={18} />} label="From the library" onClick={run(() => onPhoto("library"))} />
+              <Tile icon={<Package size={18} />} label="Product photo" onClick={run(() => onPhoto("product"))} />
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <MenuHeading>Shape</MenuHeading>
+            <div className="grid grid-cols-4 gap-1.5">
+              <Tile icon={<Square size={18} />} label="Rectangle" onClick={run(() => onShape("rect"))} />
+              <Tile icon={<Circle size={18} />} label="Circle" onClick={run(() => onShape("ellipse"))} />
+              <Tile icon={<RectangleVertical size={18} />} label="Arch" onClick={run(() => onShape("arch"))} />
+              <Tile icon={<Minus size={18} />} label="Line" onClick={run(() => onShape("line"))} />
+            </div>
+          </div>
+
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <MenuHeading>Slide</MenuHeading>
+            <div className="space-y-0.5">
+              <button
+                type="button"
+                onClick={run(onBackground)}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-gray-800 hover:bg-gray-50"
+              >
+                <Palette size={16} className="text-gray-500" /> Change the background
+              </button>
+              <button
+                type="button"
+                disabled={!canAddSlide}
+                onClick={run(() => onSlide("blank"))}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-40"
+              >
+                <Plus size={16} className="text-gray-500" /> New blank slide
+              </button>
+              <button
+                type="button"
+                disabled={!canAddSlide}
+                onClick={() => setLayouts((v) => !v)}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-40"
+              >
+                <LayoutTemplate size={16} className="text-gray-500" /> New slide from a layout
+                <ChevronRight size={14} className={clsx("ml-auto text-gray-400 transition", layouts && "rotate-90")} />
+              </button>
+              {layouts && (
+                <div className="ml-7 space-y-0.5 border-l border-gray-100 pl-2">
+                  {LAYOUTS.map((l) => (
+                    <button
+                      key={l.value}
+                      type="button"
+                      onClick={run(() => onSlide(l.value))}
+                      className="block w-full rounded-lg px-2 py-1.5 text-left hover:bg-gray-50"
+                    >
+                      <span className="block text-sm text-gray-800">{l.label}</span>
+                      <span className="block text-[11px] text-gray-400">{l.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!canAddSlide && <p className="px-2 text-[11px] text-gray-400">A post can have up to 10 slides.</p>}
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function Tile({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-center gap-1.5 rounded-xl border border-gray-100 px-2 py-3 text-center text-xs font-medium text-gray-700 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-900"
+    >
+      <span className="text-gray-500">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+function MenuHeading({ children }: { children: React.ReactNode }) {
+  return <div className="px-1 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">{children}</div>;
 }

@@ -38,7 +38,7 @@ export default function LayersPanel({
             >
               <Icon size={15} className="shrink-0 text-gray-400" />
               <span className="min-w-0 flex-1 truncate">{label(l)}</span>
-              <span className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100">
+              <span className="flex shrink-0 items-center opacity-60 group-hover:opacity-100">
                 <Btn title="Move up" disabled={i === 0} onClick={() => onMove(l.id, 1)}><ArrowUp size={13} /></Btn>
                 <Btn title="Move down" disabled={i === top.length - 1} onClick={() => onMove(l.id, -1)}><ArrowDown size={13} /></Btn>
                 <Btn title={l.hidden ? "Show" : "Hide"} onClick={() => onLayer(l.id, { hidden: !l.hidden })}>
@@ -67,7 +67,10 @@ export default function LayersPanel({
 }
 
 function label(l: Layer): string {
-  if (l.type === "text") return l.text.replace(/\s+/g, " ").trim().slice(0, 40) || "Text";
+  if (l.type === "text") {
+    if (/\{n\}|\{total\}/.test(l.text)) return "Page number";
+    return l.text.replace(/\s+/g, " ").trim().slice(0, 40) || "Text";
+  }
   if (l.type === "image") return "Photo";
   return { rect: "Rectangle", ellipse: "Circle", line: "Line", arch: "Arch" }[l.shape];
 }

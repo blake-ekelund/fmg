@@ -333,7 +333,7 @@ function BackgroundPanel({ brand, slide, onBackground, onPickImage, onPickProduc
     <div>
       <div className="border-b border-gray-100 px-4 py-3">
         <span className="text-sm font-semibold text-gray-900">Slide background</span>
-        <p className="mt-0.5 text-xs text-gray-500">Click anything on the slide to edit it. Add text, photos and shapes from the bar above the slide.</p>
+        <p className="mt-0.5 text-xs text-gray-500">Click anything on the slide to edit it. Use + Add above the slide for text, photos, shapes and new slides.</p>
       </div>
       <Section title="Color">
         <Row label="Color">

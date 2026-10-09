@@ -147,8 +147,8 @@ export function ColorField({
   const pop = useRef<HTMLDivElement>(null);
   const open = pos !== null;
 
-  const W = 288;
-  const H = 330;
+  const W = 228;
+  const H = 240;
   function toggle() {
     if (open) return setPos(null);
     const r = btn.current!.getBoundingClientRect();
@@ -191,7 +191,7 @@ export function ColorField({
       title={c}
       onClick={() => pick(c)}
       className={clsx(
-        "h-7 w-7 rounded-lg border transition hover:scale-110",
+        "h-6 w-6 rounded-md border transition hover:scale-110",
         value?.toUpperCase() === c.toUpperCase() ? "border-violet-600 ring-2 ring-violet-200" : "border-black/10",
       )}
       style={{ background: c }}
@@ -216,18 +216,18 @@ export function ColorField({
         createPortal(
           <div
             ref={pop}
-            className="fixed z-[80] rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl"
+            className="fixed z-[80] rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
             style={{ left: pos.left, top: pos.top, width: W }}
           >
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Brand colors</div>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Brand</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
               {allowNone && (
                 <button
                   type="button"
                   title="No color"
                   onClick={() => pick(null)}
                   className={clsx(
-                    "flex h-7 w-7 items-center justify-center rounded-lg border text-gray-400",
+                    "flex h-6 w-6 items-center justify-center rounded-md border text-gray-400",
                     value === null ? "border-violet-600 ring-2 ring-violet-200" : "border-gray-200",
                   )}
                 >
@@ -237,17 +237,15 @@ export function ColorField({
               {palette.brand.map(swatch)}
             </div>
 
-            <div className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500">More colors</div>
-            <div className="mt-2 flex flex-wrap gap-2">{palette.more.map(swatch)}</div>
+            <div className="mt-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">More</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">{palette.more.map(swatch)}</div>
 
-            <div className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Any color</div>
-            <div className="mt-2 flex items-center gap-2">
-              <label className="relative inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50">
-                <span
-                  className="h-5 w-5 rounded-md"
-                  style={{ background: "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)" }}
-                />
-                Pick a color
+            <div className="mt-2.5 flex items-center gap-1.5 border-t border-gray-100 pt-2.5">
+              <label
+                title="Pick any color"
+                className="relative h-7 w-7 shrink-0 cursor-pointer rounded-md border border-black/10"
+                style={{ background: "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)" }}
+              >
                 <input
                   type="color"
                   value={value && isHex(value) ? value : "#000000"}
@@ -267,7 +265,7 @@ export function ColorField({
                 onKeyDown={(e) => e.key === "Enter" && hex && isHex(hex) && pick(hex.toUpperCase())}
                 placeholder="#1F3D35"
                 aria-label="Hex color"
-                className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-1.5 font-mono text-xs focus:border-violet-400 focus:outline-none"
+                className="min-w-0 flex-1 rounded-md border border-gray-200 px-2 py-1 font-mono text-xs focus:border-violet-400 focus:outline-none"
               />
             </div>
           </div>,

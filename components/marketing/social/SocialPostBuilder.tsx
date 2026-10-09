@@ -13,7 +13,6 @@ import {
   Film,
   ImagePlus,
   Loader2,
-  Plus,
   Trash2,
   Upload,
   X,
@@ -22,7 +21,6 @@ import clsx from "clsx";
 import MediaLibraryModal from "@/components/templates/MediaLibraryModal";
 import { formatDateTime } from "@/components/marketing/blog/bits";
 import {
-  LAYOUTS,
   SLIDES_MAX,
   compileCaption,
   isCanvas,
@@ -447,6 +445,7 @@ export default function SocialPostBuilder({ id }: { id: string }) {
       )}
 
       {design ? (
+        <>
         <div className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)_380px]">
           {/* Slide strip */}
           <div className="space-y-2">
@@ -491,7 +490,6 @@ export default function SocialPostBuilder({ id }: { id: string }) {
                 </div>
               ))}
             </div>
-            {!locked && slides.length < SLIDES_MAX && <AddSlideMenu onAdd={(l) => void addSlide(l)} />}
             {!locked && (
               <button onClick={switchToPhotos} className="block pt-2 text-left text-[11px] text-gray-400 hover:text-gray-700">
                 Use my own photos instead
@@ -514,7 +512,8 @@ export default function SocialPostBuilder({ id }: { id: string }) {
               canRedo={history.canRedo}
               requestImage={(source, onPicked) => setImageRequest({ source, onPicked })}
               problems={problems}
-              captionPanel={<CaptionInspector caption={design.caption} onChange={setCaptionParts} compiled={effectiveCaption} platforms={platforms} />}
+              onAddSlide={(l) => void addSlide(l)}
+              canAddSlide={slides.length < SLIDES_MAX}
             />
           ) : selected && !isCanvas(selected) && locked ? (
             <div className="flex justify-center rounded-2xl border border-gray-200 bg-gray-50 p-6 lg:col-span-2">
@@ -528,6 +527,15 @@ export default function SocialPostBuilder({ id }: { id: string }) {
             </div>
           )}
         </div>
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <h3 className="text-base font-semibold text-gray-900">Caption</h3>
+          <p className="mt-0.5 text-sm text-gray-500">The words posted under the slides. Built from the four parts below.</p>
+          <fieldset disabled={locked} className="mt-4 min-w-0 disabled:opacity-70">
+            <CaptionInspector caption={design.caption} onChange={setCaptionParts} compiled={effectiveCaption} platforms={platforms} />
+          </fieldset>
+        </section>
+        </>
       ) : (
         <PhotoMode
           locked={locked}
@@ -686,7 +694,8 @@ function CaptionInspector({
   }
 
   return (
-    <>
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-4">
       <TextArea label="Hook — the first line people see" value={c.hook} rows={2} max={150} onChange={(hook) => onChange({ hook })} />
       <TextArea label="Body" value={c.body} rows={6} onChange={(body) => onChange({ body })} />
       <TextArea label="Call to action" value={c.cta} rows={2} max={200} onChange={(cta) => onChange({ cta })} />
@@ -715,8 +724,10 @@ function CaptionInspector({
           className="mt-2 w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:border-gray-400 focus:outline-none"
         />
       </Field>
+      </div>
+      <div>
       <Field label="As posted">
-        <p className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-700">
+        <p className="max-h-96 min-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-700">
           {compiled || <span className="text-gray-400">Nothing yet.</span>}
         </p>
         <div className="mt-1 flex gap-3 text-[11px] text-gray-400">
@@ -726,7 +737,8 @@ function CaptionInspector({
           <span className={clsx(ig && tags > IG_HASHTAG_MAX && "text-red-600")}>{tags} hashtags</span>
         </div>
       </Field>
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -943,50 +955,6 @@ function ProductPicker({
 
 /* ─── Small pieces ────────────────────────────────────────────────── */
 
-function AddSlideMenu({ onAdd }: { onAdd: (l: SlideLayout | "blank") => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 py-2 text-xs font-medium text-gray-600 hover:border-gray-400"
-      >
-        <Plus size={14} /> Add slide
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-64 rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
-          <button
-            type="button"
-            onClick={() => {
-              onAdd("blank");
-              setOpen(false);
-            }}
-            className="block w-full rounded-lg px-3 py-2 text-left hover:bg-gray-50"
-          >
-            <span className="block text-sm font-medium text-gray-900">Blank slide</span>
-            <span className="block text-[11px] text-gray-400">Start from an empty canvas</span>
-          </button>
-          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Start from a layout</div>
-          {LAYOUTS.map((l) => (
-            <button
-              key={l.value}
-              type="button"
-              onClick={() => {
-                onAdd(l.value);
-                setOpen(false);
-              }}
-              className="block w-full rounded-lg px-3 py-2 text-left hover:bg-gray-50"
-            >
-              <span className="block text-sm text-gray-800">{l.label}</span>
-              <span className="block text-[11px] text-gray-400">{l.hint}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function Results({ post }: { post: SocialPost }) {
   return (
