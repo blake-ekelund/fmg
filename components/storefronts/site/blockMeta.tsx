@@ -65,6 +65,10 @@ export const BLOCK_ICON: Record<PageBlockType, LucideIcon> = {
   link_grid: Link2,
   link_cards: Link2,
   faq: HelpCircle,
+  quiz: Sparkles,
+  announcement: Megaphone,
+  footer: Rows3,
+  collections_copy: Leaf,
 };
 
 /** One-line summary under each block in the list. */
@@ -116,9 +120,10 @@ export function summary(b: PageBlock): string {
     case "reviews_note":
       return b.heading;
     case "catalog":
-    case "story_cover":
     case "living_hero":
       return "Filled automatically";
+    case "story_cover":
+      return `${b.frames.length} photos`;
     case "collection_showcase":
       return `${b.heading} · panels fill automatically`;
     case "seed_band":
@@ -138,5 +143,13 @@ export function summary(b: PageBlock): string {
       return b.cards.map((c) => c.title).join(" · ");
     case "faq":
       return `${b.heading || "Questions"} · ${b.items.length}`;
+    case "quiz":
+      return `${b.questions.length} questions · ${b.personas.map((p) => p.name).join(", ")}`;
+    case "announcement":
+      return b.retail.join(" · ");
+    case "footer":
+      return b.columns.map((c) => c.heading).join(" · ");
+    case "collections_copy":
+      return `${b.items.length} collections`;
   }
 }

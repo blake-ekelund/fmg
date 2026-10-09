@@ -55,6 +55,7 @@ type PageStatus = { slug: string; publishedAt: string | null; updatedAt: string 
 /** Messages from the store's edit bridge (src/components/site-edit-bridge.tsx). */
 type FromBridge =
   | { src: "site-edit"; type: "ready"; ids: string[] }
+  | { src: "site-edit"; type: "scroll"; y: number }
   | { src: "site-edit"; type: "select"; id: string | null }
   | { src: "site-edit"; type: "drop"; blockType: string; targetId: string; pos: "before" | "after" };
 
@@ -182,6 +183,15 @@ function PageEditor({
   const againRef = useRef(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const layerDragRef = useRef<string | null>(null);
+  // Canvas scroll, kept here across autosave reloads (the bridge reports it).
+  const canvasScrollRef = useRef(0);
+  // Frame key the bridge last said "ready" for; a canvas that loads but never
+  // connects (e.g. a store without the bridge deployed) gets a notice.
+  const [bridgeFrame, setBridgeFrame] = useState<number | null>(null);
+  const frameKeyRef = useRef(0);
+  useEffect(() => {
+    frameKeyRef.current = frameKey;
+  }, [frameKey]);
 
   // ── load ───────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -324,12 +334,29 @@ function PageEditor({
   const present = new Set(blocks.map((x) => x.type));
   const addable = def.fixed ? [] : def.addable.filter((t) => !(BLOCK_INFO[t].single && present.has(t)));
 
-  const select = useCallback((id: string | null, scroll = true) => {
-    setSelected(id);
-    selectedRef.current = id;
-    if (id) setTab("block");
-    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id, scroll }, "*");
-  }, []);
+  // The announcement bar and footer are marked "__site:<type>" in the canvas
+  // (they belong to every page); on the Header & footer page they ARE this
+  // page's blocks, so map between the two.
+  const toCanvasId = useCallback(
+    (id: string | null) => {
+      if (!id || slug !== "site") return id;
+      const b = blocksRef.current.find((x) => x.id === id);
+      return b ? `__site:${b.type}` : id;
+    },
+    [slug],
+  );
+  const [siteHint, setSiteHint] = useState<string | null>(null);
+
+  const select = useCallback(
+    (id: string | null, scroll = true) => {
+      setSelected(id);
+      selectedRef.current = id;
+      setSiteHint(null);
+      if (id) setTab("block");
+      frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(id), scroll }, "*");
+    },
+    [toCanvasId],
+  );
 
   /** Insert a new block of `type` next to `targetId` (default: after the
    *  selection, else at the end) — never above the pinned blocks. */
@@ -360,17 +387,13 @@ function PageEditor({
   const removable = !!current && !def.fixed && !currentInfo?.locked;
 
   // ── canvas bridge ──────────────────────────────────────────────────────
-  const previewOrigin = useMemo(() => {
-    try {
-      return page?.previewUrl ? new URL(page.previewUrl).origin : null;
-    } catch {
-      return null;
-    }
-  }, [page?.previewUrl]);
-
   const labels = useMemo(
-    () => Object.fromEntries(blocks.map((x) => [x.id, BLOCK_INFO[x.type].label])),
-    [blocks],
+    () => ({
+      "__site:announcement": "Announcement bar (every page)",
+      "__site:footer": "Footer (every page)",
+      ...Object.fromEntries(blocks.map((x) => [toCanvasId(x.id) ?? x.id, BLOCK_INFO[x.type].label])),
+    }),
+    [blocks, toCanvasId],
   );
   const labelsRef = useRef(labels);
   useEffect(() => {
@@ -380,26 +403,49 @@ function PageEditor({
 
   useEffect(() => {
     const onMessage = (e: MessageEvent<FromBridge>) => {
-      if (!previewOrigin || e.origin !== previewOrigin || e.data?.src !== "site-edit") return;
+      // Only our canvas frame — matched by window, not origin, so a store
+      // that redirects (www ↔ apex) still talks to the editor.
+      if (!frameRef.current || e.source !== frameRef.current.contentWindow || e.data?.src !== "site-edit") return;
       const m = e.data;
-      if (m.type === "ready") {
+      if (m.type === "scroll") {
+        canvasScrollRef.current = m.y;
+      } else if (m.type === "ready") {
+        setBridgeFrame(frameKeyRef.current);
         const w = frameRef.current?.contentWindow;
         w?.postMessage({ src: "site-edit", type: "labels", labels: labelsRef.current }, "*");
-        w?.postMessage({ src: "site-edit", type: "select", id: selectedRef.current, scroll: false }, "*");
+        w?.postMessage({ src: "site-edit", type: "restore", y: canvasScrollRef.current }, "*");
+        w?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(selectedRef.current), scroll: false }, "*");
       } else if (m.type === "select") {
-        setSelected(m.id);
-        selectedRef.current = m.id;
-        if (m.id) setTab("block");
+        // A click on something this page doesn't own (e.g. the homepage shown
+        // as the backdrop of the collection-words page) selects the page's
+        // only block, or nothing.
+        const list = blocksRef.current;
+        let id: string | null;
+        let hint: string | null = null;
+        if (m.id?.startsWith("__site:")) {
+          const type = m.id.slice("__site:".length);
+          id = list.find((x) => x.type === type)?.id ?? null;
+          if (!id) hint = type;
+        } else {
+          id = m.id && list.some((x) => x.id === m.id) ? m.id : list.length === 1 ? list[0].id : null;
+        }
+        setSelected(id);
+        selectedRef.current = id;
+        setSiteHint(hint);
+        if (id || hint) setTab("block");
+        if (toCanvasId(id) !== m.id && !hint) {
+          frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(id), scroll: false }, "*");
+        }
       } else if (m.type === "drop") {
         insert(m.blockType as PageBlockType, m.targetId, m.pos);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [previewOrigin, insert]);
+  }, [insert, toCanvasId]);
 
   const hoverInCanvas = (id: string | null) =>
-    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "hover", id }, "*");
+    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "hover", id: toCanvasId(id) }, "*");
 
   // ── derived ────────────────────────────────────────────────────────────
   const unpublished = useMemo(() => {
@@ -411,6 +457,15 @@ function PageEditor({
   const partParam = slug === "product" && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
   const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1&edit=1${partParam}&v=${frameKey}` : null;
   const canvasLoading = !!previewSrc && loadedFrame !== `${device}:${frameKey}`;
+  // Loaded, but no word from the bridge — give it a moment before saying so.
+  const [bridgeLate, setBridgeLate] = useState(false);
+  useEffect(() => {
+    setBridgeLate(false);
+    if (canvasLoading) return;
+    const t = setTimeout(() => setBridgeLate(true), 4000);
+    return () => clearTimeout(t);
+  }, [canvasLoading, frameKey]);
+  const bridgeMissing = bridgeLate && bridgeFrame === null;
 
   if (!page && !error) {
     return (
@@ -676,6 +731,11 @@ function PageEditor({
 
         {/* ── canvas ───────────────────────────────────────────────────── */}
         <section className="relative flex min-h-[60vh] min-w-0 justify-center overflow-hidden bg-gray-100 p-4">
+          {bridgeMissing ? (
+            <div className="absolute left-1/2 top-6 z-10 -translate-x-1/2 rounded-lg bg-gray-900/90 px-3 py-2 text-[11px] text-white shadow-lg">
+              Clicking the page to select isn&apos;t connected — pick parts from “On this page” on the left.
+            </div>
+          ) : null}
           {previewSrc ? (
             <iframe
               ref={frameRef}
@@ -731,6 +791,24 @@ function PageEditor({
                 busy={busy}
                 onAction={action}
               />
+            ) : siteHint ? (
+              <div className="space-y-3 py-4">
+                <p className="text-sm font-semibold text-gray-900">
+                  {siteHint === "footer" ? "The footer" : "The announcement bar"}
+                </p>
+                <p className="text-xs leading-relaxed text-gray-500">
+                  It&apos;s on every page of the site, so it&apos;s edited in one place: Header &amp; footer.
+                </p>
+                {sitePageFor(brand, "site") ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(brand, "site")}
+                    className="flex w-full items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-left text-xs font-medium text-indigo-800 transition hover:bg-indigo-100"
+                  >
+                    Edit Header &amp; footer <span aria-hidden>→</span>
+                  </button>
+                ) : null}
+              </div>
             ) : current && currentInfo ? (
               <>
                 <div className="flex items-start gap-2">
@@ -808,6 +886,7 @@ function PageEditor({
                     catalog={catalog}
                     slug={slug}
                     brand={brand}
+                    onOpenPage={(next) => (sitePageFor(brand, next) ? onNavigate(brand, next) : undefined)}
                     onChange={(nb) => update(blocks.map((x) => (x.id === nb.id ? nb : x)))}
                   />
                 </div>

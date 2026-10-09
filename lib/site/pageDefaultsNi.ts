@@ -32,7 +32,9 @@ export type NiPageSlug =
   | "returns"
   | "payment-terms"
   | "terms"
-  | "privacy";
+  | "privacy"
+  | "site"
+  | "collection-copy";
 
 // ── shared pieces ──────────────────────────────────────────────────────────
 
@@ -709,6 +711,279 @@ const PAYMENT_TERMS = policy(
   `<h2>Product pricing</h2><p>All prices are quoted in <strong>U.S. Dollars</strong> and are valid and effective only in the United States. Prices and availability are subject to change without notice. Wholesale distributors and retailers are not obligated to honor website pricing.</p><h2>Pricing errors</h2><p>We reserve the right to refuse or cancel any order for a product listed at an incorrect price, whether or not the order has been confirmed and your card charged. If your card has already been charged and we cancel the order, we will issue a credit promptly.</p><h2>Accepted payment methods</h2><p>We accept major credit and debit cards at checkout, including for wholesale orders. Payment is collected securely by our third-party payment processor; we do not store your full card details.</p><h2>When you're charged</h2><p>By submitting an order, you authorize us to charge your payment method for the total shown at checkout, including any applicable shipping and taxes. Your order is an offer to buy; a charge or order confirmation does not guarantee acceptance, and we may still cancel as described below.</p><h2>Taxes</h2><p>Applicable sales tax is calculated based on your shipping destination and added at checkout where required by law.</p><h2>Order acceptance</h2><p>Natural Inspirations reserves the right to refuse, cancel, or limit any order for any reason, including inventory limitations, pricing errors, or suspected fraud. We may request additional verification before accepting an order and will contact you if your order is cancelled or if we need more information.</p><h2>Contact</h2><p>Questions about a charge or payment? Reach us at <a href="mailto:hello@fragrancemarketinggroup.com">hello@fragrancemarketinggroup.com</a> or 952-466-7417.</p>`,
 );
 
+const SITE: PageBlock[] = [
+    {
+      "id": "announcement",
+      "type": "announcement",
+      "retail": [
+        "Free shipping on orders over $75",
+        "Clean, plant-based body care — made in the USA",
+        "New: the Orange Ginger collection has arrived"
+      ],
+      "wholesale": [
+        "Credit card billing at checkout",
+        "Case packs of 12 + 24",
+        "Ships in 3–5 business days"
+      ]
+    },
+    {
+      "id": "footer",
+      "type": "footer",
+      "tagline": "Fresh. Nourishing. Elevated. Spa-inspired body care — women-owned and made in the USA.",
+      "subscribeEyebrow": "Stay inspired",
+      "subscribeText": "A little calm in your inbox — and 10% off your first order.",
+      "columns": [
+        {
+          "id": "shop",
+          "heading": "Shop",
+          "links": [
+            {
+              "id": "all",
+              "label": "Shop all",
+              "href": "/shop"
+            },
+            {
+              "id": "collections",
+              "label": "Fragrance collections",
+              "href": "/collections"
+            },
+            {
+              "id": "ssc",
+              "label": "Sea Salt Citrus",
+              "href": "/collections/sea-salt-citrus"
+            },
+            {
+              "id": "ly",
+              "label": "Lavender Ylang",
+              "href": "/collections/lavender-ylang"
+            },
+            {
+              "id": "wholesale",
+              "label": "Wholesale",
+              "href": "/wholesale"
+            }
+          ]
+        },
+        {
+          "id": "company",
+          "heading": "Company",
+          "links": [
+            {
+              "id": "story",
+              "label": "Our story",
+              "href": "/story"
+            },
+            {
+              "id": "blog",
+              "label": "The journal",
+              "href": "/blog"
+            },
+            {
+              "id": "contact",
+              "label": "Contact",
+              "href": "/contact"
+            }
+          ]
+        },
+        {
+          "id": "legal",
+          "heading": "Legal",
+          "links": [
+            {
+              "id": "terms",
+              "label": "Terms of Service",
+              "href": "/terms"
+            },
+            {
+              "id": "privacy",
+              "label": "Privacy Policy",
+              "href": "/privacy"
+            },
+            {
+              "id": "payment",
+              "label": "Payment Terms",
+              "href": "/payment-terms"
+            },
+            {
+              "id": "shipping",
+              "label": "Shipping",
+              "href": "/shipping"
+            },
+            {
+              "id": "returns",
+              "label": "Returns",
+              "href": "/returns"
+            }
+          ]
+        }
+      ],
+      "sisterEyebrow": "Also from our house",
+      "sisterName": "Sassy + Co™",
+      "sisterHref": "https://sassyandco.com",
+      "sisterBlurb": "",
+      "copyright": "© {year} Natural Inspirations · Indulge in the Good. Eliminate the Bad."
+    }
+  ];
+
+const COLLECTION_COPY: PageBlock[] = [{
+    "id": "collections",
+    "type": "collections_copy",
+    "items": [
+      {
+        "slug": "sea-salt-citrus",
+        "name": "Sea Salt Citrus",
+        "tagline": "the coastal escape",
+        "description": "Sparkling citrus carried on a soft sea breeze, with white jasmine and warm sandalwood beneath. Bright, clean, and quietly grounding — like a morning walk at the water's edge.",
+        "notes": [
+          "sparkling citrus",
+          "sea breeze & jasmine",
+          "sandalwood & amber"
+        ],
+        "heroLabel": "The coastal collection",
+        "heroTitle": "Sea salt",
+        "heroAccent": "Citrus",
+        "heroDescription": "Sparkling citrus carried on a soft sea breeze, with white jasmine and warm sandalwood beneath. Bright, clean, and quietly grounding — like a morning walk at the water's edge.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "A little closer to the coast.",
+        "heroKicker": "01 / The feeling",
+        "heroLine": "Fresh. Sunlit. Unhurried."
+      },
+      {
+        "slug": "lavender-ylang",
+        "name": "Lavender Ylang",
+        "tagline": "the evening exhale",
+        "description": "Calming French lavender softened with exotic ylang ylang. A gentle, restful blend for the slow hour at the end of the day — unwind, breathe, let go.",
+        "notes": [
+          "french lavender",
+          "ylang ylang",
+          "soft botanicals"
+        ],
+        "heroLabel": "The evening ritual",
+        "heroTitle": "Lavender",
+        "heroAccent": "Ylang ylang",
+        "heroDescription": "Calming French lavender softened with exotic ylang ylang. A gentle, restful blend for the slow hour at the end of the day — unwind, breathe, let go.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "A moment to come back to yourself.",
+        "heroKicker": "Lavender — Ylang ylang",
+        "heroLine": ""
+      },
+      {
+        "slug": "eucalyptus-rosemary-mint",
+        "name": "Eucalyptus Rosemary Mint",
+        "tagline": "the spa classic",
+        "description": "An invigorating blend of pure essential oils — fresh eucalyptus, garden rosemary, and cool mint. Clears the air like the steam room at your favorite spa.",
+        "notes": [
+          "fresh eucalyptus",
+          "garden rosemary",
+          "cool mint"
+        ],
+        "heroLabel": "The spa ritual",
+        "heroTitle": "Eucalyptus",
+        "heroAccent": "Rosemary Mint",
+        "heroDescription": "An invigorating blend of pure essential oils — fresh eucalyptus, garden rosemary, and cool mint. Clears the air like the steam room at your favorite spa.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "A little spa. A little stillness.",
+        "heroKicker": "Eucalyptus · Rosemary · Mint",
+        "heroLine": "Fresh air. Familiar calm."
+      },
+      {
+        "slug": "coconut-ambre-vanille",
+        "name": "Coconut Ambre Vanille",
+        "tagline": "warm & comforting",
+        "description": "Creamy coconut wrapped in warm Madagascar vanilla and soft amber. Comfort, bottled — the cashmere blanket of the collection.",
+        "notes": [
+          "creamy coconut",
+          "madagascar vanilla",
+          "soft amber"
+        ],
+        "heroLabel": "The comfort ritual",
+        "heroTitle": "Coconut",
+        "heroAccent": "Ambre Vanille",
+        "heroDescription": "Creamy coconut wrapped in warm Madagascar vanilla and soft amber. Comfort, bottled — the cashmere blanket of the collection.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "Stay a little longer.",
+        "heroKicker": "Coconut · Madagascar vanilla · Amber",
+        "heroLine": "Soft warmth. Slow moments."
+      },
+      {
+        "slug": "grapefruit-bergamot",
+        "name": "Grapefruit Bergamot",
+        "tagline": "bright & uplifting",
+        "description": "Pink grapefruit lifted by sparkling bergamot — joyful and fresh, like sunshine on your face. The one to reach for when the morning needs a little light.",
+        "notes": [
+          "pink grapefruit",
+          "sparkling bergamot",
+          "sunlit citrus"
+        ],
+        "heroLabel": "The morning ritual",
+        "heroTitle": "Grapefruit",
+        "heroAccent": "Bergamot",
+        "heroDescription": "Pink grapefruit lifted by sparkling bergamot — joyful and fresh, like sunshine on your face. The one to reach for when the morning needs a little light.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "A brighter kind of beginning.",
+        "heroKicker": "Pink grapefruit · Bergamot",
+        "heroLine": "Your morning, a little lighter."
+      },
+      {
+        "slug": "agave-pear",
+        "name": "Agave Pear",
+        "tagline": "crisp & lightly sweet",
+        "description": "Crisp agave nectar with fresh citrus and delicate pear, finished with uplifting essential oils. Clean, green, and quietly sweet — never heavy.",
+        "notes": [
+          "crisp agave nectar",
+          "fresh citrus",
+          "delicate pear"
+        ],
+        "heroLabel": "The everyday escape",
+        "heroTitle": "Agave",
+        "heroAccent": "Pear",
+        "heroDescription": "Crisp agave nectar with fresh citrus and delicate pear, finished with uplifting essential oils. Clean, green, and quietly sweet — never heavy.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "A lighter kind of everyday.",
+        "heroKicker": "Agave nectar · Citrus · Pear",
+        "heroLine": "Clean. Green. Quietly sweet."
+      },
+      {
+        "slug": "orange-ginger",
+        "name": "Orange Ginger",
+        "tagline": "warm & energizing",
+        "description": "Juicy orange warmed with energizing ginger — comfort with a spark. Our newest fragrance, made for crisp mornings and fresh starts.",
+        "notes": [
+          "juicy orange",
+          "warm ginger",
+          "bright spice"
+        ],
+        "heroLabel": "The fresh start ritual",
+        "heroTitle": "Orange",
+        "heroAccent": "Ginger",
+        "heroDescription": "Juicy orange warmed with energizing ginger — comfort with a spark. Our newest fragrance, made for crisp mornings and fresh starts.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "A little warmth. A new beginning.",
+        "heroKicker": "Juicy orange · Warm ginger",
+        "heroLine": "Comfort, with a spark."
+      },
+      {
+        "slug": "cypres",
+        "name": "Cyprès",
+        "tagline": "warm & grounding",
+        "description": "Warm woods with quiet green depth — an exotic, grounding escape. The most enveloping fragrance in the collection, made for unhurried evenings.",
+        "notes": [
+          "warm woods",
+          "green depth",
+          "quiet musk"
+        ],
+        "heroLabel": "The evening collection",
+        "heroTitle": "Cyprès",
+        "heroAccent": "",
+        "heroDescription": "Warm woods with quiet green depth — an exotic, grounding escape. The most enveloping fragrance in the collection, made for unhurried evenings.",
+        "heroCta": "Shop the collection",
+        "heroInvitation": "Leave the day at the door.",
+        "heroKicker": "Warm woods · Quiet green depth",
+        "heroLine": "Good things take their time."
+      }
+    ]
+  }];
+
 // ── registry ───────────────────────────────────────────────────────────────
 
 const ANYWHERE: PageBlockType[] = ["rich_text", "quote", "image_text", "statement", "cta"];
@@ -814,6 +1089,26 @@ export const NI_SITE_PAGES: SitePageDef[] = [
   },
   { slug: "terms", label: "Terms of service", path: "/terms", group: "Policies", note: "Policy page.", addable: [], fixed: true, defaults: TERMS },
   { slug: "privacy", label: "Privacy policy", path: "/privacy", group: "Policies", note: "Policy page.", addable: [], fixed: true, defaults: PRIVACY },
+  {
+    slug: "collection-copy",
+    label: "Fragrance collections (words)",
+    path: "/collections/…",
+    group: "Site-wide",
+    note: "Each fragrance collection's words: its tagline, story and notes, and the homepage hero slide. Names, photos and colors stay in the store.",
+    addable: [],
+    fixed: true,
+    defaults: COLLECTION_COPY,
+  },
+  {
+    slug: "site",
+    label: "Header & footer",
+    path: " (every page)",
+    group: "Site-wide",
+    note: "The announcement bar and the footer, on every page of the site.",
+    addable: [],
+    fixed: true,
+    defaults: SITE,
+  },
 ];
 
 export function getNiSitePage(slug: string): SitePageDef | undefined {

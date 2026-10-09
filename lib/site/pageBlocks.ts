@@ -77,6 +77,51 @@ export type SeedItem = { id: string; name: string; note: string };
 export type SeedCard = { id: string; name: string; origin: string; body: string };
 export type Pillar = { id: string; title: string; body: string };
 export type LinkCard = { id: string; eyebrow: string; title: string; body: string; href: string };
+export type StoryFrame = { id: string; name: string; image: string; href: string };
+export type QuizPersonaCopy = {
+  /** Fixed persona key (queen, bougie …) — the scoring and hero slides use it. */
+  key: string;
+  name: string;
+  tag: string;
+  scent: string;
+  crown: string;
+  /** FMG part of her hero product. */
+  part: string;
+  /** Her story: /blog/{slug}. */
+  slug: string;
+  image: string;
+  surface: string;
+  ink: string;
+  accent: string;
+  accentInk: string;
+};
+export type QuizOption = {
+  id: string;
+  label: string;
+  /** Points toward each persona key (0–5). */
+  weights: Record<string, number>;
+};
+export type QuizQuestion = { id: string; prompt: string; options: QuizOption[] };
+export type QuizScentOption = { id: string; label: string; persona: string };
+export type FooterLink = { id: string; label: string; href: string };
+export type FooterColumn = { id: string; heading: string; links: FooterLink[] };
+export type CollectionCopy = {
+  /** Fixed collection slug (the store's collection list decides which exist). */
+  slug: string;
+  /** Shown for reference only — names stay in the store's code. */
+  name: string;
+  tagline: string;
+  description: string;
+  notes: string[];
+  heroLabel: string;
+  heroTitle: string;
+  heroAccent: string;
+  heroDescription: string;
+  heroCta: string;
+  heroInvitation: string;
+  heroKicker: string;
+  heroLine: string;
+};
 export type Benefit = { id: string; lead: string; punch: string };
 export type StoryColumn = {
   id: string;
@@ -201,7 +246,7 @@ export type ArticleHeaderBlock = Base & {
   titleAccent: string;
   tags: string[];
 };
-export type StoryCoverBlock = Base & { type: "story_cover" };
+export type StoryCoverBlock = Base & { type: "story_cover"; frames: StoryFrame[] };
 export type ContactFormBlock = Base & { type: "contact_form"; heading: string; subheading: string };
 export type InfoCardsBlock = Base & { type: "info_cards"; cards: InfoCard[] };
 export type PolicyBlock = Base & {
@@ -315,6 +360,40 @@ export type LinkGridBlock = Base & {
 export type LinkCardsBlock = Base & { type: "link_cards"; cards: LinkCard[] };
 export type FaqBlock = Base & { type: "faq"; heading: string; items: FaqItem[] };
 
+// Site-wide content (fixed "pages" in the editor)
+export type QuizBlock = Base & {
+  type: "quiz";
+  /** Small label on the homepage quiz card. */
+  cardLabel: string;
+  personas: QuizPersonaCopy[];
+  /** The personality questions, in order. The LAST option of the LAST one is
+   *  the scent-first branch into the scent question. */
+  questions: QuizQuestion[];
+  scentPrompt: string;
+  scentOptions: QuizScentOption[];
+};
+export type AnnouncementBlock = Base & {
+  type: "announcement";
+  /** Rotating top-bar messages. [text](/path) makes a link. */
+  retail: string[];
+  /** What signed-in wholesale buyers see instead. */
+  wholesale: string[];
+};
+export type FooterBlock = Base & {
+  type: "footer";
+  tagline: string;
+  subscribeEyebrow: string;
+  subscribeText: string;
+  columns: FooterColumn[];
+  sisterEyebrow: string;
+  sisterName: string;
+  sisterHref: string;
+  sisterBlurb: string;
+  /** {year} becomes the current year. */
+  copyright: string;
+};
+export type CollectionsCopyBlock = Base & { type: "collections_copy"; items: CollectionCopy[] };
+
 export type PageBlock =
   | HeroBlock
   | ValueStripBlock
@@ -353,7 +432,11 @@ export type PageBlock =
   | PillarsBlock
   | LinkGridBlock
   | LinkCardsBlock
-  | FaqBlock;
+  | FaqBlock
+  | QuizBlock
+  | AnnouncementBlock
+  | FooterBlock
+  | CollectionsCopyBlock;
 
 export type PageBlockType = PageBlock["type"];
 
@@ -417,6 +500,18 @@ export const BLOCK_INFO: Record<
   link_grid: { label: "Link grid", description: "A tinted box of linked tiles." },
   link_cards: { label: "Link cards", description: "Two big linked cards." },
   faq: { label: "Questions", description: "A heading and question / answer cards." },
+  quiz: {
+    label: "Find your Sassy quiz",
+    description: "The questions, answers, scoring and results — used by the homepage quiz card, /quiz and the chat.",
+    locked: true,
+  },
+  announcement: { label: "Announcement bar", description: "The rotating messages above the header, on every page.", locked: true },
+  footer: { label: "Footer", description: "The footer on every page: tagline, link columns and the sister brand.", locked: true },
+  collections_copy: {
+    label: "Fragrance collections",
+    description: "Each collection's words — on the homepage hero and panels, the collections page and its own page.",
+    locked: true,
+  },
 };
 
 export const QUIZ_PERSONAS: { key: string; name: string }[] = [
@@ -449,6 +544,10 @@ export const LIMITS = {
   linkGrid: 12,
   linkCards: 3,
   faqs: 12,
+  frames: 8,
+  footerColumns: 4,
+  footerLinks: 10,
+  announcements: 6,
 };
 
 // ── sanitizing ─────────────────────────────────────────────────────────────
@@ -727,7 +826,15 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
         tags: list(r.tags, LIMITS.tags).map((x) => str(x, 30)).filter(Boolean),
       };
     case "story_cover":
-      return { type: "story_cover" };
+      return {
+        type: "story_cover",
+        frames: list(r.frames, LIMITS.frames)
+          .map((x, i): StoryFrame => {
+            const o = obj(x);
+            return { id: itemId(o, "frame", i), name: str(o.name, 60), image: safeImage(o.image), href: safeHref(o.href) };
+          })
+          .filter((f) => f.image),
+      };
     case "contact_form":
       return { type: "contact_form", heading: str(r.heading, 80), subheading: str(r.subheading, 200) };
     case "info_cards":
@@ -928,6 +1035,114 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
             return { id: itemId(o, "faq", i), q: str(o.q, 200), a: text(o.a, 1200) };
           })
           .filter((x) => x.q),
+      };
+    case "quiz": {
+      const keys = new Set(QUIZ_PERSONAS.map((q) => q.key));
+      const weights = (v: unknown): Record<string, number> => {
+        const o = obj(v);
+        const out: Record<string, number> = {};
+        for (const k of Object.keys(o)) {
+          const n = Math.round(Number(o[k]));
+          if (keys.has(k) && Number.isFinite(n) && n > 0) out[k] = Math.min(5, n);
+        }
+        return out;
+      };
+      return {
+        type: "quiz",
+        cardLabel: str(r.cardLabel, 40),
+        personas: list(r.personas, QUIZ_PERSONAS.length)
+          .map((x): QuizPersonaCopy => {
+            const o = obj(x);
+            return {
+              key: str(o.key, 20),
+              name: str(o.name, 40),
+              tag: str(o.tag, 160),
+              scent: str(o.scent, 60),
+              crown: text(o.crown, 400),
+              part: str(o.part, 40),
+              slug: str(o.slug, 80).replace(/[^a-z0-9-]/gi, ""),
+              image: safeImage(o.image),
+              surface: hex(o.surface, "#FFFFFF"),
+              ink: hex(o.ink, "#2E2428"),
+              accent: hex(o.accent, "#E8488E"),
+              accentInk: hex(o.accentInk, "#FFFFFF"),
+            };
+          })
+          .filter((x) => keys.has(x.key)),
+        questions: list(r.questions, 8).map((x, i): QuizQuestion => {
+          const o = obj(x);
+          return {
+            id: itemId(o, "q", i),
+            prompt: str(o.prompt, 200),
+            options: list(o.options, 6).map((y, j): QuizOption => {
+              const p = obj(y);
+              return { id: itemId(p, "o", j), label: str(p.label, 120), weights: weights(p.weights) };
+            }),
+          };
+        }),
+        scentPrompt: str(r.scentPrompt, 200),
+        scentOptions: list(r.scentOptions, QUIZ_PERSONAS.length)
+          .map((x, i): QuizScentOption => {
+            const o = obj(x);
+            return { id: itemId(o, "scent", i), label: str(o.label, 60), persona: str(o.persona, 20) };
+          })
+          .filter((x) => keys.has(x.persona)),
+      };
+    }
+    case "announcement":
+      return {
+        type: "announcement",
+        retail: strings(r.retail, LIMITS.announcements, 140),
+        wholesale: strings(r.wholesale, LIMITS.announcements, 140),
+      };
+    case "footer":
+      return {
+        type: "footer",
+        tagline: text(r.tagline, 300),
+        subscribeEyebrow: str(r.subscribeEyebrow, 40),
+        subscribeText: str(r.subscribeText, 160),
+        columns: list(r.columns, LIMITS.footerColumns).map((x, i): FooterColumn => {
+          const o = obj(x);
+          return {
+            id: itemId(o, "col", i),
+            heading: str(o.heading, 40),
+            links: list(o.links, LIMITS.footerLinks)
+              .map((y, j): FooterLink => {
+                const l = obj(y);
+                return { id: itemId(l, "link", j), label: str(l.label, 60), href: safeHref(l.href) };
+              })
+              .filter((l) => l.label && l.href),
+          };
+        }),
+        sisterEyebrow: str(r.sisterEyebrow, 60),
+        sisterName: str(r.sisterName, 60),
+        sisterHref: safeHref(r.sisterHref),
+        sisterBlurb: str(r.sisterBlurb, 200),
+        copyright: str(r.copyright, 160),
+      };
+    case "collections_copy":
+      return {
+        type: "collections_copy",
+        items: list(r.items, 20)
+          .map((x): CollectionCopy => {
+            const o = obj(x);
+            return {
+              slug: str(o.slug, 60).replace(/[^a-z0-9-]/gi, ""),
+              name: str(o.name, 60),
+              tagline: str(o.tagline, 80),
+              description: text(o.description, 600),
+              notes: strings(o.notes, 3, 60),
+              heroLabel: str(o.heroLabel, 60),
+              heroTitle: str(o.heroTitle, 60),
+              heroAccent: str(o.heroAccent, 60),
+              heroDescription: text(o.heroDescription, 600),
+              heroCta: str(o.heroCta, 40),
+              heroInvitation: str(o.heroInvitation, 120),
+              heroKicker: str(o.heroKicker, 80),
+              heroLine: str(o.heroLine, 120),
+            };
+          })
+          .filter((x) => x.slug),
       };
   }
   return null;

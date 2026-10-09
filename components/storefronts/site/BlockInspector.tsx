@@ -7,7 +7,14 @@ import {
   QUIZ_PERSONAS,
   type FormTile,
   type HeroSlide,
+  type CollectionCopy,
+  type CollectionsCopyBlock,
+  type FooterLink,
   type PageBlock,
+  type QuizBlock,
+  type QuizOption,
+  type QuizPersonaCopy,
+  type QuizQuestion,
   type SeedItem,
   type Tone,
 } from "@/lib/site/pageBlocks";
@@ -50,10 +57,13 @@ export default function BlockInspector({
   catalog,
   slug,
   brand,
+  onOpenPage,
 }: {
   block: PageBlock;
   onChange: (b: PageBlock) => void;
   catalog: CatalogItem[];
+  /** Jump to another page of the same store in the editor. */
+  onOpenPage?: (slug: string) => void;
   /** The page being edited (a few fields only apply to one page). */
   slug: string;
   /** The store — a few fields only exist on one store's design. */
@@ -61,7 +71,14 @@ export default function BlockInspector({
 }) {
   switch (block.type) {
     case "hero":
-      return <HeroForm slides={block.slides} onChange={(slides) => onChange({ ...block, slides })} catalog={catalog} />;
+      return (
+        <div className="space-y-4">
+          {onOpenPage ? (
+            <OpenPage label="Edit the quiz — questions, scoring & results" onClick={() => onOpenPage("quiz")} />
+          ) : null}
+          <HeroForm slides={block.slides} onChange={(slides) => onChange({ ...block, slides })} catalog={catalog} />
+        </div>
+      );
 
     case "value_strip":
       return (
@@ -363,12 +380,37 @@ export default function BlockInspector({
         </div>
       );
 
-    case "catalog":
     case "story_cover":
+      return (
+        <ObjList
+          label="Photos (they rotate; each links to a story)"
+          items={block.frames}
+          max={LIMITS.frames}
+          onChange={(frames) => onChange({ ...block, frames })}
+          make={(id) => ({ id, name: "New photo", image: "", href: "/blog" })}
+          title={(x) => x.name}
+          subtitle={(x) => x.href}
+          render={(x, set) => (
+            <>
+              <Field label="Name (shown on the photo)">
+                <TextInput value={x.name} maxLength={60} onChange={(name) => set({ name })} />
+              </Field>
+              <Field label="Photo" hint="Wide, about 1920 × 1067.">
+                <ImageInput value={x.image} onChange={(image) => set({ image })} />
+              </Field>
+              <Field label="Links to" hint={LINK_HINT}>
+                <TextInput value={x.href} onChange={(href) => set({ href })} />
+              </Field>
+            </>
+          )}
+        />
+      );
+
+    case "catalog":
       return (
         <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
           Nothing to edit here — this part fills itself
-          {block.type === "catalog" ? CATALOG_SOURCE[slug] ?? " from the products in Products." : " with the six Everyday character photos."}{" "}
+          {CATALOG_SOURCE[slug] ?? " from the products in Products."}{" "}
           Move the blocks around it to change what comes before and after.
         </p>
       );
@@ -640,7 +682,12 @@ export default function BlockInspector({
       );
 
     case "living_hero":
-      return (
+      return onOpenPage ? (
+        <div className="space-y-3">
+          <OpenPage label="Edit each collection's hero words" onClick={() => onOpenPage("collection-copy")} />
+          <p className="text-[11px] text-gray-500">Photos, colors and the moving art stay with each collection.</p>
+        </div>
+      ) : (
         <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
           Nothing to edit here — the hero shows one slide per fragrance collection, using each collection&apos;s own
           photo and colors.
@@ -654,6 +701,9 @@ export default function BlockInspector({
             One panel per fragrance collection with its two bestsellers — filled automatically. The words around them
             are set here.
           </p>
+          {onOpenPage ? (
+            <OpenPage label="Edit each collection's tagline & story" onClick={() => onOpenPage("collection-copy")} />
+          ) : null}
           <Field label="Small label">
             <TextInput value={block.eyebrow} maxLength={60} onChange={(eyebrow) => onChange({ ...block, eyebrow })} />
           </Field>
@@ -892,6 +942,88 @@ export default function BlockInspector({
         />
       );
 
+    case "quiz":
+      return <QuizForm block={block} onChange={onChange} catalog={catalog} />;
+
+    case "announcement":
+      return (
+        <div className="space-y-4">
+          <Field label="Messages" hint="They rotate every few seconds. Links: [text](/page).">
+            <StringList items={block.retail} max={LIMITS.announcements} onChange={(retail) => onChange({ ...block, retail })} />
+          </Field>
+          <Field label="Messages for signed-in wholesale buyers">
+            <StringList
+              items={block.wholesale}
+              max={LIMITS.announcements}
+              onChange={(wholesale) => onChange({ ...block, wholesale })}
+            />
+          </Field>
+        </div>
+      );
+
+    case "footer":
+      return (
+        <div className="space-y-4">
+          <Field label="Tagline">
+            <TextArea value={block.tagline} rows={2} maxLength={300} onChange={(tagline) => onChange({ ...block, tagline })} />
+          </Field>
+          {brand === "NI" ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Signup label">
+                <TextInput value={block.subscribeEyebrow} maxLength={40} onChange={(subscribeEyebrow) => onChange({ ...block, subscribeEyebrow })} />
+              </Field>
+              <Field label="Signup line">
+                <TextInput value={block.subscribeText} maxLength={160} onChange={(subscribeText) => onChange({ ...block, subscribeText })} />
+              </Field>
+            </div>
+          ) : null}
+          <ObjList
+            label="Link columns"
+            items={block.columns}
+            max={LIMITS.footerColumns}
+            onChange={(columns) => onChange({ ...block, columns })}
+            make={(id) => ({ id, heading: "New column", links: [] })}
+            title={(x) => x.heading}
+            subtitle={(x) => x.links.map((l) => l.label).join(", ")}
+            render={(x, set) => (
+              <>
+                <Field label="Heading">
+                  <TextInput value={x.heading} maxLength={40} onChange={(heading) => set({ heading })} />
+                </Field>
+                <Field label="Links" hint={LINK_HINT}>
+                  <LinkRows links={x.links} onChange={(links) => set({ links })} />
+                </Field>
+              </>
+            )}
+          />
+          <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-medium text-gray-700">Sister brand link</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Small label">
+                <TextInput value={block.sisterEyebrow} maxLength={60} onChange={(sisterEyebrow) => onChange({ ...block, sisterEyebrow })} />
+              </Field>
+              <Field label="Name">
+                <TextInput value={block.sisterName} maxLength={60} onChange={(sisterName) => onChange({ ...block, sisterName })} />
+              </Field>
+            </div>
+            <Field label="Link">
+              <TextInput value={block.sisterHref} onChange={(sisterHref) => onChange({ ...block, sisterHref })} />
+            </Field>
+            {brand === "Sassy" ? (
+              <Field label="Line beside it">
+                <TextInput value={block.sisterBlurb} maxLength={200} onChange={(sisterBlurb) => onChange({ ...block, sisterBlurb })} />
+              </Field>
+            ) : null}
+          </div>
+          <Field label="Copyright line" hint="{year} becomes the current year.">
+            <TextInput value={block.copyright} maxLength={160} onChange={(copyright) => onChange({ ...block, copyright })} />
+          </Field>
+        </div>
+      );
+
+    case "collections_copy":
+      return <CollectionsCopyForm block={block} onChange={onChange} />;
+
     case "faq":
       return (
         <div className="space-y-4">
@@ -919,6 +1051,307 @@ export default function BlockInspector({
         </div>
       );
   }
+}
+
+function OpenPage({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-left text-xs font-medium text-indigo-800 transition hover:bg-indigo-100"
+    >
+      {label}
+      <span aria-hidden>→</span>
+    </button>
+  );
+}
+
+/** Editable label + link rows (footer columns). */
+function LinkRows({ links, onChange }: { links: FooterLink[]; onChange: (links: FooterLink[]) => void }) {
+  return (
+    <div className="space-y-1.5">
+      {links.map((l, i) => (
+        <div key={l.id} className="flex items-center gap-1">
+          <input
+            className="w-[45%] rounded-lg border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-indigo-400"
+            value={l.label}
+            maxLength={60}
+            placeholder="Text"
+            onChange={(e) => onChange(links.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+          />
+          <input
+            className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-1.5 font-mono text-[11px] outline-none focus:border-indigo-400"
+            value={l.href}
+            placeholder="/page"
+            onChange={(e) => onChange(links.map((x, j) => (j === i ? { ...x, href: e.target.value } : x)))}
+          />
+          <IconButton label="Move up" disabled={i === 0} onClick={() => onChange(move(links, i, i - 1))}>
+            <span className="text-xs">↑</span>
+          </IconButton>
+          <IconButton label="Remove" danger onClick={() => onChange(links.filter((_, j) => j !== i))}>
+            <X size={13} />
+          </IconButton>
+        </div>
+      ))}
+      {links.length < LIMITS.footerLinks ? (
+        <button
+          type="button"
+          onClick={() => onChange([...links, { id: uid("link"), label: "", href: "/" }])}
+          className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+        >
+          <Plus size={13} /> Add link
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+const PERSONA_NAME: Record<string, string> = Object.fromEntries(QUIZ_PERSONAS.map((p) => [p.key, p.name]));
+
+/** The Find your Sassy quiz: results per persona, the questions with their
+ *  scoring, and the scent tiebreaker. The number of questions and answers is
+ *  fixed (the chat assistant and the scent branch rely on it); everything
+ *  else is editable. */
+function QuizForm({
+  block,
+  onChange,
+  catalog,
+}: {
+  block: QuizBlock;
+  onChange: (b: PageBlock) => void;
+  catalog: CatalogItem[];
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const personaNames = Object.fromEntries(block.personas.map((p) => [p.key, p.name || PERSONA_NAME[p.key]]));
+  const setPersona = (i: number, patch: Partial<QuizPersonaCopy>) =>
+    onChange({ ...block, personas: block.personas.map((p, j) => (j === i ? { ...p, ...patch } : p)) });
+  const setQuestion = (i: number, patch: Partial<QuizQuestion>) =>
+    onChange({ ...block, questions: block.questions.map((q, j) => (j === i ? { ...q, ...patch } : q)) });
+  const toggle = (id: string) => setOpen(open === id ? null : id);
+
+  return (
+    <div className="space-y-5">
+      <Field label="Label on the homepage quiz card">
+        <TextInput value={block.cardLabel} maxLength={40} onChange={(cardLabel) => onChange({ ...block, cardLabel })} />
+      </Field>
+
+      <div>
+        <p className="text-xs font-medium text-gray-700">Results — one per persona</p>
+        <p className="mb-2 text-[11px] text-gray-400">What a shopper sees when the quiz crowns her.</p>
+        <div className="space-y-2">
+          {block.personas.map((p, i) => (
+            <ItemCard
+              key={p.key}
+              title={p.name}
+              subtitle={`${p.scent} · ${p.tag}`}
+              thumb={p.image}
+              open={open === `p:${p.key}`}
+              onToggle={() => toggle(`p:${p.key}`)}
+            >
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Name">
+                  <TextInput value={p.name} maxLength={40} onChange={(name) => setPersona(i, { name })} />
+                </Field>
+                <Field label="Scent">
+                  <TextInput value={p.scent} maxLength={60} onChange={(scent) => setPersona(i, { scent })} />
+                </Field>
+              </div>
+              <Field label="Tagline">
+                <TextInput value={p.tag} maxLength={160} onChange={(tag) => setPersona(i, { tag })} />
+              </Field>
+              <Field label="The crown line" hint="Her read — on the result card and in the chat.">
+                <TextArea value={p.crown} rows={3} maxLength={400} onChange={(crown) => setPersona(i, { crown })} />
+              </Field>
+              <Field label="Photo" hint="Square, about 1080 × 1080.">
+                <ImageInput value={p.image} onChange={(image) => setPersona(i, { image })} />
+              </Field>
+              <Field label="Her product">
+                <select
+                  value={p.part}
+                  onChange={(e) => setPersona(i, { part: e.target.value })}
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                >
+                  {p.part && !catalog.some((c) => c.part === p.part) ? <option value={p.part}>{p.part}</option> : null}
+                  {catalog.map((c) => (
+                    <option key={c.part} value={c.part}>
+                      {c.name} ({c.part})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Her story (blog link)" hint="The part after /blog/, e.g. meet-the-queen.">
+                <TextInput value={p.slug} maxLength={80} onChange={(slug) => setPersona(i, { slug })} />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Card background">
+                  <ColorInput value={p.surface} onChange={(surface) => setPersona(i, { surface })} />
+                </Field>
+                <Field label="Card text">
+                  <ColorInput value={p.ink} onChange={(ink) => setPersona(i, { ink })} />
+                </Field>
+                <Field label="Accent">
+                  <ColorInput value={p.accent} onChange={(accent) => setPersona(i, { accent })} />
+                </Field>
+                <Field label="Text on accent">
+                  <ColorInput value={p.accentInk} onChange={(accentInk) => setPersona(i, { accentInk })} />
+                </Field>
+              </div>
+            </ItemCard>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-medium text-gray-700">Questions</p>
+        <p className="mb-2 text-[11px] text-gray-400">
+          Each answer gives points to personas (0–5); the highest total wins. The number of questions and answers is
+          fixed — the chat assistant asks the same ones.
+        </p>
+        <div className="space-y-2">
+          {block.questions.map((q, i) => (
+            <ItemCard
+              key={q.id}
+              title={`${i + 1}. ${q.prompt}`}
+              open={open === `q:${q.id}`}
+              onToggle={() => toggle(`q:${q.id}`)}
+            >
+              <Field label="Question">
+                <TextInput value={q.prompt} maxLength={200} onChange={(prompt) => setQuestion(i, { prompt })} />
+              </Field>
+              {q.options.map((o, j) => {
+                const setOption = (patch: Partial<QuizOption>) =>
+                  setQuestion(i, { options: q.options.map((x, k) => (k === j ? { ...x, ...patch } : x)) });
+                const scentBranch = i === block.questions.length - 1 && j === q.options.length - 1;
+                return (
+                  <div key={o.id} className="space-y-2 rounded-lg border border-gray-200 p-2.5">
+                    <TextInput value={o.label} maxLength={120} onChange={(label) => setOption({ label })} />
+                    {scentBranch ? (
+                      <p className="text-[11px] text-indigo-700">This answer opens the scent question below.</p>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {block.personas.map((p) => (
+                        <label key={p.key} className="flex items-center justify-between gap-1 rounded-md bg-gray-50 px-2 py-1 text-[11px] text-gray-600">
+                          <span className="truncate">{personaNames[p.key]}</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={o.weights[p.key] ?? 0}
+                            onChange={(e) => {
+                              const n = Math.max(0, Math.min(5, Math.round(Number(e.target.value) || 0)));
+                              const weights = { ...o.weights };
+                              if (n) weights[p.key] = n;
+                              else delete weights[p.key];
+                              setOption({ weights });
+                            }}
+                            className="w-9 rounded border border-gray-200 bg-white px-1 py-0.5 text-right text-[11px] outline-none focus:border-indigo-400"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </ItemCard>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+        <p className="text-xs font-medium text-gray-700">Scent tiebreaker</p>
+        <p className="text-[11px] text-gray-400">Only asked when the shopper says she chooses by scent. Each scent crowns its persona.</p>
+        <Field label="Question">
+          <TextInput value={block.scentPrompt} maxLength={200} onChange={(scentPrompt) => onChange({ ...block, scentPrompt })} />
+        </Field>
+        {block.scentOptions.map((o, i) => (
+          <div key={o.id} className="flex items-center gap-2">
+            <input
+              className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400"
+              value={o.label}
+              maxLength={60}
+              onChange={(e) =>
+                onChange({ ...block, scentOptions: block.scentOptions.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })
+              }
+            />
+            <span className="shrink-0 text-[11px] text-gray-500">→ {personaNames[o.persona]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** NI fragrance collections: the words per collection (names stay in code). */
+function CollectionsCopyForm({ block, onChange }: { block: CollectionsCopyBlock; onChange: (b: PageBlock) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const set = (i: number, patch: Partial<CollectionCopy>) =>
+    onChange({ ...block, items: block.items.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+  return (
+    <div className="space-y-2">
+      {block.items.map((c, i) => (
+        <ItemCard
+          key={c.slug}
+          title={c.name}
+          subtitle={c.tagline}
+          open={open === c.slug}
+          onToggle={() => setOpen(open === c.slug ? null : c.slug)}
+        >
+          <Field label="Tagline" hint="Small line on tiles and above the name.">
+            <TextInput value={c.tagline} maxLength={80} onChange={(tagline) => set(i, { tagline })} />
+          </Field>
+          <Field label="Scent story">
+            <TextArea value={c.description} rows={4} maxLength={600} onChange={(description) => set(i, { description })} />
+          </Field>
+          <Field label="Three notes">
+            <div className="space-y-1.5">
+              {[0, 1, 2].map((k) => (
+                <TextInput
+                  key={k}
+                  value={c.notes[k] ?? ""}
+                  maxLength={60}
+                  onChange={(v) => {
+                    const notes = [0, 1, 2].map((x) => (x === k ? v : c.notes[x] ?? ""));
+                    set(i, { notes });
+                  }}
+                />
+              ))}
+            </div>
+          </Field>
+          <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-medium text-gray-700">Hero slide (homepage + collection page)</p>
+            <Field label="Small label">
+              <TextInput value={c.heroLabel} maxLength={60} onChange={(heroLabel) => set(i, { heroLabel })} />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Headline">
+                <TextInput value={c.heroTitle} maxLength={60} onChange={(heroTitle) => set(i, { heroTitle })} />
+              </Field>
+              <Field label="Headline, second line">
+                <TextInput value={c.heroAccent} maxLength={60} onChange={(heroAccent) => set(i, { heroAccent })} />
+              </Field>
+            </div>
+            <Field label="Paragraph">
+              <TextArea value={c.heroDescription} rows={3} maxLength={600} onChange={(heroDescription) => set(i, { heroDescription })} />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Button">
+                <TextInput value={c.heroCta} maxLength={40} onChange={(heroCta) => set(i, { heroCta })} />
+              </Field>
+              <Field label="Invitation">
+                <TextInput value={c.heroInvitation} maxLength={120} onChange={(heroInvitation) => set(i, { heroInvitation })} />
+              </Field>
+              <Field label="Footer kicker">
+                <TextInput value={c.heroKicker} maxLength={80} onChange={(heroKicker) => set(i, { heroKicker })} />
+              </Field>
+              <Field label="Footer line">
+                <TextInput value={c.heroLine} maxLength={120} onChange={(heroLine) => set(i, { heroLine })} />
+              </Field>
+            </div>
+          </div>
+        </ItemCard>
+      ))}
+    </div>
+  );
 }
 
 const CATALOG_SOURCE: Record<string, string> = {

@@ -29,7 +29,9 @@ export type SitePageSlug =
   | "returns"
   | "payment-terms"
   | "terms"
-  | "privacy";
+  | "privacy"
+  | "quiz"
+  | "site";
 
 // ── defaults ───────────────────────────────────────────────────────────────
 
@@ -268,7 +270,44 @@ const STORY: PageBlock[] = [
     titleAccent: "One big idea.",
     tags: ["Playful", "Confident", "Giftable"],
   },
-  { id: "cover", type: "story_cover" },
+  { id: "cover", type: "story_cover", frames: [
+    {
+      "id": "bougie-babe",
+      "name": "Bougie Babe",
+      "image": "/bougiebabe/Bougie-Babe_Header_1920x1067_01.jpg",
+      "href": "/blog/meet-the-bougie-babe"
+    },
+    {
+      "id": "bestie",
+      "name": "Bestie",
+      "image": "/bestie/Bestie_Header_1920x1067_01.jpg",
+      "href": "/blog/meet-the-bestie"
+    },
+    {
+      "id": "queen",
+      "name": "Queen",
+      "image": "/queen/Queen_Header_1920x1067_01.jpg",
+      "href": "/blog/meet-the-queen"
+    },
+    {
+      "id": "glow-up",
+      "name": "Glow Up",
+      "image": "/glowup/Glow-Up_Header_1920x1067_01.jpg",
+      "href": "/blog/meet-the-glow-up"
+    },
+    {
+      "id": "hot-mess",
+      "name": "Hot Mess",
+      "image": "/hotmess/Hot-Mess_Header_1920x1067_01.jpg",
+      "href": "/blog/meet-the-hot-mess"
+    },
+    {
+      "id": "fierce-vibes",
+      "name": "Fierce Vibes",
+      "image": "/firecevibes/Fierce_Header_1920x1067_01.jpg",
+      "href": "/blog/meet-the-fierce-vibes"
+    }
+  ] },
   {
     id: "intro",
     type: "rich_text",
@@ -440,6 +479,439 @@ const PRIVACY = policy(
   `<h2>Changes to this privacy policy</h2><p>We may update this policy from time to time to reflect changes to our practices or for legal reasons. We will post the revised policy here and update the “last updated” date above.</p><h2>How we collect and use your personal information</h2><p>We collect information you provide directly, information collected automatically as you use the site, and information from vendors and service providers. This may include:</p><ul><li><strong>Contact details</strong> — name, shipping and billing address, phone number, and email address.</li><li><strong>Order and account information</strong> — items purchased, order history, and wholesale account details.</li><li><strong>Payment information</strong> — processed securely by our third-party payment processors; we do not store full card numbers.</li><li><strong>Usage data</strong> — collected through cookies and similar technologies when you browse the site.</li></ul><p>We use this information to:</p><ul><li>Fulfill and ship your orders and provide customer support;</li><li>Send marketing and transactional communications you've agreed to;</li><li>Detect fraud and keep our site and customers secure;</li><li>Improve our products, services, and website.</li></ul><h2>Cookies, analytics, and your choices</h2><p>We use cookies and similar technologies — including your browser's local storage — to operate the site, keep you signed in, and remember your cart. Our website analytics are first-party: we measure how the site is used with our own tools and do not load third-party advertising trackers or share your browsing with ad networks.</p><p>We honor the <strong>Global Privacy Control (GPC)</strong> browser signal as a valid opt-out of analytics, as well as the older Do Not Track setting. When your browser sends either signal, we do not record site-usage analytics for that visit. You can also control cookies through your browser settings; disabling some may affect how the site works.</p><h2>How we disclose personal information</h2><p>We do not sell your personal information, and we do not share it for cross-context behavioral advertising (as those terms are defined under California and other state privacy laws). We share it only as needed with service providers who help us run our business, including:</p><ul><li>Hosting and infrastructure providers;</li><li>Payment processors;</li><li>Shipping carriers and fulfillment vendors;</li><li>Email, analytics, and marketing providers;</li><li>Professional advisors, and authorities where required by law.</li></ul><h2>Third-party websites and links</h2><p>Our site may link to third-party websites we do not operate or control. This policy does not apply to those sites, and we encourage you to review their privacy policies.</p><h2>Children's data</h2><p>Our site and products are intended for adults. We do not knowingly collect personal information from children. If you believe a child has provided us information, please contact us and we will delete it.</p><h2>Security and retention of your information</h2><p>We use reasonable administrative, technical, and physical safeguards to protect your information, and we retain it for as long as needed to provide our services and meet legal, accounting, or reporting requirements. No method of transmission or storage is completely secure.</p><h2>Your privacy rights</h2><p>Depending on where you live — including California, Minnesota, New Jersey, Colorado, Connecticut, Virginia, and other states with comprehensive privacy laws — you may have some or all of the following rights regarding the personal information we hold about you:</p><ul><li><strong>Know and access</strong> — request the categories and specific pieces of personal information we have collected about you;</li><li><strong>Correct</strong> — ask us to fix inaccurate personal information;</li><li><strong>Delete</strong> — ask us to delete personal information we collected from you, subject to legal exceptions;</li><li><strong>Portability</strong> — receive a copy of your information in a portable format;</li><li><strong>Opt out</strong> — opt out of targeted advertising, the sale of personal information, and certain profiling. As noted above, we do not sell or share your personal information for cross-context behavioral advertising; and</li><li><strong>Non-discrimination</strong> — we will not deny you goods or services, or charge you a different price, for exercising these rights.</li></ul><p>We extend these rights to all of our customers regardless of their state of residence. To exercise any of them, or to unsubscribe from marketing email, contact us using the details below; we will verify your request and respond within the timeframe your state's law requires. You may also use an authorized agent where the law allows. If we decline a request, you may appeal by replying to our response, and — for California residents — you may also contact the California Privacy Protection Agency or Attorney General.</p><p><strong>Opt-out preference signals.</strong> We treat the Global Privacy Control (GPC) signal sent by your browser as a valid request to opt out of analytics on that browser. See “Cookies, analytics, and your choices” above.</p><h2>Complaints</h2><p>If you have a concern about how we handle your information, please contact us first so we can help. You may also have the right to lodge a complaint with your local data protection authority.</p><h2>International users</h2><p>We are based in the United States and currently sell within the United States. If you access the site from outside the US, your information may be processed in the US, where privacy laws may differ from those in your location.</p><h2>Contact</h2><p>Fragrance Marketing Group, LLC<br>7925 Stone Creek Dr #130, Chanhassen, MN 55317<br><a href="mailto:jekelund@fragrancemarketinggroup.com">jekelund@fragrancemarketinggroup.com</a> · 952-466-7417</p>`,
 );
 
+const QUIZ: PageBlock[] = [{
+    "id": "quiz",
+    "type": "quiz",
+    "cardLabel": "find your sassy",
+    "personas": [
+      {
+        "key": "queen",
+        "name": "Queen",
+        "tag": "Power moves, no apologies.",
+        "scent": "Lavender Ylang",
+        "crown": "You don't chase, you attract. You don't argue, you decide. Kneel first, then moisturize.",
+        "part": "123-00-02",
+        "slug": "meet-the-queen",
+        "image": "/queen/Queen_Image_1080x1080_01.jpg",
+        "surface": "#F4ECFA",
+        "ink": "#2D1140",
+        "accent": "#7C3FB3",
+        "accentInk": "#FFFFFF"
+      },
+      {
+        "key": "bougie",
+        "name": "Bougie Babe",
+        "tag": "Glam, luxe, unbothered.",
+        "scent": "Eucalyptus Mint",
+        "crown": "Too glam to give a damn, still perfectly hydrated. You know what you like, and you're usually right.",
+        "part": "123-00-01",
+        "slug": "meet-the-bougie-babe",
+        "image": "/bougiebabe/Bougie-Babe_Image_1080x1080_01.jpg",
+        "surface": "#D8E150",
+        "ink": "#2F3D00",
+        "accent": "#E8488E",
+        "accentInk": "#FFFFFF"
+      },
+      {
+        "key": "bestie",
+        "name": "Bestie",
+        "tag": "Love, snacks, and all the tea.",
+        "scent": "Grapefruit Bergamot",
+        "crown": "You brought the snacks AND the tea. Warm, close, a little too honest, and never going anywhere.",
+        "part": "123-00-04",
+        "slug": "meet-the-bestie",
+        "image": "/bestie/Bestie_Image_1080x1080_01.jpg",
+        "surface": "#FBD3D9",
+        "ink": "#4A0F2E",
+        "accent": "#E83A7A",
+        "accentInk": "#FFFFFF"
+      },
+      {
+        "key": "glowup",
+        "name": "Glow Up",
+        "tag": "Sea salt citrus, main-character energy.",
+        "scent": "Sea Salt Citrus",
+        "crown": "Same girl, plot twist. You didn't get a new face, you got a new era, and everyone noticed.",
+        "part": "123-00-05",
+        "slug": "meet-the-glow-up",
+        "image": "/glowup/Glow-Up_Image_1080x1080_01.jpg",
+        "surface": "#FEF0A8",
+        "ink": "#4A1800",
+        "accent": "#E7488F",
+        "accentInk": "#FFFFFF"
+      },
+      {
+        "key": "fierce",
+        "name": "Fierce Vibes",
+        "tag": "Hustle, unstoppable energy.",
+        "scent": "Agave Pear",
+        "crown": "No sleep, no signal, no chill, and you still ran the entire room. Run on empty, then moisturize.",
+        "part": "123-00-07",
+        "slug": "meet-the-fierce-vibes",
+        "image": "/firecevibes/Fierce_Image_1080x1080_01.jpg",
+        "surface": "#FFD8B4",
+        "ink": "#3A1500",
+        "accent": "#D44120",
+        "accentInk": "#FFFFFF"
+      },
+      {
+        "key": "hotmess",
+        "name": "Hot Mess",
+        "tag": "Chaos, charm, zero plan.",
+        "scent": "Coconut Vanilla",
+        "crown": "4% battery, no plan, best night in the group chat. Lose the keys, keep the glow.",
+        "part": "123-00-06",
+        "slug": "meet-the-hot-mess",
+        "image": "/hotmess/Hot-Mess_Image_1080x1080_01.jpg",
+        "surface": "#FFE2D3",
+        "ink": "#4A1500",
+        "accent": "#E84A2C",
+        "accentInk": "#FFFFFF"
+      }
+    ],
+    "questions": [
+      {
+        "id": "q1",
+        "prompt": "It's Friday night. Where are you, really?",
+        "options": [
+          {
+            "id": "q1o1",
+            "label": "Front row, flash on, being seen",
+            "weights": {
+              "glowup": 2,
+              "bougie": 1
+            }
+          },
+          {
+            "id": "q1o2",
+            "label": "Hosting — snacks out, group chat summoned",
+            "weights": {
+              "bestie": 2,
+              "hotmess": 1
+            }
+          },
+          {
+            "id": "q1o3",
+            "label": "Closing a deal from the corner booth",
+            "weights": {
+              "fierce": 2,
+              "queen": 1
+            }
+          },
+          {
+            "id": "q1o4",
+            "label": "Good robe, candle lit, phone face-down",
+            "weights": {
+              "bougie": 2,
+              "queen": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "q2",
+        "prompt": "Pick the energy you bring to a room.",
+        "options": [
+          {
+            "id": "q2o1",
+            "label": "Calm, in charge, unbothered",
+            "weights": {
+              "queen": 2,
+              "bougie": 1
+            }
+          },
+          {
+            "id": "q2o2",
+            "label": "Loud, warm, all the way in",
+            "weights": {
+              "bestie": 2,
+              "hotmess": 1
+            }
+          },
+          {
+            "id": "q2o3",
+            "label": "Go-go-go, to-do list on fire",
+            "weights": {
+              "fierce": 2,
+              "glowup": 1
+            }
+          },
+          {
+            "id": "q2o4",
+            "label": "Main character, glow on",
+            "weights": {
+              "glowup": 2,
+              "bougie": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "q3",
+        "prompt": "The group chat calls you the one who…",
+        "options": [
+          {
+            "id": "q3o1",
+            "label": "…has the plan and the receipts",
+            "weights": {
+              "queen": 2,
+              "fierce": 1
+            }
+          },
+          {
+            "id": "q3o2",
+            "label": "…brings the snacks and the tea",
+            "weights": {
+              "bestie": 2
+            }
+          },
+          {
+            "id": "q3o3",
+            "label": "…is 20 min late with the best story",
+            "weights": {
+              "hotmess": 2,
+              "glowup": 1
+            }
+          },
+          {
+            "id": "q3o4",
+            "label": "…quietly upgraded everyone's whole life",
+            "weights": {
+              "bougie": 2
+            }
+          }
+        ]
+      },
+      {
+        "id": "q4",
+        "prompt": "Everything just went sideways. What's the move?",
+        "options": [
+          {
+            "id": "q4o1",
+            "label": "Handle it. Calmly. Next.",
+            "weights": {
+              "queen": 2,
+              "bougie": 1
+            }
+          },
+          {
+            "id": "q4o2",
+            "label": "Push through now, sleep later",
+            "weights": {
+              "fierce": 2,
+              "glowup": 1
+            }
+          },
+          {
+            "id": "q4o3",
+            "label": "Laugh, spiral a little, survive",
+            "weights": {
+              "hotmess": 2,
+              "glowup": 1
+            }
+          },
+          {
+            "id": "q4o4",
+            "label": "Summon the group chat immediately",
+            "weights": {
+              "bestie": 2,
+              "hotmess": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "q5",
+        "prompt": "Real talk: what actually seals the deal?",
+        "options": [
+          {
+            "id": "q5o1",
+            "label": "The name and the attitude",
+            "weights": {
+              "queen": 1,
+              "bougie": 1
+            }
+          },
+          {
+            "id": "q5o2",
+            "label": "How soft it leaves my hands",
+            "weights": {
+              "bestie": 1,
+              "fierce": 1
+            }
+          },
+          {
+            "id": "q5o3",
+            "label": "The whole aesthetic and packaging",
+            "weights": {
+              "glowup": 1,
+              "bougie": 1
+            }
+          },
+          {
+            "id": "q5o4",
+            "label": "The SCENT — I choose by fragrance alone",
+            "weights": {
+              "glowup": 1
+            }
+          }
+        ]
+      }
+    ],
+    "scentPrompt": "Then pick your scent — this one's the tiebreaker.",
+    "scentOptions": [
+      {
+        "id": "scent1",
+        "label": "Sea Salt Citrus",
+        "persona": "glowup"
+      },
+      {
+        "id": "scent2",
+        "label": "Lavender Ylang",
+        "persona": "queen"
+      },
+      {
+        "id": "scent3",
+        "label": "Eucalyptus Mint",
+        "persona": "bougie"
+      },
+      {
+        "id": "scent4",
+        "label": "Grapefruit Bergamot",
+        "persona": "bestie"
+      },
+      {
+        "id": "scent5",
+        "label": "Coconut Vanilla",
+        "persona": "hotmess"
+      },
+      {
+        "id": "scent6",
+        "label": "Agave Pear",
+        "persona": "fierce"
+      }
+    ]
+  }];
+
+const SITE: PageBlock[] = [
+    {
+      "id": "announcement",
+      "type": "announcement",
+      "retail": [
+        "free shipping when you cross $50",
+        "15% off the first one — you'll know what to do",
+        "soft skin, big mood — the whole lineup's in."
+      ],
+      "wholesale": [
+        "credit card billing at checkout",
+        "ships in 3–5 business days",
+        "minimum opening order $300"
+      ]
+    },
+    {
+      "id": "footer",
+      "type": "footer",
+      "tagline": "Soft skin. Big mood. Self care with the volume turned up.",
+      "subscribeEyebrow": "",
+      "subscribeText": "",
+      "columns": [
+        {
+          "id": "shop",
+          "heading": "shop",
+          "links": [
+            {
+              "id": "all",
+              "label": "Shop All",
+              "href": "/shop"
+            },
+            {
+              "id": "everyday",
+              "label": "Everyday",
+              "href": "/collections/everyday"
+            },
+            {
+              "id": "love",
+              "label": "Love",
+              "href": "/collections/love"
+            },
+            {
+              "id": "holiday",
+              "label": "Holiday",
+              "href": "/collections/holiday"
+            },
+            {
+              "id": "order",
+              "label": "Find My Order",
+              "href": "/order"
+            }
+          ]
+        },
+        {
+          "id": "company",
+          "heading": "company",
+          "links": [
+            {
+              "id": "story",
+              "label": "Our Story",
+              "href": "/story"
+            },
+            {
+              "id": "blog",
+              "label": "The Blog",
+              "href": "/blog"
+            },
+            {
+              "id": "wholesale",
+              "label": "Wholesale",
+              "href": "/wholesale"
+            },
+            {
+              "id": "contact",
+              "label": "Contact",
+              "href": "/contact"
+            }
+          ]
+        },
+        {
+          "id": "fine",
+          "heading": "the fine print",
+          "links": [
+            {
+              "id": "shipping",
+              "label": "Shipping",
+              "href": "/shipping"
+            },
+            {
+              "id": "returns",
+              "label": "Returns",
+              "href": "/returns"
+            },
+            {
+              "id": "payment",
+              "label": "Payment Terms",
+              "href": "/payment-terms"
+            },
+            {
+              "id": "terms",
+              "label": "Terms of Service",
+              "href": "/terms"
+            },
+            {
+              "id": "privacy",
+              "label": "Privacy Policy",
+              "href": "/privacy"
+            }
+          ]
+        }
+      ],
+      "sisterEyebrow": "the calm to our chaos",
+      "sisterName": "Natural Inspirations",
+      "sisterHref": "https://naturalinspirations.com",
+      "sisterBlurb": "spa-inspired body & skincare. same lab, same standards, volume turned all the way down.",
+      "copyright": "© {year} sassy & co — made with attitude"
+    }
+  ];
+
 // ── registry ───────────────────────────────────────────────────────────────
 
 const ANYWHERE: PageBlockType[] = ["promo_banner", "image_text", "rich_text", "quote"];
@@ -523,6 +995,26 @@ export const SITE_PAGES: SitePageDef[] = [
   },
   { slug: "terms", label: "Terms of service", path: "/terms", group: "Policies", note: "Policy page.", addable: [], fixed: true, defaults: TERMS },
   { slug: "privacy", label: "Privacy policy", path: "/privacy", group: "Policies", note: "Policy page.", addable: [], fixed: true, defaults: PRIVACY },
+  {
+    slug: "quiz",
+    label: "Find your Sassy quiz",
+    path: "/quiz",
+    group: "Site-wide",
+    note: "One quiz, three places: the homepage quiz card, /quiz and the chat assistant. Edit the words, the scoring and each persona's result here.",
+    addable: [],
+    fixed: true,
+    defaults: QUIZ,
+  },
+  {
+    slug: "site",
+    label: "Header & footer",
+    path: " (every page)",
+    group: "Site-wide",
+    note: "The announcement bar and the footer, on every page of the site.",
+    addable: [],
+    fixed: true,
+    defaults: SITE,
+  },
 ];
 
 export function getSitePage(slug: string): SitePageDef | undefined {
