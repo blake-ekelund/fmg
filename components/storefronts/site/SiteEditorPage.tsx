@@ -1,31 +1,42 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
 import {
   AlertTriangle,
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   Check,
-  ChevronDown,
+  Copy,
   ExternalLink,
   Eye,
   EyeOff,
+  GripVertical,
   History,
   Loader2,
   Lock,
   Monitor,
-  Plus,
+  PanelTop,
   RefreshCw,
+  RotateCcw,
+  Settings2,
   Smartphone,
   Trash2,
+  Undo2,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { BLOCK_INFO, LIMITS, type PageBlock } from "@/lib/site/pageBlocks";
-import type { SitePageDef } from "@/lib/site/pageBlocks";
-import { SITE_BRANDS, isSiteBrand, newSiteBlock, sitePageFor, sitePagesFor, type SiteBrand } from "@/lib/site/registry";
+import { BLOCK_INFO, LIMITS, type PageBlock, type PageBlockType } from "@/lib/site/pageBlocks";
+import {
+  SITE_BRANDS,
+  isSiteBrand,
+  newSiteBlock,
+  sitePageFor,
+  sitePagesFor,
+  type SiteBrand,
+} from "@/lib/site/registry";
 import BlockInspector, { type CatalogItem } from "./BlockInspector";
+import { BLOCK_ICON, summary } from "./blockMeta";
 import { IconButton, move } from "./fields";
 
 type PageState = {
@@ -39,8 +50,13 @@ type PageState = {
   hint?: string;
 };
 
-
 type PageStatus = { slug: string; publishedAt: string | null; updatedAt: string | null; unpublished: boolean };
+
+/** Messages from the store's edit bridge (src/components/site-edit-bridge.tsx). */
+type FromBridge =
+  | { src: "site-edit"; type: "ready"; ids: string[] }
+  | { src: "site-edit"; type: "select"; id: string | null }
+  | { src: "site-edit"; type: "drop"; blockType: string; targetId: string; pos: "before" | "after" };
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabaseBrowser().auth.getSession();
@@ -59,100 +75,38 @@ async function call<T>(brand: SiteBrand, slug: string, method: string, body?: un
   return json;
 }
 
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-/** One-line summary under each block in the list. */
-function summary(b: PageBlock): string {
-  switch (b.type) {
-    case "hero":
-      return `${b.slides.length} slide${b.slides.length === 1 ? "" : "s"} · ${b.slides.map((s) => s.name).join(", ")}`;
-    case "value_strip":
-      return b.items.join(" · ") || "Empty";
-    case "product_row":
-      return `${b.heading || "No heading"} · ${b.source === "bestsellers" ? `top ${b.count} sellers` : `${b.parts.length} picked`}`;
-    case "shop_by_form":
-      return `${b.heading || "No heading"} · ${b.tiles.map((t) => t.label).join(", ")}`;
-    case "promo_banner":
-      return b.text || "Empty";
-    case "image_text":
-      return b.heading || "No heading";
-    case "newsletter":
-      return b.heading.replace(/\n/g, " ");
-    case "rich_text":
-    case "callout":
-      return b.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 90) || "Empty";
-    case "stats":
-      return b.items.map((x) => `${x.value} ${x.label}`).join(" · ");
-    case "quote":
-      return [b.text, b.highlight].filter(Boolean).join(" ");
-    case "link_list":
-      return `${b.heading} · ${b.items.length} links`;
-    case "cta":
-    case "contact_form":
-      return b.heading;
-    case "page_header":
-    case "policy":
-    case "wholesale_intro":
-      return [b.eyebrow, b.title].filter(Boolean).join(" · ");
-    case "article_header":
-      return `${b.title} ${b.titleAccent}`;
-    case "info_cards":
-      return b.cards.map((c) => c.label).join(" · ");
-    case "wholesale_catalog":
-      return `${b.heading} · ${b.count} products`;
-    case "product_details":
-      return `Trust line: ${b.trust.join(" · ")}`;
-    case "benefits_banner":
-      return `${b.heading} · ${b.items.length} lines`;
-    case "philosophy":
-      return b.columns.map((c) => c.heading).join(" / ");
-    case "related_products":
-    case "reviews_note":
-      return b.heading;
-    case "catalog":
-    case "story_cover":
-    case "living_hero":
-      return "Filled automatically";
-    case "collection_showcase":
-      return `${b.heading} · panels fill automatically`;
-    case "seed_band":
-    case "seed_cards":
-      return `${b.heading.replace(/\n/g, " ")} · ${b.items.map((x) => x.name).join(", ")}`;
-    case "statement":
-      return b.heading.replace(/\n/g, " ");
-    case "checklist":
-      return `${b.heading} · ${b.items.length} points`;
-    case "two_lists":
-      return [b.leftTitle, b.rightTitle].filter(Boolean).join(" / ");
-    case "pillars":
-      return b.items.map((x) => x.title).join(" · ");
-    case "link_grid":
-      return `${b.heading} · ${b.items.length} links`;
-    case "link_cards":
-      return b.cards.map((c) => c.title).join(" · ");
-    case "faq":
-      return `${b.heading || "Questions"} · ${b.items.length}`;
+/** Every page with its publish state, for the page dropdown (null on failure). */
+async function fetchStatuses(brand: SiteBrand): Promise<PageStatus[] | null> {
+  try {
+    const res = await fetch(`/api/site-pages/${brand}`, { headers: await authHeader() });
+    return res.ok ? ((await res.json()) as { pages: PageStatus[] }).pages : null;
+  } catch {
+    return null;
   }
 }
 
+function when(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function uid(type: string) {
+  return `${type}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /**
- * Website editor — each Sassy storefront page as a stack of blocks
- * (pages + their rules: lib/site/pageDefaults.ts).
+ * Website builder — each storefront page as a stack of blocks, laid out like
+ * the blog builder: block palette + page layers on the left, the REAL store
+ * page in the middle, and a right rail with the selected block's settings or
+ * the page's publishing settings.
  *
- * Left: page picker, then the block list (reorder, hide, add, delete) or,
- * with a block selected, its form. Right: the store's own /preview page
- * rendering the DRAFT, reloaded after each autosave. Edits autosave to the
- * draft; nothing reaches the live site until Publish.
+ * The canvas is the store's own /preview page rendering the DRAFT in an
+ * iframe, with the store's edit bridge (?edit=1): hovering outlines a block,
+ * clicking selects it, and palette tiles dragged onto it drop before/after
+ * the block under the pointer. Edits autosave to the draft and the canvas
+ * reloads (keeping its scroll); nothing reaches the live site until Publish.
+ * Store + page live in the URL (?brand=…&page=…).
  */
 export default function SiteEditorPage() {
-  // Store + page live in the URL (?brand=…&page=…) so they deep-link.
   const router = useRouter();
   const params = useSearchParams();
   const b = params.get("brand");
@@ -173,121 +127,63 @@ export default function SiteEditorPage() {
   }, [brand, statusTick]);
 
   const refreshStatuses = useCallback(() => setStatusTick((t) => t + 1), []);
-
-  const go = (nextBrand: SiteBrand, nextSlug: string) =>
-    router.replace(`?brand=${nextBrand}&page=${nextSlug}`, { scroll: false });
-
-  const picker = (
-    <div className="space-y-2">
-      <div className="flex rounded-lg bg-gray-100 p-0.5 text-xs font-semibold">
-        {SITE_BRANDS.map((x) => (
-          <button
-            key={x.brand}
-            type="button"
-            onClick={() => go(x.brand, sitePageFor(x.brand, slug) ? slug : "home")}
-            className={`flex-1 rounded-md px-2.5 py-1.5 transition ${
-              brand === x.brand ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"
-            }`}
-          >
-            {x.label}
-          </button>
-        ))}
-      </div>
-      <PagePicker brand={brand} slug={slug} statuses={statuses} onChange={(next) => go(brand, next)} />
-    </div>
+  const navigate = useCallback(
+    (nextBrand: SiteBrand, nextSlug: string) =>
+      router.replace(`?brand=${nextBrand}&page=${nextSlug}`, { scroll: false }),
+    [router],
   );
+
   return (
     <PageEditor
       key={`${brand}:${slug}`}
       brand={brand}
       slug={slug}
-      picker={picker}
+      statuses={statuses}
+      onNavigate={navigate}
       onChanged={refreshStatuses}
     />
-  );
-}
-
-/** Every page with its publish state, for the picker (null on failure). */
-async function fetchStatuses(brand: SiteBrand): Promise<PageStatus[] | null> {
-  try {
-    const res = await fetch(`/api/site-pages/${brand}`, { headers: await authHeader() });
-    return res.ok ? ((await res.json()) as { pages: PageStatus[] }).pages : null;
-  } catch {
-    return null;
-  }
-}
-
-function PagePicker({
-  brand,
-  slug,
-  statuses,
-  onChange,
-}: {
-  brand: SiteBrand;
-  slug: string;
-  statuses: PageStatus[];
-  onChange: (slug: string) => void;
-}) {
-  const pages = sitePagesFor(brand);
-  const groups = [...new Set(pages.map((p) => p.group))];
-  const label = (p: SitePageDef) => {
-    const st = statuses.find((x) => x.slug === p.slug);
-    const tag = !st?.updatedAt ? "" : st.unpublished ? "  — unpublished changes" : "  — published";
-    return `${p.label}${tag}`;
-  };
-  return (
-    <select
-      value={slug}
-      onChange={(e) => onChange(e.target.value)}
-      aria-label="Page"
-      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-indigo-400"
-    >
-      {groups.map((g) => (
-        <optgroup key={g} label={g}>
-          {pages.filter((p) => p.group === g).map((p) => (
-            <option key={p.slug} value={p.slug}>
-              {label(p)}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
   );
 }
 
 function PageEditor({
   brand,
   slug,
-  picker,
+  statuses,
+  onNavigate,
   onChanged,
 }: {
   brand: SiteBrand;
   slug: string;
-  picker: React.ReactNode;
+  statuses: PageStatus[];
+  onNavigate: (brand: SiteBrand, slug: string) => void;
   onChanged: () => void;
 }) {
   const def = sitePageFor(brand, slug)!;
   const host = SITE_BRANDS.find((x) => x.brand === brand)!.host;
-  const [previewPart, setPreviewPart] = useState("");
   const [page, setPage] = useState<PageState | null>(null);
   const [blocks, setBlocks] = useState<PageBlock[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [tab, setTab] = useState<"block" | "page">("block");
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [busy, setBusy] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  const [previewPart, setPreviewPart] = useState("");
   const [frameKey, setFrameKey] = useState(0);
-  // "device:frameKey" of the last preview that finished loading.
+  // "device:frameKey" of the last canvas load that finished.
   const [loadedFrame, setLoadedFrame] = useState("");
-  const [menu, setMenu] = useState<"add" | "more" | null>(null);
+  const [layerDrop, setLayerDrop] = useState<{ id: string; pos: "before" | "after" } | null>(null);
 
-  // Latest blocks for the debounced save (set wherever blocks change).
   const blocksRef = useRef<PageBlock[]>([]);
+  const selectedRef = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
   const againRef = useRef(false);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const layerDragRef = useRef<string | null>(null);
 
+  // ── load ───────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     try {
       const data = await call<PageState>(brand, slug, "GET");
@@ -305,7 +201,7 @@ function PageEditor({
     load();
   }, [load]);
 
-  // Published Sassy products for the product pickers.
+  // Published products for the product pickers.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -397,9 +293,12 @@ function PageEditor({
   }
 
   async function action(name: "publish" | "discard" | "reset" | "restore", versionId?: string) {
-    setMenu(null);
     if (name === "discard" && !confirm("Throw away your unpublished changes and go back to what's live?")) return;
-    if (name === "reset" && !confirm(`Replace the draft with the original ${def.label.toLowerCase()}? (Nothing goes live until you publish.)`)) return;
+    if (
+      name === "reset" &&
+      !confirm(`Replace the draft with the original ${def.label.toLowerCase()}? (Nothing goes live until you publish.)`)
+    )
+      return;
     setBusy(name);
     setError(null);
     try {
@@ -420,6 +319,88 @@ function PageEditor({
     }
   }
 
+  // ── block operations ───────────────────────────────────────────────────
+  const pinnedCount = blocks.filter((x) => BLOCK_INFO[x.type].pinned).length;
+  const present = new Set(blocks.map((x) => x.type));
+  const addable = def.fixed ? [] : def.addable.filter((t) => !(BLOCK_INFO[t].single && present.has(t)));
+
+  const select = useCallback((id: string | null, scroll = true) => {
+    setSelected(id);
+    selectedRef.current = id;
+    if (id) setTab("block");
+    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id, scroll }, "*");
+  }, []);
+
+  /** Insert a new block of `type` next to `targetId` (default: after the
+   *  selection, else at the end) — never above the pinned blocks. */
+  const insert = useCallback(
+    (type: PageBlockType, targetId?: string | null, pos: "before" | "after" = "after") => {
+      const list = blocksRef.current;
+      if (!def.addable.includes(type) || list.length >= LIMITS.blocks) return;
+      if (BLOCK_INFO[type].single && list.some((x) => x.type === type)) return;
+      const id = uid(type);
+      const block = newSiteBlock(brand, type, id);
+      const pinned = list.filter((x) => BLOCK_INFO[x.type].pinned).length;
+      const anchor = targetId ?? selectedRef.current;
+      const at = anchor ? list.findIndex((x) => x.id === anchor) : -1;
+      let index = at < 0 ? list.length : pos === "before" ? at : at + 1;
+      index = Math.max(pinned, Math.min(index, list.length));
+      const next = [...list];
+      next.splice(index, 0, block);
+      update(next);
+      select(id, false);
+    },
+    [brand, def.addable, update, select],
+  );
+
+  const current = blocks.find((x) => x.id === selected) ?? null;
+  const currentIndex = current ? blocks.indexOf(current) : -1;
+  const currentInfo = current ? BLOCK_INFO[current.type] : null;
+  const movable = !!current && !def.fixed && !currentInfo?.pinned;
+  const removable = !!current && !def.fixed && !currentInfo?.locked;
+
+  // ── canvas bridge ──────────────────────────────────────────────────────
+  const previewOrigin = useMemo(() => {
+    try {
+      return page?.previewUrl ? new URL(page.previewUrl).origin : null;
+    } catch {
+      return null;
+    }
+  }, [page?.previewUrl]);
+
+  const labels = useMemo(
+    () => Object.fromEntries(blocks.map((x) => [x.id, BLOCK_INFO[x.type].label])),
+    [blocks],
+  );
+  const labelsRef = useRef(labels);
+  useEffect(() => {
+    labelsRef.current = labels;
+    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "labels", labels }, "*");
+  }, [labels]);
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent<FromBridge>) => {
+      if (!previewOrigin || e.origin !== previewOrigin || e.data?.src !== "site-edit") return;
+      const m = e.data;
+      if (m.type === "ready") {
+        const w = frameRef.current?.contentWindow;
+        w?.postMessage({ src: "site-edit", type: "labels", labels: labelsRef.current }, "*");
+        w?.postMessage({ src: "site-edit", type: "select", id: selectedRef.current, scroll: false }, "*");
+      } else if (m.type === "select") {
+        setSelected(m.id);
+        selectedRef.current = m.id;
+        if (m.id) setTab("block");
+      } else if (m.type === "drop") {
+        insert(m.blockType as PageBlockType, m.targetId, m.pos);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [previewOrigin, insert]);
+
+  const hoverInCanvas = (id: string | null) =>
+    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "hover", id }, "*");
+
   // ── derived ────────────────────────────────────────────────────────────
   const unpublished = useMemo(() => {
     if (!page) return false;
@@ -427,13 +408,9 @@ function PageEditor({
     return JSON.stringify(page.published) !== JSON.stringify(blocks);
   }, [page, blocks]);
 
-  const current = blocks.find((b) => b.id === selected) ?? null;
-  const present = new Set(blocks.map((b) => b.type));
-  const addable = def.addable.filter((t) => !(BLOCK_INFO[t].single && present.has(t)));
-  const firstMovable = blocks.findIndex((b) => !BLOCK_INFO[b.type].pinned);
-
   const partParam = slug === "product" && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
-  const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1${partParam}&v=${frameKey}` : null;
+  const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1&edit=1${partParam}&v=${frameKey}` : null;
+  const canvasLoading = !!previewSrc && loadedFrame !== `${device}:${frameKey}`;
 
   if (!page && !error) {
     return (
@@ -443,246 +420,74 @@ function PageEditor({
     );
   }
 
+  const pages = sitePagesFor(brand);
+  const groups = [...new Set(pages.map((p) => p.group))];
+  const pageTag = (s: string) => {
+    const st = statuses.find((x) => x.slug === s);
+    return !st?.updatedAt ? "" : st.unpublished ? "  • unpublished changes" : "  • published";
+  };
+
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col md:flex-row">
-      {/* ── left rail ─────────────────────────────────────────────────── */}
-      <aside className="flex w-full shrink-0 flex-col border-b border-gray-200 bg-white md:w-[400px] md:border-b-0 md:border-r">
-        {/* page header */}
-        <div className="border-b border-gray-100 px-5 py-4">
-          <div className="flex items-end justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="mb-1 truncate text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {host}
-                {def.path}
-              </div>
-              {picker}
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setMenu(menu === "more" ? null : "more")}
-                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  <History size={14} /> <ChevronDown size={12} />
-                </button>
-                {menu === "more" ? (
-                  <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-xl border border-gray-200 bg-white py-1 text-sm shadow-lg">
-                    <MenuItem
-                      disabled={!page?.published || !unpublished}
-                      onClick={() => action("discard")}
-                    >
-                      Discard unpublished changes
-                    </MenuItem>
-                    <MenuItem onClick={() => action("reset")}>Start over from the original page</MenuItem>
-                    {page?.versions.length ? (
-                      <>
-                        <div className="mt-1 border-t border-gray-100 px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                          Published versions — load into draft
-                        </div>
-                        <div className="max-h-56 overflow-y-auto">
-                          {page.versions.map((v, i) => (
-                            <MenuItem key={v.id} onClick={() => action("restore", v.id)}>
-                              {when(v.published_at)}
-                              {i === 0 ? <span className="ml-1.5 text-[11px] text-emerald-600">live</span> : null}
-                            </MenuItem>
-                          ))}
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                disabled={!!busy || page?.notReady || !unpublished}
-                onClick={() => action("publish")}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none"
-              >
-                {busy === "publish" ? <Loader2 size={13} className="animate-spin" /> : null}
-                {unpublished ? "Publish" : "Published"}
-              </button>
-            </div>
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-[11px]">
-            <SaveBadge state={saveState} />
-            <span className="text-gray-300">·</span>
-            {page?.publishedAt ? (
-              <span className={unpublished ? "text-amber-600" : "text-gray-500"}>
-                {unpublished ? "Unpublished changes · " : ""}live since {when(page.publishedAt)}
-              </span>
-            ) : (
-              <span className="text-gray-500">Not published yet — the site shows the original page</span>
-            )}
-          </div>
-        </div>
+    <div className="flex h-[calc(100vh-64px)] flex-col">
+      {/* ── top bar ─────────────────────────────────────────────────────── */}
+      <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2.5">
+        <select
+          value={brand}
+          aria-label="Website"
+          onChange={(e) => {
+            const next = e.target.value as SiteBrand;
+            onNavigate(next, sitePageFor(next, slug) ? slug : "home");
+          }}
+          className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 outline-none focus:border-indigo-400"
+        >
+          {SITE_BRANDS.map((x) => (
+            <option key={x.brand} value={x.brand}>
+              {x.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={slug}
+          aria-label="Page"
+          onChange={(e) => onNavigate(brand, e.target.value)}
+          className="min-w-[12rem] rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 outline-none focus:border-indigo-400"
+        >
+          {groups.map((g) => (
+            <optgroup key={g} label={g}>
+              {pages
+                .filter((p) => p.group === g)
+                .map((p) => (
+                  <option key={p.slug} value={p.slug}>
+                    {p.label}
+                    {pageTag(p.slug)}
+                  </option>
+                ))}
+            </optgroup>
+          ))}
+        </select>
+        <span className="hidden truncate text-xs text-gray-400 lg:inline">
+          {host}
+          {def.path}
+        </span>
+        <span className="mx-1 hidden h-4 w-px bg-gray-200 sm:block" />
+        <SaveBadge state={saveState} />
+        {page?.publishedAt ? (
+          <span className={clsx("hidden text-[11px] md:inline", unpublished ? "text-amber-600" : "text-gray-400")}>
+            {unpublished ? "Unpublished changes" : `Live since ${when(page.publishedAt)}`}
+          </span>
+        ) : (
+          <span className="hidden text-[11px] text-gray-400 md:inline">Not published yet</span>
+        )}
 
-        {page?.notReady || error ? (
-          <div className="mx-4 mt-3 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-            <span>{error ?? page?.hint}</span>
-          </div>
-        ) : null}
-
-        {/* body */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {current ? (
-            <div className="p-5">
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900"
-              >
-                <ArrowLeft size={13} /> All blocks
-              </button>
-              <h2 className="text-sm font-semibold text-gray-900">{BLOCK_INFO[current.type].label}</h2>
-              <p className="mb-4 text-xs text-gray-500">{BLOCK_INFO[current.type].description}</p>
-              <BlockInspector
-                key={current.id}
-                block={current}
-                catalog={catalog}
-                slug={slug}
-                brand={brand}
-                onChange={(b) => update(blocks.map((x) => (x.id === b.id ? b : x)))}
-              />
-            </div>
-          ) : (
-            <div className="space-y-2 p-4">
-              {blocks.map((b, i) => {
-                const info = BLOCK_INFO[b.type];
-                return (
-                  <div
-                    key={b.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelected(b.id)}
-                    onKeyDown={(e) => e.key === "Enter" && setSelected(b.id)}
-                    className={`group flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 transition hover:border-indigo-300 hover:shadow-sm ${
-                      b.hidden ? "border-dashed border-gray-200 bg-gray-50" : "border-gray-200 bg-white"
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className={`flex items-center gap-1.5 text-sm font-medium ${b.hidden ? "text-gray-400" : "text-gray-900"}`}>
-                        {info.label}
-                        {info.locked ? <Lock size={11} className="text-gray-300" /> : null}
-                        {b.hidden ? <span className="text-[10px] font-normal uppercase tracking-wider">hidden</span> : null}
-                      </div>
-                      <div className="truncate text-[11px] text-gray-500">{summary(b)}</div>
-                    </div>
-                    {def.fixed || info.pinned ? null : (
-                      <div className="flex items-center opacity-60 transition group-hover:opacity-100">
-                        <IconButton
-                          label="Move up"
-                          disabled={i <= firstMovable}
-                          onClick={() => update(move(blocks, i, i - 1))}
-                        >
-                          <ArrowUp size={13} />
-                        </IconButton>
-                        <IconButton
-                          label="Move down"
-                          disabled={i === blocks.length - 1}
-                          onClick={() => update(move(blocks, i, i + 1))}
-                        >
-                          <ArrowDown size={13} />
-                        </IconButton>
-                        {info.locked ? null : (
-                          <>
-                            <IconButton
-                              label={b.hidden ? "Show on site" : "Hide from site"}
-                              onClick={() =>
-                                update(blocks.map((x) => (x.id === b.id ? { ...x, hidden: !x.hidden || undefined } : x)))
-                              }
-                            >
-                              {b.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
-                            </IconButton>
-                            <IconButton
-                              label="Delete"
-                              danger
-                              onClick={() => {
-                                if (confirm(`Delete the “${info.label}” block?`)) update(blocks.filter((x) => x.id !== b.id));
-                              }}
-                            >
-                              <Trash2 size={13} />
-                            </IconButton>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {!def.fixed && addable.length > 0 && blocks.length < LIMITS.blocks ? (
-                <div className="relative pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setMenu(menu === "add" ? null : "add")}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-gray-300 py-2.5 text-xs font-medium text-gray-600 transition hover:border-indigo-400 hover:text-indigo-700"
-                  >
-                    <Plus size={14} /> Add block
-                  </button>
-                  {menu === "add" ? (
-                    <div className="absolute inset-x-0 top-full z-30 mt-1 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
-                      {addable.map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => {
-                            const id = `${t}-${Math.random().toString(36).slice(2, 8)}`;
-                            update([...blocks, newSiteBlock(brand, t, id)]);
-                            setSelected(id);
-                            setMenu(null);
-                          }}
-                          className="block w-full px-3 py-2 text-left hover:bg-gray-50"
-                        >
-                          <div className="text-sm font-medium text-gray-900">{BLOCK_INFO[t].label}</div>
-                          <div className="text-[11px] text-gray-500">{BLOCK_INFO[t].description}</div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <p className="px-1 pt-3 text-[11px] leading-relaxed text-gray-400">
-                {def.note} Changes save as a draft automatically and show in the preview. Customers see them only
-                after you Publish — the live site picks them up within a minute.
-              </p>
-            </div>
-          )}
-        </div>
-      </aside>
-
-      {/* ── preview ───────────────────────────────────────────────────── */}
-      <section className="flex min-h-[60vh] min-w-0 flex-1 flex-col bg-gray-100">
-        <div className="flex items-center gap-2 border-b border-gray-200 bg-white px-4 py-2">
-          <div className="flex rounded-lg bg-gray-100 p-0.5">
-            {(
-              [
-                ["desktop", Monitor],
-                ["mobile", Smartphone],
-              ] as const
-            ).map(([d, Icon]) => (
-              <button
-                key={d}
-                type="button"
-                title={d === "desktop" ? "Desktop" : "Phone"}
-                onClick={() => setDevice(d)}
-                className={`rounded-md px-2.5 py-1 ${device === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}
-              >
-                <Icon size={14} />
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-gray-500">Draft preview</span>
+        <div className="ml-auto flex items-center gap-1.5">
           {slug === "product" ? (
             <select
               value={previewPart}
               onChange={(e) => setPreviewPart(e.target.value)}
               aria-label="Preview with product"
-              className="max-w-[16rem] rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 outline-none"
+              className="max-w-[14rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none"
             >
-              <option value="">Preview with: first product</option>
+              <option value="">Preview: first product</option>
               {catalog.map((c) => (
                 <option key={c.part} value={c.part}>
                   {c.name}
@@ -690,78 +495,443 @@ function PageEditor({
               ))}
             </select>
           ) : null}
-          {loadedFrame !== `${device}:${frameKey}` && previewSrc ? <Loader2 size={13} className="animate-spin text-gray-400" /> : null}
-          <div className="ml-auto flex items-center gap-1">
-            <IconButton label="Reload preview" onClick={() => setFrameKey((k) => k + 1)}>
-              <RefreshCw size={14} />
-            </IconButton>
-            {page?.previewUrl ? (
-              <a
-                href={`${page.previewUrl}${partParam}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
+          <div className="flex rounded-lg bg-gray-100 p-0.5">
+            {(
+              [
+                ["desktop", Monitor, "Desktop"],
+                ["mobile", Smartphone, "Phone"],
+              ] as const
+            ).map(([d, Icon, label]) => (
+              <button
+                key={d}
+                type="button"
+                title={label}
+                onClick={() => setDevice(d)}
+                className={clsx("rounded-md px-2 py-1", device === d ? "bg-white text-gray-900 shadow-sm" : "text-gray-500")}
               >
-                <ExternalLink size={13} /> Open
-              </a>
-            ) : null}
+                <Icon size={14} />
+              </button>
+            ))}
           </div>
+          <IconButton label="Reload canvas" onClick={() => setFrameKey((k) => k + 1)}>
+            {canvasLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          </IconButton>
+          {page?.previewUrl ? (
+            <a
+              href={`${page.previewUrl}${partParam}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Open the draft in a new tab"
+              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            >
+              <ExternalLink size={14} />
+            </a>
+          ) : null}
+          <button
+            type="button"
+            disabled={!!busy || page?.notReady || !unpublished}
+            onClick={() => action("publish")}
+            className="ml-1 inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none"
+          >
+            {busy === "publish" ? <Loader2 size={13} className="animate-spin" /> : null}
+            {unpublished ? "Publish" : "Published"}
+          </button>
         </div>
-        <div className="flex min-h-0 flex-1 justify-center overflow-auto p-4">
+      </header>
+
+      {page?.notReady || error ? (
+        <div className="flex gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>{error ?? page?.hint}</span>
+        </div>
+      ) : null}
+
+      <div className="grid min-h-0 flex-1 md:grid-cols-[220px_minmax(0,1fr)_340px]">
+        {/* ── palette + layers ─────────────────────────────────────────── */}
+        <aside className="min-h-0 space-y-5 overflow-y-auto border-b border-gray-100 bg-gray-50/60 p-4 md:border-b-0 md:border-r">
+          <div>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Blocks</h3>
+            {addable.length ? (
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {addable.map((t) => {
+                  const Icon = BLOCK_ICON[t];
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = "copy";
+                        e.dataTransfer.setData("text/plain", `site-block:${t}`);
+                      }}
+                      onClick={() => insert(t)}
+                      title={`${BLOCK_INFO[t].description} Click to add, or drag onto the page.`}
+                      className="flex flex-col items-center gap-1 rounded-lg border border-gray-200 bg-white px-1.5 py-2.5 text-center text-[11px] font-medium leading-tight text-gray-600 transition hover:border-gray-300 hover:text-gray-900"
+                    >
+                      <Icon size={15} />
+                      {BLOCK_INFO[t].label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-2 rounded-lg border border-gray-200 bg-white p-2.5 text-[11px] leading-relaxed text-gray-500">
+                {def.fixed
+                  ? "This page's layout is fixed — click any part of it to edit its words."
+                  : "Every block this page can take is already on it."}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">On this page</h3>
+            <ul className="mt-2 space-y-1" onDragLeave={() => setLayerDrop(null)}>
+              {blocks.map((x, i) => {
+                const info = BLOCK_INFO[x.type];
+                const Icon = BLOCK_ICON[x.type];
+                const draggable = !def.fixed && !info.pinned;
+                const drop = layerDrop?.id === x.id ? layerDrop.pos : null;
+                return (
+                  <li
+                    key={x.id}
+                    draggable={draggable}
+                    onDragStart={(e) => {
+                      layerDragRef.current = x.id;
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", `site-layer:${x.id}`);
+                    }}
+                    onDragEnd={() => {
+                      layerDragRef.current = null;
+                      setLayerDrop(null);
+                    }}
+                    onDragOver={(e) => {
+                      const dragging = layerDragRef.current;
+                      if (!dragging || dragging === x.id || i < pinnedCount) return;
+                      e.preventDefault();
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setLayerDrop({ id: x.id, pos: e.clientY < r.top + r.height / 2 ? "before" : "after" });
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const dragging = layerDragRef.current;
+                      if (!dragging || !layerDrop) return;
+                      const list = blocksRef.current;
+                      const from = list.findIndex((y) => y.id === dragging);
+                      const without = list.filter((y) => y.id !== dragging);
+                      let to = without.findIndex((y) => y.id === layerDrop.id) + (layerDrop.pos === "after" ? 1 : 0);
+                      to = Math.max(pinnedCount, to);
+                      if (from >= 0) {
+                        without.splice(to, 0, list[from]);
+                        update(without);
+                      }
+                      layerDragRef.current = null;
+                      setLayerDrop(null);
+                    }}
+                    onMouseEnter={() => hoverInCanvas(x.id)}
+                    onMouseLeave={() => hoverInCanvas(null)}
+                    onClick={() => select(x.id)}
+                    className={clsx(
+                      "group relative flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-[12px] transition",
+                      selected === x.id
+                        ? "border-indigo-300 bg-indigo-50 text-indigo-900"
+                        : "border-transparent text-gray-700 hover:border-gray-200 hover:bg-white",
+                      x.hidden && "opacity-50",
+                    )}
+                  >
+                    {drop ? (
+                      <span
+                        className={clsx(
+                          "pointer-events-none absolute inset-x-1 h-0.5 rounded bg-indigo-500",
+                          drop === "before" ? "-top-[3px]" : "-bottom-[3px]",
+                        )}
+                      />
+                    ) : null}
+                    {draggable ? (
+                      <GripVertical size={12} className="shrink-0 cursor-grab text-gray-300 group-hover:text-gray-400" />
+                    ) : (
+                      <Lock size={11} className="shrink-0 text-gray-300" />
+                    )}
+                    <Icon size={13} className="shrink-0 text-gray-400" />
+                    <span className="min-w-0 flex-1 truncate" title={summary(x)}>
+                      {info.label}
+                    </span>
+                    {x.hidden ? <EyeOff size={12} className="shrink-0 text-gray-400" /> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-white p-3">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-700">
+              <Lock size={11} /> Locked parts
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+              Parts with a lock are drawn by the store itself (live product grids, the product details, the quiz…). You
+              can edit their words, not move or remove them. Everything is styled by the store, so it always stays
+              on-brand.
+            </p>
+          </div>
+        </aside>
+
+        {/* ── canvas ───────────────────────────────────────────────────── */}
+        <section className="relative flex min-h-[60vh] min-w-0 justify-center overflow-hidden bg-gray-100 p-4">
           {previewSrc ? (
             <iframe
+              ref={frameRef}
               key={device}
               src={previewSrc}
-              title={`${def.label} draft preview`}
+              title={`${def.label} — draft`}
               onLoad={() => setLoadedFrame(`${device}:${frameKey}`)}
-              className={`h-full rounded-xl border border-gray-200 bg-white shadow-sm ${
-                device === "mobile" ? "w-[390px]" : "w-full"
-              }`}
+              className={clsx(
+                "h-full rounded-xl border border-gray-200 bg-white shadow-sm transition-opacity",
+                device === "mobile" ? "w-[390px]" : "w-full",
+                canvasLoading && "opacity-70",
+              )}
             />
           ) : (
             <div className="m-auto max-w-sm text-center text-sm text-gray-500">
-              The preview needs the store connection (SUPABASE_SERVICE_ROLE_KEY) — your edits still save.
+              The canvas needs the store connection (SUPABASE_SERVICE_ROLE_KEY) — your edits still save.
             </div>
           )}
-        </div>
-      </section>
+        </section>
 
-      {menu ? <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} /> : null}
+        {/* ── right rail ───────────────────────────────────────────────── */}
+        <aside className="min-h-0 overflow-y-auto border-t border-gray-100 bg-white md:border-l md:border-t-0">
+          <div className="sticky top-0 z-[1] flex gap-1 border-b border-gray-100 bg-white p-2">
+            {(
+              [
+                ["block", "Block", <Settings2 key="b" size={12} />],
+                ["page", "Page settings", <PanelTop key="p" size={12} />],
+              ] as const
+            ).map(([value, label, icon]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTab(value)}
+                className={clsx(
+                  "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition",
+                  tab === value ? "bg-gray-900 text-white" : "text-gray-500 hover:bg-gray-100",
+                )}
+              >
+                {icon}
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-4">
+            {tab === "page" ? (
+              <PageSettings
+                label={def.label}
+                note={def.note}
+                url={`${host}${def.path}`}
+                page={page}
+                unpublished={unpublished}
+                busy={busy}
+                onAction={action}
+              />
+            ) : current && currentInfo ? (
+              <>
+                <div className="flex items-start gap-2">
+                  {(() => {
+                    const Icon = BLOCK_ICON[current.type];
+                    return <Icon size={15} className="mt-0.5 shrink-0 text-gray-400" />;
+                  })()}
+                  <div className="min-w-0 flex-1">
+                    <h2 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                      {currentInfo.label}
+                      {currentInfo.locked ? <Lock size={11} className="text-gray-300" /> : null}
+                    </h2>
+                    <p className="text-[11px] text-gray-500">{currentInfo.description}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center gap-0.5 border-b border-gray-100 pb-3">
+                  <IconButton
+                    label="Move up"
+                    disabled={!movable || currentIndex <= pinnedCount}
+                    onClick={() => update(move(blocks, currentIndex, currentIndex - 1))}
+                  >
+                    <ArrowUp size={14} />
+                  </IconButton>
+                  <IconButton
+                    label="Move down"
+                    disabled={!movable || currentIndex === blocks.length - 1}
+                    onClick={() => update(move(blocks, currentIndex, currentIndex + 1))}
+                  >
+                    <ArrowDown size={14} />
+                  </IconButton>
+                  <IconButton
+                    label="Duplicate"
+                    disabled={!removable || !!currentInfo.single || blocks.length >= LIMITS.blocks}
+                    onClick={() => {
+                      const id = uid(current.type);
+                      const next = [...blocks];
+                      next.splice(currentIndex + 1, 0, { ...structuredClone(current), id });
+                      update(next);
+                      select(id, false);
+                    }}
+                  >
+                    <Copy size={14} />
+                  </IconButton>
+                  <IconButton
+                    label={current.hidden ? "Show on site" : "Hide from site"}
+                    disabled={!removable}
+                    onClick={() =>
+                      update(blocks.map((x) => (x.id === current.id ? { ...x, hidden: !x.hidden || undefined } : x)))
+                    }
+                  >
+                    {current.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </IconButton>
+                  <span className="flex-1" />
+                  <IconButton
+                    label="Delete"
+                    danger
+                    disabled={!removable}
+                    onClick={() => {
+                      update(blocks.filter((x) => x.id !== current.id));
+                      select(null);
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </IconButton>
+                </div>
+                {current.hidden ? (
+                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                    Hidden — not shown on the site. Find it in “On this page” on the left.
+                  </p>
+                ) : null}
+                <div className="mt-4">
+                  <BlockInspector
+                    key={current.id}
+                    block={current}
+                    catalog={catalog}
+                    slug={slug}
+                    brand={brand}
+                    onChange={(nb) => update(blocks.map((x) => (x.id === nb.id ? nb : x)))}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="py-10 text-center text-xs leading-relaxed text-gray-400">
+                Click any part of the page to edit it,
+                <br />
+                or drag a block in from the left.
+              </p>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
 
-function MenuItem({
-  children,
-  onClick,
-  disabled,
+function PageSettings({
+  label,
+  note,
+  url,
+  page,
+  unpublished,
+  busy,
+  onAction,
 }: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
+  label: string;
+  note: string;
+  url: string;
+  page: PageState | null;
+  unpublished: boolean;
+  busy: string | null;
+  onAction: (name: "publish" | "discard" | "reset" | "restore", versionId?: string) => void;
 }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="block w-full px-3 py-2 text-left text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
-    >
-      {children}
-    </button>
+    <div className="space-y-5 text-sm">
+      <div>
+        <h2 className="text-sm font-semibold text-gray-900">{label}</h2>
+        <p className="mt-0.5 text-xs text-gray-400">{url}</p>
+        <p className="mt-2 text-xs leading-relaxed text-gray-500">{note}</p>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 p-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Status</div>
+        <p className="mt-1 text-xs text-gray-700">
+          {page?.publishedAt
+            ? `${unpublished ? "Live, with unpublished changes" : "Live"} — published ${when(page.publishedAt)}.`
+            : "Not published yet — the site shows the original page."}
+        </p>
+        <p className="mt-1 text-[11px] text-gray-400">
+          Edits save as a draft automatically. Publish puts them live; the site picks them up within a minute.
+        </p>
+        <button
+          type="button"
+          disabled={!!busy || page?.notReady || !unpublished}
+          onClick={() => onAction("publish")}
+          className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500"
+        >
+          {busy === "publish" ? <Loader2 size={13} className="animate-spin" /> : null}
+          {unpublished ? "Publish changes" : "Everything is published"}
+        </button>
+      </div>
+
+      <div className="space-y-1.5">
+        <button
+          type="button"
+          disabled={!!busy || !page?.published || !unpublished}
+          onClick={() => onAction("discard")}
+          className="flex w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Undo2 size={13} /> Discard unpublished changes
+        </button>
+        <button
+          type="button"
+          disabled={!!busy}
+          onClick={() => onAction("reset")}
+          className="flex w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+        >
+          <RotateCcw size={13} /> Start over from the original page
+        </button>
+      </div>
+
+      <div>
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          <History size={11} /> Published versions
+        </div>
+        {page?.versions.length ? (
+          <ul className="mt-2 space-y-1">
+            {page.versions.map((v, i) => (
+              <li key={v.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-gray-50">
+                <span className="text-gray-700">
+                  {when(v.published_at)}
+                  {i === 0 ? <span className="ml-1.5 text-[11px] text-emerald-600">live</span> : null}
+                </span>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => onAction("restore", v.id)}
+                  className="text-[11px] font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-40"
+                >
+                  Load into draft
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-[11px] text-gray-400">None yet — each publish is kept here.</p>
+        )}
+      </div>
+    </div>
   );
 }
 
 function SaveBadge({ state }: { state: "saved" | "dirty" | "saving" | "error" }) {
   if (state === "saving" || state === "dirty")
     return (
-      <span className="inline-flex items-center gap-1 text-gray-500">
-        <Loader2 size={11} className="animate-spin" /> Saving draft…
+      <span className="inline-flex items-center gap-1 text-[11px] text-gray-500">
+        <Loader2 size={11} className="animate-spin" /> Saving…
       </span>
     );
-  if (state === "error") return <span className="text-red-600">Not saved</span>;
+  if (state === "error") return <span className="text-[11px] text-red-600">Not saved</span>;
   return (
-    <span className="inline-flex items-center gap-1 text-gray-500">
+    <span className="inline-flex items-center gap-1 text-[11px] text-gray-500">
       <Check size={11} /> Draft saved
     </span>
   );
