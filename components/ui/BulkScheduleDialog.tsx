@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import { CalendarClock, X } from "lucide-react";
 import clsx from "clsx";
-import type { BlogPostSummary } from "@/lib/blogPosts";
-import { formatDateTime } from "./bits";
+import { formatDateTime } from "@/components/marketing/blog/bits";
+
+/** Anything that can be scheduled: blog posts, social posts. */
+export type SchedulableItem = { id: string; title: string; scheduled: boolean };
 
 /**
- * Schedule (or reschedule) several blog posts at once: a start day and time,
+ * Schedule (or reschedule) several posts at once (blog or social): a start day and time,
  * and either all at that moment or spaced one per day / week in the order
  * they're listed. Shows every post's resulting time before anything changes.
  */
@@ -30,7 +32,7 @@ export default function BulkScheduleDialog({
   onCancel,
   onConfirm,
 }: {
-  posts: BlogPostSummary[];
+  posts: SchedulableItem[];
   busy: boolean;
   onCancel: () => void;
   /** One ISO time per post, in the same order. */
@@ -54,7 +56,7 @@ export default function BulkScheduleDialog({
   }, [date, time, spacing, posts]);
 
   const inPast = !!times && new Date(times[0]).getTime() < now + 60_000;
-  const rescheduling = posts.some((p) => p.status === "scheduled");
+  const rescheduling = posts.some((p) => p.scheduled);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={busy ? undefined : onCancel}>
@@ -134,7 +136,7 @@ export default function BulkScheduleDialog({
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-xs text-gray-400">In the order they&apos;re listed. Each goes live on its brand&apos;s site within about five minutes of its time.</p>
+            <p className="mt-2 text-xs text-gray-400">In the order they&apos;re listed. Each goes out within about five minutes of its time.</p>
           </div>
 
           {inPast && (

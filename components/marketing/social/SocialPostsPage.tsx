@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -38,6 +38,7 @@ import { onOpenRequest, onPostsChanged } from "./gridJobs";
 import NewSocialWizard from "./NewSocialWizard";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { ConfirmDialog, SocialStatusPill } from "./bits";
+import BulkScheduleDialog from "@/components/ui/BulkScheduleDialog";
 
 /**
  * Social Media Posts — compose once, publish to the brand's Facebook Page and
@@ -95,6 +96,8 @@ export default function SocialPostsPage() {
   // Multi-select: ids picked in the current tab; the bulk bar acts on them.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const lastClicked = useRef<number | null>(null);
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -162,16 +165,28 @@ export default function SocialPostsPage() {
   const picked = rows.filter((p) => selected.has(p.id));
   const canSchedule = picked.filter((p) => (p.status === "draft" || p.status === "failed") && p.scheduled_at);
   const canUnschedule = picked.filter((p) => p.status === "scheduled");
+  // Anything not yet out can be given new times in one go.
+  const canReschedule = picked.filter((p) => p.status === "draft" || p.status === "failed" || p.status === "scheduled");
   const canDelete = picked.filter((p) => p.status !== "publishing");
   const allPicked = rows.length > 0 && picked.length === rows.length;
 
-  function toggle(id: string) {
+  /** Tick / untick a row; with Shift, everything between it and the last one clicked. */
+  function toggle(i: number, shift: boolean) {
+    const id = rows[i].id;
     setSelected((cur) => {
       const next = new Set(cur);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const on = !cur.has(id);
+      if (shift && lastClicked.current !== null) {
+        const [a, b] = [Math.min(lastClicked.current, i), Math.max(lastClicked.current, i)];
+        for (let k = a; k <= b; k++) {
+          if (on) next.add(rows[k].id);
+          else next.delete(rows[k].id);
+        }
+      } else if (on) next.add(id);
+      else next.delete(id);
       return next;
     });
+    lastClicked.current = i;
   }
 
   /** Run one action over many posts in the background, with a progress toast. */
@@ -276,8 +291,8 @@ export default function SocialPostsPage() {
             />
             {picked.length ? `${picked.length} of ${rows.length} selected` : "Select all"}
           </label>
-          {rows.map((p) => (
-            <PostRow key={p.id} post={p} selected={selected.has(p.id)} onToggle={() => toggle(p.id)} />
+          {rows.map((p, i) => (
+            <PostRow key={p.id} post={p} selected={selected.has(p.id)} onToggle={(shift) => toggle(i, shift)} />
           ))}
         </div>
       )}
@@ -288,6 +303,11 @@ export default function SocialPostsPage() {
             <span className="mr-2 font-medium">
               {picked.length} selected
             </span>
+            {canReschedule.length > 0 && (
+              <BulkButton icon={<CalendarClock size={14} />} onClick={() => setScheduleOpen(true)}>
+                {canReschedule.some((p) => p.status === "scheduled") ? "Reschedule…" : "Schedule…"}
+              </BulkButton>
+            )}
             {canSchedule.length > 0 && (
               <BulkButton
                 icon={<CalendarClock size={14} />}
@@ -295,7 +315,7 @@ export default function SocialPostsPage() {
                   runBulk(canSchedule, { doing: "Scheduling", done: "scheduled" }, (p) => updateSocialPost(p.id, { action: "schedule" }))
                 }
               >
-                Schedule {canSchedule.length < picked.length ? canSchedule.length : ""}
+                Schedule {canSchedule.length < picked.length ? `${canSchedule.length} ` : ""}at their set times
               </BulkButton>
             )}
             {canUnschedule.length > 0 && (
@@ -318,6 +338,23 @@ export default function SocialPostsPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {scheduleOpen && (
+        <BulkScheduleDialog
+          posts={canReschedule.map((p) => ({ id: p.id, title: p.title?.trim() || "Untitled post", scheduled: p.status === "scheduled" }))}
+          busy={false}
+          onCancel={() => setScheduleOpen(false)}
+          onConfirm={(times) => {
+            const at = new Map(canReschedule.map((p, i) => [p.id, times[i]]));
+            setScheduleOpen(false);
+            runBulk(
+              canReschedule,
+              { doing: "Scheduling", done: "scheduled" },
+              (p) => updateSocialPost(p.id, { scheduled_at: at.get(p.id)!, action: "schedule" }),
+            );
+          }}
+        />
       )}
 
       <ConfirmDialog
@@ -400,7 +437,7 @@ function BulkButton({
   );
 }
 
-function PostRow({ post: p, selected, onToggle }: { post: SocialPost; selected: boolean; onToggle: () => void }) {
+function PostRow({ post: p, selected, onToggle }: { post: SocialPost; selected: boolean; onToggle: (shift: boolean) => void }) {
   const thumb = p.media[0];
   const when = p.status === "published" || p.status === "partial" ? p.published_at : p.scheduled_at;
   return (
@@ -411,8 +448,11 @@ function PostRow({ post: p, selected, onToggle }: { post: SocialPost; selected: 
       <input
         type="checkbox"
         checked={selected}
-        onClick={(e) => e.stopPropagation()}
-        onChange={onToggle}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle(e.shiftKey);
+        }}
+        onChange={() => {}}
         className="h-4 w-4 shrink-0 rounded border-gray-300"
         aria-label={`Select ${p.title?.trim() || "post"}`}
       />

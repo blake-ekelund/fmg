@@ -12,7 +12,7 @@ import { useBrand } from "@/components/BrandContext";
 import { DRAFT_STATUSES, type BlogBrand, type BlogPostSummary, type BlogStatus } from "@/lib/blogPosts";
 import { deletePost, listPosts, updatePost } from "./api";
 import NewBlogWizard from "./NewBlogWizard";
-import BulkScheduleDialog from "./BulkScheduleDialog";
+import BulkScheduleDialog from "@/components/ui/BulkScheduleDialog";
 import { BrandPill, StatusPill, formatDateTime, relativeTime } from "./bits";
 
 /**
@@ -391,7 +391,7 @@ export default function BlogPostsPage() {
 
       {pending === "schedule" && (
         <BulkScheduleDialog
-          posts={selected}
+          posts={selected.map((p) => ({ id: p.id, title: p.title, scheduled: p.status === "scheduled" }))}
           busy={busy}
           onCancel={() => setPending(null)}
           onConfirm={(times) =>
