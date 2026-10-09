@@ -28,6 +28,7 @@ import {
   CANVAS_W,
   TEXTURES,
   paletteFor,
+  type Palette,
   type CanvasBackground,
   type CanvasSlide,
   type ImageLayer,
@@ -84,11 +85,11 @@ export default function CanvasInspector(p: Props) {
       <Section title="Position">
         <div className="flex gap-1">
           <IconButton title="Align left on slide" onClick={() => set({ x: 0 })}><AlignHorizontalJustifyStart size={16} /></IconButton>
-          <IconButton title="Centre horizontally" onClick={() => set({ x: Math.round((CANVAS_W - l.w) / 2) })}><AlignHorizontalJustifyCenter size={16} /></IconButton>
+          <IconButton title="Center horizontally" onClick={() => set({ x: Math.round((CANVAS_W - l.w) / 2) })}><AlignHorizontalJustifyCenter size={16} /></IconButton>
           <IconButton title="Align right on slide" onClick={() => set({ x: CANVAS_W - l.w })}><AlignHorizontalJustifyEnd size={16} /></IconButton>
           <span className="mx-1 w-px bg-gray-200" />
           <IconButton title="Align top" onClick={() => set({ y: 0 })}><AlignVerticalJustifyStart size={16} /></IconButton>
-          <IconButton title="Centre vertically" onClick={() => set({ y: Math.round((CANVAS_H - l.h) / 2) })}><AlignVerticalJustifyCenter size={16} /></IconButton>
+          <IconButton title="Center vertically" onClick={() => set({ y: Math.round((CANVAS_H - l.h) / 2) })}><AlignVerticalJustifyCenter size={16} /></IconButton>
           <IconButton title="Align bottom" onClick={() => set({ y: CANVAS_H - l.h })}><AlignVerticalJustifyEnd size={16} /></IconButton>
         </div>
         <div className="flex gap-2">
@@ -121,7 +122,7 @@ export default function CanvasInspector(p: Props) {
 
 /* ─── Text ────────────────────────────────────────────────────────── */
 
-function TextPanel({ l, set, brand, palette }: { l: TextLayer; set: (p: Partial<TextLayer>, key?: string) => void; brand: SocialBrand; palette: string[] }) {
+function TextPanel({ l, set, brand, palette }: { l: TextLayer; set: (p: Partial<TextLayer>, key?: string) => void; brand: SocialBrand; palette: Palette }) {
   const fonts = fontsForBrand(brand);
   const fam = fontById(l.font);
   const weights = [...new Set(fam.variants.filter((v) => v.style === "normal").map((v) => v.weight))];
@@ -177,14 +178,14 @@ function TextPanel({ l, set, brand, palette }: { l: TextLayer; set: (p: Partial<
         <Row label="Size">
           <Slider value={l.size} min={10} max={240} onChange={(size) => set({ size }, "size")} suffix="px" />
         </Row>
-        <Row label="Colour">
+        <Row label="Color">
           <ColorField value={l.color} onChange={(c) => c && set({ color: c })} palette={palette} />
         </Row>
         <Row label="Align">
           <Segment
             options={[
               { value: "left", label: <AlignLeft size={15} />, title: "Left" },
-              { value: "center", label: <AlignCenter size={15} />, title: "Centre" },
+              { value: "center", label: <AlignCenter size={15} />, title: "Center" },
               { value: "right", label: <AlignRight size={15} />, title: "Right" },
             ]}
             value={l.align}
@@ -199,7 +200,7 @@ function TextPanel({ l, set, brand, palette }: { l: TextLayer; set: (p: Partial<
         </Row>
       </Section>
       <Section title="Highlight">
-        <Row label="Colour">
+        <Row label="Color">
           <ColorField value={l.bg} onChange={(bg) => set({ bg, padding: bg && !l.padding ? 16 : l.padding })} palette={palette} allowNone />
         </Row>
         {l.bg && (
@@ -229,7 +230,7 @@ function ImagePanel({
 }: {
   l: ImageLayer;
   set: (p: Partial<ImageLayer>, key?: string) => void;
-  palette: string[];
+  palette: Palette;
   onAction: (a: LayerAction) => void;
   onPickImage: (t: ImageTarget) => void;
   onPickProduct: (t: ImageTarget) => void;
@@ -265,7 +266,7 @@ function ImagePanel({
         <Slider value={l.borderWidth} min={0} max={40} onChange={(borderWidth) => set({ borderWidth }, "bw")} suffix="px" />
       </Row>
       {l.borderWidth > 0 && (
-        <Row label="Border colour">
+        <Row label="Border color">
           <ColorField value={l.borderColor} onChange={(c) => c && set({ borderColor: c })} palette={palette} />
         </Row>
       )}
@@ -283,7 +284,7 @@ function ImagePanel({
 
 /* ─── Shape ───────────────────────────────────────────────────────── */
 
-function ShapePanel({ l, set, palette }: { l: ShapeLayer; set: (p: Partial<ShapeLayer>, key?: string) => void; palette: string[] }) {
+function ShapePanel({ l, set, palette }: { l: ShapeLayer; set: (p: Partial<ShapeLayer>, key?: string) => void; palette: Palette }) {
   return (
     <Section title="Shape">
       <Row label="Shape">
@@ -301,7 +302,7 @@ function ShapePanel({ l, set, palette }: { l: ShapeLayer; set: (p: Partial<Shape
       <Row label="Fill">
         <ColorField value={l.gradient ? null : l.fill} onChange={(c) => set({ fill: c ?? "transparent", gradient: null })} palette={palette} allowNone />
       </Row>
-      {l.gradient && <p className="text-[11px] text-gray-400">This shape has a gradient from its template — pick a colour to replace it.</p>}
+      {l.gradient && <p className="text-[11px] text-gray-400">This shape has a gradient from its template — pick a color to replace it.</p>}
       {l.shape === "rect" && (
         <Row label="Rounding">
           <Slider value={l.radius} min={0} max={Math.round(Math.min(l.w, l.h) / 2)} onChange={(radius) => set({ radius }, "radius")} suffix="px" />
@@ -313,7 +314,7 @@ function ShapePanel({ l, set, palette }: { l: ShapeLayer; set: (p: Partial<Shape
             <Slider value={l.strokeWidth} min={0} max={40} onChange={(strokeWidth) => set({ strokeWidth }, "sw")} suffix="px" />
           </Row>
           {l.strokeWidth > 0 && (
-            <Row label="Outline colour">
+            <Row label="Outline color">
               <ColorField value={l.stroke} onChange={(c) => c && set({ stroke: c })} palette={palette} />
             </Row>
           )}
@@ -325,7 +326,7 @@ function ShapePanel({ l, set, palette }: { l: ShapeLayer; set: (p: Partial<Shape
 
 /* ─── Background ──────────────────────────────────────────────────── */
 
-function BackgroundPanel({ brand, slide, onBackground, onPickImage, onPickProduct, palette }: Props & { palette: string[] }) {
+function BackgroundPanel({ brand, slide, onBackground, onPickImage, onPickProduct, palette }: Props & { palette: Palette }) {
   const bg = slide.bg;
   const set = (patch: Partial<CanvasBackground>, key?: string) => onBackground(patch, key);
   return (
@@ -334,12 +335,12 @@ function BackgroundPanel({ brand, slide, onBackground, onPickImage, onPickProduc
         <span className="text-sm font-semibold text-gray-900">Slide background</span>
         <p className="mt-0.5 text-xs text-gray-500">Click anything on the slide to edit it. Add text, photos and shapes from the bar above the slide.</p>
       </div>
-      <Section title="Colour">
-        <Row label="Colour">
+      <Section title="Color">
+        <Row label="Color">
           <ColorField value={bg.color} onChange={(c) => c && set({ color: c })} palette={palette} />
         </Row>
         <Row label="Gradient">
-          <Toggle on={!!bg.gradient} onChange={(on) => set({ gradient: on ? { to: paletteFor(brand)[1] ?? "#FFFFFF", angle: 180 } : null })} label={bg.gradient ? "On" : "Off"} />
+          <Toggle on={!!bg.gradient} onChange={(on) => set({ gradient: on ? { to: paletteFor(brand).brand[1] ?? "#FFFFFF", angle: 180 } : null })} label={bg.gradient ? "On" : "Off"} />
         </Row>
         {bg.gradient && (
           <>

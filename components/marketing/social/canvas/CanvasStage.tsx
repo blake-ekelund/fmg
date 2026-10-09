@@ -8,7 +8,7 @@ import { CANVAS_H, CANVAS_W, type CanvasSlide, type Layer } from "@/lib/social/c
 /**
  * The editable canvas: the slide drawn by CanvasView at `width` px, with a
  * selection layer on top. Click to select, drag to move (snaps to the slide
- * centre/edges and other layers), drag handles to resize, the top knob to
+ * center/edges and other layers), drag handles to resize, the top knob to
  * rotate, double-click text to type on the slide.
  *
  * Drags preview locally and commit once on release, so one drag = one undo.

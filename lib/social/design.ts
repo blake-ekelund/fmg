@@ -3,7 +3,7 @@
  *
  * A designed post is an ordered list of slides plus a structured caption.
  * Like blog blocks there are NO free style knobs: the brand theme owns fonts,
- * colours and spacing; a slide only picks a layout and one of three brand
+ * colors and spacing; a slide only picks a layout and one of three brand
  * tones. FMG renders each slide to an Instagram-ready 1080×1350 JPEG
  * (lib/social/renderSlides.tsx) with the same React component the editor
  * previews (components/marketing/social/SlideView.tsx), so what you see is

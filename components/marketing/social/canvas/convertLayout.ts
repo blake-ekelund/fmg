@@ -15,7 +15,7 @@ import type { SocialBrand } from "@/lib/social/types";
  * Rather than re-deriving every layout's maths, it renders the real
  * SlideView off-screen at full size, then reads each tagged element
  * (data-el) back as a layer: its box, and for text its computed font,
- * size, colour, spacing and alignment. So the converted slide looks exactly
+ * size, color, spacing and alignment. So the converted slide looks exactly
  * like the template it came from. Browser only (needs layout + fonts).
  */
 
@@ -147,7 +147,7 @@ export async function convertLayoutSlide(slide: Slide, brand: SocialBrand, index
         if (s) layers.push(s);
         const t = textLayer(el, true);
         if (t && t.type === "text") {
-          // Centre the text vertically inside its box.
+          // Center the text vertically inside its box.
           const line = t.size * t.lineHeight;
           layers.push({ ...t, x: s ? s.x : t.x, w: s ? s.w : t.w, y: Math.round(t.y + (t.h - line) / 2), h: Math.round(line) });
         }

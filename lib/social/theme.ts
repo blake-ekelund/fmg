@@ -1,5 +1,5 @@
 /**
- * Brand looks for social slides: canvas size, colours per tone and the
+ * Brand looks for social slides: canvas size, colors per tone and the
  * template fonts. Shared by the layout slides (design.ts), the free canvas
  * (canvas.ts) and both renderers. Client-safe.
  */
@@ -11,7 +11,7 @@ export type SlideTone = "light" | "tint" | "dark";
 export const SLIDE_W = 1080;
 export const SLIDE_H = 1350;
 export type SlideTheme = {
-  /** Page colours per tone. */
+  /** Page colors per tone. */
   tones: Record<SlideTone, { bg: string; ink: string; muted: string; accent: string; onAccent: string }>;
   headFont: string;
   headWeight: number;

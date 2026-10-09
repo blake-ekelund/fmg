@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Ban } from "lucide-react";
 import clsx from "clsx";
+import type { Palette } from "@/lib/social/canvas";
 
 /** Small, consistent form controls for the canvas inspector. */
 
@@ -123,8 +125,10 @@ export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boo
 }
 
 /**
- * Colour swatch that opens a palette: the brand's colours first, then a
- * custom picker and hex box. `allowNone` adds a "no colour" choice.
+ * Color swatch that opens a floating picker: the brand's colors, more
+ * colors, then "pick any color" (system picker) and a hex box. The popover is
+ * rendered at the page level and kept inside the window, so it never runs
+ * off the side of the panel. `allowNone` adds a "no color" choice.
  */
 export function ColorField({
   value,
@@ -134,26 +138,72 @@ export function ColorField({
 }: {
   value: string | null;
   onChange: (v: string | null) => void;
-  palette: string[];
+  palette: Palette;
   allowNone?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const [hex, setHex] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const open = pos !== null;
+
+  const W = 288;
+  const H = 330;
+  function toggle() {
+    if (open) return setPos(null);
+    const r = btn.current!.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.right - W), window.innerWidth - W - 8);
+    const below = r.bottom + 8;
+    const top = below + H > window.innerHeight - 8 ? Math.max(8, r.top - H - 8) : below;
+    setPos({ left, top });
+  }
+
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const away = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!pop.current?.contains(t) && !btn.current?.contains(t)) setPos(null);
+    };
+    const close = () => setPos(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
     document.addEventListener("mousedown", away);
-    return () => document.removeEventListener("mousedown", away);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    // Scrolling the panel would leave the popover behind — close it.
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
   }, [open]);
 
   const isHex = (v: string) => /^#[0-9a-f]{6}$/i.test(v);
+  const pick = (c: string | null) => {
+    onChange(c);
+    setPos(null);
+  };
+  const swatch = (c: string) => (
+    <button
+      key={c}
+      type="button"
+      title={c}
+      onClick={() => pick(c)}
+      className={clsx(
+        "h-7 w-7 rounded-lg border transition hover:scale-110",
+        value?.toUpperCase() === c.toUpperCase() ? "border-violet-600 ring-2 ring-violet-200" : "border-black/10",
+      )}
+      style={{ background: c }}
+    />
+  );
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={btn}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         className="flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-1 text-[13px] text-gray-700 hover:border-gray-300"
       >
         <span
@@ -162,60 +212,68 @@ export function ColorField({
         />
         <span className="font-mono text-xs">{value ? value.toUpperCase().slice(0, 9) : "None"}</span>
       </button>
-      {open && (
-        <div className="absolute right-0 z-50 mt-2 w-60 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
-          <div className="grid grid-cols-8 gap-1.5">
-            {allowNone && (
-              <button
-                type="button"
-                title="No colour"
-                onClick={() => {
-                  onChange(null);
-                  setOpen(false);
+      {open &&
+        createPortal(
+          <div
+            ref={pop}
+            className="fixed z-[80] rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl"
+            style={{ left: pos.left, top: pos.top, width: W }}
+          >
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Brand colors</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {allowNone && (
+                <button
+                  type="button"
+                  title="No color"
+                  onClick={() => pick(null)}
+                  className={clsx(
+                    "flex h-7 w-7 items-center justify-center rounded-lg border text-gray-400",
+                    value === null ? "border-violet-600 ring-2 ring-violet-200" : "border-gray-200",
+                  )}
+                >
+                  <Ban size={13} />
+                </button>
+              )}
+              {palette.brand.map(swatch)}
+            </div>
+
+            <div className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500">More colors</div>
+            <div className="mt-2 flex flex-wrap gap-2">{palette.more.map(swatch)}</div>
+
+            <div className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Any color</div>
+            <div className="mt-2 flex items-center gap-2">
+              <label className="relative inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-50">
+                <span
+                  className="h-5 w-5 rounded-md"
+                  style={{ background: "conic-gradient(red, yellow, lime, aqua, blue, magenta, red)" }}
+                />
+                Pick a color
+                <input
+                  type="color"
+                  value={value && isHex(value) ? value : "#000000"}
+                  onChange={(e) => onChange(e.target.value.toUpperCase())}
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  aria-label="Pick any color"
+                />
+              </label>
+              <input
+                value={hex ?? value ?? ""}
+                onFocus={() => setHex(value ?? "")}
+                onChange={(e) => setHex(e.target.value)}
+                onBlur={() => {
+                  if (hex && isHex(hex)) onChange(hex.toUpperCase());
+                  setHex(null);
                 }}
-                className="flex h-6 w-6 items-center justify-center rounded-md border border-gray-200 text-gray-400"
-              >
-                <Ban size={12} />
-              </button>
-            )}
-            {palette.map((c) => (
-              <button
-                key={c}
-                type="button"
-                title={c}
-                onClick={() => {
-                  onChange(c);
-                  setOpen(false);
-                }}
-                className={clsx("h-6 w-6 rounded-md border", value?.toUpperCase() === c.toUpperCase() ? "border-violet-600 ring-2 ring-violet-200" : "border-black/10")}
-                style={{ background: c }}
+                onKeyDown={(e) => e.key === "Enter" && hex && isHex(hex) && pick(hex.toUpperCase())}
+                placeholder="#1F3D35"
+                aria-label="Hex color"
+                className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-1.5 font-mono text-xs focus:border-violet-400 focus:outline-none"
               />
-            ))}
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              type="color"
-              value={value && isHex(value) ? value : "#000000"}
-              onChange={(e) => onChange(e.target.value.toUpperCase())}
-              className="h-8 w-10 cursor-pointer rounded border border-gray-200 bg-white p-0.5"
-              aria-label="Custom colour"
-            />
-            <input
-              value={hex ?? value ?? ""}
-              onFocus={() => setHex(value ?? "")}
-              onChange={(e) => setHex(e.target.value)}
-              onBlur={() => {
-                if (hex && isHex(hex)) onChange(hex.toUpperCase());
-                setHex(null);
-              }}
-              onKeyDown={(e) => e.key === "Enter" && hex && isHex(hex) && onChange(hex.toUpperCase())}
-              placeholder="#1F3D35"
-              className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-1 font-mono text-xs focus:border-violet-400 focus:outline-none"
-            />
-          </div>
-        </div>
-      )}
-    </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 

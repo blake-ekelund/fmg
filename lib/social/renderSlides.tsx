@@ -95,7 +95,7 @@ async function inlineImage(url: string, cache: Map<string, string>): Promise<str
       const img = sharp(Buffer.from(await res.arrayBuffer()), { failOn: "none" })
         .rotate()
         .resize(1600, 1600, { fit: "inside", withoutEnlargement: true });
-      // Keep transparency (cut-out product shots sit on the canvas colour).
+      // Keep transparency (cut-out product shots sit on the canvas color).
       if ((await img.metadata()).hasAlpha) {
         out = `data:image/png;base64,${(await img.png({ compressionLevel: 6 }).toBuffer()).toString("base64")}`;
       } else {

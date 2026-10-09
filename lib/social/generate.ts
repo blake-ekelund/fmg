@@ -92,7 +92,7 @@ const VOICE: Record<SocialBrand, string> = {
 };
 
 export const SLIDE_VOCAB = `
-SLIDES (an ordered array). Each slide: {"layout","tone","kicker","headline","body","items","meta","image"} — use "" / [] for fields a layout doesn't use. The brand owns fonts and colours; you only pick layout + tone.
+SLIDES (an ordered array). Each slide: {"layout","tone","kicker","headline","body","items","meta","image"} — use "" / [] for fields a layout doesn't use. The brand owns fonts and colors; you only pick layout + tone.
 • cover   — FIRST slide. Big headline over a photo (image strongly preferred). kicker = 1–3 word label, headline ≤ 8 words, body = optional one-line subhead.
 • photo   — full-bleed photo; headline = optional short caption (≤ 8 words). Needs image.
 • product — product shot on a card. headline = product name, body = ONE benefit sentence, meta = price like "$24" (only a price we give you), image = one of that product's photos.

@@ -1,7 +1,7 @@
 /**
  * Free-canvas slides — the design editor's document model.
  *
- * A canvas slide is a background (colour or gradient, optional photo, optional
+ * A canvas slide is a background (color or gradient, optional photo, optional
  * texture) plus an ordered stack of layers (text, image, shape), each placed
  * in slide pixels (1080×1350) with size, rotation and opacity. The editor
  * (components/marketing/social/canvas) and the server renderer both draw it
@@ -110,14 +110,16 @@ export type CanvasSlide = {
 export const CANVAS_W = SLIDE_W;
 export const CANVAS_H = SLIDE_H;
 
-/* ─── Colours ──────────────────────────────────────────────────────── */
+/* ─── Colors ──────────────────────────────────────────────────────── */
 
-/** Swatches in picker order: the brand's palette, then neutrals and accents. */
-export function paletteFor(brand: SocialBrand): string[] {
+export type Palette = { brand: string[]; more: string[] };
+
+/** Color picker swatches: the brand's own colors, then neutrals and accents. */
+export function paletteFor(brand: SocialBrand): Palette {
   const t = SLIDE_THEMES[brand].tones;
-  const brandColors = [...new Set(Object.values(t).flatMap((x) => [x.bg, x.ink, x.accent, x.muted, x.onAccent]))];
+  const brandColors = [...new Set(Object.values(t).flatMap((x) => [x.bg, x.ink, x.accent, x.muted, x.onAccent]).map((c) => c.toUpperCase()))];
   const extra = ["#FFFFFF", "#F7F3EE", "#EDE4D8", "#D9CFBF", "#C9A86A", "#8A9A8B", "#E8C4C4", "#B3295C", "#1F3D35", "#2B2B2B", "#000000"];
-  return [...new Set([...brandColors.map((c) => c.toUpperCase()), ...extra])];
+  return { brand: brandColors, more: extra.filter((c) => !brandColors.includes(c)) };
 }
 
 /* ─── Constructors ─────────────────────────────────────────────────── */

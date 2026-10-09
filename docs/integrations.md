@@ -270,7 +270,7 @@ platforms → designed carousel / single graphic / own photos → AI or blank).
 A designed post stores `social_posts.design` = `{ slides, caption }`
 (`lib/social/design.ts`): each slide is one of 7 brand-locked layouts
 (cover, photo, product, text, list, quote, cta) with a light/tint/bold tone —
-no free colours or fonts. The builder (`/marketing/social/[id]`) previews
+no free colors or fonts. The builder (`/marketing/social/[id]`) previews
 slides with `lib/social/SlideView.tsx`, and the server renders the SAME
 component to 1080×1350 JPEGs (`renderSlides.tsx`: next/og → sharp) into
 `social-media/slides/<post id>/<content hash>-<n>-<total>.jpg` on Schedule /
@@ -284,7 +284,7 @@ any other URL is blanked (`checkDesignImages`). Migration
 `20261008010000_social_post_design.sql` adds `design` + `title`.
 
 **Free canvas (Oct 2026).** The editor is now Canva-style: each slide is a
-canvas (`lib/social/canvas.ts`) — background colour/gradient/photo/texture
+canvas (`lib/social/canvas.ts`) — background color/gradient/photo/texture
 plus layers (text, image, shape) placed in slide pixels with size, rotation
 and opacity. Drawn by `lib/social/CanvasView.tsx` in the editor and in the
 server render (Satori), so what you see is what posts. Template slides (what

@@ -24,7 +24,7 @@ import LayersPanel from "./LayersPanel";
 /**
  * Editing one canvas slide: the "Add" bar and the stage in the middle, and
  * the Design / Layers / Caption panel on the right. Renders two grid cells
- * (centre + right) for the builder's three-column layout. Mount it with
+ * (center + right) for the builder's three-column layout. Mount it with
  * key={slide.id} so selection resets when you switch slides.
  */
 
@@ -199,7 +199,7 @@ export default function CanvasEditor(p: Props) {
 
   return (
     <>
-      {/* Centre: add bar + stage */}
+      {/* Center: add bar + stage */}
       <div ref={centerRef} className="flex min-w-0 flex-col items-center gap-4 rounded-2xl border border-gray-200 bg-[#f3f3f1] px-4 pb-6 pt-3">
         {!p.locked && (
           <div className="flex w-full flex-wrap items-center justify-center gap-1.5">
