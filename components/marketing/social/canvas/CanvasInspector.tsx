@@ -36,7 +36,10 @@ import {
   type TextLayer,
   slideH,
   slideW,
+  hasPhotoAdjust,
+  type StickerLayer,
 } from "@/lib/social/canvas";
+import { STICKERS } from "@/lib/social/stickers";
 import { fontById, fontsForBrand, BRAND_FONTS } from "@/lib/social/fonts";
 import type { SocialBrand } from "@/lib/social/types";
 import { ColorField, IconButton, NumberInput, Row, Section, Segment, Slider, Toggle } from "./controls";
@@ -69,7 +72,7 @@ export default function CanvasInspector(p: Props) {
       {/* Actions */}
       <div className="flex items-center gap-0.5 border-b border-gray-100 px-3 py-2">
         <span className="mr-auto pl-1 text-sm font-semibold text-gray-900">
-          {l.type === "text" ? "Text" : l.type === "image" ? "Photo" : "Shape"}
+          {l.type === "text" ? "Text" : l.type === "image" ? "Photo" : l.type === "sticker" ? "Sticker" : "Shape"}
         </span>
         <IconButton title="Duplicate (Ctrl+D)" onClick={() => p.onAction("duplicate")}><Copy size={16} /></IconButton>
         <IconButton title={l.locked ? "Unlock" : "Lock in place"} active={l.locked} onClick={() => p.onAction("lock")}>
@@ -83,6 +86,7 @@ export default function CanvasInspector(p: Props) {
       {l.type === "text" && <TextPanel l={l} set={set} brand={p.brand} palette={palette} />}
       {l.type === "image" && <ImagePanel l={l} set={set} palette={palette} onAction={p.onAction} onPickImage={p.onPickImage} onPickProduct={p.onPickProduct} />}
       {l.type === "shape" && <ShapePanel l={l} set={set} palette={palette} />}
+      {l.type === "sticker" && <StickerPanel l={l} set={set} palette={palette} />}
 
       <Section title="Position">
         <div className="flex gap-1">
@@ -99,7 +103,7 @@ export default function CanvasInspector(p: Props) {
           <NumberInput label="Y" value={l.y} onChange={(y) => set({ y })} />
         </div>
         <div className="flex gap-2">
-          <NumberInput label="W" value={l.w} min={8} onChange={(w) => set(l.type === "image" ? { w, h: Math.round((l.h / l.w) * w) } : { w })} />
+          <NumberInput label="W" value={l.w} min={8} onChange={(w) => set(l.type === "image" || l.type === "sticker" ? { w, h: Math.round((l.h / l.w) * w) } : { w })} />
           {l.type !== "text" && <NumberInput label="H" value={l.h} min={2} onChange={(h) => set({ h })} />}
         </div>
         <Row label="Rotation">
@@ -272,6 +276,7 @@ function ImagePanel({
           <ColorField value={l.borderColor} onChange={(c) => c && set({ borderColor: c })} palette={palette} />
         </Row>
       )}
+      <PhotoAdjustments l={l} set={set} />
       <div className="flex flex-wrap gap-2 pt-1">
         <button type="button" onClick={() => onAction("fill")} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
           <Maximize size={13} /> Fill the slide
@@ -281,6 +286,95 @@ function ImagePanel({
         </button>
       </div>
     </Section>
+  );
+}
+
+/* ─── Sticker ─────────────────────────────────────────────────────── */
+
+function StickerPanel({ l, set, palette }: { l: StickerLayer; set: (p: Partial<StickerLayer>, key?: string) => void; palette: Palette }) {
+  return (
+    <Section title="Sticker">
+      <Row label="Color">
+        <ColorField value={l.color} onChange={(c) => c && set({ color: c })} palette={palette} />
+      </Row>
+      <div className="grid grid-cols-5 gap-1.5">
+        {STICKERS.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            title={s.label}
+            onClick={() => set({ sticker: s.id })}
+            className={clsx(
+              "flex aspect-square items-center justify-center rounded-lg border p-1.5",
+              l.sticker === s.id ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:bg-gray-50",
+            )}
+          >
+            <svg viewBox="0 0 100 100" className="h-full w-full">
+              <path d={s.d} fill={l.color} />
+            </svg>
+          </button>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/* ─── Photo adjustments ───────────────────────────────────────────── */
+
+function PhotoAdjustments({ l, set }: { l: ImageLayer; set: (p: Partial<ImageLayer>, key?: string) => void }) {
+  const pct = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+  const touched = hasPhotoAdjust(l);
+  return (
+    <div className="space-y-2 border-t border-gray-100 pt-3">
+      <div className="flex items-center">
+        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Adjust</span>
+        {touched && (
+          <button
+            type="button"
+            onClick={() =>
+              set({
+                brightness: undefined,
+                contrast: undefined,
+                saturation: undefined,
+                grayscale: undefined,
+                blur: undefined,
+                flipX: undefined,
+                flipY: undefined,
+                focusX: undefined,
+                focusY: undefined,
+              })
+            }
+            className="ml-auto text-xs font-medium text-gray-500 hover:text-gray-900"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      <Row label="Brightness">
+        <Slider value={l.brightness ?? 0} min={-100} max={100} onChange={(v) => set({ brightness: v || undefined }, "bright")} format={pct} />
+      </Row>
+      <Row label="Contrast">
+        <Slider value={l.contrast ?? 0} min={-100} max={100} onChange={(v) => set({ contrast: v || undefined }, "contrast")} format={pct} />
+      </Row>
+      <Row label="Saturation">
+        <Slider value={l.saturation ?? 0} min={-100} max={100} onChange={(v) => set({ saturation: v || undefined }, "sat")} format={pct} />
+      </Row>
+      <Row label="Blur">
+        <Slider value={l.blur ?? 0} min={0} max={40} onChange={(v) => set({ blur: v || undefined }, "blur")} suffix="px" />
+      </Row>
+      <div className="flex flex-wrap gap-2">
+        <Toggle on={!!l.grayscale} onChange={(g) => set({ grayscale: g || undefined })} label="Black & white" />
+        <Toggle on={!!l.flipX} onChange={(v) => set({ flipX: v || undefined })} label="Flip ↔" />
+        <Toggle on={!!l.flipY} onChange={(v) => set({ flipY: v || undefined })} label="Flip ↕" />
+      </div>
+      <div className="pt-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Position in frame</div>
+      <Row label="Left ↔ right">
+        <Slider value={Math.round((l.focusX ?? 0.5) * 100)} min={0} max={100} onChange={(v) => set({ focusX: v === 50 ? undefined : v / 100 }, "fx")} suffix="%" />
+      </Row>
+      <Row label="Top ↕ bottom">
+        <Slider value={Math.round((l.focusY ?? 0.5) * 100)} min={0} max={100} onChange={(v) => set({ focusY: v === 50 ? undefined : v / 100 }, "fy")} suffix="%" />
+      </Row>
+    </div>
   );
 }
 

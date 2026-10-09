@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Circle, Eye, EyeOff, Image as ImageIcon, Lock, LockOpen, Square, Type } from "lucide-react";
+import { ArrowDown, ArrowUp, Circle, Eye, EyeOff, Image as ImageIcon, Lock, LockOpen, Sparkles, Square, Type } from "lucide-react";
+import { STICKERS } from "@/lib/social/stickers";
 import clsx from "clsx";
 import type { CanvasSlide, Layer } from "@/lib/social/canvas";
 
@@ -25,7 +26,8 @@ export default function LayersPanel({
       {top.length === 0 && <p className="px-2 py-6 text-center text-sm text-gray-400">Nothing on this slide yet.</p>}
       <ul className="space-y-0.5">
         {top.map((l, i) => {
-          const Icon = l.type === "text" ? Type : l.type === "image" ? ImageIcon : l.shape === "ellipse" ? Circle : Square;
+          const Icon =
+            l.type === "text" ? Type : l.type === "image" ? ImageIcon : l.type === "sticker" ? Sparkles : l.shape === "ellipse" ? Circle : Square;
           return (
             <li
               key={l.id}
@@ -71,7 +73,8 @@ function label(l: Layer): string {
     if (/\{n\}|\{total\}/.test(l.text)) return "Page number";
     return l.text.replace(/\s+/g, " ").trim().slice(0, 40) || "Text";
   }
-  if (l.type === "image") return "Photo";
+  if (l.type === "image") return l.name && l.name !== "Photo" ? l.name : "Photo";
+  if (l.type === "sticker") return STICKERS.find((s) => s.id === l.sticker)?.label ?? "Sticker";
   return { rect: "Rectangle", ellipse: "Circle", line: "Line", arch: "Arch" }[l.shape];
 }
 

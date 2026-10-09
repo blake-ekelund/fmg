@@ -11,8 +11,9 @@
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import { fillTokens, slideH, slideW, type CanvasSlide, type Layer, type TextLayer } from "./canvas";
+import { fillTokens, photoFilter, slideH, slideW, type CanvasSlide, type Layer, type TextLayer } from "./canvas";
 import { resolveVariant } from "./fonts";
+import { stickerPath } from "./stickers";
 
 type Props = {
   slide: CanvasSlide;
@@ -138,8 +139,27 @@ export default function CanvasView({ slide, index, total, textureSrc, editing }:
                 alt=""
                 width={l.w - l.borderWidth * 2}
                 height={l.h - l.borderWidth * 2}
-                style={{ width: l.w - l.borderWidth * 2, height: l.h - l.borderWidth * 2, objectFit: l.fit }}
+                style={clean({
+                  width: l.w - l.borderWidth * 2,
+                  height: l.h - l.borderWidth * 2,
+                  objectFit: l.fit,
+                  // Adjustments: live CSS in the editor. The server bakes them into the
+                  // pixels first and passes a plain layer, so none of these apply there.
+                  objectPosition: l.focusX != null || l.focusY != null ? `${(l.focusX ?? 0.5) * 100}% ${(l.focusY ?? 0.5) * 100}%` : undefined,
+                  filter: photoFilter(l),
+                  transform: l.flipX || l.flipY ? `scale(${l.flipX ? -1 : 1}, ${l.flipY ? -1 : 1})` : undefined,
+                })}
               />
+            </div>
+          );
+        }
+
+        if (l.type === "sticker") {
+          return (
+            <div key={l.id} data-layer-id={l.id} style={box(l, { height: l.h, display: "flex" })}>
+              <svg width={l.w} height={l.h} viewBox="0 0 100 100" preserveAspectRatio="none">
+                <path d={stickerPath(l.sticker)} fill={l.color} />
+              </svg>
             </div>
           );
         }

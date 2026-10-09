@@ -196,8 +196,8 @@ export default function CanvasStage(p: Props) {
       } else {
         h = o.h;
       }
-    } else if (corner && (o.type === "image" || e.shiftKey)) {
-      // Images keep their shape from the corners (Shift does it for shapes).
+    } else if (corner && (o.type === "image" || o.type === "sticker" || e.shiftKey)) {
+      // Photos and stickers keep their shape from the corners (Shift does it for shapes).
       h = w * drag.ratio;
     }
     w = Math.round(w);

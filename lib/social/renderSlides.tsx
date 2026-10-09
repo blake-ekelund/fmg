@@ -20,7 +20,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import SlideView from "./SlideView";
 import CanvasView from "./CanvasView";
 import { isCanvas, SLIDE_FONTS, SLIDE_H, SLIDE_W, slideHash, type DesignSlide, type PostDesign, type Slide } from "./design";
-import { fontsUsed, type CanvasSlide, type ImageLayer, type Layer } from "./canvas";
+import { fontsUsed, hasPhotoAdjust, type CanvasSlide, type ImageLayer, type Layer, type PhotoAdjust } from "./canvas";
 import { fontById } from "./fonts";
 import { SOCIAL_BUCKET, type SocialBrand, type SocialMedia } from "./types";
 
@@ -199,43 +199,104 @@ function original(url: string, cache: Map<string, string>) {
   return p;
 }
 
+/** The layer without its adjustment fields (the server output has them baked in). */
+function plainPhoto(l: ImageLayer): ImageLayer {
+  const { brightness, contrast, saturation, grayscale, blur, flipX, flipY, focusX, focusY, ...rest } = l;
+  void [brightness, contrast, saturation, grayscale, blur, flipX, flipY, focusX, focusY];
+  return rest;
+}
+
+/** Apply brightness → contrast → saturation → black & white → blur, matching the CSS filter order. */
+function adjustPixels(img: sharp.Sharp, a: PhotoAdjust, pxPerSlidePx: number): sharp.Sharp {
+  const b = 1 + (a.brightness ?? 0) / 100;
+  const k = 1 + (a.contrast ?? 0) / 100;
+  // CSS brightness(b) then contrast(k):  out = (in·b − 128)·k + 128
+  if (b !== 1 || k !== 1) img = img.linear(b * k, 128 * (1 - k));
+  if (a.saturation) img = img.modulate({ saturation: Math.max(0, 1 + a.saturation / 100) });
+  if (a.grayscale) img = img.grayscale();
+  if (a.blur) img = img.blur(Math.max(0.3, a.blur * pxPerSlidePx));
+  return img;
+}
+
 /**
- * A photo layer that spills past the slide or is drawn bigger than the 1600px
- * cap: crop the original to just the visible part (after cover/contain
- * fitting) at the size it's shown. Rotated or rounded/bordered photos keep the
- * simple path (their shape depends on the whole box). Null = nothing visible.
+ * Photo layers are drawn from the original when they need it: when they spill
+ * past the slide or are bigger than the 1600px cap (cut to just the visible
+ * part, at full resolution — grid pictures stay sharp), and when they have
+ * adjustments, a flip or a moved focus (baked into the pixels, since the
+ * server renderer can't do CSS filters). Rotated / rounded / bordered photos
+ * keep their whole box so their shape is right. Null = nothing visible.
  */
 async function croppedLayer(l: ImageLayer, cache: Map<string, string>): Promise<ImageLayer | null> {
   const spills = l.x < 0 || l.y < 0 || l.x + l.w > SLIDE_W || l.y + l.h > SLIDE_H;
   const big = l.w > 1600 || l.h > 1600;
-  if ((!spills && !big) || l.rotation || l.radius || l.borderWidth) return { ...l, src: await inlineImage(l.src, cache) };
+  const adjusted = hasPhotoAdjust(l);
+  if (!spills && !big && !adjusted) return { ...l, src: await inlineImage(l.src, cache) };
   const img = await original(l.src, cache);
-  if (!img) return { ...l, src: "" };
+  if (!img) return { ...plainPhoto(l), src: "" };
 
-  // Where the whole image is drawn (object-fit inside the layer box)…
-  const s = l.fit === "contain" ? Math.min(l.w / img.width, l.h / img.height) : Math.max(l.w / img.width, l.h / img.height);
+  const clip = !l.rotation && !l.radius && !l.borderWidth;
+  const bw = l.borderWidth;
+  const box = { x: l.x + bw, y: l.y + bw, w: Math.max(1, l.w - bw * 2), h: Math.max(1, l.h - bw * 2) };
+
+  // Where the whole image is drawn in the box (object-fit + object-position),
+  // then mirrored around the box centre for a flip.
+  const s = l.fit === "contain" ? Math.min(box.w / img.width, box.h / img.height) : Math.max(box.w / img.width, box.h / img.height);
   const dw = img.width * s;
   const dh = img.height * s;
-  const ox = l.x + (l.w - dw) / 2;
-  const oy = l.y + (l.h - dh) / 2;
-  // …and the part of it inside both the layer box (cover crops to it) and the slide.
-  const x0 = Math.max(0, l.x, ox);
-  const y0 = Math.max(0, l.y, oy);
-  const x1 = Math.min(SLIDE_W, l.x + l.w, ox + dw);
-  const y1 = Math.min(SLIDE_H, l.y + l.h, oy + dh);
-  const outW = Math.round(x1 - x0);
-  const outH = Math.round(y1 - y0);
-  if (outW < 1 || outH < 1) return null;
+  let ox = box.x + (box.w - dw) * (l.focusX ?? 0.5);
+  let oy = box.y + (box.h - dh) * (l.focusY ?? 0.5);
+  if (l.flipX) ox = 2 * box.x + box.w - ox - dw;
+  if (l.flipY) oy = 2 * box.y + box.h - oy - dh;
 
+  // The visible part: inside the box, the drawn image and (when clipping) the slide.
+  const x0 = Math.max(box.x, ox, clip ? 0 : -Infinity);
+  const y0 = Math.max(box.y, oy, clip ? 0 : -Infinity);
+  const x1 = Math.min(box.x + box.w, ox + dw, clip ? SLIDE_W : Infinity);
+  const y1 = Math.min(box.y + box.h, oy + dh, clip ? SLIDE_H : Infinity);
+  if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+
+  // Unclipped boxes can be huge (a rotated grid photo) — cap the output size.
+  const cap = Math.min(1, 2400 / Math.max(x1 - x0, y1 - y0));
+  const outW = Math.max(1, Math.round((x1 - x0) * cap));
+  const outH = Math.max(1, Math.round((y1 - y0) * cap));
+
+  // Source rectangle in the (flipped) original.
+  let base = sharp(img.data);
+  if (l.flipX) base = base.flop();
+  if (l.flipY) base = base.flip();
   const left = Math.max(0, Math.min(img.width - 1, Math.round((x0 - ox) / s)));
   const top = Math.max(0, Math.min(img.height - 1, Math.round((y0 - oy) / s)));
   const width = Math.max(1, Math.min(img.width - left, Math.round((x1 - x0) / s)));
   const height = Math.max(1, Math.min(img.height - top, Math.round((y1 - y0) / s)));
-  const piece = sharp(img.data).extract({ left, top, width, height }).resize(outW, outH, { fit: "fill" });
-  const src = img.alpha
+  const flat = await base.extract({ left, top, width, height }).toBuffer();
+  let piece = adjustPixels(sharp(flat).resize(outW, outH, { fit: "fill" }), l, outW / (x1 - x0));
+
+  let alpha = img.alpha;
+  let at = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  if (!clip) {
+    // Keep the whole box (rotation / rounding / border depend on it): place the
+    // visible part on a transparent canvas the size of the box.
+    const bwOut = Math.max(1, Math.round(box.w * cap));
+    const bhOut = Math.max(1, Math.round(box.h * cap));
+    const partBuf = await piece.png().toBuffer();
+    piece = sharp({ create: { width: bwOut, height: bhOut, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite([
+      { input: partBuf, left: Math.round((x0 - box.x) * cap), top: Math.round((y0 - box.y) * cap) },
+    ]);
+    alpha = true;
+    at = { x: l.x, y: l.y, w: l.w, h: l.h };
+  }
+  const src = alpha
     ? `data:image/png;base64,${(await piece.png({ compressionLevel: 6 }).toBuffer()).toString("base64")}`
     : `data:image/jpeg;base64,${(await piece.jpeg({ quality: 90 }).toBuffer()).toString("base64")}`;
-  return { ...l, src, x: Math.round(x0), y: Math.round(y0), w: outW, h: outH, fit: "cover" };
+  return {
+    ...plainPhoto(l),
+    src,
+    x: Math.round(at.x),
+    y: Math.round(at.y),
+    w: Math.round(at.w),
+    h: Math.round(at.h),
+    fit: "cover",
+  };
 }
 
 async function renderCanvasJpeg(slide: CanvasSlide, index: number, total: number, cache: Map<string, string>): Promise<Buffer> {

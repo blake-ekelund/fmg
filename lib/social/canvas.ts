@@ -15,6 +15,7 @@
  */
 
 import { FONT_FAMILIES } from "./fonts";
+import { isStickerId, type StickerId } from "./stickers";
 import { SLIDE_H, SLIDE_THEMES, SLIDE_W } from "./theme";
 import type { SocialBrand } from "./types";
 
@@ -83,7 +84,44 @@ export type ImageLayer = LayerBase & {
   radius: number;
   borderWidth: number;
   borderColor: string;
+} & PhotoAdjust;
+
+/**
+ * Photo adjustments. All optional; unset = untouched. The editor shows them
+ * with CSS (photoFilter / photoTransform); the server applies the same maths
+ * to the pixels with sharp (lib/social/renderSlides.tsx), so they match.
+ */
+export type PhotoAdjust = {
+  /** -100…100 (CSS brightness 0…2). */
+  brightness?: number;
+  /** -100…100 (CSS contrast 0…2). */
+  contrast?: number;
+  /** -100…100 (CSS saturate 0…2). */
+  saturation?: number;
+  grayscale?: boolean;
+  /** Blur radius in slide pixels, 0…40. */
+  blur?: number;
+  flipX?: boolean;
+  flipY?: boolean;
+  /** Which part of the photo stays in frame: 0 = left/top, 1 = right/bottom (CSS object-position). */
+  focusX?: number;
+  focusY?: number;
 };
+
+export function hasPhotoAdjust(l: PhotoAdjust): boolean {
+  return !!(l.brightness || l.contrast || l.saturation || l.grayscale || l.blur || l.flipX || l.flipY) || (l.focusX ?? 0.5) !== 0.5 || (l.focusY ?? 0.5) !== 0.5;
+}
+
+/** CSS filter for the editor preview (the server bakes the same into the pixels). */
+export function photoFilter(l: PhotoAdjust): string | undefined {
+  const parts: string[] = [];
+  if (l.brightness) parts.push(`brightness(${1 + l.brightness / 100})`);
+  if (l.contrast) parts.push(`contrast(${1 + l.contrast / 100})`);
+  if (l.saturation) parts.push(`saturate(${1 + l.saturation / 100})`);
+  if (l.grayscale) parts.push("grayscale(1)");
+  if (l.blur) parts.push(`blur(${l.blur}px)`);
+  return parts.length ? parts.join(" ") : undefined;
+}
 
 export type ShapeKind = "rect" | "ellipse" | "line" | "arch";
 
@@ -98,7 +136,14 @@ export type ShapeLayer = LayerBase & {
   radius: number;
 };
 
-export type Layer = TextLayer | ImageLayer | ShapeLayer;
+/** A sticker (lib/social/stickers.ts): one filled SVG shape in any colour. */
+export type StickerLayer = LayerBase & {
+  type: "sticker";
+  sticker: StickerId;
+  color: string;
+};
+
+export type Layer = TextLayer | ImageLayer | ShapeLayer | StickerLayer;
 
 export type CanvasSlide = {
   id: string;
@@ -215,6 +260,16 @@ export function newImageLayer(src: string, natural?: { w: number; h: number }): 
   };
 }
 
+export function newStickerLayer(brand: SocialBrand, sticker: StickerId): StickerLayer {
+  const size = 300;
+  return {
+    ...base("Sticker", Math.round((CANVAS_W - size) / 2), Math.round((CANVAS_H - size) / 2), size, size),
+    type: "sticker",
+    sticker,
+    color: SLIDE_THEMES[brand].tones.light.accent,
+  };
+}
+
 export function newShapeLayer(brand: SocialBrand, shape: ShapeKind): ShapeLayer {
   const accent = SLIDE_THEMES[brand].tones.light.accent;
   const dims = { rect: [520, 520], ellipse: [480, 480], line: [400, 6], arch: [560, 760] }[shape];
@@ -246,6 +301,28 @@ const url = (v: unknown) => (typeof v === "string" && /^https:\/\//i.test(v.trim
 const bool = (v: unknown) => v === true;
 const gradientCss = (v: unknown) =>
   typeof v === "string" && /^linear-gradient\([#\w\s.,%()-]+\)$/i.test(v) && v.length < 400 ? v : null;
+
+/** Only the adjustments that are actually set (keeps saved layers small). */
+function normAdjust(r: Record<string, unknown>): PhotoAdjust {
+  const out: PhotoAdjust = {};
+  const pct = (k: "brightness" | "contrast" | "saturation") => {
+    const v = num(r[k], 0, -100, 100);
+    if (v) out[k] = Math.round(v);
+  };
+  pct("brightness");
+  pct("contrast");
+  pct("saturation");
+  if (bool(r.grayscale)) out.grayscale = true;
+  const blur = num(r.blur, 0, 0, 40);
+  if (blur) out.blur = blur;
+  if (bool(r.flipX)) out.flipX = true;
+  if (bool(r.flipY)) out.flipY = true;
+  const fx = num(r.focusX, 0.5, 0, 1);
+  const fy = num(r.focusY, 0.5, 0, 1);
+  if (fx !== 0.5) out.focusX = fx;
+  if (fy !== 0.5) out.focusY = fy;
+  return out;
+}
 
 function normLayer(raw: unknown, seen: Set<string>): Layer | null {
   if (!raw || typeof raw !== "object") return null;
@@ -296,6 +373,7 @@ function normLayer(raw: unknown, seen: Set<string>): Layer | null {
       radius: num(r.radius, 0, 0, 2000),
       borderWidth: num(r.borderWidth, 0, 0, 100),
       borderColor: color(r.borderColor, "#FFFFFF"),
+      ...normAdjust(r),
     };
   }
   if (r.type === "shape") {
@@ -310,6 +388,10 @@ function normLayer(raw: unknown, seen: Set<string>): Layer | null {
       stroke: color(r.stroke, "#000000"),
       radius: num(r.radius, 0, 0, 2000),
     };
+  }
+  if (r.type === "sticker") {
+    if (!isStickerId(r.sticker)) return null;
+    return { ...b, type: "sticker", sticker: r.sticker, color: color(r.color, "#1A1A1A") };
   }
   return null;
 }

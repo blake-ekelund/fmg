@@ -27,6 +27,7 @@ import {
   newImageLayer,
   newLayerId,
   newShapeLayer,
+  newStickerLayer,
   newTextLayer,
   type CanvasBackground,
   type CanvasSlide,
@@ -39,6 +40,8 @@ import {
 } from "@/lib/social/canvas";
 import { LAYOUTS, type SlideLayout } from "@/lib/social/design";
 import { placeTextStyle, TEXT_STYLES, type TextStyleId } from "@/lib/social/textStyles";
+import { brandAssetUrl, brandLogos, brandMarks, type BrandAsset } from "@/lib/social/brandAssets";
+import { STICKERS, type StickerId } from "@/lib/social/stickers";
 import type { SocialBrand } from "@/lib/social/types";
 import CanvasStage from "./CanvasStage";
 import CanvasInspector, { type ImageTarget, type LayerAction } from "./CanvasInspector";
@@ -148,6 +151,15 @@ export default function CanvasEditor(p: Props) {
   function addShape(kind: ShapeKind) {
     add(newShapeLayer(p.brand, kind));
   }
+  function addSticker(id: StickerId) {
+    add(newStickerLayer(p.brand, id));
+  }
+  /** A logo or character mark: a photo layer at its own shape, sized to read well. */
+  function addAsset(a: BrandAsset, kind: "logo" | "mark") {
+    const w = kind === "logo" ? (a.w / a.h > 6 ? 760 : 520) : 300;
+    const layer = newImageLayer(brandAssetUrl(a), { w: a.w, h: a.h });
+    add({ ...layer, name: kind === "logo" ? "Logo" : a.label, w, h: Math.round((w * a.h) / a.w), fit: "contain" });
+  }
   function addPhoto(source: "library" | "product") {
     p.requestImage(source, async (url) => add(newImageLayer(url, await naturalSize(url))));
   }
@@ -254,6 +266,9 @@ export default function CanvasEditor(p: Props) {
               canAddSlide={p.canAddSlide}
               onText={addText}
               onStyle={addStyle}
+              brand={p.brand}
+              onSticker={addSticker}
+              onAsset={addAsset}
               onPhoto={addPhoto}
               onShape={addShape}
               onSlide={p.onAddSlide}
@@ -350,6 +365,9 @@ function AddMenu({
   canAddSlide,
   onText,
   onStyle,
+  brand,
+  onSticker,
+  onAsset,
   onPhoto,
   onShape,
   onSlide,
@@ -359,6 +377,9 @@ function AddMenu({
   canAddSlide: boolean;
   onText: (p: TextPreset) => void;
   onStyle: (id: TextStyleId) => void;
+  brand: SocialBrand;
+  onSticker: (id: StickerId) => void;
+  onAsset: (a: BrandAsset, kind: "logo" | "mark") => void;
   onPhoto: (s: "library" | "product") => void;
   onShape: (k: ShapeKind) => void;
   onSlide: (l: SlideLayout | "blank") => void;
@@ -399,7 +420,7 @@ function AddMenu({
         <ChevronDown size={14} className="text-white/60" />
       </button>
       {open && (
-        <div className="absolute left-1/2 z-40 mt-2 w-[340px] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl">
+        <div className="absolute left-1/2 z-40 mt-2 w-[340px] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white max-h-[70vh] overflow-y-auto p-3 shadow-2xl">
           <MenuHeading>Text</MenuHeading>
           <div className="grid grid-cols-4 gap-1.5">
             <Tile icon={<Heading1 size={18} />} label="Heading" onClick={run(() => onText("heading"))} />
@@ -436,6 +457,58 @@ function AddMenu({
             <div className="grid grid-cols-2 gap-1.5">
               <Tile icon={<ImageIcon size={18} />} label="From the library" onClick={run(() => onPhoto("library"))} />
               <Tile icon={<Package size={18} />} label="Product photo" onClick={run(() => onPhoto("product"))} />
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <MenuHeading>Logos & stickers</MenuHeading>
+            <div className="grid grid-cols-3 gap-1.5">
+              {brandLogos(brand).map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  title={`Logo — ${a.label}`}
+                  onClick={run(() => onAsset(a, "logo"))}
+                  className={clsx(
+                    "flex h-12 items-center justify-center rounded-lg border border-gray-100 px-2 hover:border-violet-200",
+                    a.light ? "bg-gray-700" : "bg-white hover:bg-violet-50",
+                  )}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={brandAssetUrl(a)} alt={`Logo — ${a.label}`} className="max-h-8 max-w-full object-contain" />
+                </button>
+              ))}
+            </div>
+            {brandMarks(brand).length > 0 && (
+              <div className="mt-1.5 grid grid-cols-6 gap-1">
+                {brandMarks(brand).map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    title={a.label}
+                    onClick={run(() => onAsset(a, "mark"))}
+                    className="flex aspect-square items-center justify-center rounded-lg border border-gray-100 p-1 hover:border-violet-200 hover:bg-violet-50"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={brandAssetUrl(a)} alt={a.label} className="max-h-full max-w-full object-contain" />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="mt-1.5 grid grid-cols-8 gap-1">
+              {STICKERS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  title={s.label}
+                  onClick={run(() => onSticker(s.id))}
+                  className="flex aspect-square items-center justify-center rounded-lg border border-gray-100 p-1 text-gray-700 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                >
+                  <svg viewBox="0 0 100 100" className="h-full w-full">
+                    <path d={s.d} fill="currentColor" />
+                  </svg>
+                </button>
+              ))}
             </div>
           </div>
 
