@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import TopBar from "@/components/TopBar";
+import Toaster from "@/components/ui/Toaster";
 import { useUser } from "@/components/UserContext";
 import { getAllowedPaths, getDefaultRoute } from "@/components/navConfig";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -123,6 +124,7 @@ export default function LayoutShell({
 
         <main className="flex-1">{children}</main>
       </div>
+      <Toaster />
     </div>
   );
 }

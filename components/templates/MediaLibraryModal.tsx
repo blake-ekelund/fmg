@@ -17,6 +17,8 @@ type Props = {
   uploader?: (file: File, folder: string) => Promise<{ url: string } | { error: string }>;
   /** Kept for callers; the embedded library has its own empty states. */
   emptyHint?: string;
+  /** Opened from another modal — sit above it. */
+  stacked?: boolean;
 };
 
 /**
@@ -30,7 +32,7 @@ export default function MediaLibraryModal(props: Props) {
   return props.open ? <Picker {...props} /> : null;
 }
 
-function Picker({ onClose, onSelect, inbox = "email-uploads", uploader }: Props) {
+function Picker({ onClose, onSelect, inbox = "email-uploads", uploader, stacked }: Props) {
   const [tab, setTab] = useState<"library" | "unsplash">("library");
   const [query, setQuery] = useState("");
 
@@ -42,7 +44,7 @@ function Picker({ onClose, onSelect, inbox = "email-uploads", uploader }: Props)
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm"
+      className={`fixed inset-0 ${stacked ? "z-[70]" : "z-[60]"} flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm`}
       onClick={onClose}
     >
       <div

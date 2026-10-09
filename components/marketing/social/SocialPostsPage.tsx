@@ -17,6 +17,7 @@ import {
 import { getSocialStatus, listSocialPosts } from "./api";
 import FeedPreview from "./FeedPreview";
 import GridPlanner from "./GridPlanner";
+import { onOpenRequest, onPostsChanged } from "./gridJobs";
 import NewSocialWizard from "./NewSocialWizard";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { SocialStatusPill } from "./bits";
@@ -72,7 +73,8 @@ export default function SocialPostsPage() {
     window.history.replaceState(null, "", window.location.pathname);
   }, []);
   const [feed, setFeed] = useState<{ brand: SocialBrand; drafts: boolean } | null>(null);
-  const [plannerOpen, setPlannerOpen] = useState(false);
+  // Open = { jobId }; a toast's button reopens the planner on its background job.
+  const [planner, setPlanner] = useState<{ jobId: string | null } | null>(null);
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -92,6 +94,20 @@ export default function SocialPostsPage() {
     load();
     getSocialStatus().then(setConn).catch(() => setConn(null));
   }, [load]);
+
+  // Background grid jobs: reload when they create / schedule posts; toasts open the planner or preview.
+  useEffect(() => onPostsChanged(() => void load()), [load]);
+  useEffect(
+    () =>
+      onOpenRequest((r) => {
+        if (r.kind === "job") setPlanner({ jobId: r.id });
+        else {
+          setPlanner(null);
+          setFeed({ brand: r.brand, drafts: false });
+        }
+      }),
+    [],
+  );
 
   // While anything is publishing, refresh so reels flip to Posted on their own.
   const anyPublishing = posts.some((p) => p.status === "publishing");
@@ -137,7 +153,7 @@ export default function SocialPostsPage() {
           Preview grid
         </button>
         <button
-          onClick={() => setPlannerOpen(true)}
+          onClick={() => setPlanner({ jobId: null })}
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
         >
           <LayoutGrid size={14} />
@@ -192,15 +208,16 @@ export default function SocialPostsPage() {
         />
       )}
 
-      {plannerOpen && (
+      {planner && (
         <GridPlanner
+          key={planner.jobId ?? "new"}
           posts={posts}
           defaultBrand={defaultBrand}
           connected={connected}
-          onClose={() => setPlannerOpen(false)}
-          onChanged={load}
+          resumeJobId={planner.jobId}
+          onClose={() => setPlanner(null)}
           onOpenPreview={(b) => {
-            setPlannerOpen(false);
+            setPlanner(null);
             setFeed({ brand: b, drafts: true });
           }}
         />

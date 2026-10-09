@@ -1,7 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ImagePlus, ZoomIn } from "lucide-react";
+import { ImagePlus, Images, Loader2, ZoomIn } from "lucide-react";
+import MediaLibraryModal from "@/components/templates/MediaLibraryModal";
+import { uploadSocialImage } from "./api";
 import { MOSAIC_BLEED, MOSAIC_VISIBLE_W, mosaicSize, mosaicSlice, type GridRows } from "@/lib/social/gridPlan";
 
 /**
@@ -68,6 +70,24 @@ export async function loadPicture(file: File): Promise<Loaded> {
   return { img, w: img.naturalWidth, h: img.naturalHeight, name: file.name };
 }
 
+/**
+ * A picture from our Image Library / product photos / brand photography.
+ * Loaded with CORS so it can be cut up on a canvas (Supabase storage and
+ * Unsplash both allow it). Unsplash picks come at 1600px — ask for 3200.
+ */
+export async function loadPictureFromUrl(url: string): Promise<Loaded> {
+  const big = /images.unsplash.com/.test(url) ? url.replace(/([?&])w=d+/, "$1w=3200") : url;
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.src = big;
+  try {
+    await img.decode();
+  } catch {
+    throw new Error("Couldn't load that picture. Try another, or upload it from your computer.");
+  }
+  return { img, w: img.naturalWidth, h: img.naturalHeight, name: decodeURIComponent(big.split("?")[0].split("/").pop() ?? "picture") };
+}
+
 export type { Loaded as LoadedPicture };
 
 export default function MosaicCropper({
@@ -84,6 +104,8 @@ export default function MosaicCropper({
   onCrop: (c: Crop) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [library, setLibrary] = useState(false);
+  const [loading, setLoading] = useState(false);
   const drag = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -92,21 +114,49 @@ export default function MosaicCropper({
   const frameH = Math.round((FRAME_W * fh) / fw);
   const px = FRAME_W / fw; // frame px per post px
 
-  async function pick(file: File | undefined) {
-    if (!file) return;
+  async function applyPicture(load: Promise<Loaded>) {
     setError(null);
+    setLoading(true);
     try {
-      const p = await loadPicture(file);
+      const p = await load;
       onPicture(p);
       onCrop({ zoom: 1, cx: p.w / 2, cy: p.h / 2 });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't open that picture.");
+    } finally {
+      setLoading(false);
     }
   }
+  const pick = (file: File | undefined) => (file ? applyPicture(loadPicture(file)) : undefined);
+
+  const libraryModal = (
+    <MediaLibraryModal
+      open={library}
+      stacked
+      onClose={() => setLibrary(false)}
+      onSelect={(url) => {
+        setLibrary(false);
+        void applyPicture(loadPictureFromUrl(url));
+      }}
+      inbox="social-uploads"
+      uploader={uploadSocialImage}
+    />
+  );
 
   if (!picture) {
     return (
-      <div>
+      <div className="space-y-2">
+        <button
+          onClick={() => setLibrary(true)}
+          disabled={loading}
+          className="flex w-full items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 text-left text-sm hover:border-gray-300 hover:bg-gray-50 disabled:opacity-60"
+        >
+          <span className="rounded-lg bg-gray-900 p-2 text-white">{loading ? <Loader2 size={16} className="animate-spin" /> : <Images size={16} />}</span>
+          <span>
+            <span className="block font-medium text-gray-900">Choose from our images</span>
+            <span className="block text-xs text-gray-500">The Image Library, product photos and our brand photography</span>
+          </span>
+        </button>
         <button
           onClick={() => fileRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
@@ -117,11 +167,12 @@ export default function MosaicCropper({
           className="flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed border-gray-300 px-6 py-10 text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50"
         >
           <ImagePlus size={26} className="text-gray-400" />
-          <span className="font-medium text-gray-800">Choose a picture, or drop it here</span>
+          <span className="font-medium text-gray-800">Or upload one from your computer (or drop it here)</span>
           <span className="text-xs">A big, sharp photo works best — at least 3000 px wide.</span>
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        {libraryModal}
       </div>
     );
   }
@@ -188,9 +239,15 @@ export default function MosaicCropper({
             This picture is small for {rows * 3} posts — each one will look a little soft. A larger photo (or less zoom) is sharper.
           </p>
         )}
-        <button onClick={() => fileRef.current?.click()} className="text-xs font-medium text-gray-600 underline-offset-2 hover:underline">
-          Use a different picture
-        </button>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium text-gray-600">
+          <button onClick={() => setLibrary(true)} className="underline-offset-2 hover:underline">
+            {loading ? "Loading…" : "Choose another from our images"}
+          </button>
+          <button onClick={() => fileRef.current?.click()} className="underline-offset-2 hover:underline">
+            Upload a different one
+          </button>
+        </div>
+        {libraryModal}
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0])} />
         {error && <p className="text-xs text-red-600">{error}</p>}
       </div>

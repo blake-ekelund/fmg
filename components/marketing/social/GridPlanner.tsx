@@ -22,29 +22,36 @@ import {
   GRID_ROWS,
   gridChapters,
   gridPosition,
-  gridSchedule,
   gridSlots,
   type GridDraft,
   type GridPitch,
   type GridRows,
 } from "@/lib/social/gridPlan";
 import { blankCanvas } from "@/lib/social/canvas";
-import { compileCaption, isCanvas, SLIDE_H, SLIDE_W } from "@/lib/social/design";
-import type { SocialBrand, SocialPlatform, SocialPost } from "@/lib/social/types";
+import { compileCaption, SLIDE_H, SLIDE_W } from "@/lib/social/design";
+import type { SocialBrand, SocialPost } from "@/lib/social/types";
 import {
-  createSocialPost,
   generateGridSet,
   listBlogPostsForSocial,
   listSocialCollections,
   pitchGridThemes,
-  updateSocialPost,
-  uploadSocialImage,
   writeMosaicCaptions,
   type BlogOption,
   type CollectionOption,
 } from "./api";
 import MosaicCropper, { overviewJpeg, slicePicture, type Crop, type LoadedPicture } from "./MosaicCropper";
 import SlidePreview from "./SlidePreview";
+import {
+  BURST_MINUTES,
+  leaveGridJob,
+  planDates,
+  saveGridJob,
+  scheduleGridJob,
+  startGridWrite,
+  useGridJob,
+  watchGridJob,
+  type GridConfig,
+} from "./gridJobs";
 
 /**
  * Plan a grid set — 6, 9 or 12 Instagram posts (2, 3 or 4 whole rows) that
@@ -57,12 +64,14 @@ import SlidePreview from "./SlidePreview";
  *                  whole; Claude looks at it and writes the captions.
  *
  * The team sees the finished block as it will sit on the profile, saves the
- * posts as dated drafts and can schedule them all in one go.
+ * posts as dated drafts and can schedule them all in one go. Writing, saving
+ * and scheduling run as background jobs (./gridJobs.ts): close the planner
+ * and keep working — a toast says when it's done and reopens it.
  */
 
-type Step = "setup" | "writing" | "review" | "saving" | "done";
-type Kind = "story" | "picture";
-type About = "idea" | "blog" | "collection";
+type Step = "setup" | "writing" | "review" | "done";
+type Kind = GridConfig["kind"];
+type About = GridConfig["about"];
 
 const BRAND_NAME: Record<SocialBrand, string> = { NI: "Natural Inspirations", Sassy: "Sassy" };
 const SIZE_COPY: Record<GridRows, { weeks: string; use: string }> = {
@@ -70,8 +79,6 @@ const SIZE_COPY: Record<GridRows, { weeks: string; use: string }> = {
   3: { weeks: "About 2 weeks", use: "Your regular story" },
   4: { weeks: "About 2½ weeks", use: "Big moments — holiday gifting, a launch" },
 };
-/** One-picture sets posted "all at once" go out this far apart (in order). */
-const BURST_MINUTES = 10;
 
 const TILE = 150;
 const TILE_H = Math.round((TILE * 4) / 3);
@@ -87,42 +94,61 @@ type Props = {
   /** Brands whose Instagram is connected (posting actually works). */
   connected: Partial<Record<SocialBrand, boolean>>;
   onClose: () => void;
-  /** Posts were created or scheduled — reload the list. */
-  onChanged: () => void;
   onOpenPreview: (brand: SocialBrand) => void;
+  /** Reopen on this job (from a toast). */
+  resumeJobId?: string | null;
 };
 
-export default function GridPlanner({ posts, defaultBrand, connected, onClose, onChanged, onOpenPreview }: Props) {
-  const [step, setStep] = useState<Step>("setup");
-  const [kind, setKind] = useState<Kind>("story");
-  const [brand, setBrand] = useState<SocialBrand>(defaultBrand);
-  const [rows, setRows] = useState<GridRows>(3);
-  const [about, setAbout] = useState<About>("idea");
-  const [blogId, setBlogId] = useState<string | null>(null);
-  const [collection, setCollection] = useState<string | null>(null);
+export default function GridPlanner({ posts, defaultBrand, connected, onClose, onOpenPreview, resumeJobId = null }: Props) {
+  const [jobId, setJobId] = useState<string | null>(resumeJobId);
+  const job = useGridJob(jobId);
+  // A resumed job brings back the choices it was made with.
+  const [initial] = useState(() => job?.config ?? null);
+  const [editing, setEditing] = useState(false);
+  const [kind, setKind] = useState<Kind>(initial?.kind ?? "story");
+  const [brand, setBrand] = useState<SocialBrand>(initial?.brand ?? defaultBrand);
+  const [rows, setRows] = useState<GridRows>(initial?.rows ?? 3);
+  const [about, setAbout] = useState<About>(initial?.about ?? "idea");
+  const [blogId, setBlogId] = useState<string | null>(initial?.blogId ?? null);
+  const [collection, setCollection] = useState<string | null>(initial?.collection ?? null);
   const [blogs, setBlogs] = useState<Partial<Record<SocialBrand, BlogOption[] | string>>>({});
   const [collections, setCollections] = useState<Partial<Record<SocialBrand, CollectionOption[] | string>>>({});
-  const [theme, setTheme] = useState("");
+  const [theme, setTheme] = useState(initial?.theme ?? "");
   const [ideas, setIdeas] = useState<GridPitch["themes"] | null>(null);
   const [pitching, setPitching] = useState(false);
   const [picture, setPicture] = useState<LoadedPicture | null>(null);
   const [crop, setCrop] = useState<Crop>({ zoom: 1, cx: 0, cy: 0 });
-  const [spread, setSpread] = useState(true);
-  const [pieces, setPieces] = useState<Blob[]>([]);
-  const [alsoFacebook, setAlsoFacebook] = useState(true);
-  const [time, setTime] = useState("10:00");
-  const [pickedDay, setPickedDay] = useState<string | null>(null);
-  const [draft, setDraft] = useState<GridDraft | null>(null);
-  const [draftKind, setDraftKind] = useState<Kind>("story");
-  const [selected, setSelected] = useState(0);
-  const [created, setCreated] = useState<SocialPost[]>([]);
-  const [progress, setProgress] = useState<string | null>(null);
-  const [scheduled, setScheduled] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [spread, setSpread] = useState(initial?.spread ?? true);
+  const [alsoFacebook, setAlsoFacebook] = useState(initial?.alsoFacebook ?? true);
+  const [time, setTime] = useState(initial?.time ?? "10:00");
+  const [pickedDay, setPickedDay] = useState<string | null>(initial?.startDay ?? null);
+  const [selected, setSelected] = useState((initial?.rows ?? 3) * 3 - 1);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => (jobId ? watchGridJob(jobId) : undefined), [jobId]);
+
+  const step: Step =
+    !job || editing || (job.status === "failed" && job.failedAt === "writing")
+      ? "setup"
+      : job.status === "writing"
+        ? "writing"
+        : job.status === "ready" || job.status === "saving" || job.status === "failed"
+          ? "review"
+          : "done";
+  const draft = job?.draft ?? null;
+  const draftKind: Kind = job?.config.kind ?? kind;
+  const created: SocialPost[] = job?.created ?? [];
+  const progress = job?.status === "saving" || job?.status === "scheduling" ? (job.progress ?? "Working…") : null;
+  const scheduled = job?.status === "scheduled";
+  const errors = job?.scheduleErrors ?? [];
+  const shownError = error ?? (job?.status === "failed" || job?.status === "saved" ? (job.error ?? null) : null);
+
+  function close() {
+    if (jobId && job?.status !== "scheduled") leaveGridJob(jobId);
+    onClose();
+  }
+
   const total = rows * 3;
-  const busy = step === "writing" || step === "saving" || pitching || progress !== null;
   const source = {
     blogId: about === "blog" ? blogId : null,
     collection: about === "collection" ? collection : null,
@@ -172,18 +198,16 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
   }, [upcoming]);
   const startDay = pickedDay ?? suggestedDay;
   const burst = kind === "picture" && !spread;
-  const dates = useMemo(() => {
-    if (!burst) return gridSchedule(total, startDay, time);
-    const [first] = gridSchedule(1, startDay, time);
-    return Array.from({ length: total }, (_, i) => new Date(first.getTime() + i * BURST_MINUTES * 60_000));
-  }, [burst, total, startDay, time]);
-  const clashes = upcoming.filter((d) => d >= dates[0] && d <= dates[dates.length - 1]);
+  const setupDates = useMemo(() => planDates({ rows, kind, spread, startDay, time }), [rows, kind, spread, startDay, time]);
+  // Once a set is written, its own plan decides the dates.
+  const dates = job && step !== "setup" ? planDates(job.config) : setupDates;
+  const clashes = upcoming.filter((d) => d >= setupDates[0] && d <= setupDates[setupDates.length - 1]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
+  });
 
   async function suggest() {
     setError(null);
@@ -198,115 +222,53 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
     }
   }
 
-  async function write() {
+  function write() {
     setError(null);
-    setStep("writing");
-    try {
-      if (kind === "story") {
-        const res = await generateGridSet({ brand, rows, theme: theme.trim(), startDay, ...source });
-        setDraft(res);
-        setDraftKind("story");
-        setPieces([]);
-        setSelected(res.posts.length - 1);
-      } else {
-        if (!picture) throw new Error("Choose a picture first.");
-        const blobs = await slicePicture(picture, rows, crop);
-        const res = await writeMosaicCaptions({
-          brand,
-          rows,
-          theme: theme.trim(),
-          startDay,
-          ...source,
-          image: overviewJpeg(picture, rows, crop),
-          spread,
-        });
-        const setId = `grid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-        // Previews use local copies of the pieces; they're uploaded on save.
-        pieces.forEach((b) => URL.revokeObjectURL(blobUrl(b)));
-        setPieces(blobs);
-        setDraft({
-          story: res.story,
-          posts: res.captions.map((c, i) => {
-            const slide = blankCanvas(brand);
-            slide.bg = { ...slide.bg, image: blobUrl(blobs[i]), imageOpacity: 1 };
-            return {
-              title: c.title,
-              role: `Piece ${i + 1}`,
-              chapter: "",
-              design: {
-                slides: [slide],
-                caption: c.caption,
-                grid: { id: setId, story: res.story.title, slot: i + 1, size: blobs.length, role: "Piece" },
-              },
-            };
-          }),
-        });
-        setDraftKind("picture");
-        setSelected(blobs.length - 1);
-      }
-      setStep("review");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't write the set.");
-      setStep(draft ? "review" : "setup");
-    }
-  }
-
-  async function createDrafts() {
-    if (!draft) return;
-    setError(null);
-    setStep("saving");
-    const platforms: SocialPlatform[] = alsoFacebook ? ["instagram", "facebook"] : ["instagram"];
-    const out: SocialPost[] = [];
-    try {
-      for (let i = 0; i < draft.posts.length; i++) {
-        const p = draft.posts[i];
-        let design = p.design;
-        if (draftKind === "picture") {
-          setProgress(`Uploading piece ${i + 1} of ${draft.posts.length}…`);
-          const file = new File([pieces[i]], `${p.design.grid?.id ?? "grid"}-${i + 1}.jpg`, { type: "image/jpeg" });
-          const up = await uploadSocialImage(file, "social-grid");
-          if ("error" in up) throw new Error(up.error);
-          const s = design.slides[0];
-          if (isCanvas(s)) design = { ...design, slides: [{ ...s, bg: { ...s.bg, image: up.url } }] };
-        }
-        setProgress(`Creating post ${i + 1} of ${draft.posts.length}…`);
-        out.push(
-          await createSocialPost({
-            brand,
-            platforms,
-            title: p.title,
-            design,
-            scheduled_at: dates[i].toISOString(),
-          }),
-        );
-      }
-      setCreated(out);
-      setStep("done");
-    } catch (e) {
-      setCreated(out);
-      setError(`${e instanceof Error ? e.message : "Something went wrong."} ${out.length} of ${draft.posts.length} were created.`);
-      setStep(out.length ? "done" : "review");
-    } finally {
-      setProgress(null);
-      onChanged();
-    }
-  }
-
-  async function scheduleAll() {
-    setError(null);
-    const errs: string[] = [];
-    for (let i = 0; i < created.length; i++) {
-      setProgress(`Getting post ${i + 1} of ${created.length} ready…`);
-      try {
-        await updateSocialPost(created[i].id, { action: "schedule" });
-      } catch (e) {
-        errs.push(`Post ${i + 1} (${created[i].title || "untitled"}): ${e instanceof Error ? e.message : "failed"}`);
-      }
-    }
-    setErrors(errs);
-    setScheduled(true);
-    setProgress(null);
-    onChanged();
+    const config: GridConfig = {
+      brand,
+      rows,
+      kind,
+      startDay,
+      time,
+      spread,
+      alsoFacebook,
+      theme: theme.trim(),
+      about,
+      blogId: source.blogId,
+      collection: source.collection,
+    };
+    const input = { brand, rows, theme: config.theme, startDay, ...source };
+    const pic = picture;
+    const cropNow = crop;
+    const id = startGridWrite(config, async () => {
+      if (config.kind === "story") return { draft: await generateGridSet(input) };
+      if (!pic) throw new Error("Choose a picture first.");
+      const blobs = await slicePicture(pic, rows, cropNow);
+      const res = await writeMosaicCaptions({ ...input, image: overviewJpeg(pic, rows, cropNow), spread });
+      const setId = `grid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      // Previews use local copies of the pieces; they're uploaded on save.
+      const draft: GridDraft = {
+        story: res.story,
+        posts: res.captions.map((c, i) => {
+          const slide = blankCanvas(brand);
+          slide.bg = { ...slide.bg, image: blobUrl(blobs[i]), imageOpacity: 1 };
+          return {
+            title: c.title,
+            role: `Piece ${i + 1}`,
+            chapter: "",
+            design: {
+              slides: [slide],
+              caption: c.caption,
+              grid: { id: setId, story: res.story.title, slot: i + 1, size: blobs.length, role: "Piece" },
+            },
+          };
+        }),
+      };
+      return { draft, pieces: blobs };
+    });
+    setJobId(id);
+    setEditing(false);
+    setSelected(rows * 3 - 1);
   }
 
   const blogList = blogs[brand];
@@ -316,7 +278,7 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
   return (
     <div
       className="fixed inset-0 z-[65] flex items-start justify-center overflow-y-auto bg-gray-900/60 p-4 backdrop-blur-sm md:p-8"
-      onClick={() => !busy && onClose()}
+      onClick={close}
     >
       <div className="w-full max-w-5xl rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 border-b border-gray-200 px-6 py-4">
@@ -328,19 +290,18 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
             <p className="text-sm text-gray-500">A set of Instagram posts that land as one finished block on the profile.</p>
           </div>
           <button
-            onClick={onClose}
-            disabled={busy}
-            className="ml-auto rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-40"
+            onClick={close}
+            className="ml-auto rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             aria-label="Close"
           >
             <X size={20} />
           </button>
         </div>
 
-        {error && (
+        {shownError && (
           <div className="mx-6 mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-            {error}
+            {shownError}
           </div>
         )}
 
@@ -635,10 +596,13 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
                 ? "Claude is planning the arc, writing every slide and caption, and picking photos from our library. This takes a minute or two."
                 : "Claude is looking at the picture and writing a caption for each piece."}
             </p>
+            <button onClick={close} className="mt-3 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Keep working — tell me when it&apos;s ready
+            </button>
           </div>
         )}
 
-        {(step === "review" || step === "saving") && draft && (
+        {step === "review" && draft && (
           <Review
             draft={draft}
             kind={draftKind}
@@ -655,17 +619,19 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
                   </span>
                 ) : (
                   <>
-                    <button onClick={() => setStep("setup")} className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">
+                    <button onClick={() => setEditing(true)} className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">
                       Change the setup
                     </button>
                     <button
                       onClick={write}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      disabled={draftKind === "picture" && !picture}
+                      title={draftKind === "picture" && !picture ? "Change the setup and choose the picture again" : undefined}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
                     >
                       <RotateCcw size={14} /> {draftKind === "picture" ? "New captions" : "Write it again"}
                     </button>
                     <button
-                      onClick={createDrafts}
+                      onClick={() => jobId && saveGridJob(jobId)}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
                     >
                       <Check size={15} /> Save as {draft.posts.length} drafts
@@ -714,7 +680,7 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
                   <span className="text-sm text-amber-700">Scheduling is off until {BRAND_NAME[brand]}&apos;s Instagram is connected.</span>
                 ) : (
                   <button
-                    onClick={scheduleAll}
+                    onClick={() => jobId && scheduleGridJob(jobId)}
                     disabled={progress !== null}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
                   >
@@ -730,7 +696,7 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
                 <Grid3x3 size={15} /> See it in Preview grid
               </button>
               <button
-                onClick={onClose}
+                onClick={close}
                 disabled={progress !== null}
                 className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-60"
               >
