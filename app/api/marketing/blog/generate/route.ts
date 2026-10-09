@@ -12,7 +12,7 @@ import { trackUnsplashDownload } from "@/lib/unsplash";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-opus-5-5";
 const MAX_PROMPT_CHARS = 4000;
 
 /**
