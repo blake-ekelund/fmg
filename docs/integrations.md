@@ -265,6 +265,24 @@ Rate-limit / transient Graph errors retry on later ticks (up to 6 attempts).
 End states: `published`, `partial` (one platform failed — "Retry failed"
 re-attempts only that one), `failed`.
 
+**Designed posts (slide builder + AI).** "New post" opens a wizard (brand →
+platforms → designed carousel / single graphic / own photos → AI or blank).
+A designed post stores `social_posts.design` = `{ slides, caption }`
+(`lib/social/design.ts`): each slide is one of 7 brand-locked layouts
+(cover, photo, product, text, list, quote, cta) with a light/tint/bold tone —
+no free colours or fonts. The builder (`/marketing/social/[id]`) previews
+slides with `lib/social/SlideView.tsx`, and the server renders the SAME
+component to 1080×1350 JPEGs (`renderSlides.tsx`: next/og → sharp) into
+`social-media/slides/<post id>/<content hash>-<n>-<total>.jpg` on Schedule /
+Publish now (and again in the cron if the design changed). Fonts are TTFs in
+`public/fonts/social` (traced into the routes via `next.config.ts`). The
+caption is compiled from hook / body / CTA / hashtags. The AI
+(`/api/social/generate`, Claude Opus 5.5, ~9¢ a post) writes slides +
+caption in the brand voice and may only use images we hand it — the featured
+products' photos, the Image Library and the brand's Unsplash collection;
+any other URL is blanked (`checkDesignImages`). Migration
+`20261008010000_social_post_design.sql` adds `design` + `title`.
+
 **Auth.** One long-lived **System User token** from Meta Business Manager.
 Setup, once:
 1. Each brand's Instagram must be a **Business** (or Creator) account,

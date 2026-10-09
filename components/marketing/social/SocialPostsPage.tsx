@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Film, Images, Loader2, Plus, Share2 } from "lucide-react";
 import clsx from "clsx";
 import PageHeader from "@/components/ui/PageHeader";
@@ -14,7 +16,8 @@ import {
   type SocialPost,
 } from "@/lib/social/types";
 import { getSocialStatus, listSocialPosts } from "./api";
-import SocialPostEditor from "./SocialPostEditor";
+import NewSocialWizard from "./NewSocialWizard";
+import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { SocialStatusPill } from "./bits";
 
 /**
@@ -55,7 +58,8 @@ export default function SocialPostsPage() {
   const [hint, setHint] = useState<string | null>(null);
   const [bucket, setBucket] = useState<Bucket>("scheduled");
   const [conn, setConn] = useState<MetaConnectionStatus | null>(null);
-  const [editing, setEditing] = useState<SocialPost | "new" | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const router = useRouter();
 
   const load = useCallback(async () => {
     setError(null);
@@ -102,15 +106,12 @@ export default function SocialPostsPage() {
 
   const tabs = TABS.map((t) => ({ ...t, label: `${t.label} · ${counts[t.value]}` }));
 
-  function onChanged(p: SocialPost) {
-    setPosts((prev) => (prev.some((x) => x.id === p.id) ? prev.map((x) => (x.id === p.id ? p : x)) : [p, ...prev]));
-  }
-
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
+      <SlideFonts />
       <PageHeader subtitle="Write a post once and send it to the brand's Instagram and Facebook — right now, or at a time you pick. Scheduled posts go out within five minutes of their time.">
         <button
-          onClick={() => setEditing("new")}
+          onClick={() => setWizardOpen(true)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800"
         >
           <Plus size={14} />
@@ -143,35 +144,31 @@ export default function SocialPostsPage() {
       ) : (
         <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
           {rows.map((p) => (
-            <PostRow key={p.id} post={p} onOpen={() => setEditing(p)} />
+            <PostRow key={p.id} post={p} />
           ))}
         </div>
       )}
 
-      {editing && (
-        <SocialPostEditor
-          post={editing === "new" ? null : editing}
-          defaultBrand={(brand === "NI" ? "NI" : "Sassy") as SocialBrand}
-          connection={conn}
-          onClose={() => setEditing(null)}
-          onChanged={onChanged}
-          onDeleted={(id) => {
-            setPosts((prev) => prev.filter((x) => x.id !== id));
-            setEditing(null);
-          }}
+      {wizardOpen && (
+        <NewSocialWizard
+          defaultBrand={(brand === "Sassy" ? "Sassy" : "NI") as SocialBrand}
+          onClose={() => setWizardOpen(false)}
+          onCreated={(post) => router.push(`/marketing/social/${post.id}`)}
         />
       )}
     </div>
   );
 }
 
-function PostRow({ post: p, onOpen }: { post: SocialPost; onOpen: () => void }) {
+function PostRow({ post: p }: { post: SocialPost }) {
   const thumb = p.media[0];
   const when = p.status === "published" || p.status === "partial" ? p.published_at : p.scheduled_at;
   return (
-    <button onClick={onOpen} className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-gray-50/70">
+    <Link href={`/marketing/social/${p.id}`} className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-gray-50/70">
       <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-gray-100">
-        {thumb?.kind === "image" ? (
+        {p.design?.slides[0] && !thumb ? (
+          <SlidePreview slide={p.design.slides[0]} brand={p.brand} index={1} total={p.design.slides.length} width={56} />
+        ) : thumb?.kind === "image" ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={thumb.url} alt="" className="h-full w-full object-cover" />
         ) : thumb?.kind === "video" ? (
@@ -187,7 +184,9 @@ function PostRow({ post: p, onOpen }: { post: SocialPost; onOpen: () => void }) 
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-gray-900">{p.caption.trim() || <span className="text-gray-400">No caption</span>}</p>
+        <p className="truncate text-sm text-gray-900">
+          {p.title?.trim() || p.caption.trim() || <span className="text-gray-400">Untitled post</span>}
+        </p>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
           <BrandPill brand={p.brand} />
           <SocialStatusPill status={p.status} />
@@ -202,16 +201,19 @@ function PostRow({ post: p, onOpen }: { post: SocialPost; onOpen: () => void }) 
                 ) : null}
                 {PLATFORM_LABEL[pl]}
                 {r?.permalink && (
-                  <a
-                    href={r.permalink}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
+                  // A button, not a link — the whole row is already a link.
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      window.open(r.permalink, "_blank", "noopener,noreferrer");
+                    }}
                     className="text-gray-400 hover:text-gray-700"
                     aria-label={`Open on ${PLATFORM_LABEL[pl]}`}
                   >
                     <ExternalLink size={11} />
-                  </a>
+                  </button>
                 )}
               </span>
             );
@@ -232,7 +234,7 @@ function PostRow({ post: p, onOpen }: { post: SocialPost; onOpen: () => void }) 
           <span className="text-gray-400">No date</span>
         )}
       </div>
-    </button>
+    </Link>
   );
 }
 

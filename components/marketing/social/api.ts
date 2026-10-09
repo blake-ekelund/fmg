@@ -1,6 +1,7 @@
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { supabase } from "@/lib/supabaseClient";
-import { SOCIAL_BUCKET, type MetaConnectionStatus, type SocialPost } from "@/lib/social/types";
+import { SOCIAL_BUCKET, type MetaConnectionStatus, type SocialBrand, type SocialPlatform, type SocialPost } from "@/lib/social/types";
+import type { PostDesign } from "@/lib/social/design";
 
 /** Browser-side client for /api/social. Every call carries the session token. */
 
@@ -27,7 +28,9 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 }
 
 export type ListResult = { posts: SocialPost[]; notReady?: boolean; hint?: string };
-export type PostFields = Partial<Pick<SocialPost, "brand" | "platforms" | "post_type" | "caption" | "media" | "scheduled_at">>;
+export type PostFields = Partial<
+  Pick<SocialPost, "title" | "design" | "brand" | "platforms" | "post_type" | "caption" | "media" | "scheduled_at">
+>;
 
 export const listSocialPosts = () => call<ListResult>("GET", "/api/social/posts?brand=all");
 export const getSocialStatus = () => call<MetaConnectionStatus>("GET", "/api/social/status");
@@ -38,7 +41,7 @@ export async function createSocialPost(fields: PostFields): Promise<SocialPost> 
 
 export async function updateSocialPost(
   id: string,
-  fields: PostFields & { action?: "draft" | "schedule" | "retry" },
+  fields: PostFields & { action?: "draft" | "schedule" | "retry"; render?: boolean },
 ): Promise<SocialPost> {
   return (await call<{ post: SocialPost }>("PATCH", `/api/social/posts/${id}`, fields)).post;
 }
@@ -84,4 +87,28 @@ export async function uploadSocialVideo(file: File): Promise<string> {
     throw new Error(/exceeded|too large|413/i.test(error.message) ? "That video is over the storage size limit." : error.message);
   }
   return publicUrl;
+}
+
+export async function getSocialPost(id: string): Promise<SocialPost> {
+  return (await call<{ post: SocialPost }>("GET", `/api/social/posts/${id}`)).post;
+}
+
+export type ProductOption = import("@/lib/social/design").ProductOption;
+
+export async function listSocialProducts(brand: SocialBrand): Promise<ProductOption[]> {
+  return (await call<{ products: ProductOption[] }>("GET", `/api/social/products?brand=${brand}`)).products;
+}
+
+export type GenerateInput = {
+  brand: SocialBrand;
+  purpose: string;
+  platforms: SocialPlatform[];
+  format: "carousel" | "single";
+  slideCount: number;
+  prompt: string;
+  parts: string[];
+};
+
+export async function generateSocialPost(input: GenerateInput): Promise<{ title: string; design: PostDesign }> {
+  return call<{ title: string; design: PostDesign }>("POST", "/api/social/generate", input);
 }

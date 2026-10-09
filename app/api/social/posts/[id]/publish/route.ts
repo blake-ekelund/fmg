@@ -3,7 +3,8 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { validatePost, type SocialPost } from "@/lib/social/types";
 import { claimPost, publishClaimed } from "@/lib/social/publish";
-import { readPostFields } from "@/lib/social/server";
+import { designProblems, readPostFields } from "@/lib/social/server";
+import { syncDesign } from "@/lib/social/designServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -28,7 +29,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   const fields = readPostFields((await request.json().catch(() => ({}))) as Record<string, unknown>);
-  const next = { ...post, ...fields };
+  let next: SocialPost = { ...post, ...fields };
+  if (next.design) {
+    const problems = designProblems(next.design);
+    if (problems.length) return NextResponse.json({ error: problems.join(" "), problems }, { status: 400 });
+    try {
+      Object.assign(fields, await syncDesign(next));
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't render the slides." }, { status: 500 });
+    }
+    next = { ...next, ...fields };
+  }
   const problems = validatePost(next);
   if (problems.length) return NextResponse.json({ error: problems.join(" "), problems }, { status: 400 });
 

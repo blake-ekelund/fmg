@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { isSocialBrand, type SocialPost } from "@/lib/social/types";
-import { readPostFields, SOCIAL_MIGRATION_HINT, tableMissing } from "@/lib/social/server";
+import {
+  DESIGN_MIGRATION_HINT,
+  designColumnMissing,
+  designFields,
+  readPostFields,
+  SOCIAL_MIGRATION_HINT,
+  tableMissing,
+} from "@/lib/social/server";
 
 export const runtime = "nodejs";
 
@@ -41,6 +48,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const fields = readPostFields(body);
   if (!fields.brand) return NextResponse.json({ error: "Pick a brand." }, { status: 400 });
+  if (fields.design) Object.assign(fields, designFields(fields.design));
 
   const { data, error } = await supabaseServer
     .from("social_posts")
@@ -54,6 +62,7 @@ export async function POST(request: Request) {
     .single();
   if (error) {
     if (tableMissing(error.message)) return NextResponse.json({ error: SOCIAL_MIGRATION_HINT }, { status: 503 });
+    if (designColumnMissing(error.message)) return NextResponse.json({ error: DESIGN_MIGRATION_HINT }, { status: 503 });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   return NextResponse.json({ post: data as SocialPost });

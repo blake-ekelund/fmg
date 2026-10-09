@@ -13,6 +13,7 @@
  */
 
 import sharp from "sharp";
+import { syncDesign } from "./designServer";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   MAX_ATTEMPTS,
@@ -188,9 +189,24 @@ export async function claimPost(id: string): Promise<SocialPost | null> {
  * Publish a claimed post to each of its platforms not yet published. Writes
  * results as it goes. Returns the final row state.
  */
-export async function publishClaimed(post: SocialPost, deadline: number): Promise<SocialPost> {
+export async function publishClaimed(claimed: SocialPost, deadline: number): Promise<SocialPost> {
+  let post = claimed;
   const attempts = post.attempts + 1;
   const results: Partial<Record<SocialPlatform, PlatformResult>> = { ...post.results };
+
+  // A designed post edited after scheduling: redraw stale slides before posting.
+  // Only before anything has gone out — a partly-published post keeps its media.
+  if (post.design && !Object.values(results).some((r) => r?.status === "published")) {
+    try {
+      const synced = await syncDesign(post);
+      if (synced.media) await saveResults(post.id, synced);
+      post = { ...post, ...synced };
+    } catch (e) {
+      const final = { status: "failed" as const, attempts, claimed_at: null, last_error: `Couldn't render the slides: ${e instanceof Error ? e.message : String(e)}` };
+      await saveResults(post.id, final);
+      return { ...post, ...final };
+    }
+  }
 
   const problems = validatePost(post);
   if (problems.length) {

@@ -26,6 +26,10 @@ export type PlatformResult = {
 
 export type SocialPost = {
   id: string;
+  /** Internal name (list only). Missing before the design migration. */
+  title?: string;
+  /** Slide builder source; null for photo/video posts. See lib/social/design.ts. */
+  design?: import("./design").PostDesign | null;
   brand: SocialBrand;
   platforms: SocialPlatform[];
   post_type: SocialPostType;
