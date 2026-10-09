@@ -18,6 +18,7 @@ import {
   Plus,
   RectangleVertical,
   Redo2,
+  Sparkles,
   Square,
   Undo2,
 } from "lucide-react";
@@ -31,11 +32,13 @@ import {
   type CanvasSlide,
   type Layer,
   type ShapeKind,
+  type TextLayer,
   type TextPreset,
   slideH,
   slideW,
 } from "@/lib/social/canvas";
 import { LAYOUTS, type SlideLayout } from "@/lib/social/design";
+import { placeTextStyle, TEXT_STYLES, type TextStyleId } from "@/lib/social/textStyles";
 import type { SocialBrand } from "@/lib/social/types";
 import CanvasStage from "./CanvasStage";
 import CanvasInspector, { type ImageTarget, type LayerAction } from "./CanvasInspector";
@@ -132,6 +135,15 @@ export default function CanvasEditor(p: Props) {
 
   function addText(preset: TextPreset) {
     add(newTextLayer(p.brand, preset));
+  }
+  /** A ready-made style: several layers at once, centred; the main text is selected. */
+  function addStyle(id: TextStyleId) {
+    const group = placeTextStyle(id, p.brand, W, H);
+    setLayers([...slide.layers, ...group]);
+    const texts = group.filter((l): l is TextLayer => l.type === "text");
+    const main = texts.reduce<TextLayer | null>((a, b) => (!a || b.size > a.size ? b : a), null);
+    setSelectedId(main?.id ?? group[group.length - 1]?.id ?? null);
+    setTab("design");
   }
   function addShape(kind: ShapeKind) {
     add(newShapeLayer(p.brand, kind));
@@ -241,6 +253,7 @@ export default function CanvasEditor(p: Props) {
               hideSlideMenu={p.hideSlideMenu}
               canAddSlide={p.canAddSlide}
               onText={addText}
+              onStyle={addStyle}
               onPhoto={addPhoto}
               onShape={addShape}
               onSlide={p.onAddSlide}
@@ -336,6 +349,7 @@ function AddMenu({
   hideSlideMenu,
   canAddSlide,
   onText,
+  onStyle,
   onPhoto,
   onShape,
   onSlide,
@@ -344,6 +358,7 @@ function AddMenu({
   hideSlideMenu?: boolean;
   canAddSlide: boolean;
   onText: (p: TextPreset) => void;
+  onStyle: (id: TextStyleId) => void;
   onPhoto: (s: "library" | "product") => void;
   onShape: (k: ShapeKind) => void;
   onSlide: (l: SlideLayout | "blank") => void;
@@ -351,6 +366,7 @@ function AddMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [layouts, setLayouts] = useState(false);
+  const [styles, setStyles] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -367,6 +383,7 @@ function AddMenu({
   const run = (fn: () => void) => () => {
     setOpen(false);
     setLayouts(false);
+    setStyles(false);
     fn();
   };
 
@@ -390,6 +407,29 @@ function AddMenu({
             <Tile icon={<Pilcrow size={18} />} label="Body" onClick={run(() => onText("body"))} />
             <Tile icon={<CaseUpper size={18} />} label="Label" onClick={run(() => onText("label"))} />
           </div>
+          <button
+            type="button"
+            onClick={() => setStyles((v) => !v)}
+            className="mt-1.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm font-medium text-gray-800 hover:bg-gray-50"
+          >
+            <Sparkles size={16} className="text-violet-500" /> Ready-made text styles
+            <ChevronRight size={14} className={clsx("ml-auto text-gray-400 transition", styles && "rotate-90")} />
+          </button>
+          {styles && (
+            <div className="grid grid-cols-2 gap-1">
+              {TEXT_STYLES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={run(() => onStyle(s.id))}
+                  className="rounded-lg border border-gray-100 px-2 py-1.5 text-left hover:border-violet-200 hover:bg-violet-50"
+                >
+                  <span className="block text-xs font-semibold text-gray-800">{s.label}</span>
+                  <span className="block text-[10px] leading-tight text-gray-400">{s.hint}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="mt-3">
             <MenuHeading>Photo</MenuHeading>

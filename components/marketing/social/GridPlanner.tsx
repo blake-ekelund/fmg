@@ -40,7 +40,7 @@ import {
 } from "./api";
 import MosaicCropper, { cropRect, ensurePictureUrl, overviewJpeg, type Crop, type LoadedPicture } from "./MosaicCropper";
 import MosaicDesigner from "./MosaicDesigner";
-import { pictureCanvas, splitPicture } from "@/lib/social/mosaicDesign";
+import { blankPictureCanvas, designWords, pictureCanvas, splitPicture } from "@/lib/social/mosaicDesign";
 import { slideH, slideW, type CanvasSlide } from "@/lib/social/canvas";
 import CanvasView from "@/lib/social/CanvasView";
 import { textureUrl } from "./SlidePreview";
@@ -271,14 +271,21 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
     const designedNow = designed;
     const id = startGridWrite(config, async () => {
       if (config.kind === "story") return { draft: await generateGridSet(input) };
-      if (!pic) throw new Error("Choose a picture first.");
-      const url = await ensurePictureUrl(pic);
-      const big =
-        designedNow?.rows === rows
-          ? designedNow.slide
-          : pictureCanvas(brand, rows, { url, width: pic.w, height: pic.h, crop: cropRect(pic, rows, cropNow) });
+      // A design made for this size wins; otherwise the framed photo as it is.
+      let big: CanvasSlide;
+      if (designedNow?.rows === rows) big = designedNow.slide;
+      else if (pic) {
+        const url = await ensurePictureUrl(pic);
+        big = pictureCanvas(brand, rows, { url, width: pic.w, height: pic.h, crop: cropRect(pic, rows, cropNow) });
+      } else throw new Error("Choose a picture or start from a blank canvas first.");
       const slides = splitPicture(big, rows);
-      const res = await writeMosaicCaptions({ ...input, image: overviewJpeg(pic, rows, cropNow), spread });
+      const res = await writeMosaicCaptions({
+        ...input,
+        // Claude looks at the photo when there is one, and reads the design's words either way.
+        image: pic ? overviewJpeg(pic, rows, cropNow) : null,
+        words: designWords(big),
+        spread,
+      });
       const setId = `grid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const draft: GridDraft = {
         story: res.story,
@@ -302,7 +309,7 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
 
   const blogList = blogs[brand];
   const collectionList = collections[brand];
-  const canWrite = !sourceMissing && (kind === "story" || !!picture);
+  const canWrite = !sourceMissing && (kind === "story" || !!picture || designed?.rows === rows);
 
   return (
     <div
@@ -427,7 +434,7 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
                         <Paintbrush size={14} /> Edit the design
                       </button>
                       <button onClick={() => setDesigned(null)} className="block text-xs font-medium text-gray-600 underline-offset-2 hover:underline">
-                        Start over from the photo
+                        {picture ? "Start over from the photo" : "Start over"}
                       </button>
                     </div>
                   </div>
@@ -444,7 +451,15 @@ export default function GridPlanner({ posts, defaultBrand, connected, onClose, o
                       onCrop={setCrop}
                     />
                     {designed && (
-                      <p className="mt-2 text-xs text-amber-700">You changed the size, so the design starts again from the photo.</p>
+                      <p className="mt-2 text-xs text-amber-700">You changed the size, so the design starts over.</p>
+                    )}
+                    {!picture && (
+                      <button
+                        onClick={() => setDesigning(blankPictureCanvas(brand, rows))}
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+                      >
+                        <Paintbrush size={14} /> Or start from a blank canvas — colours, text, shapes, photos
+                      </button>
                     )}
                     {picture && (
                       <button

@@ -141,7 +141,7 @@ export const pitchGridThemes = (input: GridInput) =>
 export const generateGridSet = (input: GridInput) =>
   call<import("@/lib/social/gridPlan").GridDraft>("POST", "/api/social/generate-grid", { ...input, action: "write" });
 
-export const writeMosaicCaptions = (input: GridInput & { image: string; spread: boolean }) =>
+export const writeMosaicCaptions = (input: GridInput & { image: string | null; words: string[]; spread: boolean }) =>
   call<import("@/lib/social/gridPlan").GridCaptions>("POST", "/api/social/generate-grid", { ...input, action: "mosaic" });
 
 export type CollectionOption = { slug: string; name: string; tagline: string; products: number };

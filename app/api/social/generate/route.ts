@@ -12,6 +12,7 @@ import {
 } from "@/lib/social/generate";
 import { isSocialBrand, isSocialPlatform } from "@/lib/social/types";
 import { loadBlogForSocial } from "@/lib/social/fromBlog";
+import { designImages, enforceImageVariety, freshImages, recentPostContext } from "@/lib/social/variety";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -53,10 +54,13 @@ export async function POST(request: Request) {
   if (blogId && !blog) return NextResponse.json({ error: "That blog post couldn't be found." }, { status: 404 });
   if (!prompt && !blog) return NextResponse.json({ error: "Describe the post you want." }, { status: 400 });
 
-  const [allProducts, images] = await Promise.all([
+  const [allProducts, allImages, recent] = await Promise.all([
     listBrandProducts(brand),
-    gatherImageCandidates([brand], { library: 25, stock: 25 }),
+    gatherImageCandidates([brand], { library: 40, stock: 25 }),
+    recentPostContext(brand),
   ]);
+  // Photos used in recent posts stay out of the pool when there are enough others.
+  const images = freshImages(allImages, recent.images);
   const featured = allProducts.filter((p) => parts.includes(p.part));
   const catalog = [...new Set(allProducts.filter((p) => !parts.includes(p.part)).map((p) => p.name))].slice(0, 40);
 
@@ -73,7 +77,7 @@ export async function POST(request: Request) {
         messages: [
           {
             role: "user",
-            content: buildSocialPrompt({ brand, purpose, platforms, format, slideCount, prompt, products: featured, catalog, images, blog }),
+            content: buildSocialPrompt({ brand, purpose, platforms, format, slideCount, prompt, products: featured, catalog, images, blog, recent: recent.ideas }),
           },
         ],
       })
@@ -107,7 +111,11 @@ export async function POST(request: Request) {
   if (format === "single") normalized.slides = normalized.slides.slice(0, 1);
 
   // The article's own photos are allowed too.
-  const { design, usedUnsplash } = checkDesignImages(normalized, [...(blog?.images ?? []), ...images], featured);
+  const checked = checkDesignImages(normalized, [...(blog?.images ?? []), ...images], featured);
+  // Never the same photo on two slides of the post.
+  const [design] = enforceImageVariety([checked.design], { images: [...(blog?.images ?? []), ...images], products: featured }, recent.images);
+  const finalUrls = new Set(designImages(design));
+  const usedUnsplash = images.filter((c) => c.source === "unsplash" && finalUrls.has(c.url));
   if (blog) design.source = { kind: "blog", id: blog.id, title: blog.title, url: blog.url };
   await Promise.allSettled(
     usedUnsplash.flatMap((p) => (p.downloadLocation ? [trackUnsplashDownload(p.downloadLocation)] : [])),

@@ -10,6 +10,7 @@ import { SLIDE_THEMES, type ProductOption } from "./design";
 import { SLIDE_VOCAB, VOICE, imagesBlock, productsBlock } from "./generate";
 import { gridChapters, gridPosition, gridSlots, gridTileStyle, type GridRows } from "./gridPlan";
 import type { SocialBrand } from "./types";
+import { recentIdeasBlock } from "./variety";
 
 const POSITION = [
   ["top-left", "top-middle", "top-right"],
@@ -35,6 +36,8 @@ export function buildPitchPrompt(input: {
   startDay: string;
   /** A blog article or site collection the set must be about (sourceBlock text). */
   source?: string;
+  /** Recent / upcoming posts — pitch something different. */
+  recent?: string[];
 }): string {
   const n = input.rows * 3;
   return `You are the social media editor for a fragrance and personal-care brand, planning the next ${n} Instagram posts as ONE connected story (about ${Math.round(n * 1.5)} days of posting, starting ${input.startDay}).
@@ -47,7 +50,7 @@ ${input.source ? `${input.source}
 
 Pitch three different ANGLES on this source.
 ` : ""}${input.hint ? `The team's starting thought:\n"""\n${input.hint}\n"""\n` : ""}
-Pitch THREE different story ideas. Each needs a short title (≤ 6 words) and a one-to-two sentence pitch that says what the arc is and which products it features. Consider the time of year. Don't invent sales, discounts or launches.
+${input.recent?.length ? `${recentIdeasBlock(input.recent)}\n\n` : ""}Pitch THREE different story ideas, each clearly different from the recent posts above and from each other. Each needs a short title (≤ 6 words) and a one-to-two sentence pitch that says what the arc is and which products it features. Consider the time of year. Don't invent sales, discounts or launches.
 
 Return ONLY valid JSON, no prose or code fences:
 {"themes":[{"title":"…","pitch":"…"}]}`;
@@ -65,6 +68,8 @@ export function buildGridPrompt(input: {
   source?: string;
   /** The source article's own photos (offered first). */
   sourceImages?: ImageCandidate[];
+  /** Recent / upcoming posts — don't repeat their ideas. */
+  recent?: string[];
 }): string {
   const total = input.rows * 3;
   const chapters = gridChapters(input.rows);
@@ -79,9 +84,13 @@ export function buildGridPrompt(input: {
         s.format === "single"
           ? `ONE slide`
           : `${s.slides} slides — start with "cover", end with "cta"`;
-      const look = bold
-        ? `BOLD tile: first slide tone "dark" — a brand-colour graphic (cover, text or quote on colour, or a product card on dark)`
-        : `LIGHT tile: first slide is photo-led (cover, photo or product with an image), tone "light" or "tint" — never "dark"`;
+      const look = s.photo
+        ? bold
+          ? `PHOTO post on a BOLD tile: a "${s.photo === "product" ? "product" : "cover"}" slide WITH a real photo, tone "dark", at most 6 words on it`
+          : `PHOTO post on a LIGHT tile: a "${s.photo === "product" ? "product" : "photo"}" slide — a real full photo, tone "light", at most 6 words (or none)`
+        : bold
+          ? `BOLD tile: first slide tone "dark" — a brand-colour graphic (cover, text or quote on colour, or a product card on dark)`
+          : `LIGHT tile: first slide is photo-led (cover, photo or product with an image), tone "light" or "tint" — never "dark"`;
       return `Post ${n} — ${s.role} [chapter: ${s.chapter}] — grid spot once the set is complete: ${where(n, total)}
   Job: ${s.job}
   Format: ${shape}.
@@ -104,7 +113,9 @@ HOW THE GRID WORKS — design for it:
 - Instagram shows the newest post top-left, so post 1 ends up bottom-right and post ${total} top-left. Each grid ROW is a chapter (${chapters.map((c, i) => `posts ${i * 3 + 1}–${i * 3 + 3}: ${c.name}`).join("; ")}).
 - On the grid only each post's FIRST slide shows, cropped to 3:4 from the centre — keep first-slide headlines short and central.
 - Tiles alternate BOLD brand-colour graphics and LIGHT photo-led tiles in a checkerboard. Follow each post's Look.
-- Never use the same photo as the first slide of two posts. Spread different photos across the set.
+- Every photo is used ONCE in the whole set — never the same image on two slides, in the same post or across posts. Spread different photos across the set.
+- Every post makes its OWN point: no two posts share an idea, angle, headline, hook or opening line, and none repeats the recent posts listed below.
+- Mix the formats as planned: single PHOTO posts (a real photo, almost no text), designed single graphics, and carousels.
 - The posts must read as one story: shared language, a recurring phrase or motif, each post picking up where the last left off — but each must also make sense on its own in someone's feed.
 
 THE POSTS:
@@ -127,7 +138,7 @@ CAPTIONS — each post gets its own caption as parts:
 - "hashtags": 5–12 tags without "#". Use ONE shared story hashtag on every post, plus post-specific tags.
 Each caption ≤ 1,800 characters.
 
-RULES:
+${input.recent?.length ? `${recentIdeasBlock(input.recent)}\n\n` : ""}RULES:
 - Real, finished copy — no placeholders or brackets. Don't invent prices, discounts, awards, reviews, deadlines or medical claims; only use offers the team described.
 - Slide text is read on a phone in two seconds — keep it short.
 
@@ -140,11 +151,23 @@ Return ONLY valid JSON, no prose or code fences, exactly:
  * photo (Claude sees the whole picture); the captions tell one story in
  * posting order and explain the puzzle to people who see a single slice.
  */
-export function buildMosaicPrompt(input: { brand: SocialBrand; rows: GridRows; theme: string; source?: string; spread: boolean }): string {
+export function buildMosaicPrompt(input: {
+  brand: SocialBrand;
+  rows: GridRows;
+  theme: string;
+  source?: string;
+  spread: boolean;
+  /** The picture is attached (otherwise it's a design described by its words). */
+  hasImage: boolean;
+  /** Text on the design. */
+  words: string[];
+}): string {
   const total = input.rows * 3;
   const site = SLIDE_THEMES[input.brand].site;
   const tiles = Array.from({ length: total }, (_, i) => `Post ${i + 1} = the ${where(i + 1, total)} piece`).join("\n");
-  return `You are the social media editor for a fragrance and personal-care brand. The attached picture is being split into ${total} Instagram posts (${input.rows} rows × 3) so that, on our profile grid, the pieces join back into this one big picture.
+  return `You are the social media editor for a fragrance and personal-care brand. ${input.hasImage ? "The attached picture" : "A designed picture (no photo is attached — it's described by its words below)"} is being split into ${total} Instagram posts (${input.rows} rows × 3) so that, on our profile grid, the pieces join back into this one big picture.${input.words.length ? `
+
+Words on the picture: ${input.words.map((w) => `"${w}"`).join(" · ")}` : ""}
 
 ${VOICE[input.brand]}
 
@@ -159,7 +182,7 @@ ${input.theme}
 ${tiles}
 ${input.spread ? "They go out about every day and a half, so the picture builds up over a couple of weeks — let the captions build anticipation (\"piece 3 of 9 — watch our grid\")." : "They all go out within an hour, so the picture appears at once — each caption can stand alone and point people to the grid."}
 
-Write one caption per post, in posting order. In someone's feed each post shows only its slice, so captions should make sense alone and invite people to see the full picture on our profile. Look at what each piece shows and let its caption relate to it when that helps. Together the captions tell one story.
+Write one caption per post, in posting order. In someone's feed each post shows only its slice, so captions should make sense alone and invite people to see the full picture on our profile. Look at what each piece shows and let its caption relate to it when that helps. Together the captions tell one story — but each caption says something NEW: no repeated hooks, lines or ideas between them.
 
 Each caption as parts:
 - "hook": the first line, ≤ 120 characters.

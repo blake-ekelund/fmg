@@ -41,6 +41,17 @@ export function pictureCanvas(brand: SocialBrand, rows: GridRows, pic: PicturePl
   return { ...blankCanvas(brand), w, h, layers: [photo] };
 }
 
+/** An empty big canvas in the brand's background colour — design from scratch. */
+export function blankPictureCanvas(brand: SocialBrand, rows: GridRows): CanvasSlide {
+  const { w, h } = mosaicSize(rows);
+  return { ...blankCanvas(brand), w, h };
+}
+
+/** The text on a design (for the AI writing captions when there's no photo to look at). */
+export function designWords(slide: CanvasSlide): string[] {
+  return slide.layers.flatMap((l) => (l.type === "text" && !l.hidden && l.text.trim() ? [l.text.trim()] : [])).slice(0, 30);
+}
+
 /** Does a layer's box (allowing for rotation) touch the rectangle? */
 function touches(l: Layer, x: number, y: number, w: number, h: number): boolean {
   // A rotated box stays inside the circle around its centre.

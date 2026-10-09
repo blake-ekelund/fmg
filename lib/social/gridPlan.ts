@@ -25,26 +25,33 @@ export type GridSlot = {
   job: string;
   format: "single" | "carousel";
   slides: number;
+  /**
+   * A single-PHOTO post (not a text graphic): it must lead with a real photo —
+   * a product shot or a mood photo. Every set mixes these with designed
+   * graphics and carousels.
+   */
+  photo?: "product" | "mood";
 };
 
 export type GridChapter = { name: string; slots: GridSlot[] };
 
 const single = (role: string, job: string): GridSlot => ({ role, job, format: "single", slides: 1 });
 const carousel = (role: string, job: string, slides: number): GridSlot => ({ role, job, format: "carousel", slides });
+const photo = (role: string, job: string, kind: "product" | "mood"): GridSlot => ({ role, job, format: "single", slides: 1, photo: kind });
 
 const SCENE: GridChapter = {
   name: "Set the scene",
   slots: [
     single("Hook", "Name the story's theme in one big, scroll-stopping line (over a photo on a LIGHT tile). It opens the whole set."),
     carousel("The why", "Explain the idea behind the story — the ingredient, ritual or feeling — so people care.", 5),
-    single("Mood", "Show what the story FEELS like: a photo with little or no text — or, on a BOLD tile, one short sensory line on brand colour."),
+    photo("Mood", "A single PHOTO post showing what the story FEELS like — a real photo, little or no text.", "mood"),
   ],
 };
 
 const PROOF: GridChapter = {
   name: "The proof",
   slots: [
-    single("Product", "Spotlight the one product at the heart of the story: the product slide with its real photo."),
+    photo("Product", "A single PHOTO post spotlighting the one product at the heart of the story: the product slide with its real photo.", "product"),
     carousel("How-to", "The ritual or routine, step by step (a list slide), tied to the story.", 4),
     single("Social proof", "A quote. Only a real review if we gave you one; otherwise a short brand line, meta = brand name."),
   ],
@@ -54,7 +61,7 @@ const OFFER: GridChapter = {
   name: "The occasion",
   slots: [
     carousel("Gift guide", "Who each product in the story is for — a guide people save and share. No invented discounts.", 5),
-    single("Pairing", "Two products or a scent + body care pairing that belongs together in this story."),
+    photo("Pairing", "A single PHOTO post: two products (or a scent + body care pairing) that belong together in this story, shown in a real photo.", "product"),
     single("Reminder", "A short, warm nudge to act — the occasion or moment the team described. No invented deadlines or offers."),
   ],
 };
@@ -63,7 +70,7 @@ const PAYOFF: GridChapter = {
   name: "The payoff",
   slots: [
     carousel("Collection", "The products in this story, one per slide, ending on a cta slide.", 5),
-    single("Moment", "The payoff of the story, the feeling of having it: a photo light on text — or, on a BOLD tile, one short line on brand colour."),
+    photo("Moment", "A single PHOTO post: the payoff of the story, the feeling of having it — a real photo, light on text.", "mood"),
     single("Invitation", "Close the story and invite them in. It sits top-left — the first thing profile visitors see."),
   ],
 };

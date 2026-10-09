@@ -24,6 +24,7 @@ import {
 
 export { isSocialPurpose } from "./design";
 import type { SocialBrand, SocialPlatform } from "./types";
+import { recentIdeasBlock } from "./variety";
 
 /* ─── Products ─────────────────────────────────────────────────────── */
 
@@ -118,6 +119,8 @@ export type SocialGenerateInput = {
   images: ImageCandidate[];
   /** Write the post FROM this blog article (any status). */
   blog?: BlogForSocial | null;
+  /** Recent / upcoming posts — don't repeat their ideas. */
+  recent?: string[];
 };
 
 export function blogBlock(b: BlogForSocial): string {
@@ -222,9 +225,10 @@ CAPTION (posted under the slides) as parts:
 - "hashtags": 5–12 tags without "#", relevant and curated.
 Whole caption ≤ 1,800 characters.
 
-RULES:
+${input.recent?.length ? `${recentIdeasBlock(input.recent)}\n\n` : ""}RULES:
 - Real, finished copy — no placeholders or brackets. Don't invent prices, discounts, awards, reviews or medical claims; only use offers the team described.
 - Keep slide text short — it's read on a phone in two seconds.
+- Use each photo once — never the same image on two slides. Give the post a fresh idea, not one from the recent posts.
 
 Also give the post a short internal "title" (≤ 60 characters) for the team's list.
 

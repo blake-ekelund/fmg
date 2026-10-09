@@ -11,6 +11,7 @@ import { loadBlogForSocial } from "@/lib/social/fromBlog";
 import {
   GRID_ROWS,
   gridSlots,
+  gridTileStyle,
   gridTone,
   type GridCaptions,
   type GridDraft,
@@ -18,6 +19,7 @@ import {
   type GridRows,
 } from "@/lib/social/gridPlan";
 import { isSocialBrand, type SocialBrand } from "@/lib/social/types";
+import { designImages, enforceImageVariety, freshImages, recentPostContext } from "@/lib/social/variety";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -55,13 +57,13 @@ export async function POST(request: Request) {
   const startDay = typeof body.startDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.startDay) ? body.startDay : new Date().toISOString().slice(0, 10);
   const total = rows * 3;
 
-  const allProducts = await listBrandProducts(brand);
+  const [allProducts, recent] = await Promise.all([listBrandProducts(brand), recentPostContext(brand)]);
   const src = await loadSource(brand, body, allProducts);
   if ("error" in src) return NextResponse.json({ error: src.error }, { status: 404 });
   const catalog = [...new Set(allProducts.map((p) => p.name))].slice(0, 40);
 
   if (body.action === "pitch") {
-    const json = await ask(buildPitchPrompt({ brand, rows, hint: theme, catalog, startDay, source: src.block }), 4000);
+    const json = await ask(buildPitchPrompt({ brand, rows, hint: theme, catalog, startDay, source: src.block, recent: recent.ideas }), 4000);
     if ("error" in json) return NextResponse.json({ error: json.error }, { status: json.status });
     const themes = Array.isArray(json.data.themes) ? json.data.themes : [];
     const clean = themes
@@ -77,13 +79,19 @@ export async function POST(request: Request) {
 
   if (body.action === "mosaic") {
     const image = typeof body.image === "string" ? body.image.replace(/^data:image\/\w+;base64,/, "") : "";
-    if (!image || image.length > MAX_IMAGE_B64) return NextResponse.json({ error: "Upload a picture first." }, { status: 400 });
-    const prompt = buildMosaicPrompt({ brand, rows, theme, source: src.block, spread: body.spread !== false });
+    if (image.length > MAX_IMAGE_B64) return NextResponse.json({ error: "That picture is too big to send." }, { status: 400 });
+    const words = Array.isArray(body.words)
+      ? body.words.filter((w): w is string => typeof w === "string").map((w) => w.slice(0, 300)).slice(0, 30)
+      : [];
+    if (!image && !words.length) return NextResponse.json({ error: "Add a picture or some text first." }, { status: 400 });
+    const prompt = buildMosaicPrompt({ brand, rows, theme, source: src.block, spread: body.spread !== false, hasImage: !!image, words });
     const json = await ask(
-      [
-        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
-        { type: "text", text: prompt },
-      ],
+      image
+        ? [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: image } },
+            { type: "text", text: prompt },
+          ]
+        : prompt,
       16000,
     );
     if ("error" in json) return NextResponse.json({ error: json.error }, { status: json.status });
@@ -101,11 +109,12 @@ export async function POST(request: Request) {
   // About a collection: its products come first.
   const pool = src.products ? [...src.products, ...allProducts.filter((p) => !src.products!.includes(p))] : allProducts;
   const featured = pool.filter((p) => p.images.length).slice(0, 14);
-  const images = await gatherImageCandidates([brand], { library: 40, stock: 30 });
+  // Photos used in recent posts stay out of the pool when there are enough others.
+  const images = freshImages(await gatherImageCandidates([brand], { library: 60, stock: 30 }), recent.images, 20);
   const sourceImages = src.images ?? [];
 
   const json = await ask(
-    buildGridPrompt({ brand, rows, theme, startDay, products: featured, catalog, images, source: src.block, sourceImages }),
+    buildGridPrompt({ brand, rows, theme, startDay, products: featured, catalog, images, source: src.block, sourceImages, recent: recent.ideas }),
     64000,
   );
   if ("error" in json) return NextResponse.json({ error: json.error }, { status: json.status });
@@ -143,6 +152,18 @@ export async function POST(request: Request) {
       design,
     });
   }
+
+  // No image twice in the set; photo posts lead with a real photo.
+  const varied = enforceImageVariety(
+    posts.map((p) => p.design),
+    { images: [...sourceImages, ...images], products: featured },
+    recent.images,
+    slots.map((s, i) => (s.photo ? { kind: s.photo, bold: gridTileStyle(i + 1, total) === "bold" } : null)),
+  );
+  posts.forEach((p, i) => (p.design = varied[i]));
+  const finalUrls = new Set(varied.flatMap((d) => designImages(d)));
+  for (const c of images) if (c.source === "unsplash" && finalUrls.has(c.url)) usedUnsplash.set(c.url, c);
+  for (const u of [...usedUnsplash.keys()]) if (!finalUrls.has(u)) usedUnsplash.delete(u);
 
   await Promise.allSettled([...usedUnsplash.values()].flatMap((p) => (p.downloadLocation ? [trackUnsplashDownload(p.downloadLocation)] : [])));
   return NextResponse.json({ story, posts } satisfies GridDraft);
