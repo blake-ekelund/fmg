@@ -218,8 +218,11 @@ export default function Sidebar({
                   <SectionIcon size={15} />
                 </Link>
 
-                {/* Flyout */}
-                <div className="absolute left-full top-0 ml-2 hidden group-hover:block z-50 min-w-[190px] rounded-xl border border-line bg-surface shadow-overlay p-1.5">
+                {/* Flyout. The gap to the sidebar is transparent padding (pl-2), not a
+                    margin, so the pointer never leaves the hover group on its way
+                    across — with a margin the flyout vanished before you reached it. */}
+                <div className="absolute left-full top-0 z-50 hidden pl-2 group-hover:block">
+                <div className="min-w-[190px] rounded-xl border border-line bg-surface shadow-overlay p-1.5">
                   <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
                     {section.label}
                   </div>
@@ -242,6 +245,7 @@ export default function Sidebar({
                       </Link>
                     );
                   })}
+                </div>
                 </div>
               </div>
             );
