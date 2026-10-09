@@ -13,6 +13,8 @@ import {
   ListOrdered,
   Mail,
   Megaphone,
+  MonitorPlay,
+  Puzzle,
   MessageSquareQuote,
   MousePointerClick,
   Package,
@@ -23,7 +25,15 @@ import {
   Star,
   type LucideIcon,
 } from "lucide-react";
-import type { PageBlock, PageBlockType } from "@/lib/site/pageBlocks";
+import type { EmbedKind, PageBlock, PageBlockType } from "@/lib/site/pageBlocks";
+
+export const EMBED_LABEL: Record<EmbedKind, string> = {
+  video: "Video",
+  instagram: "Instagram post",
+  map: "Map",
+  form: "Google Form",
+  countdown: "Countdown",
+};
 
 /** Palette / layer icon per block type. */
 export const BLOCK_ICON: Record<PageBlockType, LucideIcon> = {
@@ -69,6 +79,8 @@ export const BLOCK_ICON: Record<PageBlockType, LucideIcon> = {
   announcement: Megaphone,
   footer: Rows3,
   collections_copy: Leaf,
+  widget: Puzzle,
+  embed: MonitorPlay,
 };
 
 /** One-line summary under each block in the list. */
@@ -151,5 +163,9 @@ export function summary(b: PageBlock): string {
       return b.columns.map((c) => c.heading).join(" · ");
     case "collections_copy":
       return `${b.items.length} collections`;
+    case "widget":
+      return "Saved widget";
+    case "embed":
+      return `${EMBED_LABEL[b.kind]}${b.heading ? ` · ${b.heading}` : ""}`;
   }
 }

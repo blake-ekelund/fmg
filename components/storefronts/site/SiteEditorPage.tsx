@@ -8,6 +8,8 @@ import {
   ArrowUp,
   Check,
   Copy,
+  Puzzle,
+  Unlink,
   ExternalLink,
   Eye,
   EyeOff,
@@ -26,7 +28,14 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { BLOCK_INFO, LIMITS, type PageBlock, type PageBlockType } from "@/lib/site/pageBlocks";
+import {
+  BLOCK_INFO,
+  LIMITS,
+  canBeWidget,
+  pageAddable,
+  type PageBlock,
+  type PageBlockType,
+} from "@/lib/site/pageBlocks";
 import {
   SITE_BRANDS,
   isSiteBrand,
@@ -38,6 +47,7 @@ import {
 import BlockInspector, { type CatalogItem } from "./BlockInspector";
 import { BLOCK_ICON, summary } from "./blockMeta";
 import { IconButton, move } from "./fields";
+import { useWidgets, type SiteWidget } from "./useWidgets";
 
 type PageState = {
   draft: PageBlock[];
@@ -57,7 +67,7 @@ type FromBridge =
   | { src: "site-edit"; type: "ready"; ids: string[] }
   | { src: "site-edit"; type: "scroll"; y: number }
   | { src: "site-edit"; type: "select"; id: string | null }
-  | { src: "site-edit"; type: "drop"; blockType: string; targetId: string; pos: "before" | "after" };
+  | { src: "site-edit"; type: "drop"; blockType: string; widgetId?: string; targetId: string; pos: "before" | "after" };
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabaseBrowser().auth.getSession();
@@ -183,6 +193,10 @@ function PageEditor({
   const againRef = useRef(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const layerDragRef = useRef<string | null>(null);
+  // Saved widgets for this store; a widget save reloads the canvas.
+  const reloadCanvas = useCallback(() => setFrameKey((k) => k + 1), []);
+  const w = useWidgets(brand, reloadCanvas);
+  const widgetById = useMemo(() => new Map(w.widgets.map((x) => [x.id, x])), [w.widgets]);
   // Canvas scroll, kept here across autosave reloads (the bridge reports it).
   const canvasScrollRef = useRef(0);
   // Frame key the bridge last said "ready" for; a canvas that loads but never
@@ -313,6 +327,7 @@ function PageEditor({
     setError(null);
     try {
       await flush();
+      await w.flush();
       // First publish of a never-saved page: create the row first.
       if (name === "publish" && !page?.updatedAt) await save();
       const data = await call<PageState>(brand, slug, "POST", { action: name, versionId });
@@ -322,6 +337,7 @@ function PageEditor({
       setSaveState("saved");
       setFrameKey((k) => k + 1);
       onChanged();
+      if (name === "publish") void w.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That didn't work.");
     } finally {
@@ -332,7 +348,11 @@ function PageEditor({
   // ── block operations ───────────────────────────────────────────────────
   const pinnedCount = blocks.filter((x) => BLOCK_INFO[x.type].pinned).length;
   const present = new Set(blocks.map((x) => x.type));
-  const addable = def.fixed ? [] : def.addable.filter((t) => !(BLOCK_INFO[t].single && present.has(t)));
+  const allowedHere = pageAddable(def);
+  const addable = allowedHere.filter((t) => t !== "widget" && !(BLOCK_INFO[t].single && present.has(t)));
+  const widgetTiles = def.fixed
+    ? []
+    : w.widgets.filter((x) => x.draft && allowedHere.includes(x.draft.type));
 
   // The announcement bar and footer are marked "__site:<type>" in the canvas
   // (they belong to every page); on the Header & footer page they ARE this
@@ -361,12 +381,14 @@ function PageEditor({
   /** Insert a new block of `type` next to `targetId` (default: after the
    *  selection, else at the end) — never above the pinned blocks. */
   const insert = useCallback(
-    (type: PageBlockType, targetId?: string | null, pos: "before" | "after" = "after") => {
+    (type: PageBlockType, targetId?: string | null, pos: "before" | "after" = "after", widgetId?: string) => {
       const list = blocksRef.current;
-      if (!def.addable.includes(type) || list.length >= LIMITS.blocks) return;
+      if (!pageAddable(def).includes(type) || list.length >= LIMITS.blocks) return;
       if (BLOCK_INFO[type].single && list.some((x) => x.type === type)) return;
+      if (type === "widget" && !widgetId) return;
       const id = uid(type);
-      const block = newSiteBlock(brand, type, id);
+      const block: PageBlock =
+        type === "widget" ? { id, type: "widget", widgetId: widgetId! } : newSiteBlock(brand, type, id);
       const pinned = list.filter((x) => BLOCK_INFO[x.type].pinned).length;
       const anchor = targetId ?? selectedRef.current;
       const at = anchor ? list.findIndex((x) => x.id === anchor) : -1;
@@ -377,7 +399,7 @@ function PageEditor({
       update(next);
       select(id, false);
     },
-    [brand, def.addable, update, select],
+    [brand, def, update, select],
   );
 
   const current = blocks.find((x) => x.id === selected) ?? null;
@@ -391,9 +413,14 @@ function PageEditor({
     () => ({
       "__site:announcement": "Announcement bar (every page)",
       "__site:footer": "Footer (every page)",
-      ...Object.fromEntries(blocks.map((x) => [toCanvasId(x.id) ?? x.id, BLOCK_INFO[x.type].label])),
+      ...Object.fromEntries(
+        blocks.map((x) => [
+          toCanvasId(x.id) ?? x.id,
+          x.type === "widget" ? `Widget · ${widgetById.get(x.widgetId)?.name ?? "missing"}` : BLOCK_INFO[x.type].label,
+        ]),
+      ),
     }),
-    [blocks, toCanvasId],
+    [blocks, toCanvasId, widgetById],
   );
   const labelsRef = useRef(labels);
   useEffect(() => {
@@ -437,7 +464,7 @@ function PageEditor({
           frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(id), scroll: false }, "*");
         }
       } else if (m.type === "drop") {
-        insert(m.blockType as PageBlockType, m.targetId, m.pos);
+        insert(m.blockType as PageBlockType, m.targetId, m.pos, m.widgetId);
       }
     };
     window.addEventListener("message", onMessage);
@@ -451,8 +478,14 @@ function PageEditor({
   const unpublished = useMemo(() => {
     if (!page) return false;
     if (!page.published) return true;
-    return JSON.stringify(page.published) !== JSON.stringify(blocks);
-  }, [page, blocks]);
+    if (JSON.stringify(page.published) !== JSON.stringify(blocks)) return true;
+    // A linked widget with unpublished edits also needs a publish.
+    return blocks.some((x) => {
+      if (x.type !== "widget") return false;
+      const wd = widgetById.get(x.widgetId);
+      return !!wd && JSON.stringify(wd.draft) !== JSON.stringify(wd.published);
+    });
+  }, [page, blocks, widgetById]);
 
   const partParam = slug === "product" && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
   const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1&edit=1${partParam}&v=${frameKey}` : null;
@@ -638,6 +671,43 @@ function PageEditor({
             )}
           </div>
 
+          {!def.fixed ? (
+            <div>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Widgets</h3>
+              {widgetTiles.length ? (
+                <div className="mt-2 space-y-1.5">
+                  {widgetTiles.map((x) => {
+                    const Icon = BLOCK_ICON[x.draft!.type];
+                    return (
+                      <button
+                        key={x.id}
+                        type="button"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "copy";
+                          e.dataTransfer.setData("text/plain", `site-block:widget:${x.id}`);
+                        }}
+                        onClick={() => insert("widget", null, "after", x.id)}
+                        title={`${BLOCK_INFO[x.draft!.type].label} — click to add, or drag onto the page.`}
+                        className="flex w-full items-center gap-2 rounded-lg border border-violet-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium text-gray-700 transition hover:border-violet-300 hover:text-gray-900"
+                      >
+                        <Puzzle size={13} className="shrink-0 text-violet-500" />
+                        <span className="min-w-0 flex-1 truncate">{x.name}</span>
+                        <Icon size={12} className="shrink-0 text-gray-300" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-2 rounded-lg border border-dashed border-gray-200 bg-white p-2.5 text-[11px] leading-relaxed text-gray-400">
+                  {w.notReady
+                    ? "Widgets turn on once the site_widgets migration is applied."
+                    : "Select a block and choose “Save as widget” to reuse it on other pages."}
+                </p>
+              )}
+            </div>
+          ) : null}
+
           <div>
             <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">On this page</h3>
             <ul className="mt-2 space-y-1" onDragLeave={() => setLayerDrop(null)}>
@@ -708,7 +778,7 @@ function PageEditor({
                     )}
                     <Icon size={13} className="shrink-0 text-gray-400" />
                     <span className="min-w-0 flex-1 truncate" title={summary(x)}>
-                      {info.label}
+                      {x.type === "widget" ? widgetById.get(x.widgetId)?.name ?? "Missing widget" : info.label}
                     </span>
                     {x.hidden ? <EyeOff size={12} className="shrink-0 text-gray-400" /> : null}
                   </li>
@@ -790,6 +860,11 @@ function PageEditor({
                 unpublished={unpublished}
                 busy={busy}
                 onAction={action}
+                widgets={w.widgets}
+                onRenameWidget={w.rename}
+                onDeleteWidget={(id) => {
+                  if (confirm("Delete this widget? Only possible when no page uses it.")) void w.remove(id);
+                }}
               />
             ) : siteHint ? (
               <div className="space-y-3 py-4">
@@ -861,6 +936,20 @@ function PageEditor({
                   >
                     {current.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
                   </IconButton>
+                  <IconButton
+                    label="Save as widget (reuse on other pages)"
+                    disabled={!removable || !canBeWidget(current.type) || !!w.notReady}
+                    onClick={async () => {
+                      const name = prompt("Name this widget (only you see it):", currentInfo.label);
+                      if (!name?.trim()) return;
+                      const made = await w.create(name.trim(), current);
+                      if (!made) return;
+                      // This block becomes a link to the new widget.
+                      update(blocks.map((x) => (x.id === current.id ? { id: x.id, type: "widget", widgetId: made.id } : x)));
+                    }}
+                  >
+                    <Puzzle size={14} />
+                  </IconButton>
                   <span className="flex-1" />
                   <IconButton
                     label="Delete"
@@ -879,7 +968,24 @@ function PageEditor({
                     Hidden — not shown on the site. Find it in “On this page” on the left.
                   </p>
                 ) : null}
+                {w.error ? (
+                  <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-700">{w.error}</p>
+                ) : null}
                 <div className="mt-4">
+                  {current.type === "widget" ? (
+                    <WidgetPanel
+                      widget={widgetById.get(current.widgetId) ?? null}
+                      catalog={catalog}
+                      slug={slug}
+                      brand={brand}
+                      onChangeDraft={(b) => w.updateDraft(current.widgetId, b)}
+                      onRename={(name) => w.rename(current.widgetId, name)}
+                      onUnlink={(content) => {
+                        // A copy just for this page; the widget stays for the others.
+                        update(blocks.map((x) => (x.id === current.id ? { ...content, id: x.id } : x)));
+                      }}
+                    />
+                  ) : (
                   <BlockInspector
                     key={current.id}
                     block={current}
@@ -889,6 +995,7 @@ function PageEditor({
                     onOpenPage={(next) => (sitePageFor(brand, next) ? onNavigate(brand, next) : undefined)}
                     onChange={(nb) => update(blocks.map((x) => (x.id === nb.id ? nb : x)))}
                   />
+                  )}
                 </div>
               </>
             ) : (
@@ -913,6 +1020,9 @@ function PageSettings({
   unpublished,
   busy,
   onAction,
+  widgets,
+  onRenameWidget,
+  onDeleteWidget,
 }: {
   label: string;
   note: string;
@@ -921,6 +1031,9 @@ function PageSettings({
   unpublished: boolean;
   busy: string | null;
   onAction: (name: "publish" | "discard" | "reset" | "restore", versionId?: string) => void;
+  widgets: SiteWidget[];
+  onRenameWidget: (id: string, name: string) => void;
+  onDeleteWidget: (id: string) => void;
 }) {
   return (
     <div className="space-y-5 text-sm">
@@ -997,6 +1110,102 @@ function PageSettings({
           <p className="mt-2 text-[11px] text-gray-400">None yet — each publish is kept here.</p>
         )}
       </div>
+
+      <div>
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          <Puzzle size={11} /> Saved widgets (this store)
+        </div>
+        {widgets.length ? (
+          <ul className="mt-2 space-y-1.5">
+            {widgets.map((x) => (
+              <li key={x.id} className="rounded-lg border border-gray-200 px-2.5 py-2">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    defaultValue={x.name}
+                    onBlur={(e) => e.target.value.trim() && e.target.value !== x.name && onRenameWidget(x.id, e.target.value.trim())}
+                    className="min-w-0 flex-1 rounded border border-transparent px-1 py-0.5 text-xs font-medium text-gray-800 outline-none hover:border-gray-200 focus:border-indigo-400"
+                  />
+                  <IconButton label="Delete widget" danger disabled={x.usedOn.length > 0} onClick={() => onDeleteWidget(x.id)}>
+                    <Trash2 size={12} />
+                  </IconButton>
+                </div>
+                <p className="mt-0.5 px-1 text-[10px] text-gray-400">
+                  {x.draft ? BLOCK_INFO[x.draft.type].label : "?"} ·{" "}
+                  {x.usedOn.length ? `on ${x.usedOn.map((u) => u.label).join(", ")}` : "not used yet"}
+                  {x.published ? "" : " · not live yet"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-[11px] text-gray-400">None yet. Select a block and use the puzzle button to save it as one.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A linked widget in the rail: its content is edited in place (and changes
+ *  every page using it); unlink makes a page-only copy. */
+function WidgetPanel({
+  widget,
+  catalog,
+  slug,
+  brand,
+  onChangeDraft,
+  onRename,
+  onUnlink,
+}: {
+  widget: SiteWidget | null;
+  catalog: CatalogItem[];
+  slug: string;
+  brand: SiteBrand;
+  onChangeDraft: (b: PageBlock) => void;
+  onRename: (name: string) => void;
+  onUnlink: (content: PageBlock) => void;
+}) {
+  if (!widget || !widget.draft) {
+    return (
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        This widget no longer exists (it was deleted). Delete this block, or add another widget.
+      </p>
+    );
+  }
+  const others = widget.usedOn.filter((u) => u.slug !== slug);
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700">
+          <Puzzle size={11} /> Linked widget · {BLOCK_INFO[widget.draft.type].label}
+        </div>
+        <input
+          key={widget.id}
+          defaultValue={widget.name}
+          onBlur={(e) => e.target.value.trim() && e.target.value !== widget.name && onRename(e.target.value.trim())}
+          className="mt-1.5 w-full rounded-lg border border-violet-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 outline-none focus:border-violet-400"
+        />
+        <p className="mt-1.5 text-[11px] leading-relaxed text-violet-900/70">
+          {others.length
+            ? `Edits here also change it on: ${others.map((u) => u.label).join(", ")}.`
+            : "Only this page uses it so far."}{" "}
+          Publishing any page that uses it puts the edits live.
+        </p>
+        <button
+          type="button"
+          onClick={() => onUnlink({ ...widget.draft!, id: widget.id })}
+          className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-violet-700 hover:text-violet-900"
+        >
+          <Unlink size={12} /> Unlink — make a copy just for this page
+        </button>
+      </div>
+      <BlockInspector
+        key={widget.id}
+        block={widget.draft}
+        catalog={catalog}
+        slug={slug}
+        brand={brand}
+        onChange={onChangeDraft}
+      />
     </div>
   );
 }

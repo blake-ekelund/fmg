@@ -7,6 +7,9 @@ import {
   QUIZ_PERSONAS,
   type FormTile,
   type HeroSlide,
+  EMBED_KINDS,
+  embedSrc,
+  type EmbedKind,
   type CollectionCopy,
   type CollectionsCopyBlock,
   type FooterLink,
@@ -19,6 +22,7 @@ import {
   type Tone,
 } from "@/lib/site/pageBlocks";
 import RichTextEditor from "@/components/marketing/blog/RichTextEditor";
+import { EMBED_LABEL } from "./blockMeta";
 import {
   ColorInput,
   Field,
@@ -1024,6 +1028,71 @@ export default function BlockInspector({
     case "collections_copy":
       return <CollectionsCopyForm block={block} onChange={onChange} />;
 
+    case "embed": {
+      const src = embedSrc(block);
+      const hint: Record<EmbedKind, string> = {
+        video: "Paste a YouTube or Vimeo link.",
+        instagram: "Paste the link to an Instagram post or reel.",
+        map: "Type an address or place name.",
+        form: "Paste the Google Form's share link (Send → link).",
+        countdown: "",
+      };
+      return (
+        <div className="space-y-4">
+          <Field label="Kind">
+            <Select
+              value={block.kind}
+              onChange={(kind) => onChange({ ...block, kind })}
+              options={EMBED_KINDS.map((k) => ({ value: k, label: EMBED_LABEL[k] }))}
+            />
+          </Field>
+          {block.kind !== "countdown" ? (
+            <Field label={block.kind === "map" ? "Address or place" : "Link"} hint={hint[block.kind]}>
+              <TextInput value={block.source} onChange={(source) => onChange({ ...block, source })} />
+              <span className={`mt-1 block text-[11px] ${src ? "text-emerald-600" : "text-amber-600"}`}>
+                {src ? "✓ Recognized" : block.source ? "Not a link we can embed — check it." : ""}
+              </span>
+            </Field>
+          ) : (
+            <>
+              <Field label="Counts down to" hint="In your local time.">
+                <input
+                  type="datetime-local"
+                  value={toLocalInput(block.endsAt)}
+                  onChange={(e) => {
+                    const t = Date.parse(e.target.value);
+                    onChange({ ...block, endsAt: Number.isFinite(t) ? new Date(t).toISOString() : "" });
+                  }}
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                />
+              </Field>
+              <Field label="When it's over, show">
+                <TextInput value={block.endedText} maxLength={160} onChange={(endedText) => onChange({ ...block, endedText })} />
+              </Field>
+              <LinkFields
+                title="Button"
+                label={block.ctaLabel}
+                href={block.ctaHref}
+                onChange={(ctaLabel, ctaHref) => onChange({ ...block, ctaLabel, ctaHref })}
+              />
+            </>
+          )}
+          <Field label="Heading (optional)">
+            <TextInput value={block.heading} maxLength={100} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Caption (optional)">
+            <TextArea value={block.caption} rows={2} maxLength={300} onChange={(caption) => onChange({ ...block, caption })} />
+          </Field>
+          <p className="rounded-lg bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
+            Only these trusted kinds can be embedded — pasted code is never run on the site.
+          </p>
+        </div>
+      );
+    }
+
+    case "widget":
+      return null;
+
     case "faq":
       return (
         <div className="space-y-4">
@@ -1104,6 +1173,15 @@ function LinkRows({ links, onChange }: { links: FooterLink[]; onChange: (links: 
       ) : null}
     </div>
   );
+}
+
+/** ISO → the value a datetime-local input wants (local time). */
+function toLocalInput(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 const PERSONA_NAME: Record<string, string> = Object.fromEntries(QUIZ_PERSONAS.map((p) => [p.key, p.name]));

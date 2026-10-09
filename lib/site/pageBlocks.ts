@@ -394,6 +394,28 @@ export type FooterBlock = Base & {
 };
 export type CollectionsCopyBlock = Base & { type: "collections_copy"; items: CollectionCopy[] };
 
+// Widgets + embeds
+/** A link to a saved widget (site_widgets): the page shows the widget's
+ *  current content, so editing the widget updates every page using it. */
+export type WidgetBlock = Base & { type: "widget"; widgetId: string };
+export type EmbedKind = "video" | "instagram" | "map" | "form" | "countdown";
+/** A trusted embed — never raw code. Only the id / query is kept from what
+ *  the editor pastes; the store builds the frame URL itself (embedSrc). */
+export type EmbedBlock = Base & {
+  type: "embed";
+  kind: EmbedKind;
+  /** video/instagram/form: the share link; map: an address or place. */
+  source: string;
+  heading: string;
+  caption: string;
+  /** Countdown: when it ends (ISO). */
+  endsAt: string;
+  /** Countdown: shown once it has ended. */
+  endedText: string;
+  ctaLabel: string;
+  ctaHref: string;
+};
+
 export type PageBlock =
   | HeroBlock
   | ValueStripBlock
@@ -436,7 +458,9 @@ export type PageBlock =
   | QuizBlock
   | AnnouncementBlock
   | FooterBlock
-  | CollectionsCopyBlock;
+  | CollectionsCopyBlock
+  | WidgetBlock
+  | EmbedBlock;
 
 export type PageBlockType = PageBlock["type"];
 
@@ -507,6 +531,8 @@ export const BLOCK_INFO: Record<
   },
   announcement: { label: "Announcement bar", description: "The rotating messages above the header, on every page.", locked: true },
   footer: { label: "Footer", description: "The footer on every page: tagline, link columns and the sister brand.", locked: true },
+  widget: { label: "Widget", description: "A saved block shared across pages — edit it once, every page updates." },
+  embed: { label: "Embed", description: "A video, Instagram post, map, Google Form or countdown." },
   collections_copy: {
     label: "Fragrance collections",
     description: "Each collection's words — on the homepage hero and panels, the collections page and its own page.",
@@ -674,6 +700,45 @@ function count(v: unknown, fallback: number): number {
 }
 
 const TONES = ["blush", "pink", "ink"] as const;
+export const EMBED_KINDS = ["video", "instagram", "map", "form", "countdown"] as const;
+
+/**
+ * The frame URL for an embed, built from a parsed id — never from the
+ * pasted string itself. Null when the source isn't a recognized link (or for
+ * a countdown, which the store draws itself).
+ */
+export function embedSrc(b: Pick<EmbedBlock, "kind" | "source">): string | null {
+  const src = b.source.trim();
+  switch (b.kind) {
+    case "video": {
+      const yt =
+        src.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/i);
+      if (yt) return `https://www.youtube-nocookie.com/embed/${yt[1]}`;
+      const vm = src.match(/vimeo\.com\/(?:video\/)?(\d{6,12})/i);
+      if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+      return null;
+    }
+    case "instagram": {
+      const ig = src.match(/instagram\.com\/(p|reel)\/([\w-]{5,40})/i);
+      return ig ? `https://www.instagram.com/${ig[1].toLowerCase()}/${ig[2]}/embed` : null;
+    }
+    case "map":
+      return src ? `https://www.google.com/maps?q=${encodeURIComponent(src.slice(0, 200))}&output=embed` : null;
+    case "form": {
+      const gf = src.match(/docs\.google\.com\/forms\/d\/e\/([\w-]{20,120})/i);
+      return gf ? `https://docs.google.com/forms/d/e/${gf[1]}/viewform?embedded=true` : null;
+    }
+    case "countdown":
+      return null;
+  }
+}
+
+/** Block types that can be saved as a widget (not page parts, not site-wide,
+ *  not single-per-page sections). */
+export function canBeWidget(type: PageBlockType): boolean {
+  const info = BLOCK_INFO[type];
+  return !info.locked && !info.single && type !== "widget";
+}
 
 /** Normalize the fields of one block (id/hidden handled by the caller).
  *  Returns null for an unknown type. */
@@ -1120,6 +1185,25 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
         sisterBlurb: str(r.sisterBlurb, 200),
         copyright: str(r.copyright, 160),
       };
+    case "widget": {
+      const widgetId = str(r.widgetId, 40);
+      return /^[0-9a-f-]{36}$/i.test(widgetId) ? { type: "widget", widgetId } : null;
+    }
+    case "embed": {
+      const kind = pick(r.kind, EMBED_KINDS, "video");
+      const ends = Date.parse(str(r.endsAt, 40));
+      return {
+        type: "embed",
+        kind,
+        source: str(r.source, 500),
+        heading: str(r.heading, 100),
+        caption: text(r.caption, 300),
+        endsAt: Number.isFinite(ends) ? new Date(ends).toISOString() : "",
+        endedText: str(r.endedText, 160),
+        ctaLabel: str(r.ctaLabel, 40),
+        ctaHref: safeHref(r.ctaHref),
+      };
+    }
     case "collections_copy":
       return {
         type: "collections_copy",
@@ -1189,7 +1273,7 @@ export function normalizePageFor(page: SitePageDef, input: unknown): PageBlock[]
   if (!Array.isArray(input)) return null;
   const ids = new Set<string>();
   const lockedTypes = new Set(page.defaults.filter((b) => BLOCK_INFO[b.type].locked).map((b) => b.type));
-  const allowed = new Set<PageBlockType>([...page.addable, ...lockedTypes]);
+  const allowed = new Set<PageBlockType>([...pageAddable(page), ...lockedTypes]);
 
   const seen = new Set<PageBlockType>();
   const out: PageBlock[] = [];
@@ -1305,8 +1389,58 @@ export function newBlockFor(type: PageBlockType, id: string, pages: SitePageDef[
       return { id, type, eyebrow: "", heading: "A heading", intro: "", items: ["First point"], marker: "check" };
     case "statement":
       return { id, type, eyebrow: "", heading: "One big line.", body: "" };
+    case "embed":
+      return {
+        id,
+        type,
+        kind: "video",
+        source: "",
+        heading: "",
+        caption: "",
+        endsAt: "",
+        endedText: "",
+        ctaLabel: "",
+        ctaHref: "",
+      };
     default:
       if (fromDefaults) return { ...structuredClone(fromDefaults), id } as PageBlock;
       return { id, type: "rich_text", html: "" };
   }
+}
+
+/** What an editor may add to a page: its own list plus widgets and embeds
+ *  (fixed pages take neither). */
+export function pageAddable(page: SitePageDef): PageBlockType[] {
+  return page.fixed ? [] : [...page.addable, "embed", "widget"];
+}
+
+/**
+ * Swap widget links for the widgets' content. `lookup` returns a widget's
+ * raw block (published on the live site, draft in the preview). The result
+ * keeps the LINK's id (so the editor can select it on the canvas) and hidden
+ * flag; links to missing widgets, or widgets of a type the page can't take,
+ * drop out.
+ */
+export function resolveWidgetRefs(
+  blocks: PageBlock[],
+  page: SitePageDef,
+  lookup: (widgetId: string) => unknown,
+): PageBlock[] {
+  const allowed = new Set(pageAddable(page));
+  const out: PageBlock[] = [];
+  for (const b of blocks) {
+    if (b.type !== "widget") {
+      out.push(b);
+      continue;
+    }
+    const fields = normalizeBlockFields(obj(lookup(b.widgetId)));
+    if (!fields || fields.type === "widget" || !allowed.has(fields.type) || !canBeWidget(fields.type)) continue;
+    out.push({ ...fields, id: b.id, ...(b.hidden ? { hidden: true } : {}) } as PageBlock);
+  }
+  return out;
+}
+
+/** Widget ids a page links to. */
+export function widgetIds(blocks: PageBlock[]): string[] {
+  return [...new Set(blocks.flatMap((b) => (b.type === "widget" ? [b.widgetId] : [])))];
 }

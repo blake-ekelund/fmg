@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import type { PageBlock } from "@/lib/site/pageBlocks";
+import { widgetIds, type PageBlock } from "@/lib/site/pageBlocks";
+import { publishWidgets } from "@/lib/site/widgetsServer";
 import { isSiteBrand, normalizeSitePage, siteDefaults, sitePageFor, type SiteBrand } from "@/lib/site/registry";
 import { sitePagePreviewUrl } from "@/lib/site/preview";
 
@@ -164,6 +165,9 @@ export async function POST(request: Request, ctx: Ctx) {
       await supabaseServer
         .from("site_page_versions")
         .insert({ page_id: row.id, blocks, published_at: now, published_by: r.user.id });
+      // The widgets this page links to go live with it (on every page that
+      // uses them — that's the point of a widget).
+      await publishWidgets(r.brand, widgetIds(blocks), now);
       break;
     }
     case "discard": {

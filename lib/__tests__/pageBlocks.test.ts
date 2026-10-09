@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { safeHref, safeImage, sanitizeRichHtml, type PageBlock } from "../site/pageBlocks";
 import { SITE_PAGES, defaultBlocks, normalizePage } from "../site/pageDefaults";
 import { NI_SITE_PAGES, niDefaultBlocks, normalizeNiPage } from "../site/pageDefaultsNi";
-import { parseInline } from "../site/pageBlocks";
+import { embedSrc, newBlockFor, parseInline, resolveWidgetRefs } from "../site/pageBlocks";
 
 describe("normalizePage", () => {
   it.each(SITE_PAGES.map((p) => p.slug))("keeps the %s default unchanged", (slug) => {
@@ -110,5 +110,61 @@ describe("parseInline", () => {
       { t: "text", v: " " },
       { t: "text", v: "bad" },
     ]);
+  });
+});
+
+describe("embeds", () => {
+  const e = (kind: "video" | "instagram" | "map" | "form" | "countdown", source: string) => embedSrc({ kind, source });
+  it("builds frame URLs from recognized links only", () => {
+    expect(e("video", "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10")).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(e("video", "https://youtu.be/dQw4w9WgXcQ")).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(e("video", "https://vimeo.com/123456789")).toBe("https://player.vimeo.com/video/123456789");
+    expect(e("video", "javascript:alert(1)")).toBeNull();
+    expect(e("instagram", "https://www.instagram.com/p/Cabc123XYZ/?igsh=x")).toBe("https://www.instagram.com/p/Cabc123XYZ/embed");
+    expect(e("map", "7925 Stone Creek Dr, Chanhassen")).toBe(
+      "https://www.google.com/maps?q=7925%20Stone%20Creek%20Dr%2C%20Chanhassen&output=embed",
+    );
+    expect(e("form", "https://docs.google.com/forms/d/e/1FAIpQLSdAbCdEfGhIjKlMnOpQrStUv/viewform")).toBe(
+      "https://docs.google.com/forms/d/e/1FAIpQLSdAbCdEfGhIjKlMnOpQrStUv/viewform?embedded=true",
+    );
+    expect(e("countdown", "x")).toBeNull();
+  });
+
+  it("embeds are allowed on open pages, not fixed ones", () => {
+    const embed = { id: "e", type: "embed", kind: "video", source: "https://youtu.be/dQw4w9WgXcQ" };
+    expect(normalizePage("story", [...defaultBlocks("story"), embed])!.some((b) => b.type === "embed")).toBe(true);
+    expect(normalizePage("shipping", [...defaultBlocks("shipping"), embed])!.some((b) => b.type === "embed")).toBe(false);
+  });
+});
+
+describe("widgets", () => {
+  const WID = "11111111-2222-3333-4444-555555555555";
+  it("keeps valid links and drops bad ids", () => {
+    const out = normalizePage("story", [...defaultBlocks("story"), { id: "w1", type: "widget", widgetId: WID }, { id: "w2", type: "widget", widgetId: "nope" }])!;
+    expect(out.filter((b) => b.type === "widget").map((b) => b.id)).toEqual(["w1"]);
+  });
+
+  it("resolves links to content, keeping the link id; skips missing or disallowed", () => {
+    const page = SITE_PAGES.find((p) => p.slug === "story")!;
+    const blocks = [
+      { id: "w1", type: "widget", widgetId: WID },
+      { id: "w2", type: "widget", widgetId: "99999999-2222-3333-4444-555555555555" },
+    ] as PageBlock[];
+    const lookup = (id: string) =>
+      id === WID ? { type: "quote", text: "Hello", eyebrow: "", highlight: "", footnote: "" } : undefined;
+    const out = resolveWidgetRefs(blocks, page, lookup);
+    expect(out).toEqual([{ id: "w1", type: "quote", text: "Hello", eyebrow: "", highlight: "", footnote: "" }]);
+    // A widget whose kind the page can't take drops out.
+    const hero = resolveWidgetRefs(blocks.slice(0, 1), page, () => ({ type: "hero", slides: [] }));
+    expect(hero).toEqual([]);
+  });
+});
+
+describe("palette starters", () => {
+  it("every addable type starts as itself", () => {
+    for (const pages of [SITE_PAGES, NI_SITE_PAGES]) {
+      for (const page of pages) for (const t of page.addable) expect(newBlockFor(t, "x", pages).type).toBe(t);
+    }
+    expect(newBlockFor("embed", "x", SITE_PAGES).type).toBe("embed");
   });
 });
