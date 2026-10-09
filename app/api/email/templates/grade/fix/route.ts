@@ -9,7 +9,7 @@ import type { EmailBlock } from "@/components/templates/types";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MODEL = "claude-opus-5";
+const MODEL = "claude-opus-5-5";
 /** Trim what we show the model so one huge template can't blow the budget. */
 const MAX_CONTENT_CHARS = 40000;
 
@@ -92,9 +92,13 @@ export async function POST(request: Request) {
   });
 
   const client = new Anthropic();
-  const res = await client.messages.create({
+  const res = await client.beta.messages.create({
     model: MODEL,
     max_tokens: 16000,
+    // Opus 5.5 defaults to medium; keep the depth this had on Opus 5 (high).
+    output_config: { effort: "high" },
+    betas: ["server-side-fallback-2026-06-01"],
+    fallbacks: [{ model: "claude-opus-4-8" }],
     messages: [{ role: "user", content: prompt }],
   });
   if (res.stop_reason === "refusal") {
@@ -105,7 +109,7 @@ export async function POST(request: Request) {
   }
 
   const text = res.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
     .map((b) => b.text)
     .join("");
   const match = text.match(/\{[\s\S]*\}/);
