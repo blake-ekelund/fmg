@@ -394,7 +394,8 @@ function GridTile({ tile, brand, mark }: { tile: Tile; brand: SocialBrand; mark:
       style={size}
       title={`${tile.upcoming ? (tile.draft ? "Draft for" : "Scheduled for") : "Posted"} ${new Date(tile.at).toLocaleString()}`}
     >
-      {slide && !first ? (
+      {/* Designed posts show the live design (rendered media can lag behind edits). */}
+      {slide ? (
         // Slides are 4:5; the grid crops them to 3:4 from the centre, like Instagram.
         <div className="absolute top-0" style={{ left: (TILE_W - TILE_H * 0.8) / 2 }}>
           <SlidePreview slide={slide} brand={brand} index={1} total={p.design!.slides.length} width={TILE_H * 0.8} />

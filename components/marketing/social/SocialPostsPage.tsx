@@ -3,7 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Film, Grid3x3, Images, LayoutGrid, Loader2, Plus, Share2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  ExternalLink,
+  Film,
+  Grid3x3,
+  Images,
+  LayoutGrid,
+  Loader2,
+  Plus,
+  Share2,
+  Trash2,
+  Undo2,
+  X,
+} from "lucide-react";
+import clsx from "clsx";
+import { toast, updateToast } from "@/lib/toast";
 import PageHeader from "@/components/ui/PageHeader";
 import TabNav, { type Tab } from "@/components/ui/TabNav";
 import { useBrand } from "@/components/BrandContext";
@@ -14,13 +31,13 @@ import {
   type SocialBrand,
   type SocialPost,
 } from "@/lib/social/types";
-import { getSocialStatus, listSocialPosts } from "./api";
+import { deleteSocialPost, getSocialStatus, listSocialPosts, updateSocialPost } from "./api";
 import FeedPreview from "./FeedPreview";
 import GridPlanner from "./GridPlanner";
 import { onOpenRequest, onPostsChanged } from "./gridJobs";
 import NewSocialWizard from "./NewSocialWizard";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
-import { SocialStatusPill } from "./bits";
+import { ConfirmDialog, SocialStatusPill } from "./bits";
 
 /**
  * Social Media Posts — compose once, publish to the brand's Facebook Page and
@@ -75,6 +92,9 @@ export default function SocialPostsPage() {
   const [feed, setFeed] = useState<{ brand: SocialBrand; drafts: boolean } | null>(null);
   // Open = { jobId }; a toast's button reopens the planner on its background job.
   const [planner, setPlanner] = useState<{ jobId: string | null } | null>(null);
+  // Multi-select: ids picked in the current tab; the bulk bar acts on them.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -139,6 +159,51 @@ export default function SocialPostsPage() {
   const connected: Partial<Record<SocialBrand, boolean>> = {};
   for (const b of conn?.brands ?? []) connected[b.brand] = b.configured && b.ok;
 
+  const picked = rows.filter((p) => selected.has(p.id));
+  const canSchedule = picked.filter((p) => (p.status === "draft" || p.status === "failed") && p.scheduled_at);
+  const canUnschedule = picked.filter((p) => p.status === "scheduled");
+  const canDelete = picked.filter((p) => p.status !== "publishing");
+  const allPicked = rows.length > 0 && picked.length === rows.length;
+
+  function toggle(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Run one action over many posts in the background, with a progress toast. */
+  function runBulk(list: SocialPost[], verb: { doing: string; done: string }, fn: (p: SocialPost) => Promise<unknown>) {
+    if (!list.length) return;
+    setSelected(new Set());
+    const t = toast({ tone: "working", title: `${verb.doing} ${list.length} ${list.length === 1 ? "post" : "posts"}…` });
+    void (async () => {
+      const failed: string[] = [];
+      for (let i = 0; i < list.length; i++) {
+        updateToast(t, { title: `${verb.doing} ${i + 1} of ${list.length}…` });
+        try {
+          await fn(list[i]);
+        } catch (e) {
+          failed.push(`${list[i].title?.trim() || "Untitled"}: ${e instanceof Error ? e.message : "failed"}`);
+        }
+      }
+      await load();
+      updateToast(
+        t,
+        failed.length
+          ? {
+              tone: "error",
+              sticky: true,
+              title: `${list.length - failed.length} of ${list.length} ${verb.done}`,
+              body: failed.slice(0, 3).join(" · ") + (failed.length > 3 ? ` · and ${failed.length - 3} more` : ""),
+            }
+          : { tone: "success", sticky: false, title: `${list.length} ${list.length === 1 ? "post" : "posts"} ${verb.done}` },
+      );
+    })();
+  }
+
   const tabs = TABS.map((t) => ({ ...t, label: `${t.label} · ${counts[t.value]}` }));
 
   return (
@@ -175,7 +240,14 @@ export default function SocialPostsPage() {
       )}
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
-      <TabNav tabs={tabs} active={bucket} onChange={setBucket} />
+      <TabNav
+        tabs={tabs}
+        active={bucket}
+        onChange={(b) => {
+          setBucket(b);
+          setSelected(new Set());
+        }}
+      />
 
       {loading ? (
         <div className="flex items-center gap-2 py-16 text-sm text-gray-400">
@@ -192,11 +264,76 @@ export default function SocialPostsPage() {
         </div>
       ) : (
         <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <label className="flex cursor-pointer items-center gap-3 bg-gray-50/70 px-4 py-2 text-xs font-medium text-gray-500">
+            <input
+              type="checkbox"
+              checked={allPicked}
+              ref={(el) => {
+                if (el) el.indeterminate = picked.length > 0 && !allPicked;
+              }}
+              onChange={() => setSelected(allPicked ? new Set() : new Set(rows.map((p) => p.id)))}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            {picked.length ? `${picked.length} of ${rows.length} selected` : "Select all"}
+          </label>
           {rows.map((p) => (
-            <PostRow key={p.id} post={p} />
+            <PostRow key={p.id} post={p} selected={selected.has(p.id)} onToggle={() => toggle(p.id)} />
           ))}
         </div>
       )}
+
+      {picked.length > 0 && (
+        <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-gray-900 px-4 py-2.5 text-sm text-white shadow-2xl">
+            <span className="mr-2 font-medium">
+              {picked.length} selected
+            </span>
+            {canSchedule.length > 0 && (
+              <BulkButton
+                icon={<CalendarClock size={14} />}
+                onClick={() =>
+                  runBulk(canSchedule, { doing: "Scheduling", done: "scheduled" }, (p) => updateSocialPost(p.id, { action: "schedule" }))
+                }
+              >
+                Schedule {canSchedule.length < picked.length ? canSchedule.length : ""}
+              </BulkButton>
+            )}
+            {canUnschedule.length > 0 && (
+              <BulkButton
+                icon={<Undo2 size={14} />}
+                onClick={() =>
+                  runBulk(canUnschedule, { doing: "Moving", done: "moved to drafts" }, (p) => updateSocialPost(p.id, { action: "draft" }))
+                }
+              >
+                Move {canUnschedule.length < picked.length ? `${canUnschedule.length} ` : ""}to drafts
+              </BulkButton>
+            )}
+            {canDelete.length > 0 && (
+              <BulkButton icon={<Trash2 size={14} />} danger onClick={() => setConfirmDelete(true)}>
+                Delete {canDelete.length < picked.length ? canDelete.length : ""}
+              </BulkButton>
+            )}
+            <button onClick={() => setSelected(new Set())} className="ml-1 rounded-full p-1.5 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Clear selection">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete ${canDelete.length} ${canDelete.length === 1 ? "post" : "posts"}?`}
+        confirmLabel="Delete"
+        tone="danger"
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          runBulk(canDelete, { doing: "Deleting", done: "deleted" }, (p) => deleteSocialPost(p.id));
+        }}
+      >
+        They&apos;re removed from this list for good. Anything already on Instagram or Facebook stays there.
+        {canDelete.length < picked.length && " Posts that are publishing right now are skipped."}
+      </ConfirmDialog>
 
       {feed && (
         <FeedPreview
@@ -238,13 +375,51 @@ export default function SocialPostsPage() {
   );
 }
 
-function PostRow({ post: p }: { post: SocialPost }) {
+function BulkButton({
+  icon,
+  danger,
+  onClick,
+  children,
+}: {
+  icon: React.ReactNode;
+  danger?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition",
+        danger ? "bg-red-600 hover:bg-red-500" : "bg-white/10 hover:bg-white/20",
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function PostRow({ post: p, selected, onToggle }: { post: SocialPost; selected: boolean; onToggle: () => void }) {
   const thumb = p.media[0];
   const when = p.status === "published" || p.status === "partial" ? p.published_at : p.scheduled_at;
   return (
-    <Link href={`/marketing/social/${p.id}`} className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-gray-50/70">
+    <Link
+      href={`/marketing/social/${p.id}`}
+      className={clsx("flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-gray-50/70", selected && "bg-blue-50/60")}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onClick={(e) => e.stopPropagation()}
+        onChange={onToggle}
+        className="h-4 w-4 shrink-0 rounded border-gray-300"
+        aria-label={`Select ${p.title?.trim() || "post"}`}
+      />
       <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-gray-100">
-        {p.design?.slides[0] && !thumb ? (
+        {/* A designed post always shows its live design — the rendered images in
+            media can lag behind edits until the next render (publish re-renders). */}
+        {p.design?.slides[0] ? (
           <SlidePreview slide={p.design.slides[0]} brand={p.brand} index={1} total={p.design.slides.length} width={56} />
         ) : thumb?.kind === "image" ? (
           // eslint-disable-next-line @next/next/no-img-element
