@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { isSiteBrand, sitePagesFor } from "@/lib/site/registry";
+import { sitePagePreviewUrl } from "@/lib/site/preview";
 
 export const runtime = "nodejs";
 
 /**
  * GET /api/site-pages/<brand> — every editable page with its state, for the
  * Website editor's page list: published (and when), and whether the draft
- * has unpublished changes. Pages with no row are "original".
+ * has unpublished changes. Pages with no row are "original". previewUrl
+ * (the draft on the store) feeds the page thumbnails on the Website home.
  */
 export async function GET(request: Request, ctx: { params: Promise<{ brand: string }> }) {
   const user = await requireInternalUser(request);
@@ -33,6 +35,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ brand: stri
         unpublished: row
           ? JSON.stringify(row.draft_blocks) !== JSON.stringify(row.published_blocks)
           : false,
+        previewUrl: sitePagePreviewUrl(brand, p.slug),
       };
     }),
   });

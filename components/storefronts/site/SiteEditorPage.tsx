@@ -25,11 +25,15 @@ import {
   Smartphone,
   Trash2,
   Undo2,
+  Redo2,
+  Plus,
+  ChevronLeft,
   X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useBrand } from "@/components/BrandContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { call, fetchStatuses, when, type PageStatus } from "./siteApi";
 import {
   BLOCK_INFO,
   LIMITS,
@@ -58,6 +62,8 @@ import { setBlockPath } from "@/lib/site/editPath";
 import { BLOCK_ICON, summary } from "./blockMeta";
 import { IconButton, move } from "./fields";
 import { useWidgets, type SiteWidget } from "./useWidgets";
+import SectionPicker from "./SectionPicker";
+import SiteHome from "./SiteHome";
 
 type PageState = {
   draft: PageBlock[];
@@ -99,7 +105,6 @@ const CLIENT_DRAWN = new Set<PageBlockType>(["hero"]);
 /** Blocks that are whole pages or data, not a section to recolor. */
 const NO_COLORS = new Set<PageBlockType>(["theme", "quiz", "collections_copy"]);
 
-type PageStatus = { slug: string; publishedAt: string | null; updatedAt: string | null; unpublished: boolean };
 
 /** Messages from the store's edit bridge (src/components/site-edit-bridge.tsx). */
 type FromBridge =
@@ -112,51 +117,20 @@ type FromBridge =
   | { src: "site-edit"; type: "image"; id: string; path: string }
   | { src: "site-edit"; type: "drop"; blockType: string; widgetId?: string; targetId: string; pos: "before" | "after" };
 
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabaseBrowser().auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-async function call<T>(brand: SiteBrand, slug: string, method: string, body?: unknown): Promise<T> {
-  const res = await fetch(`/api/site-pages/${brand}/${slug}`, {
-    method,
-    headers: { "Content-Type": "application/json", ...(await authHeader()) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
-  return json;
-}
-
-/** Every page with its publish state, for the page dropdown (null on failure). */
-async function fetchStatuses(brand: SiteBrand): Promise<PageStatus[] | null> {
-  try {
-    const res = await fetch(`/api/site-pages/${brand}`, { headers: await authHeader() });
-    return res.ok ? ((await res.json()) as { pages: PageStatus[] }).pages : null;
-  } catch {
-    return null;
-  }
-}
-
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
 function uid(type: string) {
   return `${type}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /**
- * Website builder — each storefront page as a stack of blocks, laid out like
- * the blog builder: block palette + page layers on the left, the REAL store
- * page in the middle, and a right rail with the selected block's settings or
- * the page's publishing settings.
+ * Website — with no ?page= it's the Website home (every page as a card, see
+ * SiteHome); with one, the editor: the page's sections on the left, the REAL
+ * store page in the middle, and a right rail with the selected section's
+ * settings or the page's publishing settings.
  *
  * The canvas is the store's own /preview page rendering the DRAFT in an
  * iframe, with the store's edit bridge (?edit=1): hovering outlines a block,
- * clicking selects it, and palette tiles dragged onto it drop before/after
- * the block under the pointer. Edits autosave to the draft and the canvas
+ * clicking selects it; "+ Add section" (on the page and in the list) opens
+ * the SectionPicker. Edits autosave to the draft and the canvas
  * reloads (keeping its scroll); nothing reaches the live site until Publish.
  * Store + page live in the URL (?brand=…&page=…).
  */
@@ -170,6 +144,7 @@ export default function SiteEditorPage() {
   const brand: SiteBrand = isSiteBrand(b) ? b : filter !== "all" ? filter : "Sassy";
   const q = params.get("page");
   const slug = q && sitePageFor(brand, q) ? q : "home";
+  const onHome = !q;
   const [statuses, setStatuses] = useState<PageStatus[]>([]);
   const [statusTick, setStatusTick] = useState(0);
 
@@ -187,10 +162,10 @@ export default function SiteEditorPage() {
   useEffect(() => {
     if (lastFilter.current === filter) return;
     lastFilter.current = filter;
-    if (filter !== "all" && filter !== brand) {
+    if (!onHome && filter !== "all" && filter !== brand) {
       router.replace(`?brand=${filter}&page=${sitePageFor(filter, slug) ? slug : "home"}`, { scroll: false });
     }
-  }, [filter, brand, slug, router]);
+  }, [filter, brand, slug, router, onHome]);
 
   useEffect(() => {
     let alive = true;
@@ -208,6 +183,16 @@ export default function SiteEditorPage() {
       router.replace(`?brand=${nextBrand}&page=${nextSlug}`, { scroll: false }),
     [router],
   );
+  // Home ↔ a page are real steps, so the browser Back button works.
+  const open = useCallback(
+    (nextBrand: SiteBrand, nextSlug: string) => router.push(`?brand=${nextBrand}&page=${nextSlug}`),
+    [router],
+  );
+  const goHome = useCallback(() => router.push("?"), [router]);
+
+  if (onHome) {
+    return <SiteHome brands={filter === "all" ? SITE_BRANDS.map((x) => x.brand) : [filter]} onOpen={open} />;
+  }
 
   return (
     <PageEditor
@@ -216,6 +201,7 @@ export default function SiteEditorPage() {
       slug={slug}
       statuses={statuses}
       onNavigate={navigate}
+      onHome={goHome}
       onChanged={refreshStatuses}
     />
   );
@@ -226,12 +212,14 @@ function PageEditor({
   slug,
   statuses,
   onNavigate,
+  onHome,
   onChanged,
 }: {
   brand: SiteBrand;
   slug: string;
   statuses: PageStatus[];
   onNavigate: (brand: SiteBrand, slug: string) => void;
+  onHome: () => void;
   onChanged: () => void;
 }) {
   const { brand: filter } = useBrand();
@@ -301,6 +289,9 @@ function PageEditor({
       setPage(data);
       setBlocks(data.draft);
       blocksRef.current = data.draft;
+      undoRef.current = [];
+      redoRef.current = [];
+      setHistoryLen({ undo: 0, redo: 0 });
       // A page that is one block (quiz, colors, collection words): select it,
       // so its form is ready in the panel.
       if (def.fixed && data.draft.length === 1 && !selectedRef.current) {
@@ -406,8 +397,32 @@ function PageEditor({
     [save],
   );
 
+  // ── undo / redo ────────────────────────────────────────────────────────
+  // Snapshots of the page's sections. Edits to the same thing in quick
+  // succession (typing a heading, dragging a color) are one step. Saved
+  // sections (widgets) live outside the page, so they aren't covered.
+  const undoRef = useRef<{ blocks: PageBlock[]; key?: string; at: number }[]>([]);
+  const redoRef = useRef<PageBlock[][]>([]);
+  const [historyLen, setHistoryLen] = useState({ undo: 0, redo: 0 });
+  const syncHistory = useCallback(
+    () => setHistoryLen({ undo: undoRef.current.length, redo: redoRef.current.length }),
+    [],
+  );
+
   const update = useCallback(
-    (next: PageBlock[], opts?: { reload?: boolean }) => {
+    (next: PageBlock[], opts?: { reload?: boolean; history?: string | false }) => {
+      if (opts?.history !== false) {
+        const stack = undoRef.current;
+        const last = stack[stack.length - 1];
+        const now = Date.now();
+        if (opts?.history && last?.key === opts.history && now - last.at < 1500) last.at = now;
+        else {
+          stack.push({ blocks: blocksRef.current, key: opts?.history || undefined, at: now });
+          if (stack.length > 100) stack.shift();
+        }
+        redoRef.current = [];
+        syncHistory();
+      }
       if (opts?.reload !== false) reloadRef.current = true;
       setBlocks(next);
       blocksRef.current = next;
@@ -416,8 +431,44 @@ function PageEditor({
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(save, 1200);
     },
-    [save],
+    [save, syncHistory],
   );
+
+  const stepHistory = useCallback(
+    (dir: "undo" | "redo") => {
+      const from = dir === "undo" ? undoRef.current : redoRef.current;
+      const snap = from.pop();
+      if (!snap) return;
+      const blocksNow = blocksRef.current;
+      if (dir === "undo") redoRef.current.push(blocksNow);
+      else undoRef.current.push({ blocks: blocksNow, at: 0 });
+      const target = "blocks" in snap ? snap.blocks : snap;
+      syncHistory();
+      update(target, { history: false });
+      if (selectedRef.current && !target.some((x) => x.id === selectedRef.current)) {
+        setSelected(null);
+        selectedRef.current = null;
+      }
+    },
+    [update, syncHistory],
+  );
+
+  // Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — but not inside a text field, which
+  // has its own undo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" || k === "y") {
+        e.preventDefault();
+        stepHistory(k === "y" || e.shiftKey ? "redo" : "undo");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stepHistory]);
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
@@ -453,6 +504,11 @@ function PageEditor({
       setPage(data);
       setBlocks(data.draft);
       blocksRef.current = data.draft;
+      if (name !== "publish") {
+        undoRef.current = [];
+        redoRef.current = [];
+        setHistoryLen({ undo: 0, redo: 0 });
+      }
       setSaveState("saved");
       setFrameKey((k) => k + 1);
       onChanged();
@@ -539,7 +595,7 @@ function PageEditor({
     current && update(blocks.map((x) => (x.id === current.id ? { ...x, hidden: !x.hidden || undefined } : x)));
   const saveAsWidget = async () => {
     if (!current || !currentInfo) return;
-    const name = prompt("Name this widget (only you see it):", currentInfo.label);
+    const name = prompt("Name this saved section (only you see it):", currentInfo.label);
     if (!name?.trim()) return;
     const made = await w.create(name.trim(), current);
     if (!made) return;
@@ -556,6 +612,19 @@ function PageEditor({
   const canDuplicate = removable && !currentInfo?.single && blocks.length < LIMITS.blocks;
   const canWidget = !!current && removable && canBeWidget(current.type) && !w.notReady;
 
+  // ── "+ Add section" ────────────────────────────────────────────────────
+  const canAdd = !def.fixed && (addable.length > 0 || widgetTiles.length > 0);
+  const [picker, setPicker] = useState<{ targetId: string | null; pos: "before" | "after" } | null>(null);
+  const openPicker = (targetId: string | null, pos: "before" | "after") => setPicker({ targetId, pos });
+  const closePicker = useCallback(() => setPicker(null), []);
+  const pickerWhere = (() => {
+    if (!picker) return "";
+    const t = blocks.find((x) => x.id === picker.targetId);
+    if (!t) return "It goes at the end of the page.";
+    const name = t.type === "widget" ? (widgetById.get(t.widgetId)?.name ?? "Saved section") : BLOCK_INFO[t.type].label;
+    return `It goes ${picker.pos === "before" ? "above" : "below"} “${name}”.`;
+  })();
+
   // ── canvas bridge ──────────────────────────────────────────────────────
   const labels = useMemo(
     () => ({
@@ -564,7 +633,7 @@ function PageEditor({
       ...Object.fromEntries(
         blocks.map((x) => [
           toCanvasId(x.id) ?? x.id,
-          x.type === "widget" ? `Widget · ${widgetById.get(x.widgetId)?.name ?? "missing"}` : BLOCK_INFO[x.type].label,
+          x.type === "widget" ? `Saved section · ${widgetById.get(x.widgetId)?.name ?? "missing"}` : BLOCK_INFO[x.type].label,
         ]),
       ),
     }),
@@ -608,7 +677,7 @@ function PageEditor({
       const next = setBlockPath(shown, path, value);
       if (!next) return;
       if (!reload && CLIENT_DRAWN.has(b.type)) reloadOnStopRef.current = true;
-      update(list.map((x) => (x.id === id ? next : x)), { reload });
+      update(list.map((x) => (x.id === id ? next : x)), { reload, history: `field:${id}:${path}` });
     },
     [fromCanvasId, update, brand, slug],
   );
@@ -623,7 +692,7 @@ function PageEditor({
         void _old;
         return (colors ? { ...rest, colors } : rest) as PageBlock;
       }),
-      { reload: false },
+      { reload: false, history: `colors:${id}` },
     );
     postToCanvas({ type: "style", id: toCanvasId(id), colors: colors ?? null });
   };
@@ -770,6 +839,17 @@ function PageEditor({
     <div className="flex h-[calc(100vh-64px)] flex-col">
       {/* ── top bar ─────────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2.5">
+        <button
+          type="button"
+          onClick={async () => {
+            await flush();
+            onHome();
+          }}
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
+        >
+          <ChevronLeft size={15} /> All pages
+        </button>
+        <span className="h-4 w-px bg-gray-200" />
         {/* Only with the top switch on All — otherwise that switch is the store picker. */}
         {filter === "all" ? (
         <select
@@ -812,6 +892,14 @@ function PageEditor({
           {def.path}
         </span>
         <span className="mx-1 hidden h-4 w-px bg-gray-200 sm:block" />
+        <div className="flex items-center">
+          <IconButton label="Undo (Ctrl+Z)" disabled={!historyLen.undo} onClick={() => stepHistory("undo")}>
+            <Undo2 size={14} />
+          </IconButton>
+          <IconButton label="Redo (Ctrl+Shift+Z)" disabled={!historyLen.redo} onClick={() => stepHistory("redo")}>
+            <Redo2 size={14} />
+          </IconButton>
+        </div>
         <SaveBadge state={saveState} />
         {page?.publishedAt ? (
           <span className={clsx("hidden text-[11px] md:inline", unpublished ? "text-amber-600" : "text-gray-400")}>
@@ -856,7 +944,7 @@ function PageEditor({
             ))}
           </div>
           <IconButton
-            label="Page settings — publishing, history, widgets"
+            label="Page settings — publishing, history, saved sections"
             onClick={() => {
               if (panelOpen && tab === "page") setPanelOpen(false);
               else {
@@ -906,81 +994,13 @@ function PageEditor({
           panelOpen ? "md:grid-cols-[220px_minmax(0,1fr)_340px]" : "md:grid-cols-[220px_minmax(0,1fr)]",
         )}
       >
-        {/* ── palette + layers ─────────────────────────────────────────── */}
-        <aside className="min-h-0 space-y-5 overflow-y-auto border-b border-gray-100 bg-gray-50/60 p-4 md:border-b-0 md:border-r">
+        {/* ── sections on this page ────────────────────────────────────── */}
+        <aside className="min-h-0 space-y-4 overflow-y-auto border-b border-gray-100 bg-gray-50/60 p-4 md:border-b-0 md:border-r">
           <div>
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Blocks</h3>
-            {addable.length ? (
-              <div className="mt-2 grid grid-cols-2 gap-1.5">
-                {addable.map((t) => {
-                  const Icon = BLOCK_ICON[t];
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.effectAllowed = "copy";
-                        e.dataTransfer.setData("text/plain", `site-block:${t}`);
-                      }}
-                      onClick={() => insert(t)}
-                      title={`${BLOCK_INFO[t].description} Click to add, or drag onto the page.`}
-                      className="flex flex-col items-center gap-1 rounded-lg border border-gray-200 bg-white px-1.5 py-2.5 text-center text-[11px] font-medium leading-tight text-gray-600 transition hover:border-gray-300 hover:text-gray-900"
-                    >
-                      <Icon size={15} />
-                      {BLOCK_INFO[t].label}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="mt-2 rounded-lg border border-gray-200 bg-white p-2.5 text-[11px] leading-relaxed text-gray-500">
-                {def.fixed
-                  ? "This page's layout is fixed — click any part of it to edit its words."
-                  : "Every block this page can take is already on it."}
-              </p>
-            )}
-          </div>
-
-          {!def.fixed ? (
-            <div>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Widgets</h3>
-              {widgetTiles.length ? (
-                <div className="mt-2 space-y-1.5">
-                  {widgetTiles.map((x) => {
-                    const Icon = BLOCK_ICON[x.draft!.type];
-                    return (
-                      <button
-                        key={x.id}
-                        type="button"
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.effectAllowed = "copy";
-                          e.dataTransfer.setData("text/plain", `site-block:widget:${x.id}`);
-                        }}
-                        onClick={() => insert("widget", null, "after", x.id)}
-                        title={`${BLOCK_INFO[x.draft!.type].label} — click to add, or drag onto the page.`}
-                        className="flex w-full items-center gap-2 rounded-lg border border-violet-200 bg-white px-2.5 py-2 text-left text-[11px] font-medium text-gray-700 transition hover:border-violet-300 hover:text-gray-900"
-                      >
-                        <Puzzle size={13} className="shrink-0 text-violet-500" />
-                        <span className="min-w-0 flex-1 truncate">{x.name}</span>
-                        <Icon size={12} className="shrink-0 text-gray-300" />
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="mt-2 rounded-lg border border-dashed border-gray-200 bg-white p-2.5 text-[11px] leading-relaxed text-gray-400">
-                  {w.notReady
-                    ? "Widgets turn on once the site_widgets migration is applied."
-                    : "Select a block and choose “Save as widget” to reuse it on other pages."}
-                </p>
-              )}
-            </div>
-          ) : null}
-
-          <div>
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">On this page</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Sections on this page</h3>
+            <p className="mt-0.5 text-[11px] text-gray-400">
+              {def.fixed ? "This page's layout is fixed — click any words on it to change them." : "Drag to reorder. Click one to edit it."}
+            </p>
             <ul className="mt-2 space-y-1" onDragLeave={() => setLayerDrop(null)}>
               {blocks.map((x, i) => {
                 const info = BLOCK_INFO[x.type];
@@ -1045,11 +1065,13 @@ function PageEditor({
                     {draggable ? (
                       <GripVertical size={12} className="shrink-0 cursor-grab text-gray-300 group-hover:text-gray-400" />
                     ) : (
-                      <Lock size={11} className="shrink-0 text-gray-300" />
+                      <span title="Built by the store — you can change its words, not move or remove it." className="shrink-0">
+                        <Lock size={11} className="text-gray-300" />
+                      </span>
                     )}
                     <Icon size={13} className="shrink-0 text-gray-400" />
                     <span className="min-w-0 flex-1 truncate" title={summary(x)}>
-                      {x.type === "widget" ? widgetById.get(x.widgetId)?.name ?? "Missing widget" : info.label}
+                      {x.type === "widget" ? widgetById.get(x.widgetId)?.name ?? "Missing saved section" : info.label}
                     </span>
                     {x.hidden ? <EyeOff size={12} className="shrink-0 text-gray-400" /> : null}
                   </li>
@@ -1058,16 +1080,15 @@ function PageEditor({
             </ul>
           </div>
 
-          <div className="rounded-lg border border-gray-200 bg-white p-3">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-700">
-              <Lock size={11} /> Locked parts
-            </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-              Parts with a lock are drawn by the store itself (live product grids, the product details, the quiz…). You
-              can edit their words, not move or remove them. Everything is styled by the store, so it always stays
-              on-brand.
-            </p>
-          </div>
+          {canAdd ? (
+            <button
+              type="button"
+              onClick={() => openPicker(selectedRef.current ?? blocks[blocks.length - 1]?.id ?? null, "after")}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-indigo-300 bg-white px-3 py-2.5 text-sm font-medium text-indigo-700 transition hover:border-indigo-400 hover:bg-indigo-50"
+            >
+              <Plus size={15} /> Add section
+            </button>
+          ) : null}
         </aside>
 
         {/* ── canvas ───────────────────────────────────────────────────── */}
@@ -1099,7 +1120,7 @@ function PageEditor({
             <CanvasToolbar
               key={current.id}
               pos={toolbarPos(selBox)!}
-              label={current.type === "widget" ? (widgetById.get(current.widgetId)?.name ?? "Widget") : currentInfo.label}
+              label={current.type === "widget" ? (widgetById.get(current.widgetId)?.name ?? "Saved section") : currentInfo.label}
               editing={editing}
               canMoveUp={canMoveUp}
               canMoveDown={canMoveDown}
@@ -1131,9 +1152,36 @@ function PageEditor({
               onFormat={(cmd: FormatCmd, value?: string) => postToCanvas({ type: "format", cmd, value })}
             />
           ) : null}
+          {current && currentInfo && selBox && !canvasLoading && canAdd && !editing
+            ? (
+                [
+                  ["before", selBox.top] as const,
+                  ["after", selBox.top + selBox.height] as const,
+                ]
+              )
+                // Nothing goes above a section pinned to the top of the page.
+                .filter(([pos, y]) => !(pos === "before" && currentInfo.pinned) && y > selBox.frameTop + 24 && y < selBox.frameBottom - 16)
+                .map(([pos, y]) => (
+                  <button
+                    key={pos}
+                    type="button"
+                    onClick={() => openPicker(current.id, pos)}
+                    style={{
+                      top: y,
+                      left: Math.min(
+                        Math.max(selBox.left + selBox.width / 2, selBox.frameLeft + 80),
+                        selBox.frameLeft + selBox.frameWidth - 80,
+                      ),
+                    }}
+                    className="absolute z-10 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white shadow-lg ring-2 ring-white transition hover:bg-indigo-700"
+                  >
+                    <Plus size={12} /> Add section {pos === "before" ? "above" : "below"}
+                  </button>
+                ))
+            : null}
           {previewSrc && showHint && !selected && !canvasLoading && !bridgeMissing ? (
             <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-gray-900/80 px-3.5 py-1.5 text-[11px] text-white shadow">
-              Click any text to type over it · click a block for its toolbar · drag blocks in from the left
+              Click any words to type over them · click a section for its options and “+ Add section”
             </div>
           ) : null}
         </section>
@@ -1147,6 +1195,17 @@ function PageEditor({
           uploader={uploadBlogImageResult}
           inbox="website-uploads"
         />
+        <SectionPicker
+          open={!!picker}
+          where={pickerWhere}
+          types={addable}
+          saved={widgetTiles}
+          onClose={closePicker}
+          onPick={(type, widgetId) => {
+            if (picker) insert(type, picker.targetId, picker.pos, widgetId);
+            setPicker(null);
+          }}
+        />
 
         {/* ── side panel (Settings / Page settings) ─────────────────────── */}
         {panelOpen ? (
@@ -1154,7 +1213,7 @@ function PageEditor({
           <div className="sticky top-0 z-[1] flex gap-1 border-b border-gray-100 bg-white p-2">
             {(
               [
-                ["block", "Block", <Settings2 key="b" size={12} />],
+                ["block", "Section", <Settings2 key="b" size={12} />],
                 ["page", "Page settings", <PanelTop key="p" size={12} />],
               ] as const
             ).map(([value, label, icon]) => (
@@ -1189,7 +1248,7 @@ function PageEditor({
                 widgets={w.widgets}
                 onRenameWidget={w.rename}
                 onDeleteWidget={(id) => {
-                  if (confirm("Delete this widget? Only possible when no page uses it.")) void w.remove(id);
+                  if (confirm("Delete this saved section? Only possible when no page uses it.")) void w.remove(id);
                 }}
               />
             ) : siteHint ? (
@@ -1243,7 +1302,7 @@ function PageEditor({
                     {current.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
                   </IconButton>
                   <IconButton
-                    label="Save as widget (reuse on other pages)"
+                    label="Save as a reusable section"
                     disabled={!canWidget}
                     onClick={saveAsWidget}
                   >
@@ -1261,7 +1320,7 @@ function PageEditor({
                 </div>
                 {current.hidden ? (
                   <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                    Hidden — not shown on the site. Find it in “On this page” on the left.
+                    Hidden — not shown on the site. Find it in “Sections on this page” on the left.
                   </p>
                 ) : null}
                 {w.error ? (
@@ -1289,7 +1348,7 @@ function PageEditor({
                     slug={slug}
                     brand={brand}
                     onOpenPage={(next) => (sitePageFor(brand, next) ? onNavigate(brand, next) : undefined)}
-                    onChange={(nb) => update(blocks.map((x) => (x.id === nb.id ? nb : x)))}
+                    onChange={(nb) => update(blocks.map((x) => (x.id === nb.id ? nb : x)), { history: `panel:${nb.id}` })}
                   />
                   )}
                   {NO_COLORS.has(current.type) ? null : (
@@ -1307,7 +1366,7 @@ function PageEditor({
               <p className="py-10 text-center text-xs leading-relaxed text-gray-400">
                 Click any part of the page to edit it,
                 <br />
-                or drag a block in from the left.
+                or use “+ Add section”.
               </p>
             )}
           </div>
@@ -1419,7 +1478,7 @@ function PageSettings({
 
       <div>
         <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-          <Puzzle size={11} /> Saved widgets (this store)
+          <Puzzle size={11} /> Saved sections (this store)
         </div>
         {widgets.length ? (
           <ul className="mt-2 space-y-1.5">
@@ -1431,7 +1490,7 @@ function PageSettings({
                     onBlur={(e) => e.target.value.trim() && e.target.value !== x.name && onRenameWidget(x.id, e.target.value.trim())}
                     className="min-w-0 flex-1 rounded border border-transparent px-1 py-0.5 text-xs font-medium text-gray-800 outline-none hover:border-gray-200 focus:border-indigo-400"
                   />
-                  <IconButton label="Delete widget" danger disabled={x.usedOn.length > 0} onClick={() => onDeleteWidget(x.id)}>
+                  <IconButton label="Delete saved section" danger disabled={x.usedOn.length > 0} onClick={() => onDeleteWidget(x.id)}>
                     <Trash2 size={12} />
                   </IconButton>
                 </div>
@@ -1444,7 +1503,7 @@ function PageSettings({
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-[11px] text-gray-400">None yet. Select a block and use the puzzle button to save it as one.</p>
+          <p className="mt-2 text-[11px] text-gray-400">None yet. Select a section and choose “Save as a reusable section”.</p>
         )}
       </div>
     </div>
@@ -1473,7 +1532,7 @@ function WidgetPanel({
   if (!widget || !widget.draft) {
     return (
       <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        This widget no longer exists (it was deleted). Delete this block, or add another widget.
+        This saved section no longer exists (it was deleted). Delete it from the page.
       </p>
     );
   }
@@ -1482,7 +1541,7 @@ function WidgetPanel({
     <div className="space-y-4">
       <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3">
         <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700">
-          <Puzzle size={11} /> Linked widget · {BLOCK_INFO[widget.draft.type].label}
+          <Puzzle size={11} /> Saved section · {BLOCK_INFO[widget.draft.type].label}
         </div>
         <input
           key={widget.id}

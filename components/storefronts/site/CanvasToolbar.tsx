@@ -211,7 +211,7 @@ export function CanvasToolbar({
         <Btn label="Settings — links, products and everything not on the page" onClick={onSettings}>
           <Settings2 size={14} />
         </Btn>
-        <Btn label="Save as widget (reuse on other pages)" disabled={!canWidget} onClick={onWidget}>
+        <Btn label="Save as a reusable section" disabled={!canWidget} onClick={onWidget}>
           <Puzzle size={14} />
         </Btn>
         <Btn label="Delete" danger disabled={!canDelete} onClick={onDelete}>
