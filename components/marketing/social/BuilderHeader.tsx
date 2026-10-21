@@ -8,9 +8,7 @@ import {
   Check,
   ChevronDown,
   Eye,
-  Facebook,
   ImageIcon,
-  Instagram,
   Loader2,
   MoreHorizontal,
   RotateCcw,
@@ -27,6 +25,7 @@ import {
   type SocialPlatform,
   type SocialStatus,
 } from "@/lib/social/types";
+import { PlatformLogo } from "./ConnectedAccounts";
 
 /**
  * Top of the social post builder. Written for two people: a founder who
@@ -38,7 +37,6 @@ import {
 
 const BRAND_NAME: Record<SocialBrand, string> = { NI: "Natural Inspirations", Sassy: "Sassy" };
 const BRAND_DOT: Record<SocialBrand, string> = { NI: "bg-[#1F3D35]", Sassy: "bg-[#B3295C]" };
-const PLATFORM_ICON: Record<SocialPlatform, typeof Instagram> = { instagram: Instagram, facebook: Facebook };
 
 export function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -88,8 +86,8 @@ export default function BuilderHeader(p: Props) {
   return (
     <>
       {/* Bar */}
-      <div className="sticky top-0 z-30 border-b border-gray-200/80 bg-white/90 backdrop-blur">
-        <div className="flex h-16 items-center gap-2 px-3 sm:gap-4 sm:px-4 md:px-8">
+      <div className="sticky top-16 z-20 border-b border-gray-200 bg-white/95 backdrop-blur md:top-14">
+        <div className="flex h-14 items-center gap-2 px-3 sm:gap-3 sm:px-4 md:px-8">
           <Link
             href="/marketing/social"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
@@ -105,7 +103,7 @@ export default function BuilderHeader(p: Props) {
             disabled={p.locked}
             placeholder="Name this post"
             aria-label="Post name"
-            className="min-w-0 flex-1 truncate rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-[17px] font-semibold text-gray-900 placeholder:text-gray-300 hover:border-gray-200 focus:border-gray-300 focus:bg-white focus:outline-none disabled:hover:border-transparent"
+            className="min-w-0 flex-1 truncate rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-base font-semibold text-gray-900 placeholder:text-gray-300 hover:border-gray-200 focus:border-gray-300 focus:bg-white focus:outline-none disabled:hover:border-transparent"
           />
 
           <SaveIndicator state={p.saveState} locked={p.locked} />
@@ -114,9 +112,9 @@ export default function BuilderHeader(p: Props) {
             <button
               type="button"
               onClick={p.onPreview}
-              className="inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
             >
-              <Eye size={18} />
+              <Eye size={15} />
               <span className="hidden md:inline">Preview</span>
             </button>
             <MoreMenu
@@ -136,9 +134,9 @@ export default function BuilderHeader(p: Props) {
               <button
                 onClick={p.onRetry}
                 disabled={!!p.busy}
-                className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50"
               >
-                {p.busy === "retry" ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                {p.busy === "retry" ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
                 Retry what failed
               </button>
             ) : !p.locked ? (
@@ -154,9 +152,9 @@ export default function BuilderHeader(p: Props) {
                 <button
                   onClick={p.onPublishNow}
                   disabled={!!p.busy}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50 sm:px-4"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50 sm:px-3.5"
                 >
-                  {p.busy === "publish" ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                  {p.busy === "publish" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                   {p.status === "failed" ? "Try again now" : "Post now"}
                 </button>
               </>
@@ -165,39 +163,47 @@ export default function BuilderHeader(p: Props) {
         </div>
       </div>
 
-      {/* Where + when, as one sentence */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-5 text-[15px] text-gray-600 md:px-8">
-        <span>Posting as</span>
-        <BrandMenu brand={p.brand} onBrand={p.onBrand} disabled={p.locked} connection={p.connection} />
-        <span>on</span>
-        <div className="flex gap-2">
-          {SOCIAL_PLATFORMS.map((pl) => {
-            const on = p.platforms.includes(pl);
-            const Icon = PLATFORM_ICON[pl];
-            return (
-              <button
-                key={pl}
-                type="button"
-                disabled={p.locked}
-                onClick={() => p.onTogglePlatform(pl)}
-                aria-pressed={on}
-                className={clsx(
-                  "inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition disabled:cursor-default",
-                  on
-                    ? "border-gray-900 bg-gray-900 text-white"
-                    : "border-dashed border-gray-300 bg-white text-gray-400 hover:border-gray-400 hover:text-gray-600",
-                )}
-              >
-                <Icon size={15} />
-                {PLATFORM_LABEL[pl]}
-                {on && <Check size={14} />}
-              </button>
-            );
-          })}
+      {/* Where + when: brand, the accounts it goes to, and its status — one tidy strip. */}
+      <div className="px-4 pt-4 md:px-8">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Brand</span>
+            <BrandMenu brand={p.brand} onBrand={p.onBrand} disabled={p.locked} connection={p.connection} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Post to</span>
+            <div className="flex gap-1.5">
+              {SOCIAL_PLATFORMS.map((pl) => {
+                const on = p.platforms.includes(pl);
+                const c = p.connection?.brands.find((x) => x.brand === p.brand);
+                const account = pl === "instagram" ? (c?.instagram?.username ? `@${c.instagram.username}` : null) : (c?.facebook?.name ?? null);
+                return (
+                  <button
+                    key={pl}
+                    type="button"
+                    disabled={p.locked}
+                    onClick={() => p.onTogglePlatform(pl)}
+                    aria-pressed={on}
+                    title={on ? `Posting to ${PLATFORM_LABEL[pl]} — click to skip it` : `Not posting to ${PLATFORM_LABEL[pl]} — click to add it`}
+                    className={clsx(
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm font-medium transition disabled:cursor-default",
+                      on
+                        ? "border-gray-300 bg-white text-gray-900 shadow-sm"
+                        : "border-dashed border-gray-200 bg-gray-50 text-gray-400 hover:border-gray-300 hover:text-gray-600",
+                    )}
+                  >
+                    <PlatformLogo platform={pl} size={15} muted={!on} />
+                    {account ?? PLATFORM_LABEL[pl]}
+                    {on && <Check size={13} className="text-emerald-600" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <span className="ml-auto">
+            <StatusSentence status={p.status} scheduledAt={p.scheduledAt} publishedAt={p.publishedAt} />
+          </span>
         </div>
-        <span className="ml-auto">
-          <StatusSentence status={p.status} scheduledAt={p.scheduledAt} publishedAt={p.publishedAt} />
-        </span>
       </div>
     </>
   );
@@ -272,7 +278,7 @@ function BrandMenu({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-sm font-medium text-gray-900 transition hover:border-gray-300 disabled:cursor-default disabled:hover:border-gray-200"
+        className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 shadow-sm transition hover:border-gray-400 disabled:cursor-default disabled:hover:border-gray-300"
       >
         <span className={clsx("h-2.5 w-2.5 rounded-full", BRAND_DOT[brand])} />
         {BRAND_NAME[brand]}
@@ -318,11 +324,11 @@ function MoreMenu({ items }: { items: MenuItem[] }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
+        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <MoreHorizontal size={18} />
+        <MoreHorizontal size={16} />
         <span className="hidden lg:inline">More</span>
       </button>
       {open && (
@@ -424,13 +430,13 @@ function SchedulePopover({
         type="button"
         onClick={toggle}
         className={clsx(
-          "inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition",
+          "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition",
           scheduledAt
             ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
             : "border-gray-200 bg-white text-gray-900 hover:bg-gray-50",
         )}
       >
-        {busy ? <Loader2 size={16} className="animate-spin" /> : <CalendarClock size={16} />}
+        {busy ? <Loader2 size={14} className="animate-spin" /> : <CalendarClock size={14} />}
         {scheduledAt ? <span className="hidden sm:inline">{formatWhen(scheduledAt)}</span> : "Schedule"}
         {scheduledAt && <span className="sm:hidden">Scheduled</span>}
       </button>

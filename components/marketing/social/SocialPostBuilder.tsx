@@ -66,6 +66,7 @@ import {
 } from "./api";
 import { ConfirmDialog } from "./bits";
 import BuilderHeader from "./BuilderHeader";
+import { PlatformLogo } from "./ConnectedAccounts";
 import PlatformPreview from "./PlatformPreview";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import CanvasEditor from "./canvas/CanvasEditor";
@@ -394,10 +395,8 @@ export default function SocialPostBuilder({ id }: { id: string }) {
 
   return (
     <div className="min-h-screen w-full bg-gray-50/50">
-      <PageMeta
-        title={title.trim() || "Untitled post"}
-        description="Design the post's slides and caption, then schedule or publish it."
-      />
+      {/* The post's own name is the editable field in the bar below — don't repeat it up here. */}
+      <PageMeta title="Edit social post" description="Design the slides and caption, then schedule it or post it now." />
       <SlideFonts />
 
       <BuilderHeader
@@ -462,7 +461,15 @@ export default function SocialPostBuilder({ id }: { id: string }) {
           </button>
         </div>
       )}
-      {locked && <Results post={post} />}
+      {locked && (
+        <Results
+          post={post}
+          names={{
+            instagram: brandConn?.instagram?.username ? `@${brandConn.instagram.username}` : undefined,
+            facebook: brandConn?.facebook?.name,
+          }}
+        />
+      )}
       {post.status === "failed" && post.last_error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">It didn&apos;t post: {post.last_error}</div>
       )}
@@ -471,9 +478,12 @@ export default function SocialPostBuilder({ id }: { id: string }) {
         <>
         <div className="grid gap-4 lg:grid-cols-[200px_minmax(0,1fr)_380px]">
           {/* Slide strip */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-wider text-gray-500">
-              Slides · {slides.length}/{SLIDES_MAX}
+          <div className="h-fit space-y-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+            <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+              Slides
+              <span className="font-medium normal-case tracking-normal text-gray-400">
+                {slides.length} of {SLIDES_MAX}
+              </span>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
               {slides.map((s, i) => (
@@ -513,11 +523,6 @@ export default function SocialPostBuilder({ id }: { id: string }) {
                 </div>
               ))}
             </div>
-            {!locked && (
-              <button onClick={switchToPhotos} className="block pt-2 text-left text-[11px] text-gray-400 hover:text-gray-700">
-                Use my own photos instead
-              </button>
-            )}
           </div>
 
           {selected && isCanvas(selected) && !converting ? (
@@ -551,9 +556,9 @@ export default function SocialPostBuilder({ id }: { id: string }) {
           )}
         </div>
 
-        <section className="rounded-2xl border border-gray-200 bg-white p-5">
-          <h3 className="text-base font-semibold text-gray-900">Caption</h3>
-          <p className="mt-0.5 text-sm text-gray-500">The words posted under the slides. Built from the four parts below.</p>
+        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-900">Caption</h3>
+          <p className="mt-0.5 text-xs text-gray-500">The words posted under the slides, built from the parts below.</p>
           <fieldset disabled={locked} className="mt-4 min-w-0 disabled:opacity-70">
             <CaptionInspector caption={design.caption} onChange={setCaptionParts} compiled={effectiveCaption} platforms={platforms} />
           </fieldset>
@@ -979,20 +984,28 @@ function ProductPicker({
 /* ─── Small pieces ────────────────────────────────────────────────── */
 
 
-function Results({ post }: { post: SocialPost }) {
+/** Where it went: each account by name, its outcome, and a link to the live post. */
+function Results({ post, names }: { post: SocialPost; names: Partial<Record<SocialPlatform, string>> }) {
   return (
-    <div className="space-y-1.5 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm">
+    <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white text-sm shadow-sm">
       {post.platforms.map((p) => {
         const r = post.results[p];
+        const url = r?.status === "published" ? (r.permalink ?? (p === "facebook" && r.id ? `https://www.facebook.com/${r.id}` : null)) : null;
         return (
-          <div key={p} className="flex flex-wrap items-center gap-2">
-            <span className="w-20 font-medium text-gray-700">{PLATFORM_LABEL[p]}</span>
+          <div key={p} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+            <PlatformLogo platform={p} size={18} muted={r?.status !== "published"} />
+            <span className="min-w-[140px] font-medium text-gray-900">{names[p] ?? PLATFORM_LABEL[p]}</span>
             {r?.status === "published" ? (
               <>
                 <span className="text-green-700">Posted{r.at ? ` ${formatDateTime(r.at)}` : ""}</span>
-                {r.permalink && (
-                  <a href={r.permalink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900">
-                    View <ExternalLink size={11} />
+                {url && (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                  >
+                    View post <ExternalLink size={11} />
                   </a>
                 )}
               </>
@@ -1005,7 +1018,7 @@ function Results({ post }: { post: SocialPost }) {
         );
       })}
       {post.status === "published" && (
-        <p className="pt-1 text-xs text-gray-400">Posted content is locked. Edit or delete it on Facebook / Instagram directly.</p>
+        <p className="px-4 py-2 text-xs text-gray-400">Posted content is locked. Edit or delete it on Facebook / Instagram directly.</p>
       )}
     </div>
   );
