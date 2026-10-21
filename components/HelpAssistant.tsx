@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { ArrowRight, Download, Loader2, Send, Sparkles, X, RotateCcw } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
-import { toast } from "@/lib/toast";
 
 /**
  * Sage, the floating assistant bottom-right on every internal page. Staff ask
@@ -50,15 +49,6 @@ const SUGGESTIONS = [
   "Draft an NI holiday gift email for D2C shoppers",
   "What can I do on this page?",
 ];
-
-/** First line of a reply as plain text, for the "done" notice. */
-function plainPreview(md: string): string {
-  const line = md
-    .split("\n")
-    .map((l) => l.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[*`#]/g, "").replace(/^\s*([-•]|\d+[.)])\s+/, "").trim())
-    .find(Boolean);
-  return !line ? "" : line.length > 110 ? line.slice(0, 107) + "…" : line;
-}
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabaseBrowser().auth.getSession();
@@ -121,20 +111,13 @@ export default function HelpAssistant() {
   }
 
   /* Tell the user Sage finished: chime when they may not be watching (panel
-     closed, other tab, or it took a while); toast + launcher badge when the
-     panel is closed; title flag while the tab is in the background. */
-  function announceDone(ok: boolean, preview: string, tookMs: number) {
+     closed, other tab, or it took a while); the launcher switches to "Sage is
+     done" when the panel is closed; title flag while the tab is in the
+     background. */
+  function announceDone(ok: boolean, tookMs: number) {
     const watching = openRef.current && !document.hidden;
     if (!watching || tookMs > 4000) playChime();
-    if (!openRef.current) {
-      setHasUnread(true);
-      toast({
-        tone: ok ? "success" : "error",
-        title: ok ? "Sage is done" : "Sage hit a snag",
-        body: preview,
-        action: { label: "Open Sage", run: () => setOpen(true) },
-      });
-    }
+    if (!openRef.current) setHasUnread(true);
     if (document.hidden) {
       const original = document.title;
       document.title = ok ? "✓ Sage is done" : "Sage hit a snag";
@@ -291,13 +274,13 @@ export default function HelpAssistant() {
         setMessages([...next, { role: "assistant", content: reply, actions: [...actions] }]);
       }
       if (!reply.trim() && !actions.length) throw new Error("Sage didn't send a reply. Try again.");
-      announceDone(true, plainPreview(reply) || actions.map((a) => a.label).join(" · "), Date.now() - startedAt);
+      announceDone(true, Date.now() - startedAt);
     } catch (e) {
       // Keep anything Sage already made — the draft exists even if the reply broke off.
       setMessages(reply || actions.length ? [...next, { role: "assistant", content: reply, actions }] : next);
       const msg = e instanceof Error ? e.message : "Something went wrong.";
       setError(msg);
-      announceDone(false, msg, Date.now() - startedAt);
+      announceDone(false, Date.now() - startedAt);
     } finally {
       setBusy(false);
       setStatus(null);
@@ -331,14 +314,8 @@ export default function HelpAssistant() {
             : "bg-brand-700 text-white ring-brand-900/10 hover:bg-brand-600"
         }`}
       >
-        {busy && !open && (
-          <span className="absolute inset-0 -z-10 animate-ping rounded-full bg-brand-700/30 motion-reduce:hidden" />
-        )}
         {hasUnread && !busy && (
-          <span className="absolute -right-1 -top-1 flex h-3 w-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-500 opacity-75" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-accent-600 ring-2 ring-surface" />
-          </span>
+          <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-accent-600 ring-2 ring-surface" />
         )}
         {busy ? <Loader2 size={17} className="animate-spin" /> : <Sparkles size={17} />}
         <span>{busy ? "Sage is working…" : hasUnread ? "Sage is done" : "Ask Sage"}</span>
@@ -355,9 +332,8 @@ export default function HelpAssistant() {
         <div className="flex h-[80vh] w-full flex-col overflow-hidden border border-line bg-surface shadow-overlay sm:h-[600px] sm:w-[420px] sm:rounded-2xl">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-700">
-                {busy && <span className="absolute inset-0 animate-ping rounded-full bg-brand-700/20 motion-reduce:hidden" />}
-                <Sparkles size={16} className={busy ? "animate-pulse" : ""} />
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-700">
+                {busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
               </span>
               <div className="leading-tight">
                 <div className="text-sm font-semibold text-ink">Sage</div>
