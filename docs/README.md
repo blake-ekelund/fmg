@@ -69,10 +69,3 @@ it's the same build Vercel runs), `npm run lint`, `npm run test` (vitest).
 
 The in-app **Technical Roadmap** page (`/technical-roadmap`, owner/admin) is the
 living companion to these docs — it tracks in-flight integration work.
-
-**The staff user guide** lives in code at `lib/help/sections/*.ts` (one entry per
-page). It's shown at `/help` and is what the floating **Help** assistant
-(bottom-right of every page; `components/HelpAssistant.tsx` →
-`/api/help/assistant` → `lib/assistant/helpAgent.ts`) answers from. When you
-change what a page does, update its guide entry in the same commit — the
-assistant can only be as right as the guide.
