@@ -58,7 +58,7 @@ export default function SlackCard() {
           </div>
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-gray-900">Slack</div>
-            <div className="text-xs text-gray-500">AI assistant for FMG staff</div>
+            <div className="text-xs text-gray-500">Sage, the AI assistant for FMG staff</div>
           </div>
         </div>
         <ConnectionPill configured={ready} />
@@ -66,7 +66,7 @@ export default function SlackCard() {
 
       <div className="px-5 py-4">
         <p className="text-sm text-gray-600">
-          FMG employees can <span className="font-medium text-gray-900">@mention</span> the bot in
+          FMG employees can <span className="font-medium text-gray-900">@Sage</span> in
           Slack (or DM it) to ask about inventory, sales, customers, and reps. Only Slack users whose
           email matches an internal FMG profile get answers.
         </p>

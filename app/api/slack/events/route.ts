@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * POST /api/slack/events — Slack Events API endpoint for the FMG assistant.
+ * POST /api/slack/events — Slack Events API endpoint for Sage, the FMG assistant.
  *
  * Flow:
  *   1. Verify the request is really from Slack (signing-secret HMAC over the
@@ -31,7 +31,7 @@ export const maxDuration = 60;
  */
 
 const UNAUTHORIZED_REPLY =
-  "Sorry — this assistant is only available to FMG staff. If you think you should have access, ask an FMG admin.";
+  "Sorry — Sage is only available to FMG staff. If you think you should have access, ask an FMG admin.";
 const EMPTY_REPLY =
   "Hi! Ask me about inventory/stock, sales performance, a customer, or a sales rep.";
 const ERROR_REPLY =

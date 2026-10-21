@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { TOOL_DEFS, runTool } from "./tools";
 
 /**
- * The FMG assistant: a Claude tool-use loop that answers business questions
+ * Sage, the FMG assistant: a Claude tool-use loop that answers business questions
  * over FMG's data (inventory, sales, customers, reps) via the read-only tools
  * in ./tools. Used by the Slack events route once the asker is confirmed to be
  * internal FMG staff. Nothing here is user-facing on its own.
@@ -17,7 +17,7 @@ export function assistantConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY?.trim();
 }
 
-const SYSTEM_PROMPT = `You are the FMG assistant, answering questions from Fragrance Marketing Group (FMG) employees inside Slack.
+const SYSTEM_PROMPT = `You are Sage, the FMG assistant, answering questions from Fragrance Marketing Group (FMG) employees inside Slack.
 
 FMG is a fragrance and personal-care company. It runs two storefronts (Sassy and Natural Inspirations), sells wholesale to retailers through independent sales agencies, and tracks inventory in Fishbowl. You help staff quickly look up business data.
 
