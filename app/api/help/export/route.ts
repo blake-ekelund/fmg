@@ -1,42 +1,35 @@
 import { NextResponse } from "next/server";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { runQuery, toCsv, type QuerySpec } from "@/lib/assistant/dataCatalog";
+import { buildExport, readExportSpec } from "@/lib/assistant/reportExport";
 import type { UserRole } from "@/components/UserContext";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 /**
- * POST /api/help/export — the CSV behind a Sage "Download report" button.
+ * POST /api/help/export — the file behind a Sage "Download" button.
  *
- * Body: { spec: QuerySpec, filename?: string }
- * Returns: text/csv attachment, up to 20,000 rows.
+ * Body: { spec: ExportSpec, filename?: string }
+ * Returns: an .xlsx workbook (one tab per sheet) or a .csv, up to 20,000 rows
+ * per sheet.
  *
- * Re-checks everything: the dataset must be one the caller's role can see
- * (dataCatalog gates each dataset on its page), whatever Sage put in the spec.
+ * Re-checks everything: each sheet's dataset must be one the caller's role can
+ * see (dataCatalog gates each dataset on its page), whatever Sage put in it.
  */
-const MAX_ROWS = 20_000;
-
 export async function POST(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const body = (await request.json().catch(() => ({}))) as { spec?: QuerySpec; filename?: unknown };
-  if (!body.spec || typeof body.spec.dataset !== "string") {
-    return NextResponse.json({ error: "Missing report spec." }, { status: 400 });
-  }
-  const filename =
-    typeof body.filename === "string" && /^[\w\- ]+\.csv$/.test(body.filename) ? body.filename : "report.csv";
-
+  const body = (await request.json().catch(() => ({}))) as { spec?: unknown; filename?: unknown };
   try {
-    const result = await runQuery({ ...body.spec, limit: MAX_ROWS }, user.access as UserRole, {
-      maxRows: MAX_ROWS,
-      scanLimit: 200_000,
-    });
-    // BOM so Excel opens UTF-8 (names with accents, ™, etc.) correctly.
-    return new Response("﻿" + toCsv(result), {
+    const spec = readExportSpec(body.spec);
+    const { body: file, contentType } = await buildExport(spec, user.access as UserRole);
+    const ext = spec.format;
+    const filename =
+      typeof body.filename === "string" && new RegExp(`^[\w\- ]+\.${ext}$`).test(body.filename) ? body.filename : `report.${ext}`;
+    return new Response(file as BodyInit, {
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Type": contentType,
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "no-store",
       },

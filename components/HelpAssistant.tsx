@@ -22,7 +22,27 @@ import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
 type ChatAction =
   | { label: string; href: string }
   | { label: string; download: { spec: unknown; filename: string } };
-type ChatMessage = { role: "user" | "assistant"; content: string; actions?: ChatAction[] };
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  actions?: ChatAction[];
+  /** Two suggested follow-ups, shown as buttons under the latest reply. */
+  next?: string[];
+};
+
+/* Sage ends each reply with "[[next: A | B]]". Pull that line out as chips —
+   and while it is still streaming in, hide the partial marker. */
+function splitNext(raw: string): { content: string; next?: string[] } {
+  const at = raw.lastIndexOf("[[");
+  if (at < 0) return { content: raw };
+  const tail = raw.slice(at);
+  if (!tail.startsWith("[[next") && !"[[next".startsWith(tail)) return { content: raw };
+  const m = tail.match(/^\[\[next:([^\]]*)\]\]/);
+  const next = m?.[1].split("|").map((x) => x.trim()).filter(Boolean).slice(0, 2);
+  return { content: raw.slice(0, at).trimEnd(), ...(next?.length ? { next } : {}) };
+}
+
+const assistantMessage = (raw: string, actions: ChatAction[]): ChatMessage => ({ role: "assistant", actions, ...splitNext(raw) });
 
 type HistoryItem = { id: string; title: string; updated_at: string };
 
@@ -357,14 +377,14 @@ export default function HelpAssistant() {
             setStatus(null);
           }
         }
-        setMessages([...next, { role: "assistant", content: reply, actions: [...actions] }]);
+        setMessages([...next, assistantMessage(reply, [...actions])]);
       }
       if (!reply.trim() && !actions.length) throw new Error("Sage didn't send a reply. Try again.");
-      void persist([...next, { role: "assistant", content: reply, actions }]);
+      void persist([...next, assistantMessage(reply, actions)]);
       announceDone(true, Date.now() - startedAt);
     } catch (e) {
       // Keep anything Sage already made — the draft exists even if the reply broke off.
-      const kept: ChatMessage[] = reply || actions.length ? [...next, { role: "assistant", content: reply, actions }] : next;
+      const kept: ChatMessage[] = reply || actions.length ? [...next, assistantMessage(reply, actions)] : next;
       setMessages(kept);
       if (kept.length > next.length) void persist(kept);
       const msg = e instanceof Error ? e.message : "Something went wrong.";
@@ -576,6 +596,20 @@ export default function HelpAssistant() {
                       {"href" in a && <ArrowRight size={14} className="shrink-0" />}
                     </button>
                   ))}
+                  {/* Two suggested next steps — on the latest reply only, once it's finished. */}
+                  {i === messages.length - 1 && !busy && m.next?.length ? (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {m.next.map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => send(n)}
+                          className="rounded-full border border-line bg-surface px-3 py-1 text-xs text-ink-secondary transition hover:border-brand-700/40 hover:bg-brand-50 hover:text-brand-700"
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null,
             )}

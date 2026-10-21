@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { TOOL_DEFS as DATA_TOOL_DEFS, runTool as runDataTool } from "./tools";
 import { FILTER_OPS, METRIC_FNS, datasetsForRole, describeDatasets, runQuery, type QuerySpec } from "./dataCatalog";
 import { searchConversations } from "./sageMemory";
+import { exportFilename, probeExport, readExportSpec, type ExportSpec } from "./reportExport";
 
 /**
  * What Sage (the in-app assistant) can DO, beyond explaining the site.
@@ -35,8 +36,8 @@ export type ToolContext = {
 /** Something Sage made — shown in the chat as a button to open it. */
 export type ToolAction =
   | { label: string; href: string }
-  /** A CSV report: the widget posts `spec` to /api/help/export and saves the file. */
-  | { label: string; download: { spec: QuerySpec; filename: string } };
+  /** A report: the widget posts `spec` to /api/help/export and saves the file. */
+  | { label: string; download: { spec: ExportSpec; filename: string } };
 
 type ToolResult = { result: unknown; action?: ToolAction };
 
@@ -421,19 +422,55 @@ ${describeDatasets(datasets)}`,
       def: {
         name: "export_report",
         description:
-          "Make a downloadable spreadsheet (CSV, opens in Excel) from a query_data-style query, up to 20,000 rows. Use when the user asks to export, download, or pull a report. Run query_data first if you need to check the filters return what they asked for. The app shows a Download button; summarize what is in it.",
-        input_schema: querySchema(datasets, { title: { type: "string", description: "Short report name, used as the file name." } }),
+          "Make a downloadable Excel workbook (.xlsx) — one tab per sheet, up to 12 tabs and 20,000 rows each. Use when the user asks to export, download, pull a report, or wants a spreadsheet. Each sheet is either a `query` (same shape as query_data: dataset, filters, columns, group_by, metrics, order_by…) or a small `table` you assemble from numbers you already pulled (e.g. a Summary tab of regional totals). Split by segment = one sheet per segment with its own filters (e.g. a tab per region using an `in` filter on state). Only use format csv if they ask for CSV (single sheet). The result gives each sheet's row count — if any sheet has 0 rows, fix the filter and call again before telling the user it's ready. The app shows a Download button.",
+        input_schema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Short report name, used as the file name." },
+            format: { type: "string", enum: ["xlsx", "csv"] },
+            sheets: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string", description: "Tab name (≤31 chars)." },
+                  query: querySchema(datasets),
+                  table: {
+                    type: "object",
+                    properties: {
+                      columns: { type: "array", items: { type: "string" } },
+                      rows: { type: "array", items: { type: "array", items: {} } },
+                    },
+                    required: ["columns", "rows"],
+                  },
+                },
+                required: ["name"],
+              },
+            },
+          },
+          required: ["title", "sheets"],
+        },
       },
       async run(input) {
-        const spec = readSpec(input);
-        // Validate (and count) now so a bad query fails in the chat, not on click.
-        const probe = await runQuery({ ...spec, limit: 1 }, role, { maxRows: 1 });
-        const title = str(input.title, 80) || probe.title;
-        const slug = title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "report";
-        const filename = `${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+        const spec = readExportSpec(input, str(input.title, 80) || "Report");
+        // Validate (and count) every sheet now so a bad or empty one fails in the chat, not on click.
+        const sheets = await probeExport(spec, role);
+        const empty = sheets.filter((s) => s.rows === 0).map((s) => s.sheet);
+        const kind = spec.format === "csv" ? "CSV" : "Excel";
         return {
-          result: { ready: true, title, matching_rows: probe.total, row_cap: 20000 },
-          action: { label: `Download “${title}” (CSV)`, download: { spec, filename } },
+          result: {
+            ready: empty.length === 0,
+            title: spec.title,
+            format: spec.format,
+            sheets,
+            row_cap_per_sheet: 20000,
+            ...(empty.length
+              ? { warning: `Empty sheet(s): ${empty.join(", ")}. Check the filter values (states are full names like "Minnesota"), then call export_report again.` }
+              : {}),
+          },
+          ...(empty.length === spec.sheets.length
+            ? {}
+            : { action: { label: `Download “${spec.title}” (${kind})`, download: { spec, filename: exportFilename(spec) } } }),
         };
       },
     },
