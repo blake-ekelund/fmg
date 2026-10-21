@@ -13,6 +13,7 @@ import clsx from "clsx";
 import { useRef, useCallback, useEffect, useState } from "react";
 import { getNavForRole, isNavItemActive, type NavSection } from "./navConfig";
 import Logo from "./ui/Logo";
+import SageRecentChats from "./SageRecentChats";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
@@ -315,6 +316,9 @@ export default function Sidebar({
           );
         })}
       </nav>
+
+      {/* The user's latest Sage conversations */}
+      <SageRecentChats collapsed={collapsed} />
 
       {/* Logout */}
       <div className="px-2 pb-3 shrink-0 pt-2 border-t border-white/8">

@@ -37,7 +37,23 @@ export type ToolContext = {
 export type ToolAction =
   | { label: string; href: string }
   /** A report: the widget posts `spec` to /api/help/export and saves the file. */
-  | { label: string; download: { spec: ExportSpec; filename: string } };
+  | { label: string; download: { spec: ExportSpec; filename: string } }
+  /** Schedule / publish — runs only when the user clicks "Yes, …" on the card. */
+  | { label: string; confirm: PublishConfirm };
+
+export type PublishConfirm = {
+  kind: "social" | "blog";
+  id: string;
+  mode: "schedule" | "publish_now";
+  /** ISO time for a schedule. */
+  when: string | null;
+  title: string;
+  /** e.g. "NI · Instagram + Facebook". */
+  detail: string;
+  /** Set by the widget once the user acts. */
+  state?: "done" | "cancelled";
+  result?: string;
+};
 
 type ToolResult = { result: unknown; action?: ToolAction };
 
@@ -555,8 +571,82 @@ const recallConversations: HelpTool = {
   },
 };
 
+/**
+ * Scheduling and publishing go out under the user's own click, never Sage's:
+ * this tool only checks the post and returns a confirmation card. The widget
+ * runs the schedule/publish (the same API routes the Social / Blog pages use,
+ * with the user's token) when they press "Yes, …".
+ */
+const SOCIAL_EDITABLE = new Set(["draft", "scheduled", "failed"]);
+const BLOG_SCHEDULABLE = new Set(["ai_draft", "human_review", "ready", "draft", "scheduled"]);
+
+const proposePublishing: HelpTool = {
+  page: "*",
+  status: "Getting that ready for your OK…",
+  def: {
+    name: "propose_publishing",
+    description:
+      "Ask the user to confirm scheduling or publishing a social post or blog post. This does NOT schedule or publish anything — it shows a confirmation card with a 'Yes, schedule' / 'Yes, post now' button the user must click. Use when they ask to schedule, publish, or post something. Find the post's id first (query_data on social_posts / blog_posts, or the draft you just created). For schedule, pass `when` as an ISO date-time with the Central-time offset (e.g. 2026-10-23T09:00:00-05:00). After calling it, tell them in one line to confirm with the button.",
+    input_schema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["social", "blog"] },
+        id: { type: "string" },
+        mode: { type: "string", enum: ["schedule", "publish_now"] },
+        when: { type: "string", description: "Required for schedule: ISO 8601 date-time with offset, in the future." },
+      },
+      required: ["kind", "id", "mode"],
+    },
+  },
+  async run(input, ctx) {
+    const kind = input.kind === "blog" ? "blog" : "social";
+    const mode = input.mode === "publish_now" ? "publish_now" : "schedule";
+    const page = kind === "blog" ? "/marketing/blog" : "/marketing/social";
+    if (!getAllowedPaths(ctx.role).some((p) => page === p || page.startsWith(p + "/"))) {
+      return { result: { error: `This account can't manage ${kind === "blog" ? "blog posts" : "social posts"}.` } };
+    }
+    const id = str(input.id, 60);
+    let when: string | null = null;
+    if (mode === "schedule") {
+      const t = Date.parse(str(input.when, 40));
+      if (!Number.isFinite(t)) return { result: { error: "Pass `when` as an ISO date-time to schedule." } };
+      if (t < Date.now() + 60_000) return { result: { error: "That time is in the past — pick a future time, or use publish_now." } };
+      when = new Date(t).toISOString();
+    }
+
+    let title = "";
+    let detail = "";
+    if (kind === "social") {
+      const { data } = await supabaseServer.from("social_posts").select("id, title, caption, brand, platforms, status").eq("id", id).maybeSingle();
+      const post = data as { title?: string | null; caption?: string; brand: string; platforms: string[]; status: string } | null;
+      if (!post) return { result: { error: "No social post with that id." } };
+      if (!SOCIAL_EDITABLE.has(post.status)) return { result: { error: `That post is already ${post.status}.` } };
+      title = (post.title || post.caption || "Social post").replace(/\s+/g, " ").slice(0, 80);
+      detail = `${post.brand} · ${post.platforms.map((p) => (p === "instagram" ? "Instagram" : "Facebook")).join(" + ")}`;
+    } else {
+      const { data } = await supabaseServer.from("blog_posts").select("id, title, brand, status").eq("id", id).maybeSingle();
+      const post = data as { title: string; brand: string; status: string } | null;
+      if (!post || post.status === "deleted") return { result: { error: "No blog post with that id." } };
+      if (post.status === "published") return { result: { error: "That blog post is already published." } };
+      if (mode === "schedule" && !BLOG_SCHEDULABLE.has(post.status)) return { result: { error: `A ${post.status} post can't be scheduled.` } };
+      title = post.title;
+      detail = `${post.brand} blog`;
+    }
+
+    const verb = mode === "schedule" ? "Schedule" : kind === "blog" ? "Publish" : "Post";
+    return {
+      result: { awaiting_user_confirmation: true, kind, id, mode, when, title },
+      action: {
+        label: `${verb} “${title}”`,
+        confirm: { kind, id, mode, when, title, detail },
+      },
+    };
+  },
+};
+
 const STATIC_TOOLS: HelpTool[] = [
   recallConversations,
+  proposePublishing,
   createEmailTemplate,
   createTask,
   updateTask,

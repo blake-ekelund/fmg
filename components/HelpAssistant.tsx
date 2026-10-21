@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowRight, Download, History, Loader2, Send, Sparkles, SquarePen, Trash2, X } from "lucide-react";
+import { ArrowRight, CalendarClock, Check, Download, History, Loader2, Send, Sparkles, SquarePen, Trash2, X } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
+import type { PublishConfirm } from "@/lib/assistant/helpTools";
 
 /**
  * Sage, the floating assistant bottom-right on every internal page. Staff ask
@@ -21,7 +22,33 @@ import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
 /** A button under a Sage reply: open a page, or download a CSV report. */
 type ChatAction =
   | { label: string; href: string }
-  | { label: string; download: { spec: unknown; filename: string } };
+  | { label: string; download: { spec: unknown; filename: string } }
+  | { label: string; confirm: PublishConfirm };
+
+/** "Thu, Oct 23, 9:00 AM" in Central time. */
+const fmtWhen = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Chicago",
+  });
+
+/** The schedule / publish request behind a confirmation card — the same calls the Social and Blog pages make. */
+function publishRequest(c: PublishConfirm): { url: string; method: "PATCH" | "POST"; body: unknown } {
+  if (c.kind === "social") {
+    return c.mode === "publish_now"
+      ? { url: `/api/social/posts/${c.id}/publish`, method: "POST", body: {} }
+      : { url: `/api/social/posts/${c.id}`, method: "PATCH", body: { scheduled_at: c.when, action: "schedule" } };
+  }
+  return {
+    url: `/api/marketing/blog/${c.id}`,
+    method: "PATCH",
+    body: c.mode === "publish_now" ? { status: "published" } : { status: "scheduled", publish_at: c.when },
+  };
+}
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -64,7 +91,15 @@ type HelpEvent ={ t: "text"; v: string } | { t: "status"; v: string } | ({ t: "a
 const forApi = (m: ChatMessage) => ({
   role: m.role,
   content: m.actions?.length
-    ? `${m.content}\n\n[Shown: ${m.actions.map((a) => ("href" in a ? `${a.label} → ${a.href}` : a.label)).join("; ")}]`
+    ? `${m.content}\n\n[Shown: ${m.actions
+        .map((a) =>
+          "href" in a
+            ? `${a.label} → ${a.href}`
+            : "confirm" in a
+              ? `${a.label} — ${a.confirm.state === "done" ? `user confirmed: ${a.confirm.result}` : a.confirm.state === "cancelled" ? "user cancelled" : "waiting for the user to click"}`
+              : a.label,
+        )
+        .join("; ")}]`
     : m.content,
 });
 
@@ -73,8 +108,19 @@ const OPEN_EVENT = "fmg:open-help";
 
 /** Open Sage from anywhere (e.g. the /help page), optionally asking a question. */
 export function openHelpAssistant(question?: string) {
-  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: question ?? null }));
+  window.dispatchEvent(new CustomEvent<OpenDetail>(OPEN_EVENT, { detail: question ?? null }));
 }
+
+type OpenDetail = string | { conversationId: string } | null;
+
+/** Open Sage on a saved conversation (the sidebar's Recent chats). */
+export function openSageConversation(conversationId: string) {
+  window.dispatchEvent(new CustomEvent<OpenDetail>(OPEN_EVENT, { detail: { conversationId } }));
+}
+
+/** Fired when the saved history changes, so the sidebar list can refresh. */
+export const SAGE_HISTORY_EVENT = "fmg:sage-history";
+const historyChanged = () => window.dispatchEvent(new Event(SAGE_HISTORY_EVENT));
 
 const SUGGESTIONS = [
   "Which products are running low on stock?",
@@ -94,6 +140,11 @@ export default function HelpAssistant() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Latest transcript for handlers that run after a click (confirmation cards).
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,6 +260,7 @@ export default function HelpAssistant() {
       if (res.ok && j?.id) {
         conversationIdRef.current = j.id;
         setConversationId(j.id);
+        historyChanged();
       }
     } catch {
       /* history is a nice-to-have — never block the chat on it */
@@ -248,18 +300,22 @@ export default function HelpAssistant() {
     if (conversationIdRef.current === id) reset();
     try {
       await fetch(`/api/help/conversations?id=${encodeURIComponent(id)}`, { method: "DELETE", headers: await authHeader() });
+      historyChanged();
     } catch {
       /* already gone from the list; a failed delete reappears next time */
     }
   }
 
-  // send() is redeclared each render; the listener reads the latest through a ref.
+  // send()/loadConversation() are redeclared each render; the listener reads
+  // the latest through refs.
   const sendRef = useRef<(q: string) => void>(() => {});
+  const loadRef = useRef<(id: string) => void>(() => {});
   useEffect(() => {
     const onOpen = (e: Event) => {
       setOpen(true);
-      const q = (e as CustomEvent<string | null>).detail;
-      if (q) sendRef.current(q);
+      const d = (e as CustomEvent<OpenDetail>).detail;
+      if (typeof d === "string") sendRef.current(d);
+      else if (d?.conversationId) loadRef.current(d.conversationId);
     };
     window.addEventListener(OPEN_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_EVENT, onOpen);
@@ -374,6 +430,7 @@ export default function HelpAssistant() {
           } else if (ev.t === "action") {
             if ("href" in ev && isAppPath(ev.href)) actions.push({ label: ev.label, href: ev.href });
             else if ("download" in ev) actions.push({ label: ev.label, download: ev.download });
+            else if ("confirm" in ev) actions.push({ label: ev.label, confirm: ev.confirm });
             setStatus(null);
           }
         }
@@ -397,6 +454,58 @@ export default function HelpAssistant() {
   }
 
   sendRef.current = send;
+  loadRef.current = loadConversation;
+
+  /* Confirmation cards (schedule / publish). Only the user's "Yes" runs it —
+     the same API call the Social / Blog page makes, under their own token. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  function settleConfirm(i: number, j: number, patch: Pick<PublishConfirm, "state" | "result">) {
+    const out = messagesRef.current.map((m, mi) =>
+      mi !== i
+        ? m
+        : {
+            ...m,
+            actions: m.actions?.map((a, aj) => (aj === j && "confirm" in a ? { ...a, confirm: { ...a.confirm, ...patch } } : a)),
+          },
+    );
+    setMessages(out);
+    void persist(out);
+  }
+
+  async function runConfirm(i: number, j: number) {
+    const a = messages[i]?.actions?.[j];
+    if (!a || !("confirm" in a) || confirming) return;
+    const c = a.confirm;
+    setConfirming(`${i}:${j}`);
+    setError(null);
+    try {
+      const req = publishRequest(c);
+      const res = await fetch(req.url, {
+        method: req.method,
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify(req.body),
+      });
+      const j2 = (await res.json().catch(() => null)) as { error?: string; post?: { status?: string } } | null;
+      if (!res.ok) throw new Error(j2?.error ?? "That didn't go through.");
+      const status = j2?.post?.status;
+      const result =
+        c.mode === "schedule"
+          ? `Scheduled for ${fmtWhen(c.when!)}`
+          : status === "publishing"
+            ? "Posting — finishing up in a minute"
+            : status === "failed" || status === "partial"
+              ? "Didn't fully post — check it on the Social page"
+              : c.kind === "blog"
+                ? "Published"
+                : "Posted";
+      settleConfirm(i, j, { state: "done", result });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That didn't go through.");
+    } finally {
+      setConfirming(null);
+    }
+  }
 
   /** Start a new conversation (the current one stays in History). */
   function reset() {
@@ -446,23 +555,16 @@ export default function HelpAssistant() {
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-700">
-                {busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                <Sparkles size={16} />
               </span>
               <div className="leading-tight">
                 <div className="text-sm font-semibold text-ink">Sage</div>
-                {busy ? (
-                  <div className="flex items-center gap-1 text-xs font-medium text-brand-700" aria-live="polite">
-                    <Loader2 size={11} className="animate-spin" />
-                    {status ?? "Working…"}
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => router.push("/help")}
-                    className="text-xs text-ink-muted underline-offset-2 hover:text-brand-700 hover:underline"
-                  >
-                    Browse the full user guide
-                  </button>
-                )}
+                <button
+                  onClick={() => router.push("/help")}
+                  className="text-xs text-ink-muted underline-offset-2 hover:text-brand-700 hover:underline"
+                >
+                  Browse the full user guide
+                </button>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -579,23 +681,33 @@ export default function HelpAssistant() {
                       dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
                     />
                   )}
-                  {m.actions?.map((a, j) => (
-                    <button
-                      key={j}
-                      onClick={() => ("href" in a ? go(a.href) : download(a))}
-                      disabled={"download" in a && downloading === a.label}
-                      className="inline-flex max-w-[92%] items-center gap-1.5 rounded-xl border border-brand-700/20 bg-brand-50 px-3 py-2 text-left text-sm font-medium text-brand-700 transition hover:bg-brand-100 disabled:opacity-60"
-                    >
-                      {"download" in a &&
-                        (downloading === a.label ? (
-                          <Loader2 size={14} className="shrink-0 animate-spin" />
-                        ) : (
-                          <Download size={14} className="shrink-0" />
-                        ))}
-                      <span className="truncate">{a.label}</span>
-                      {"href" in a && <ArrowRight size={14} className="shrink-0" />}
-                    </button>
-                  ))}
+                  {m.actions?.map((a, j) =>
+                    "confirm" in a ? (
+                      <ConfirmCard
+                        key={j}
+                        c={a.confirm}
+                        working={confirming === `${i}:${j}`}
+                        onYes={() => runConfirm(i, j)}
+                        onCancel={() => settleConfirm(i, j, { state: "cancelled" })}
+                      />
+                    ) : (
+                      <button
+                        key={j}
+                        onClick={() => ("href" in a ? go(a.href) : download(a))}
+                        disabled={"download" in a && downloading === a.label}
+                        className="inline-flex max-w-[92%] items-center gap-1.5 rounded-xl border border-brand-700/20 bg-brand-50 px-3 py-2 text-left text-sm font-medium text-brand-700 transition hover:bg-brand-100 disabled:opacity-60"
+                      >
+                        {"download" in a &&
+                          (downloading === a.label ? (
+                            <Loader2 size={14} className="shrink-0 animate-spin" />
+                          ) : (
+                            <Download size={14} className="shrink-0" />
+                          ))}
+                        <span className="truncate">{a.label}</span>
+                        {"href" in a && <ArrowRight size={14} className="shrink-0" />}
+                      </button>
+                    ),
+                  )}
                   {/* Two suggested next steps — on the latest reply only, once it's finished. */}
                   {i === messages.length - 1 && !busy && m.next?.length ? (
                     <div className="flex flex-wrap gap-1.5 pt-0.5">
@@ -614,19 +726,13 @@ export default function HelpAssistant() {
               ) : null,
             )}
 
-            {status && (
-              <div className="flex items-center gap-2 text-xs text-ink-muted">
-                <Loader2 size={13} className="animate-spin" />
-                {status}
-              </div>
-            )}
-
-            {waiting && !status && (
-              <div className="flex justify-start">
-                <div className="flex gap-1 rounded-2xl rounded-bl-sm bg-surface-muted px-3 py-3">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-muted [animation-delay:-0.2s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-muted [animation-delay:-0.1s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-muted" />
+            {/* Sage's progress, as a reply bubble under the user's ask: "Thinking…"
+                until words arrive, or what it's doing while a tool runs. */}
+            {busy && (status || waiting) && (
+              <div className="flex justify-start" aria-live="polite">
+                <div className="flex items-center gap-2 rounded-2xl rounded-bl-sm bg-surface-muted px-3 py-2 text-sm text-ink-muted">
+                  <Loader2 size={14} className="shrink-0 animate-spin" />
+                  {status ?? "Thinking…"}
                 </div>
               </div>
             )}
@@ -662,11 +768,75 @@ export default function HelpAssistant() {
               </button>
             </div>
             <p className="mt-2 text-center text-[11px] text-ink-subtle">
-              Sage makes drafts — sending, posting and publishing stay with you
+              Sage never sends email · it schedules or posts only when you click Yes
             </p>
           </div>
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * "Schedule / Post this?" card under a Sage reply. Nothing happens until the
+ * user clicks Yes; afterwards it shows the outcome (or that they cancelled).
+ */
+function ConfirmCard({
+  c,
+  working,
+  onYes,
+  onCancel,
+}: {
+  c: PublishConfirm;
+  working: boolean;
+  onYes: () => void;
+  onCancel: () => void;
+}) {
+  const schedule = c.mode === "schedule";
+  const verb = schedule ? "Schedule" : c.kind === "blog" ? "Publish" : "Post";
+  return (
+    <div className="w-[92%] rounded-xl border border-line bg-surface p-3 text-sm shadow-sm">
+      <div className="flex items-start gap-2">
+        {schedule ? (
+          <CalendarClock size={16} className="mt-0.5 shrink-0 text-brand-700" />
+        ) : (
+          <Send size={15} className="mt-0.5 shrink-0 text-brand-700" />
+        )}
+        <div className="min-w-0">
+          <div className="font-medium text-ink">
+            {verb} “{c.title}”{schedule ? "?" : " now?"}
+          </div>
+          <div className="text-xs text-ink-muted">
+            {c.detail}
+            {schedule && c.when ? ` · ${fmtWhen(c.when)}` : ""}
+          </div>
+        </div>
+      </div>
+      {c.state === "done" ? (
+        <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+          <Check size={14} /> {c.result}
+        </div>
+      ) : c.state === "cancelled" ? (
+        <div className="mt-2 text-xs text-ink-muted">Cancelled — nothing was changed.</div>
+      ) : (
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={onYes}
+            disabled={working}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-brand-600 disabled:opacity-60"
+          >
+            {working && <Loader2 size={12} className="animate-spin" />}
+            {schedule ? "Yes, schedule" : c.kind === "blog" ? "Yes, publish" : "Yes, post now"}
+          </button>
+          <button
+            onClick={onCancel}
+            disabled={working}
+            className="rounded-lg border border-line px-3 py-1.5 text-xs text-ink-secondary transition hover:bg-surface-muted disabled:opacity-60"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
