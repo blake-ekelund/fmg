@@ -7,9 +7,9 @@ import type { BrandConnection, MetaConnectionStatus, SocialBrand, SocialPlatform
 
 /**
  * "Where do our posts go?" — one card per connected social account (the
- * brand's Facebook Page and Instagram), with the real platform logo and a
- * platform-coloured verified-style check. Brands that aren't hooked up yet
- * show as a quiet "Not connected" card; broken connections say why.
+ * brand's Facebook Page and Instagram): avatar with the platform logo,
+ * handle and follower count, all one height. Accounts that aren't hooked up
+ * yet are a single quiet line; broken connections say why.
  */
 
 const BRAND_NAME: Record<SocialBrand, string> = { NI: "Natural Inspirations", Sassy: "Sassy" };
@@ -89,42 +89,41 @@ export default function ConnectedAccounts({
 }) {
   if (loading) {
     return (
-      <section className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+      <div className="flex items-center gap-2 text-sm text-gray-500">
         <Loader2 size={14} className="animate-spin" />
         Checking connected accounts…
-      </section>
+      </div>
     );
   }
   if (!conn) return null;
 
   if (!conn.configured) {
     return (
-      <section className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         <AlertTriangle size={14} className="mt-0.5 shrink-0" />
         Meta isn&apos;t connected, so nothing will post. Set META_ACCESS_TOKEN in Vercel (docs/integrations.md, Meta section).
-      </section>
+      </div>
     );
   }
 
   const noneSetUp = conn.brands.every((b) => !b.configured);
-  const accounts = conn.brands
-    .filter((b) => brand === "all" || b.brand === brand)
-    .flatMap(accountsFor)
-    // Live accounts first, then problems, then the not-yet-connected placeholders.
-    .sort((a, b) => ORDER[a.state] - ORDER[b.state]);
-  const live = accounts.filter((a) => a.state === "connected").length;
+  const accounts = conn.brands.filter((b) => brand === "all" || b.brand === brand).flatMap(accountsFor);
+  // Live and broken accounts get a card; not-yet-connected ones are one quiet line.
+  const cards = accounts.filter((a) => a.state !== "off").sort((a, b) => ORDER[a.state] - ORDER[b.state]);
+  const off = accounts.filter((a) => a.state === "off");
+  const live = cards.filter((a) => a.state === "connected").length;
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-gray-900">Connected accounts</h2>
+    <section>
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Connected accounts</h2>
         <span className="text-xs text-gray-500">
-          {live} {live === 1 ? "account" : "accounts"} ready to post
+          <span className="font-semibold text-gray-700">{live}</span> of {accounts.length} ready to post
         </span>
       </div>
 
       {noneSetUp ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
           Meta is connected but no brand has a Page yet. Set META_PAGE_ID_NI / META_PAGE_ID_SASSY in Vercel:
           <ul className="mt-1 font-mono text-xs">
             {(conn.visiblePages ?? []).map((p) => (
@@ -136,11 +135,28 @@ export default function ConnectedAccounts({
           </ul>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {accounts.map((a) => (
-            <AccountCard key={a.key} a={a} />
-          ))}
-        </div>
+        <>
+          {cards.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {cards.map((a) => (
+                <AccountCard key={a.key} a={a} />
+              ))}
+            </div>
+          )}
+          {off.length > 0 && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400">
+              <span className="inline-flex items-center gap-1">
+                <Plug size={11} /> Not connected yet:
+              </span>
+              {off.map((a) => (
+                <span key={a.key} className="inline-flex items-center gap-1">
+                  <PlatformLogo platform={a.platform} size={12} muted />
+                  {BRAND_NAME[a.brand]} {a.platform === "instagram" ? "Instagram" : "Facebook"}
+                </span>
+              ))}
+            </p>
+          )}
+        </>
       )}
     </section>
   );
@@ -148,83 +164,70 @@ export default function ConnectedAccounts({
 
 const ORDER: Record<Account["state"], number> = { connected: 0, broken: 1, off: 2 };
 
+/** One account: platform mark, who it is, how big, and whether it can post. Same height every time. */
 function AccountCard({ a }: { a: Account }) {
   const label = a.platform === "instagram" ? "Instagram" : "Facebook";
+  const ok = a.state === "connected";
   const body = (
     <>
       <div className="relative shrink-0">
-        <Avatar a={a} />
-        <span className="absolute -bottom-1 -right-1 rounded-full bg-white p-[2px] shadow-sm">
-          <PlatformLogo platform={a.platform} size={16} muted={a.state === "off"} />
+        <div className="h-10 w-10 overflow-hidden rounded-full bg-gray-100 ring-1 ring-gray-200">
+          {a.pictureUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Meta CDN avatars, short-lived signed URLs
+            <img src={a.pictureUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div
+              className={clsx(
+                "flex h-full w-full items-center justify-center text-xs font-bold",
+                a.brand === "NI" ? "bg-blue-50 text-blue-600" : "bg-pink-50 text-pink-600",
+              )}
+            >
+              {a.brand === "NI" ? "NI" : "S"}
+            </div>
+          )}
+        </div>
+        <span className="absolute -bottom-0.5 -right-0.5 rounded-full bg-white p-px">
+          <PlatformLogo platform={a.platform} size={15} />
         </span>
       </div>
+
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1">
-          <span className={clsx("truncate text-sm font-semibold", a.state === "off" ? "text-gray-500" : "text-gray-900")}>
-            {a.name}
-          </span>
-          {a.state === "connected" && <VerifiedCheck platform={a.platform} />}
-        </div>
-        {a.state === "connected" ? (
-          <div className="truncate text-xs text-gray-500">
-            {a.handle ?? label}
-            {a.followers != null && <> · {formatCount(a.followers)} followers</>}
-          </div>
-        ) : a.state === "broken" ? (
-          <div className="flex items-start gap-1 text-xs text-amber-700" title={a.note ?? undefined}>
-            <AlertTriangle size={11} className="mt-0.5 shrink-0" />
-            <span className="line-clamp-2">{label} can&apos;t post: {a.note}</span>
-          </div>
+        <div className="truncate text-sm font-semibold text-gray-900">{a.name}</div>
+        <div className="truncate text-xs text-gray-500">{ok ? (a.handle ?? label) : label}</div>
+      </div>
+
+      <div className="shrink-0 text-right">
+        {ok ? (
+          <>
+            <div className="text-sm font-semibold tabular-nums text-gray-900">
+              {a.followers != null ? formatCount(a.followers) : "—"}
+            </div>
+            <div className="text-[10px] uppercase tracking-wider text-gray-400">followers</div>
+          </>
         ) : (
-          <div className="flex items-center gap-1 text-xs text-gray-400">
-            <Plug size={11} />
-            {label} · {a.note}
-          </div>
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+            title={a.note ?? undefined}
+          >
+            <AlertTriangle size={11} /> Can&apos;t post
+          </span>
         )}
       </div>
     </>
   );
 
   const cls = clsx(
-    "flex items-center gap-3 rounded-lg border px-3 py-2.5 transition",
-    a.state === "connected" && "border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm",
-    a.state === "broken" && "border-amber-200 bg-amber-50/60",
-    a.state === "off" && "border-dashed border-gray-200 bg-gray-50/60",
+    "flex h-[68px] items-center gap-3 rounded-xl border bg-white px-3.5 shadow-sm transition",
+    ok ? "border-gray-200 hover:border-gray-300 hover:shadow" : "border-amber-200 bg-amber-50/50",
   );
 
-  return a.state === "connected" && a.url ? (
-    <a href={a.url} target="_blank" rel="noopener noreferrer" className={cls} title={`Open on ${label}`}>
+  return ok && a.url ? (
+    <a href={a.url} target="_blank" rel="noopener noreferrer" className={cls} title={`Open ${a.handle ?? a.name} on ${label}`}>
       {body}
     </a>
   ) : (
-    <div className={cls}>{body}</div>
-  );
-}
-
-function Avatar({ a }: { a: Account }) {
-  const ring =
-    a.state !== "connected"
-      ? "ring-1 ring-gray-200"
-      : a.platform === "instagram"
-        ? "p-[2px] bg-[conic-gradient(from_200deg,#FEDA75,#FA7E1E,#D62976,#962FBF,#4F5BD5,#FEDA75)]"
-        : "ring-2 ring-[#0866FF]/20";
-  return (
-    <div className={clsx("h-11 w-11 rounded-full", ring)}>
-      <div className="h-full w-full overflow-hidden rounded-full border-2 border-white bg-gray-100">
-        {a.pictureUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- Meta CDN avatars, short-lived signed URLs
-          <img src={a.pictureUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <div
-            className={clsx(
-              "flex h-full w-full items-center justify-center text-xs font-bold",
-              a.state === "off" ? "text-gray-400" : a.brand === "NI" ? "bg-blue-50 text-blue-600" : "bg-pink-50 text-pink-600",
-            )}
-          >
-            {a.brand === "NI" ? "NI" : "S"}
-          </div>
-        )}
-      </div>
+    <div className={cls} title={a.note ? `${label} can't post: ${a.note}` : undefined}>
+      {body}
     </div>
   );
 }
@@ -262,27 +265,3 @@ export function PlatformLogo({ platform, size = 16, muted = false }: { platform:
   );
 }
 
-/** Verified-style scalloped badge in the platform's colour: "this account is live and ours". */
-function VerifiedCheck({ platform }: { platform: SocialPlatform }) {
-  const gid = useId();
-  const fill = platform === "facebook" ? FB_BLUE : `url(#${gid})`;
-  return (
-    <svg width={15} height={15} viewBox="0 0 24 24" className="shrink-0" role="img" aria-label="Connected">
-      <title>{`Connected to ${platform === "facebook" ? "Facebook" : "Instagram"}`}</title>
-      {platform === "instagram" && (
-        <defs>
-          <linearGradient id={gid} x1="0" y1="1" x2="1" y2="0">
-            <stop offset="0" stopColor="#FA7E1E" />
-            <stop offset=".5" stopColor="#D62976" />
-            <stop offset="1" stopColor="#4F5BD5" />
-          </linearGradient>
-        </defs>
-      )}
-      <path
-        fill={fill}
-        d="M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.7 1.8-1 3.1 1 3.1-2.7 1.8-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1-2.7-1.8 1-3.1-1-3.1 2.7-1.8 1-3.1 3.2.2Z"
-      />
-      <path fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" d="m7.8 12.2 2.8 2.8 5.6-5.8" />
-    </svg>
-  );
-}
