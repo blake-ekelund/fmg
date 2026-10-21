@@ -44,11 +44,14 @@ type Props = {
   defaultBrand: SocialBrand;
   /** Open straight at the blog step with this article picked (from the blog editor). */
   initialBlogId?: string | null;
+  /** Planned for this moment (a calendar day was clicked). ISO. */
+  initialScheduledAt?: string | null;
   onClose: () => void;
   onCreated: (post: SocialPost) => void;
 };
 
-export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, onCreated }: Props) {
+export default function NewSocialWizard({ defaultBrand, initialBlogId, initialScheduledAt, onClose, onCreated }: Props) {
+  const planned = initialScheduledAt ? { scheduled_at: initialScheduledAt } : {};
   // From the blog editor: brand/where/format prefilled, open on the blog step.
   const [step, setStep] = useState(initialBlogId ? 4 : 0);
   const [brand, setBrand] = useState<SocialBrand>(defaultBrand);
@@ -114,12 +117,12 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
     void run(async () => {
       if (format === "photos") {
         setBusy("creating");
-        onCreated(await createSocialPost({ brand, platforms, post_type: "image", design: null }));
+        onCreated(await createSocialPost({ brand, platforms, post_type: "image", design: null, ...planned }));
         return;
       }
       if (start === "blank") {
         setBusy("creating");
-        onCreated(await createSocialPost({ brand, platforms, design: starterDesign(brand, format === "single") }));
+        onCreated(await createSocialPost({ brand, platforms, design: starterDesign(brand, format === "single"), ...planned }));
         return;
       }
       // AI writing takes up to a minute — don't hold the dialog open for it.
@@ -133,7 +136,7 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
         prompt: prompt.trim(),
         parts: fromBlog ? [] : parts,
         blogId: fromBlog ? blogId : null,
-      });
+      }, initialScheduledAt ?? null);
       onClose();
     });
   }
@@ -146,7 +149,21 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <div className="flex-shrink-0 border-b border-gray-100 px-5 py-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-800">New social post</h2>
+            <h2 className="text-sm font-semibold text-gray-800">
+              New social post
+              {initialScheduledAt ? (
+                <span className="ml-2 font-normal text-gray-500">
+                  for{" "}
+                  {new Date(initialScheduledAt).toLocaleString(undefined, {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+              ) : null}
+            </h2>
             <button onClick={close} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
               <X size={18} />
             </button>
@@ -315,7 +332,7 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
  * writes, then a success toast with a link to the new draft (or the error).
  * Runs at module level, so it survives the wizard closing and page changes.
  */
-function generateInBackground(input: Parameters<typeof generateSocialPost>[0]) {
+function generateInBackground(input: Parameters<typeof generateSocialPost>[0], plannedAt: string | null) {
   const t = toast({
     tone: "working",
     title: "Writing your social post…",
@@ -330,7 +347,8 @@ function generateInBackground(input: Parameters<typeof generateSocialPost>[0]) {
         title: gen.title,
         design: gen.design,
         // A scheduled article: suggest going out at the same moment.
-        ...(gen.scheduleSuggestion ? { scheduled_at: gen.scheduleSuggestion } : {}),
+        // The calendar day picked wins over the article's time.
+        ...(plannedAt ? { scheduled_at: plannedAt } : gen.scheduleSuggestion ? { scheduled_at: gen.scheduleSuggestion } : {}),
       });
       postsChanged();
       updateToast(t, {

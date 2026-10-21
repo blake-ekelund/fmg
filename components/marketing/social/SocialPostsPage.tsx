@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CalendarClock,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -12,6 +13,7 @@ import {
   Grid3x3,
   Images,
   LayoutGrid,
+  List,
   Loader2,
   Pencil,
   Plus,
@@ -39,6 +41,7 @@ import FeedPreview from "./FeedPreview";
 import GridPlanner from "./GridPlanner";
 import { onOpenRequest, onPostsChanged } from "./gridJobs";
 import NewSocialWizard from "./NewSocialWizard";
+import SocialCalendar from "./SocialCalendar";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { ConfirmDialog, SocialStatusPill } from "./bits";
 import ConnectedAccounts, { PlatformLogo } from "./ConnectedAccounts";
@@ -115,6 +118,25 @@ export default function SocialPostsPage() {
   const [conn, setConn] = useState<MetaConnectionStatus | null>(null);
   const [connLoading, setConnLoading] = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
+  // A calendar day's "+": the new post is planned for that day.
+  const [newAt, setNewAt] = useState<Date | null>(null);
+  // List or calendar — remembered per browser.
+  const [layout, setLayout] = useState<"list" | "calendar">(() => {
+    try {
+      return localStorage.getItem("social-layout") === "calendar" ? "calendar" : "list";
+    } catch {
+      return "list";
+    }
+  });
+  const switchLayout = (v: "list" | "calendar") => {
+    setLayout(v);
+    setSelected(new Set());
+    try {
+      localStorage.setItem("social-layout", v);
+    } catch {
+      /* per-viewer convenience only */
+    }
+  };
   // /marketing/social?fromBlog=<id>&brand=NI — "Make a social post" from the blog editor.
   const [fromBlog, setFromBlog] = useState<{ id: string; brand: SocialBrand } | null>(null);
   useEffect(() => {
@@ -280,6 +302,29 @@ export default function SocialPostsPage() {
     })();
   }
 
+  /** Calendar drag: a new day for a post that hasn't gone out. Shown at once;
+   *  a scheduled post is re-queued for the new time (the server re-checks it),
+   *  a draft just gets its planned day. A failure puts it back. */
+  function movePost(p: SocialPost, at: Date) {
+    const iso = at.toISOString();
+    setPosts((list) => list.map((x) => (x.id === p.id ? { ...x, scheduled_at: iso } : x)));
+    const day = at.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const name = p.title?.trim() || "Post";
+    updateSocialPost(p.id, p.status === "scheduled" ? { scheduled_at: iso, action: "schedule" } : { scheduled_at: iso })
+      .then((saved) => {
+        setPosts((list) => list.map((x) => (x.id === saved.id ? saved : x)));
+        toast({
+          tone: "success",
+          title: `${name} moved to ${day}`,
+          body: p.status === "scheduled" ? "Still scheduled — it posts at the new time." : "Still a draft — schedule it when it's ready.",
+        });
+      })
+      .catch((e) => {
+        toast({ tone: "error", sticky: true, title: `Couldn't move ${name}`, body: e instanceof Error ? e.message : undefined });
+        void load();
+      });
+  }
+
   const rowActions: RowHandlers = {
     publish: (p) => setToPublish(p),
     schedule: (p) => setToSchedule([p]),
@@ -305,6 +350,27 @@ export default function SocialPostsPage() {
 
       {/* Toolbar: what you're looking at (left), what you can make (right). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+          {(
+            [
+              ["list", "List", List],
+              ["calendar", "Calendar", CalendarDays],
+            ] as const
+          ).map(([v, label, Icon]) => (
+            <button
+              key={v}
+              onClick={() => switchLayout(v)}
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                layout === v ? "bg-gray-900 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+              )}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
           {FILTERS.map((f) => {
             const active = bucket === f.value;
@@ -340,6 +406,7 @@ export default function SocialPostsPage() {
             );
           })}
         </div>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -366,7 +433,21 @@ export default function SocialPostsPage() {
         </div>
       </div>
 
-      {loading ? (
+      {layout === "calendar" && !loading ? (
+        <SocialCalendar
+          posts={rows}
+          blogBrands={brand === "all" ? ["Sassy", "NI"] : [brand]}
+          onMove={movePost}
+          onNew={(at) => {
+            setNewAt(at);
+            setWizardOpen(true);
+          }}
+          onNewFromBlog={(id, b) => {
+            setFromBlog({ id, brand: b });
+            setWizardOpen(true);
+          }}
+        />
+      ) : loading ? (
         <div className="flex items-center gap-2 py-16 text-sm text-gray-400">
           <Loader2 size={16} className="animate-spin" /> Loading posts…
         </div>
@@ -555,9 +636,11 @@ export default function SocialPostsPage() {
         <NewSocialWizard
           defaultBrand={fromBlog?.brand ?? defaultBrand}
           initialBlogId={fromBlog?.id ?? null}
+          initialScheduledAt={newAt?.toISOString() ?? null}
           onClose={() => {
             setWizardOpen(false);
             setFromBlog(null);
+            setNewAt(null);
           }}
           onCreated={(post) => router.push(`/marketing/social/${post.id}`)}
         />
