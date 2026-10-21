@@ -3,6 +3,7 @@ import type { UserRole } from "@/components/UserContext";
 import { getAllowedPaths } from "@/components/navConfig";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { TOOL_DEFS as DATA_TOOL_DEFS, runTool as runDataTool } from "./tools";
+import { FILTER_OPS, METRIC_FNS, datasetsForRole, describeDatasets, runQuery, type QuerySpec } from "./dataCatalog";
 
 /**
  * What Sage (the in-app assistant) can DO, beyond explaining the site.
@@ -29,13 +30,16 @@ export type ToolContext = {
 };
 
 /** Something Sage made — shown in the chat as a button to open it. */
-export type ToolAction = { label: string; href: string };
+export type ToolAction =
+  | { label: string; href: string }
+  /** A CSV report: the widget posts `spec` to /api/help/export and saves the file. */
+  | { label: string; download: { spec: QuerySpec; filename: string } };
 
 type ToolResult = { result: unknown; action?: ToolAction };
 
 type HelpTool = {
   def: Anthropic.Tool;
-  /** Page the user must be able to open for this tool to be offered. */
+  /** Page the user must be able to open for this tool to be offered ("*" = any staff). */
   page: string;
   /** Shown in the chat while it runs, e.g. "Writing the email…". */
   status: string;
@@ -318,12 +322,194 @@ const dataTools: HelpTool[] = DATA_TOOL_DEFS.map((d) => ({
 /* Registry                                                           */
 /* ------------------------------------------------------------------ */
 
-const ALL_TOOLS: HelpTool[] = [createEmailTemplate, createTask, createSocialPost, createBlogPost, ...dataTools];
+/* ------------------------------------------------------------------ */
+/* Reports over the data catalog (lib/assistant/dataCatalog.ts)       */
+/* ------------------------------------------------------------------ */
 
-/** The tools this role may use — each needs access to its page. */
+function querySchema(datasets: string[], extra: Record<string, unknown> = {}): Anthropic.Tool.InputSchema {
+  return {
+    type: "object",
+    properties: {
+      dataset: { type: "string", enum: datasets },
+      columns: { type: "array", items: { type: "string" }, description: "Columns to return (plain queries). Omit for all." },
+      filters: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            column: { type: "string" },
+            op: { type: "string", enum: [...FILTER_OPS], description: "contains = case-insensitive text match; in takes an array" },
+            value: { description: "Dates as YYYY-MM-DD. Omit for is_null / not_null." },
+          },
+          required: ["column", "op"],
+        },
+      },
+      group_by: { type: "array", items: { type: "string" }, description: "Group rows by these columns (e.g. month, brand) to build a summary." },
+      metrics: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { fn: { type: "string", enum: [...METRIC_FNS] }, column: { type: "string" } },
+          required: ["fn"],
+        },
+        description: "Aggregates per group, e.g. [{fn:\"sum\",column:\"revenue\"}]. Output columns are named fn_column (or \"count\").",
+      },
+      order_by: { type: "string", description: "A column, or a metric output name like sum_revenue." },
+      descending: { type: "boolean" },
+      limit: { type: "integer" },
+      ...extra,
+    },
+    required: ["dataset"],
+  };
+}
+
+function readSpec(input: Record<string, unknown>): QuerySpec {
+  return {
+    dataset: str(input.dataset, 60),
+    columns: Array.isArray(input.columns) ? input.columns.map(String) : undefined,
+    filters: Array.isArray(input.filters) ? (input.filters as QuerySpec["filters"]) : undefined,
+    group_by: Array.isArray(input.group_by) ? input.group_by.map(String) : undefined,
+    metrics: Array.isArray(input.metrics) ? (input.metrics as QuerySpec["metrics"]) : undefined,
+    order_by: typeof input.order_by === "string" ? input.order_by : undefined,
+    descending: input.descending === true,
+    limit: typeof input.limit === "number" ? input.limit : undefined,
+  };
+}
+
+/** Trim long text so a result set stays readable for the model. */
+function compact(rows: Record<string, unknown>[]) {
+  return rows.map((r) =>
+    Object.fromEntries(
+      Object.entries(r).map(([k, v]) => [
+        k,
+        typeof v === "string" && v.length > 160
+          ? v.slice(0, 160) + "…"
+          : v && typeof v === "object"
+            ? JSON.stringify(v).slice(0, 200)
+            : v,
+      ]),
+    ),
+  );
+}
+
+function reportTools(role: UserRole): HelpTool[] {
+  const datasets = datasetsForRole(role);
+  if (!datasets.length) return [];
+  return [
+    {
+      page: "*",
+      status: "Pulling the data…",
+      def: {
+        name: "query_data",
+        description: `Read any data this user can see in the portal and answer from it: list/filter rows, or summarize with group_by + metrics (sums, counts, averages). Use for questions about orders, customers, inventory, products, sales, tasks, emails, discounts, posts, reps — anything in the catalog. Returns up to 100 rows plus the total match count. Report numbers exactly as returned; say when results are truncated.
+
+Datasets:
+${describeDatasets(datasets)}`,
+        input_schema: querySchema(datasets),
+      },
+      async run(input) {
+        const r = await runQuery(readSpec(input), role, { maxRows: 100 });
+        return { result: { ...r, rows: compact(r.rows) } };
+      },
+    },
+    {
+      page: "*",
+      status: "Building the report…",
+      def: {
+        name: "export_report",
+        description:
+          "Make a downloadable spreadsheet (CSV, opens in Excel) from a query_data-style query, up to 20,000 rows. Use when the user asks to export, download, or pull a report. Run query_data first if you need to check the filters return what they asked for. The app shows a Download button; summarize what is in it.",
+        input_schema: querySchema(datasets, { title: { type: "string", description: "Short report name, used as the file name." } }),
+      },
+      async run(input) {
+        const spec = readSpec(input);
+        // Validate (and count) now so a bad query fails in the chat, not on click.
+        const probe = await runQuery({ ...spec, limit: 1 }, role, { maxRows: 1 });
+        const title = str(input.title, 80) || probe.title;
+        const slug = title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || "report";
+        const filename = `${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+        return {
+          result: { ready: true, title, matching_rows: probe.total, row_cap: 20000 },
+          action: { label: `Download “${title}” (CSV)`, download: { spec, filename } },
+        };
+      },
+    },
+  ];
+}
+
+async function teamFirstNames(): Promise<string[]> {
+  const { data } = await supabaseServer.from("profiles").select("first_name, access");
+  return [
+    ...new Set(
+      ((data ?? []) as { first_name: string | null; access: string | null }[])
+        .filter((r) => r.access && r.access !== "rep" && r.first_name?.trim())
+        .map((r) => r.first_name!.trim()),
+    ),
+  ];
+}
+
+const updateTask: HelpTool = {
+  page: "/task-list",
+  status: "Updating the task…",
+  def: {
+    name: "update_task",
+    description:
+      "Change a task on the Task List: mark it done / in progress, reassign it, change priority or due date, or set notes. Find its id with query_data on the tasks dataset first. Never deletes.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        status: { type: "string", enum: ["todo", "in_progress", "done"] },
+        owner: { type: "string", description: "Team member's first name" },
+        priority: { type: "string", enum: ["High", "Medium", "Low"] },
+        due_date: { type: "string", description: "YYYY-MM-DD, or empty to clear" },
+        notes: { type: "string" },
+      },
+      required: ["id"],
+    },
+  },
+  async run(input) {
+    const id = str(input.id, 60);
+    const patch: Record<string, unknown> = {};
+    if (input.status !== undefined) {
+      patch.status = pick(input.status, ["todo", "in_progress", "done"] as const, "todo");
+      patch.completed = patch.status === "done";
+    }
+    if (input.priority !== undefined) patch.priority = pick(input.priority, ["High", "Medium", "Low"] as const, "Medium");
+    if (input.due_date !== undefined) {
+      const due = str(input.due_date, 10);
+      patch.due_date = /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null;
+    }
+    if (input.notes !== undefined) patch.notes = str(input.notes, 2000) || null;
+    if (input.owner !== undefined) {
+      const wanted = str(input.owner, 80);
+      const names = await teamFirstNames();
+      const owner = names.find((n) => n.toLowerCase() === wanted.toLowerCase());
+      if (wanted && !owner) return { result: { updated: false, error: `No team member named "${wanted}".`, team: names } };
+      patch.owner = owner ?? null;
+    }
+    if (!Object.keys(patch).length) return { result: { updated: false, error: "Nothing to change." } };
+    const { data, error } = await supabaseServer.from("tasks").update(patch).eq("id", id).select("id, name").maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return { result: { updated: false, error: "No task with that id." } };
+    return { result: { updated: true, task: data, changes: patch }, action: { label: "Open Task List", href: "/task-list" } };
+  },
+};
+
+const STATIC_TOOLS: HelpTool[] = [
+  createEmailTemplate,
+  createTask,
+  updateTask,
+  createSocialPost,
+  createBlogPost,
+  ...dataTools,
+];
+
+/** The tools this role may use — each needs access to its page ("*" = any signed-in staff). */
 export function toolsForRole(role: UserRole): HelpTool[] {
   const allowed = getAllowedPaths(role);
-  return ALL_TOOLS.filter((t) => allowed.some((p) => t.page === p || t.page.startsWith(p + "/")));
+  const ok = (t: HelpTool) => t.page === "*" || allowed.some((p) => t.page === p || t.page.startsWith(p + "/"));
+  return [...reportTools(role), ...STATIC_TOOLS.filter(ok)];
 }
 
 /** Run a tool; errors come back as a result Claude can explain, never a throw. */

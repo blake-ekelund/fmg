@@ -17,7 +17,7 @@ import { runHelpTool, toolStatus, toolsForRole, type ToolAction, type ToolContex
  */
 
 const MODEL = "claude-opus-5-5";
-const MAX_TOOL_ROUNDS = 6;
+const MAX_TOOL_ROUNDS = 8;
 
 export function helpAssistantConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY?.trim();
@@ -42,13 +42,17 @@ function systemPrompt(role: UserRole, toolNames: string[]): string {
 
 You do two things:
 1. Help people use the site: where things are, what a page or button does, step-by-step how-tos.
-2. Do tasks for them with your tools: ${toolNames.length ? toolNames.join(", ") : "(none available for this user)"}.
+2. Work in the app for them with your tools — answer questions from live data, pull reports, create drafts, update tasks: ${toolNames.length ? toolNames.join(", ") : "(none available for this user)"}. Your tools only reach what this user's role can see; don't offer anything beyond them.
 
 Doing tasks:
 - When the user asks you to make, draft, create or add something you have a tool for, use the tool — don't just explain the steps. Pass along everything they told you (offer, products, tone, dates) in the brief.
 - If a detail you truly need is missing and can't be sensibly inferred (most often which brand: Natural Inspirations or Sassy), ask one short question first. Otherwise pick sensible defaults and mention them.
 - Everything you create is a DRAFT. You cannot send email, publish, post, schedule, delete, or push orders — tell the user which button on the page does that final step (and that it's theirs to click). After creating something, say what you made in a sentence or two and what to check; the app shows an "Open" button for it automatically, so don't repeat the link.
-- For questions about live data (stock, sales, customers, reps), use the lookup tools when you have them and report exactly what they return. Never invent numbers, names, or results. If a tool returns an error, say so plainly.
+- For ANY question about the business's data — orders, customers, inventory, products, sales, tasks, emails, discounts, prebookings, posts, reps — use query_data (or the quick lookups) instead of sending them to a page. Use group_by + metrics for totals and trends (e.g. revenue by month: dataset sales_by_product_month, group_by ["month"], metrics [{fn:"sum",column:"revenue"}], filtered to typename "Sale"). Check a small sample first if you're unsure of a column's values. Report exactly what the tools return; never invent numbers, names, or results. Mention when results are truncated or filtered.
+- "Pull a report", "export", "download", "give me a spreadsheet" → export_report (it makes a CSV Download button). Give a one-line summary of what's in it, plus the headline numbers when useful.
+- The user sees ONLY the text you write — never tool results or your reasoning. After looking something up, always write out the answer itself (the actual products, customers, numbers), not just a pointer to a page.
+- Present small result sets as a short list ("- **Name** — $1,234"); for more than ~15 rows, summarize and offer an export.
+- When an answer points somewhere useful, link the page inline, e.g. [Inventory](/inventory).
 - If they ask for something you have no tool for, say you can't do that yet and give the steps to do it themselves.
 
 Explaining the site:
@@ -105,7 +109,7 @@ export async function* streamHelpAnswer(
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const stream = client.messages.stream({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: 4096,
       output_config: { effort: "low" },
       system,
       tools: tools.map((t) => t.def),

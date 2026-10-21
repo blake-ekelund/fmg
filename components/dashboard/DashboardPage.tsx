@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import clsx from "clsx";
 import { useUser } from "@/components/UserContext";
@@ -15,13 +15,7 @@ import { useDashboardAlerts } from "./hooks/useDashboardAlerts";
 import PulseRow from "./PulseRow";
 import TodaysMoves from "./TodaysMoves";
 import PageMeta from "@/components/PageMeta";
-import {
-  Plus,
-  ListTodo,
-  X,
-  ChevronDown,
-} from "lucide-react";
-import { AddTaskModal } from "@/components/tasks/AddTaskModal";
+import { ChevronDown } from "lucide-react";
 import InventoryCategory from "./categories/InventoryCategory";
 import AssetLibraryCategory from "./categories/AssetLibraryCategory";
 import WorkflowCategory from "./categories/WorkflowCategory";
@@ -61,102 +55,17 @@ const itemVariants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: "easeOut" as const } },
 };
 
-/* ─── Quick-create action types ─── */
-type ActionModal = null | "task";
-
-/* ─── Floating Action Button ─── */
-function FloatingActionButton({
-  onAction,
-}: {
-  onAction: (modal: ActionModal) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  const items = [
-    { key: "task" as const, icon: <ListTodo size={15} />, label: "New Task", color: "text-blue-600 bg-blue-50" },
-  ];
-
-  return (
-    <div ref={menuRef} className="fixed bottom-6 right-6 z-50">
-      {/* Dropdown menu */}
-      {open && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.9, y: 10 }}
-          transition={{ duration: 0.15 }}
-          className="absolute bottom-16 right-0 w-48 bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden"
-        >
-          {items.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => {
-                setOpen(false);
-                onAction(item.key);
-              }}
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <span className={`p-1.5 rounded-lg ${item.color}`}>
-                {item.icon}
-              </span>
-              {item.label}
-            </button>
-          ))}
-
-          <div className="border-t border-gray-100">
-            <a
-              href="/task-list"
-              className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
-            >
-              <span className="p-1.5 rounded-lg bg-gray-50 text-gray-400">
-                <ListTodo size={15} />
-              </span>
-              Task Board
-            </a>
-          </div>
-        </motion.div>
-      )}
-
-      {/* FAB button */}
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
-          open
-            ? "bg-gray-800 text-white rotate-45"
-            : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-xl"
-        }`}
-      >
-        {open ? <X size={22} /> : <Plus size={24} />}
-      </button>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════════
    Main Page — Zoned Layout
    Zone A: Header (greeting + summary sentence)
    Zone B: Primary row — Wholesale | D2C (2-col on lg)
    Zone C: Secondary row — Content | Inventory (2-col on lg)
    Zone D: Reference — Promotions, Assets, Workflows (collapsed)
-   + Floating Action Button (bottom-right)
+   (Bottom-right belongs to Sage; the old "+" quick-create button is gone.)
    ═══════════════════════════════════════════════════ */
 export default function DashboardPage() {
   const { profile } = useUser();
   const { brand } = useBrand();
-  const [activeModal, setActiveModal] = useState<ActionModal>(null);
 
   const [showAll, setShowAll] = useState(false);
 
@@ -184,8 +93,6 @@ export default function DashboardPage() {
 
   const greeting = getGreeting();
   const todayStr = formatToday();
-
-  const closeModal = () => setActiveModal(null);
 
   /* One-line read of the business, so the page says something before any
      widget renders. */
@@ -288,15 +195,6 @@ export default function DashboardPage() {
         </motion.div>
       </motion.div>
 
-      {/* ─── Floating Action Button ─── */}
-      <FloatingActionButton onAction={setActiveModal} />
-
-      {/* ─── Modals ─── */}
-      <AddTaskModal
-        open={activeModal === "task"}
-        onClose={closeModal}
-        onSaved={closeModal}
-      />
     </>
   );
 }
