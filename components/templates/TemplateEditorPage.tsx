@@ -60,6 +60,7 @@ import SendTestModal from "./SendTestModal";
 import NewTemplateWizard, { type NewTemplateResult } from "./NewTemplateWizard";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 import PageMeta from "@/components/PageMeta";
+import { toast, updateToast } from "@/lib/toast";
 
 /* ─── Block Palette ─── */
 const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
@@ -296,7 +297,6 @@ export default function TemplateEditorPage() {
      after a "Grade emails" run. Keyed by template id. */
   const [grades, setGrades] = useState<Record<string, TemplateGrade>>({});
   const [grading, setGrading] = useState(false);
-  const [gradeMsg, setGradeMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [gradeDetail, setGradeDetail] = useState<{ template: EmailTemplate; grade: TemplateGrade } | null>(null);
 
   /* ── AI fix queue — PAGE-level state, not modal state ──
@@ -400,41 +400,15 @@ export default function TemplateEditorPage() {
     return () => { cancelled = true; };
   }, []);
 
-  /* Grade every template in one shot. Server caps + runs the AI per template,
-     then upserts one current grade each. */
-  async function gradeAll() {
-    setGrading(true);
-    setGradeMsg(null);
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      const res = await fetch("/api/email/templates/grade", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setGradeMsg({ ok: false, text: json?.error ?? `Grading failed (${res.status})` });
-        return;
-      }
-      setGrades((prev) => ({ ...prev, ...(json.grades ?? {}) }));
-      const failed = json.failed ?? 0;
-      setGradeMsg({
-        ok: failed === 0,
-        text:
-          `Graded ${json.graded} template${json.graded === 1 ? "" : "s"}` +
-          (failed ? `, ${failed} failed` : "") +
-          (json.capped ? " (capped at 60 — run again for the rest)" : "") +
-          ".",
-      });
-    } catch (e) {
-      setGradeMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setGrading(false);
-    }
+  /* A grade run outlives this page (see startGradeRun): follow its state, and
+     merge its grades in whenever this page is mounted when it lands. */
+  useEffect(() => onGradeRun((s) => {
+    setGrading(s.running);
+    if (s.grades) setGrades((prev) => ({ ...prev, ...s.grades }));
+  }), []);
+
+  function gradeAll() {
+    startGradeRun(templates.length);
   }
 
   // Deep link: /templates?edit=<id> opens that template straight into the
@@ -860,16 +834,11 @@ export default function TemplateEditorPage() {
           </div>
         </div>
 
-        {/* Count + grade run result */}
+        {/* Count + grade run status (the result arrives as a toast) */}
         <div className="flex items-center gap-4 text-xs">
           <span className="text-gray-500">{templates.length} templates</span>
-          {gradeMsg && (
-            <span className={clsx("font-medium", gradeMsg.ok ? "text-emerald-600" : "text-rose-600")}>
-              {gradeMsg.text}
-            </span>
-          )}
           {grading && (
-            <span className="text-gray-400">Scoring each template with AI — this can take a minute.</span>
+            <span className="text-gray-400">Scoring each template with AI — you can keep working; a notice says when it&apos;s done.</span>
           )}
         </div>
 
@@ -1626,6 +1595,75 @@ export default function TemplateEditorPage() {
 }
 
 /* ─── AI grading ─── */
+
+/* "Grade emails" runs the AI over every template — up to a few minutes. It
+   lives at module level so it survives leaving /templates: a corner toast
+   follows it, and whichever page instance is mounted when it lands merges the
+   new grades (one is refetched on mount anyway). */
+type GradeRunState = { running: boolean; grades?: Record<string, TemplateGrade> };
+let gradeRunning = false;
+const gradeListeners = new Set<(s: GradeRunState) => void>();
+
+function onGradeRun(fn: (s: GradeRunState) => void): () => void {
+  gradeListeners.add(fn);
+  fn({ running: gradeRunning });
+  return () => {
+    gradeListeners.delete(fn);
+  };
+}
+
+function startGradeRun(count: number) {
+  if (gradeRunning) {
+    toast({ tone: "info", title: "Already grading your emails", body: "A notice will say when it's done." });
+    return;
+  }
+  gradeRunning = true;
+  gradeListeners.forEach((l) => l({ running: true }));
+  const t = toast({
+    tone: "working",
+    title: "Grading your emails…",
+    body: `Scoring ${count} template${count === 1 ? "" : "s"} with AI — this can take a few minutes. You can keep working.`,
+  });
+  const viewGrades = { label: "View grades", run: (go: (href: string) => void) => go("/templates") };
+  void (async () => {
+    let grades: Record<string, TemplateGrade> | undefined;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const res = await fetch("/api/email/templates/grade", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error ?? `Grading failed (${res.status})`);
+      grades = json.grades ?? {};
+      const failed = json.failed ?? 0;
+      updateToast(t, {
+        tone: failed ? "error" : "success",
+        title: `Graded ${json.graded} template${json.graded === 1 ? "" : "s"}`,
+        body:
+          [failed ? `${failed} failed.` : null, json.capped ? "Capped at 60 — run again for the rest." : null]
+            .filter(Boolean)
+            .join(" ") || "Each template now shows its grade.",
+        sticky: true,
+        action: viewGrades,
+      });
+    } catch (e) {
+      updateToast(t, {
+        tone: "error",
+        title: "Couldn't grade your emails",
+        body: e instanceof Error ? e.message : String(e),
+        sticky: true,
+      });
+    } finally {
+      gradeRunning = false;
+      gradeListeners.forEach((l) => l({ running: false, grades }));
+    }
+  })();
+}
 
 /** New grades store issue objects; grades saved before "Fix this" shipped
     store plain strings. The UI renders both. */
