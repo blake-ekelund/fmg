@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import clsx from "clsx";
+import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { PartnerProfile, PartnerStatus } from "@/lib/wholesalePortal";
 
@@ -241,11 +242,10 @@ export default function PartnersPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <p className="max-w-6xl text-sm text-gray-500">
-        Every account from the Sassy and Natural Inspirations storefronts — D2C
-        and wholesale. Assign a rep and rep group to any account; for wholesale,
-        approve or deny access and record their Fishbowl account number.
-      </p>
+      <PageMeta
+        title="Accounts"
+        description="Every Sassy and NI storefront account — assign reps, approve wholesale."
+      />
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

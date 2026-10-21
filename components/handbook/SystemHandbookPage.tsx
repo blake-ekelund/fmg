@@ -1,5 +1,4 @@
 import {
-  BookOpen,
   ShieldCheck,
   Server,
   Database,
@@ -14,6 +13,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
 
 /**
  * System Handbook — a founder-facing orientation + "break glass" page. It exists
@@ -93,20 +93,10 @@ const CONTACTS: { role: string; who: string; detail?: string }[] = [
 export default function SystemHandbookPage() {
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1000px] mx-auto space-y-8">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-gray-400 text-xs font-medium">
-          <BookOpen size={14} />
-          System Handbook
-        </div>
-        <h1 className="text-xl font-semibold text-gray-900 tracking-tight mt-1">
-          How the portal works
-        </h1>
-        <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-          A plain-English overview of the systems behind Fragrance Marketing Group — and where to find
-          everything, so whoever comes next can pick it up.
-        </p>
-      </div>
+      <PageMeta
+        title="System Handbook"
+        description="How the portal works and where everything lives, so whoever comes next can pick it up."
+      />
 
       {/* Reassurance callout */}
       <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">

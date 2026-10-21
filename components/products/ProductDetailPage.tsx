@@ -30,7 +30,7 @@ import {
 
 import { supabase } from "@/lib/supabaseClient";
 import { Product } from "@/components/inventory/types";
-import PageHeader from "@/components/ui/PageHeader";
+import PageMeta from "@/components/PageMeta";
 import { CHART_NAVY } from "@/lib/colors";
 import { type Trend, TREND_CONFIG, computeTrend } from "@/lib/trends";
 import { project, colorFor } from "@/components/inventory/forecasting/utils/forecast";
@@ -713,20 +713,20 @@ export default function ProductDetailPage({
         </div>
       </div>
 
-      {/* Header with trend badge */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">{form.display_name || "Untitled Product"}</h1>
-            {trend !== "unknown" && (
-              <span className={clsx("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium", trendCfg.bg, trendCfg.color)}>
-                <TrendIcon size={12} />
-                {trendCfg.label}
-              </span>
-            )}
-          </div>
-          <p className="mt-0.5 text-sm text-gray-500 font-mono">{form.part}</p>
-        </div>
+      <PageMeta
+        title={form.display_name || "Untitled Product"}
+        description="Product details, media, inventory, and sales for this SKU."
+      />
+
+      {/* SKU + trend badge — the name lives in the top bar */}
+      <div className="flex items-center gap-3">
+        <p className="text-sm text-gray-500 font-mono">{form.part}</p>
+        {trend !== "unknown" && (
+          <span className={clsx("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium", trendCfg.bg, trendCfg.color)}>
+            <TrendIcon size={12} />
+            {trendCfg.label}
+          </span>
+        )}
       </div>
 
       {/* ─── Two-Panel Layout ─── */}

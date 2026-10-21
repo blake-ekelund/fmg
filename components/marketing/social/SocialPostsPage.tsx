@@ -229,7 +229,10 @@ export default function SocialPostsPage() {
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
       <SlideFonts />
-      <PageHeader subtitle="Write a post once and send it to the brand's Instagram and Facebook — right now, or at a time you pick. Scheduled posts go out within five minutes of their time.">
+      <PageHeader
+        title="Social Media"
+        subtitle="Write a post once and send it to the brand's Instagram and Facebook, now or scheduled."
+      >
         <button
           onClick={() => setFeed({ brand: defaultBrand, drafts: false })}
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"

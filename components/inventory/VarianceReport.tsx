@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { RefreshCw, AlertTriangle, Download, Archive, ArchiveRestore, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import PageMeta from "@/components/PageMeta";
 import type { VarianceRow, VarianceSummary, VarianceFlag } from "@/lib/inventoryVariance";
 
 type Payload = {
@@ -152,14 +153,11 @@ export default function VarianceReport() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Variance Report</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Fishbowl&apos;s inventory snapshot against the live count at Point B. Point B is
-            the building, so a gap here means Fishbowl is off — or paperwork is in flight.
-          </p>
-        </div>
+      <PageMeta
+        title="Variance Report"
+        description="Fishbowl inventory vs. the live Point B count; gaps mean Fishbowl is off."
+      />
+      <div className="flex flex-wrap items-start justify-end gap-3">
         <div className="flex items-center gap-2">
           <button
             onClick={exportCsv}

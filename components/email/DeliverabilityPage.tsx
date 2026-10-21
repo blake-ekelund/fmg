@@ -14,6 +14,7 @@ import {
 import { MailX, MailMinus, AlertOctagon, Search, ShieldOff, Link2Off } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
+import PageMeta from "@/components/PageMeta";
 
 /* One row of /api/email/suppressions — a person we must not email again. */
 type Suppression = {
@@ -178,13 +179,10 @@ export default function DeliverabilityPage() {
 
   return (
     <div className="p-6 space-y-5 max-w-6xl">
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">Deliverability</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Everyone the system will no longer email — who opted out, whose address bounced,
-          who marked us as spam, and why. Bounces and complaints flow in automatically from Resend.
-        </p>
-      </div>
+      <PageMeta
+        title="Deliverability"
+        description="Everyone we no longer email: unsubscribes, bounces, and spam complaints."
+      />
 
       {loadError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>

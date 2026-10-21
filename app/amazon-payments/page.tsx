@@ -1,14 +1,15 @@
 "use client";
 
-import { ShoppingBag, Construction } from "lucide-react";
+import { Construction } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
 
 export default function AmazonPaymentsPage() {
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1200px] mx-auto">
-      <div className="flex items-center gap-2 mb-6">
-        <ShoppingBag size={18} className="text-gray-900" />
-        <h1 className="text-xl font-semibold text-gray-900">Amazon Payments</h1>
-      </div>
+      <PageMeta
+        title="Amazon Payments"
+        description="Amazon settlement payouts per period (coming soon)."
+      />
 
       <div className="rounded-xl border border-gray-200 bg-white py-16 px-6 text-center">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-100 text-gray-500 mb-4">

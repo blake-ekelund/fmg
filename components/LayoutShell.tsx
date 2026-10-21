@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import TopBar from "@/components/TopBar";
 import Toaster from "@/components/ui/Toaster";
+import { PageMetaProvider } from "@/components/PageMeta";
 import { useUser } from "@/components/UserContext";
 import { getAllowedPaths, getDefaultRoute } from "@/components/navConfig";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -94,6 +95,7 @@ export default function LayoutShell({
   const marginLeft = sidebarCollapsed ? COLLAPSED_WIDTH : sidebarWidth;
 
   return (
+    <PageMetaProvider>
     <div className="min-h-screen bg-surface-muted">
       {/* Desktop sidebar */}
       <Sidebar
@@ -126,5 +128,6 @@ export default function LayoutShell({
       </div>
       <Toaster />
     </div>
+    </PageMetaProvider>
   );
 }

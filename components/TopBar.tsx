@@ -11,6 +11,7 @@ import type { BrandFilter } from "@/types/brand";
 import CommandPalette from "./CommandPalette";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { usePageMetaValue } from "./PageMeta";
 
 const BRAND_OPTIONS: { value: BrandFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -18,8 +19,9 @@ const BRAND_OPTIONS: { value: BrandFilter; label: string }[] = [
   { value: "Sassy", label: "Sassy" },
 ];
 
-/** Derive the page title from the current pathname using navConfig */
-function usePageTitle(): string {
+/** Derive the page title from the current pathname using navConfig — the
+ *  fallback for pages that don't publish their own via <PageMeta>. */
+export function useNavTitle(): string {
   const pathname = usePathname();
 
   for (const item of navItems) {
@@ -40,7 +42,9 @@ function usePageTitle(): string {
 
 export default function TopBar() {
   const { brand, setBrand } = useBrand();
-  const title = usePageTitle();
+  const navTitle = useNavTitle();
+  const meta = usePageMetaValue();
+  const title = meta.title ?? navTitle;
   const [cmdOpen, setCmdOpen] = useState(false);
 
   /* ⌘K / Ctrl+K shortcut */
@@ -58,13 +62,20 @@ export default function TopBar() {
   return (
     <>
       <header className="sticky top-0 z-30 hidden md:flex items-center justify-between h-14 px-6 bg-surface/85 backdrop-blur-md border-b border-line">
-        {/* Left: page title */}
-        <h1 className="text-[15px] font-semibold text-ink tracking-tight">
-          {title}
-        </h1>
+        {/* Left: page title + one-sentence description (from <PageMeta>) */}
+        <div className="min-w-0 flex-1 pr-6">
+          <h1 className="truncate text-[15px] font-semibold leading-tight text-ink tracking-tight">
+            {title}
+          </h1>
+          {meta.description && (
+            <p className="truncate text-[11px] leading-snug text-ink-muted" title={meta.description}>
+              {meta.description}
+            </p>
+          )}
+        </div>
 
         {/* Right: global actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {/* Search trigger */}
           <button
             onClick={() => setCmdOpen(true)}

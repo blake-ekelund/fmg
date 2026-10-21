@@ -16,6 +16,7 @@ import {
 import clsx from "clsx";
 
 import { useBrand } from "@/components/BrandContext";
+import PageMeta from "@/components/PageMeta";
 import { Product } from "@/components/inventory/types";
 import { type Trend, TREND_CONFIG, computeTrend } from "@/lib/trends";
 import { useBrandSettings, brandBadgeStyle } from "@/lib/brand-settings";
@@ -466,6 +467,7 @@ export default function ProductListPage() {
 
   return (
     <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
+      <PageMeta title="Products" description="Every SKU with status, sales trend, and media coverage." />
       {/* Single-row toolbar — filters + new product on one line */}
       <div className="flex items-center gap-2">
         {/* Search */}

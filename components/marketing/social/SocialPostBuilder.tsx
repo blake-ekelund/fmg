@@ -72,6 +72,7 @@ import CanvasEditor from "./canvas/CanvasEditor";
 import { convertLayoutSlide } from "./canvas/convertLayout";
 import { useHistory } from "./canvas/useHistory";
 import { blankCanvas, type CanvasSlide } from "@/lib/social/canvas";
+import PageMeta from "@/components/PageMeta";
 
 /**
  * The social post builder (/marketing/social/[id]).
@@ -393,6 +394,10 @@ export default function SocialPostBuilder({ id }: { id: string }) {
 
   return (
     <div className="min-h-screen w-full bg-gray-50/50">
+      <PageMeta
+        title={title.trim() || "Untitled post"}
+        description="Design the post's slides and caption, then schedule or publish it."
+      />
       <SlideFonts />
 
       <BuilderHeader

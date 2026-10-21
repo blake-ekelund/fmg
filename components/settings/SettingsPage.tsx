@@ -21,6 +21,7 @@ import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useUser } from "@/components/UserContext";
+import PageMeta from "@/components/PageMeta";
 
 import TeamSection from "@/components/company/team/TeamSection";
 import PlatformsSection from "@/components/company/platform/PlatformsSection";
@@ -156,6 +157,10 @@ export default function SettingsPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8">
+      <PageMeta
+        title="Settings"
+        description={isAdmin ? "Your profile and email setup, plus company-wide settings." : "Your profile, email signature, and email connection."}
+      />
       <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 md:gap-8">
         {/* Side nav */}
         <nav className="md:sticky md:top-20 md:self-start">

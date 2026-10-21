@@ -10,6 +10,7 @@ import {
   Search,
   Star,
 } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { NEGATIVE_TAGS, PERSONALITY_TAGS } from "@/lib/storefrontFeedback";
 
@@ -238,13 +239,10 @@ export default function FeedbackPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <p className="max-w-2xl text-sm text-gray-500">
-        What shoppers said about the <strong className="font-medium">storefront</strong>{" "}
-        — collected in the cart, before checkout, in exchange for a single-use
-        reward code. These are not product reviews: nobody had received an order
-        when they wrote them. Only entries marked{" "}
-        <strong className="font-medium">publishable</strong> may be quoted.
-      </p>
+      <PageMeta
+        title="Feedback & Testimonials"
+        description="Pre-checkout storefront feedback traded for a reward code; quote only publishable ones."
+      />
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

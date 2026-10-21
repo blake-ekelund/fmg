@@ -22,6 +22,7 @@ import {
 import clsx from "clsx";
 import Link from "next/link";
 import WorkflowEnrollments from "@/components/workflows/WorkflowEnrollments";
+import PageMeta from "@/components/PageMeta";
 
 /* ─── Types ─── */
 type StepType = "trigger" | "delay" | "email" | "condition";
@@ -712,14 +713,13 @@ export default function WorkflowsPage() {
         </div>
       </div>
 
+      <PageMeta
+        title="Workflows"
+        description="Automated email sequences triggered by customer behavior."
+      />
+
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Workflows</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Automated email sequences triggered by customer behavior.
-          </p>
-        </div>
+      <div className="flex items-center justify-end flex-wrap gap-3">
         <button
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition shadow-sm"
           onClick={() => alert("Create workflow — coming soon")}

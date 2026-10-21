@@ -14,6 +14,7 @@ import { useDashboardRepSales } from "./hooks/useDashboardRepSales";
 import { useDashboardAlerts } from "./hooks/useDashboardAlerts";
 import PulseRow from "./PulseRow";
 import TodaysMoves from "./TodaysMoves";
+import PageMeta from "@/components/PageMeta";
 import {
   Plus,
   ListTodo,
@@ -211,17 +212,16 @@ export default function DashboardPage() {
         initial="hidden"
         animate="show"
       >
-        {/* ═══ Zone A: Header ═══ */}
-        <motion.div variants={itemVariants}>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {greeting}
-            {profile?.first_name ? `, ${profile.first_name}` : ""}
-          </h1>
-          <p className="text-sm text-gray-400 mt-0.5">{todayStr}</p>
-          {summaryParts.length > 0 && (
-            <p className="text-sm text-gray-500 mt-2">{summaryParts.join(". ")}.</p>
-          )}
-        </motion.div>
+        {/* ═══ Zone A: Header (title + date live in the top bar) ═══ */}
+        <PageMeta
+          title={`${greeting}${profile?.first_name ? `, ${profile.first_name}` : ""}`}
+          description={todayStr}
+        />
+        {summaryParts.length > 0 && (
+          <motion.div variants={itemVariants}>
+            <p className="text-sm text-gray-500">{summaryParts.join(". ")}.</p>
+          </motion.div>
+        )}
 
         {/* ═══ Zone B: Pulse — four vital signs ═══ */}
         <motion.div variants={itemVariants}>

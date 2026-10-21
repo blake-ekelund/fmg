@@ -23,6 +23,7 @@ import {
 import { describeStockIssue, type StockCheck } from "@/lib/orderStockCheck";
 import type { Divergence } from "@/lib/fishbowlDivergence";
 import { CARRIER_OPTIONS, carrierLabel, trackingUrl } from "@/lib/tracking";
+import PageMeta from "@/components/PageMeta";
 
 async function authHeader(): Promise<Record<string, string>> {
   const sb = supabaseBrowser();
@@ -171,6 +172,10 @@ export default function OrderDetailPage({ orderId }: { orderId: string }) {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-6">
+      <PageMeta
+        title={`Order ${orderRef(order)}`}
+        description="Invoice, Fishbowl estimate, and shipping for this order."
+      />
       {/* Action bar — hidden when printing */}
       <div className="flex items-center justify-between gap-3 print:hidden">
         <BackLink />

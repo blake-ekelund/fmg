@@ -29,6 +29,7 @@ import RepAvatar from "./RepAvatar";
 import type { SalesRep } from "./reps";
 import RepEmailModal from "./RepEmailModal";
 import RepFormModal from "./RepFormModal";
+import PageMeta from "@/components/PageMeta";
 
 const PAGE_SIZE = 25;
 
@@ -243,6 +244,10 @@ export default function SalesTeamPage() {
 
   return (
     <div className="w-full space-y-4 p-5 md:px-7">
+      <PageMeta
+        title="Rep Directory"
+        description="Every sales rep and agency — search, edit, email, and send portal invites."
+      />
       {/* ─── Summary strip (desktop only — on a phone the roster itself is
              the point, and four counters push it below the fold) ─── */}
       <div className="hidden gap-2 sm:grid sm:grid-cols-4">

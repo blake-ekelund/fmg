@@ -12,6 +12,7 @@ import {
   Bot,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
 
 /**
  * Technical Roadmap — an internal, admin-only reference for the integration
@@ -175,21 +176,10 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 export default function TechnicalRoadmapPage() {
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1100px] mx-auto space-y-8">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-gray-400 text-xs font-medium">
-          <Route size={14} />
-          Technical Roadmap
-        </div>
-        <h1 className="text-xl font-semibold text-gray-900 tracking-tight mt-1">
-          Point B / Synapse integration
-        </h1>
-        <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-          Where the 3PL connection stands and where it&apos;s going. Point B Solutions runs the Synapse
-          (Zethcon) warehouse; today a third-party connector, LilyPad, bridges it to Fishbowl. The plan is
-          to own that bridge.
-        </p>
-      </div>
+      <PageMeta
+        title="Technical Roadmap"
+        description="Where the Point B / Synapse connection stands, and the plan to replace LilyPad with our own bridge."
+      />
 
       {/* Roadmap */}
       <section className="space-y-3">

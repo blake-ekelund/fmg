@@ -22,6 +22,8 @@ import {
 import Logo from "./ui/Logo";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { usePageMetaValue } from "./PageMeta";
+import { useNavTitle } from "./TopBar";
 
 /** A search hit keeps its section label so results stay unambiguous flattened. */
 type SearchHit = { item: NavItem; sectionLabel: string };
@@ -35,6 +37,9 @@ export default function MobileNav() {
   const [openSections, setOpenSections] = useState<Set<string>>(new Set());
   const router = useRouter();
   const pathname = usePathname();
+  const meta = usePageMetaValue();
+  const navTitle = useNavTitle();
+  const title = meta.title ?? navTitle;
   const { profile } = useUser();
   const navSections = getNavForRole(profile?.access ?? null);
   const isAdmin = profile?.access === "owner" || profile?.access === "admin";
@@ -137,7 +142,15 @@ export default function MobileNav() {
     <div className="md:hidden">
       {/* Top bar */}
       <div className="fixed top-0 inset-x-0 z-50 h-16 px-5 bg-brand-900 flex items-center justify-between">
-        <Logo inverse size={28} />
+        <div className="flex min-w-0 items-center gap-3">
+          <Logo inverse size={28} />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold leading-tight text-white">{title}</div>
+            {meta.description && (
+              <div className="truncate text-[11px] leading-snug text-white/60">{meta.description}</div>
+            )}
+          </div>
+        </div>
 
         <button
           aria-label={open ? "Close menu" : "Open menu"}

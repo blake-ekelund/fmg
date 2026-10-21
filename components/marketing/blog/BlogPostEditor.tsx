@@ -35,6 +35,7 @@ import BlogBuilder, { ImageField } from "./BlogBuilder";
 import RichTextEditor from "./RichTextEditor";
 import StorefrontPreview from "./StorefrontPreview";
 import { BrandPill, StatusPill, formatDateTime, isoToLocalInput, localInputToIso, relativeTime } from "./bits";
+import PageMeta from "@/components/PageMeta";
 
 /**
  * The post editor. One page per post: the writing surface on the left, the
@@ -572,6 +573,10 @@ export default function BlogPostEditor({ id }: { id: string }) {
 
   return (
     <div className="min-h-screen bg-white">
+      <PageMeta
+        title={title.trim() || "Untitled post"}
+        description="Write the post, set its date, and preview it as it will look on the storefront."
+      />
       {/* Toolbar */}
       <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200/80 bg-white/90 px-4 py-2.5 backdrop-blur md:px-8">
         <div className="flex items-center gap-3">

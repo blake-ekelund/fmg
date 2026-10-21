@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Camera, Check, Copy, ExternalLink, Heart, Info, Loader2, MapPin, Search, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import type { UnsplashPhoto, UnsplashSourceInfo } from "@/lib/unsplash";
+import PageMeta from "@/components/PageMeta";
 
 /**
  * Marketing → Photography: our brand collections on Unsplash (Sassy, NI) plus
@@ -97,15 +98,10 @@ export default function PhotographyPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Photography</h1>
-        <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-          Our Sassy and Natural Inspirations photo collections on Unsplash — the same photos the email
-          and blog image pickers offer under “Unsplash”. Copy a photo&apos;s URL to use it anywhere; always credit
-          the photographer where it appears.
-        </p>
-      </div>
+      <PageMeta
+        title="Photography"
+        description="Sassy and NI Unsplash collections; copy a photo's URL and credit the photographer."
+      />
 
       {!configured ? (
         <div className="rounded-2xl border border-dashed border-gray-200 py-16 text-center">

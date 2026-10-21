@@ -19,6 +19,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { AddTaskModal, type Task, type TaskStatus } from "@/components/tasks/AddTaskModal";
 import { DeleteTaskModal } from "@/components/tasks/DeleteTaskModal";
 import { useTeamOwners, getOwnerColor } from "@/lib/team-owners";
+import PageMeta from "@/components/PageMeta";
 
 /* ─── Main Page ─── */
 
@@ -138,6 +139,7 @@ export default function TaskListPage() {
 
   return (
     <>
+      <PageMeta title="Task List" description="Team to-dos with owners, priorities, and due dates." />
       <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
         {/* Filter bar + actions (single row) */}
         <div className="flex flex-wrap items-center gap-2">

@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import PageMeta from "@/components/PageMeta";
 import AddPrebookingModal from "./AddPrebookingModal";
 import {
   aggregateTotals,
@@ -181,10 +182,11 @@ export default function PrebookingsPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-2xl text-sm text-gray-500">
-          Holiday prebook requests from the storefronts — what each buyer reserved for the season and how to reach them.
-        </p>
+      <PageMeta
+        title="Prebookings"
+        description="Holiday prebook requests — what each buyer reserved and how to reach them."
+      />
+      <div className="flex flex-wrap items-start justify-end gap-3">
         <button
           type="button"
           onClick={() => setShowAdd(true)}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, Database, Play, Boxes, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import PageMeta from "@/components/PageMeta";
 import {
   SALES_ORDERS_SQL,
   LINE_ITEMS_SQL,
@@ -111,13 +112,10 @@ const EXAMPLES: { label: string; sql: string }[] = [
 export default function FishbowlSandboxPage() {
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1200px] mx-auto space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-gray-900">Fishbowl sandbox</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Scratch page for exploring the Fishbowl API. Each call logs in, runs, and logs out
-          (releasing the license seat). Internal/admin only.
-        </p>
-      </div>
+      <PageMeta
+        title="Fishbowl sandbox"
+        description="Internal scratch page for exploring the Fishbowl API."
+      />
 
       <InventorySection />
       <QuerySection />

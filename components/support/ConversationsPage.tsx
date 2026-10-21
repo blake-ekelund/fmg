@@ -14,6 +14,7 @@ import {
   User,
   Wrench,
 } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 /**
@@ -278,13 +279,10 @@ export default function ConversationsPage() {
 
   return (
     <div className="w-full space-y-5 p-6 md:px-8">
-      <p className="max-w-2xl text-sm text-gray-500">
-        Every conversation the storefront chat concierge has, and the place to
-        take one over. Replying here goes straight to the shopper&apos;s chat
-        window and{" "}
-        <strong className="font-medium">stops the bot from answering</strong>{" "}
-        until you hand it back.
-      </p>
+      <PageMeta
+        title="Customer Service"
+        description="Storefront chat conversations — replying here pauses the bot until you hand back."
+      />
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

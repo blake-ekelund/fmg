@@ -195,7 +195,10 @@ export default function BlogPostsPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <PageHeader subtitle="Write posts here, give each a date, and it goes live on the storefront by itself. The site picks up a post within about five minutes of its scheduled time.">
+      <PageHeader
+        title="Blog Posts"
+        subtitle="Write posts and give each a date; they go live on the storefront by themselves."
+      >
         <button
           onClick={() => setWizardOpen(true)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800"

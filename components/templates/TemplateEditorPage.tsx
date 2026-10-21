@@ -59,6 +59,7 @@ import ClientPreviewMatrix from "./ClientPreviewMatrix";
 import SendTestModal from "./SendTestModal";
 import NewTemplateWizard, { type NewTemplateResult } from "./NewTemplateWizard";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
+import PageMeta from "@/components/PageMeta";
 
 /* ─── Block Palette ─── */
 const BLOCK_PALETTE: { type: BlockType; label: string; icon: typeof Type }[] = [
@@ -835,14 +836,10 @@ export default function TemplateEditorPage() {
   if (!editingId && !isNew) {
     return (
       <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
+        <PageMeta title="Templates" description="Create and manage email templates." />
+
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Templates</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              Create and manage email templates.
-            </p>
-          </div>
+        <div className="flex items-center justify-end flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <button
               onClick={gradeAll}
@@ -1112,6 +1109,10 @@ export default function TemplateEditorPage() {
 
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col">
+      <PageMeta
+        title={name.trim() || "New template"}
+        description="Edit the template's content, settings, and preview."
+      />
       {/* Top bar */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200">
         <div className="flex items-center gap-3">

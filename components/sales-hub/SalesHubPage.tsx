@@ -19,6 +19,7 @@ import clsx from "clsx";
 
 import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
+import PageMeta from "@/components/PageMeta";
 
 import {
   NI_BRAND,
@@ -258,6 +259,10 @@ export default function SalesHubPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto relative">
+      <PageMeta
+        title="Sales Hub"
+        description="Sales by channel with talking points and pitches reps can copy."
+      />
       {/* Loading overlay */}
       {loading && (
         <div className="absolute inset-0 z-10 bg-white/70 flex items-center justify-center rounded-xl">

@@ -21,6 +21,7 @@ import {
 import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
 import { listImages, createFolder, deleteFolder, refileImages } from "./api";
 import ImageDetailModal from "./ImageDetailModal";
+import PageMeta from "@/components/PageMeta";
 import { displayName, fileName } from "./format";
 import type { LibraryFolder, LibraryImage, ShareScope } from "./types";
 
@@ -566,6 +567,13 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
         </div>
       )}
 
+      {!pick && (
+        <PageMeta
+          title="Image Library"
+          description="Brand photos, logos, and graphics used across emails and the blog, in folders."
+        />
+      )}
+
       {/* Header */}
       <header className="flex flex-wrap items-center justify-between gap-4">
         {folder ? (
@@ -607,13 +615,11 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
               );
             })}
           </nav>
-        ) : (
-          <h1 className={`${pick ? "text-2xl" : "text-3xl"} font-semibold tracking-tight text-gray-900`}>
-            Image Library
-          </h1>
-        )}
+        ) : pick ? (
+          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Image Library</h1>
+        ) : null}
 
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
           {(!folder || canNestHere) && (
             <button
               onClick={() => setNewFolderOpen((o) => !o)}

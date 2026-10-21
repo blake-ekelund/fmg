@@ -16,6 +16,7 @@ import {
 import clsx from "clsx";
 
 import { supabase } from "@/lib/supabaseClient";
+import PageMeta from "@/components/PageMeta";
 import DetailsTab from "./modal/tabs/DetailsTab";
 import OrdersTab from "./modal/tabs/OrdersTab";
 import SalesAnalysisTab from "./modal/tabs/SalesAnalysisTab";
@@ -255,21 +256,20 @@ export default function CustomerDetailPage({
         </div>
       </div>
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">{customerName}</h1>
-            {status && (
-              <span className={clsx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", status.bg, status.color)}>
-                {status.label}
-              </span>
-            )}
-          </div>
+      <PageMeta
+        title={customerName}
+        description={`${isD2C ? "D2C" : "Wholesale"} customer details, orders, sales, and emails.`}
+      />
 
-          <div className="flex items-center gap-3 mt-1.5">
-            <p className="text-sm text-gray-500 font-mono">{customerId}</p>
-          </div>
+      {/* Header — name lives in the top bar; ID + status stay here */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0 flex items-center gap-3">
+          <p className="text-sm text-gray-500 font-mono">{customerId}</p>
+          {status && (
+            <span className={clsx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", status.bg, status.color)}>
+              {status.label}
+            </span>
+          )}
         </div>
 
         {(summary || contact) && (

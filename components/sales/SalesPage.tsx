@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useState, useMemo } from "react";
 import { Search, DollarSign, TrendingUp, Package, Layers } from "lucide-react";
 import clsx from "clsx";
+import PageMeta from "@/components/PageMeta";
 import { useSalesTTM, type SalesMatrixRow } from "./useSalesTTM";
 import { Trailing12MonthMatrix } from "./TTMMatrix";
 import { TTMRankedBars } from "./TTMRankedBars";
@@ -196,19 +197,16 @@ export default function SalesPage({
         </div>
       )}
 
-      {/* ── Heading ── */}
-      <div className="mb-4">
-        <h1 className="text-lg font-semibold text-gray-900">
-          Sales Analysis{channel === "all" ? "" : ` — ${CHANNEL_LABEL[channel]}`}
-        </h1>
-        <p className="mt-0.5 text-xs text-gray-400">
-          {channel === "all"
-            ? "Every order, wholesale and D2C together"
+      <PageMeta
+        title={`Sales Analysis${channel === "all" ? "" : ` — ${CHANNEL_LABEL[channel]}`}`}
+        description={
+          channel === "all"
+            ? "Every order, wholesale and D2C together."
             : channel === "wholesale"
-              ? "Orders from wholesale accounts only"
-              : "Orders from the D2C storefronts only"}
-        </p>
-      </div>
+              ? "Orders from wholesale accounts only."
+              : "Orders from the D2C storefronts only."
+        }
+      />
 
       {/* ── KPI Summary Row ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">

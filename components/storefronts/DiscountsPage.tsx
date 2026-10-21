@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import clsx from "clsx";
+import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useBrand } from "@/components/BrandContext";
 
@@ -773,11 +774,11 @@ export default function DiscountsPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-2xl text-sm text-gray-500">
-          Codes for the Sassy and Natural Inspirations storefronts.
-          Checkout reads only active codes inside their date window.
-        </p>
+      <PageMeta
+        title="Discounts"
+        description="Sassy and NI discount codes — checkout honors active codes within their dates."
+      />
+      <div className="flex flex-wrap items-start justify-end gap-3">
         <button
           type="button"
           onClick={toggleForm}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { useBrand } from "@/components/BrandContext";
+import PageMeta from "@/components/PageMeta";
 import DailySalesLogView from "@/components/dashboard/views/DailySalesLogView";
 import { useDailySalesLog } from "@/components/dashboard/hooks/useDailySalesLog";
 
@@ -49,19 +50,19 @@ function DailySalesPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 md:px-8">
-      {/* Header */}
-      <Link
-        href="/dashboard"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
-      >
-        <ArrowLeft size={15} /> Back to dashboard
-      </Link>
+      <PageMeta
+        title="Daily Sales Log"
+        description={`Day-by-day sales for ${monthTitle(month)}.`}
+      />
 
+      {/* Header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Daily Sales Log</h1>
-          <p className="mt-1 text-sm text-gray-500">{monthTitle(month)}</p>
-        </div>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
+          <ArrowLeft size={15} /> Back to dashboard
+        </Link>
 
         {/* Month stepper */}
         <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1">

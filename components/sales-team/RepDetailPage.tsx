@@ -26,6 +26,7 @@ import RepAvatar from "./RepAvatar";
 import RepFormModal from "./RepFormModal";
 import RepEmailModal from "./RepEmailModal";
 import type { SalesRep } from "./reps";
+import PageMeta from "@/components/PageMeta";
 
 export default function RepDetailPage({ repId }: { repId: string }) {
   const [reps, setReps] = useState<SalesRep[] | null>(null);
@@ -122,6 +123,10 @@ export default function RepDetailPage({ repId }: { repId: string }) {
 
   return (
     <div className="w-full space-y-4 p-5 md:px-7">
+      <PageMeta
+        title={rep.name}
+        description="Contact, territory assignment, and agency team for this rep."
+      />
       <BackLink />
 
       {/* ─── Identity header ─── */}
@@ -129,8 +134,7 @@ export default function RepDetailPage({ repId }: { repId: string }) {
         <RepAvatar rep={rep} size={48} />
 
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold tracking-tight text-ink">{rep.name}</h2>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-ink-muted">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-ink-muted">
             {rep.agency && (
               <span className="inline-flex items-center gap-1">
                 <Building2 size={11} className="text-ink-subtle" />

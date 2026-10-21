@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import PageMeta from "@/components/PageMeta";
 
 /* ─── Server shapes ─── */
 
@@ -220,14 +221,12 @@ export default function CohortsPage() {
         <ArrowLeft size={12} /> Automations
       </Link>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Campaign results</h1>
-          <p className="text-sm text-ink-muted mt-0.5">
-            Every campaign blast and automation batch, and what came of it. Each
-            customer counts once, in their most-committed outcome.
-          </p>
-        </div>
+      <PageMeta
+        title="Campaign results"
+        description="Every campaign blast and automation batch, and what came of it."
+      />
+
+      <div className="flex flex-wrap items-start justify-end gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {testCount > 0 && (
             <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11px] text-ink-secondary">

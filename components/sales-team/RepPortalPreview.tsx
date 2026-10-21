@@ -15,6 +15,7 @@ import {
 import { loadReps } from "./repShared";
 import RepAvatar from "./RepAvatar";
 import type { SalesRep } from "./reps";
+import PageMeta from "@/components/PageMeta";
 
 type Device = "desktop" | "mobile";
 
@@ -60,6 +61,10 @@ export default function RepPortalPreview() {
 
   return (
     <div className="w-full space-y-4 p-5 md:px-7">
+      <PageMeta
+        title="Rep Portal Preview"
+        description="See the external rep portal exactly as a chosen rep sees it."
+      />
       <Link
         href="/sales-team"
         className="inline-flex items-center gap-1 text-[11px] font-medium text-ink-muted transition hover:text-brand-700"

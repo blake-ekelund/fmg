@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, Loader2, Network, CheckCircle2, XCircle } from "lucide-react";
+import { Search, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import PageMeta from "@/components/PageMeta";
 import { PUSH_LABEL, type PushOwner } from "@/lib/pointbFieldMap";
 
 /**
@@ -132,18 +133,10 @@ export default function RelationshipsPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1000px] mx-auto space-y-6">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-gray-400 text-xs font-medium">
-          <Network size={14} />
-          Point B Fields
-        </div>
-        <h1 className="text-xl font-semibold text-gray-900 tracking-tight mt-1">Field relationships</h1>
-        <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-          Every field Point B returns for an order, its value, the Fishbowl field it maps to, and who pushes
-          it. Pick an order to see the live mapping.
-        </p>
-      </div>
+      <PageMeta
+        title="Field relationships"
+        description="Each Point B order field, its value, its Fishbowl mapping, and who pushes it."
+      />
 
       {/* Charge-drift banner */}
       {fieldCheck?.connected &&

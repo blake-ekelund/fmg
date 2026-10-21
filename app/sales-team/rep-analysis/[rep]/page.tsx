@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { authHeader } from "@/components/sales-team/repShared";
+import PageMeta from "@/components/PageMeta";
 import { computeBridge, type ProductAgg, type SalesBridge } from "@/lib/salesBridge";
 
 /** The five bridge amounts as a flat object. */
@@ -101,6 +102,10 @@ export default function RepAnalysisPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6 md:px-8 print:max-w-none print:p-0">
+      <PageMeta
+        title={data.rep}
+        description={`Performance review · ${win.curYear} vs ${win.priorYear} YTD (Jan 1 – ${win.label})`}
+      />
       <div className="flex items-start justify-between gap-3 print:hidden">
         <BackLink />
         <button
@@ -111,7 +116,8 @@ export default function RepAnalysisPage() {
         </button>
       </div>
 
-      <div>
+      {/* On screen the title lives in the top bar; the printed PDF still needs it. */}
+      <div className="hidden print:block">
         <h1 className="text-2xl font-semibold tracking-tight text-gray-900">{data.rep}</h1>
         <p className="mt-1 text-sm text-gray-500">
           Performance review · {win.curYear} vs {win.priorYear} year-to-date (Jan 1 – {win.label})

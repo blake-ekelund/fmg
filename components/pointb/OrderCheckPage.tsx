@@ -8,10 +8,10 @@ import {
   XCircle,
   Boxes,
   Warehouse,
-  ArrowLeftRight,
   Play,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import PageMeta from "@/components/PageMeta";
 
 /**
  * Order Check — founder-facing reconciliation. "Run" pulls the recent orders per
@@ -270,18 +270,10 @@ export default function OrderCheckPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1000px] mx-auto space-y-6">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-gray-400 text-xs font-medium">
-          <ArrowLeftRight size={14} />
-          Order Check
-        </div>
-        <h1 className="text-xl font-semibold text-gray-900 tracking-tight mt-1">Fishbowl ↔ Point B</h1>
-        <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-          Confirm our books (Fishbowl) and the warehouse (Point B) agree. Run the reconciliation for a
-          quick pass across recent orders, or click any order for the full side-by-side.
-        </p>
-      </div>
+      <PageMeta
+        title="Fishbowl ↔ Point B"
+        description="Confirm Fishbowl and the Point B warehouse agree on recent orders."
+      />
 
       {/* Batch reconciliation */}
       <div className="rounded-2xl border border-gray-200 bg-white p-4">

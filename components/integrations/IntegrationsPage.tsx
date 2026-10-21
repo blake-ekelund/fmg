@@ -11,6 +11,7 @@ import {
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useIsMobile } from "@/lib/useIsMobile";
+import PageMeta from "@/components/PageMeta";
 
 import InventoryUploadModal from "@/components/inventory/current/InventoryUploadModal";
 import SalesUploadModal from "@/components/inventory/current/SalesUploadModal";
@@ -114,14 +115,13 @@ export default function IntegrationsPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1200px] mx-auto space-y-6">
-      {/* Page header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900 tracking-tight">Integrations</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            The systems that feed data into the portal — and when they last did.
-          </p>
-        </div>
+      <PageMeta
+        title="Integrations"
+        description="The systems that feed data into the portal, and when they last did."
+      />
+
+      {/* Page actions */}
+      <div className={clsx("flex flex-wrap items-start justify-end gap-3", isMobile && "hidden")}>
 
         {/* Manual upload (fallback). Desktop only — both options mean picking a
             spreadsheet off a machine that has one, so on a phone the whole

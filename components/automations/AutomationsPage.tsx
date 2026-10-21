@@ -14,6 +14,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import AutomationEditor from "./AutomationEditor";
 import SendingLimits from "./SendingLimits";
 import { flowKind, flowPriority } from "@/lib/automations/overlap";
+import PageMeta from "@/components/PageMeta";
 
 type Automation = {
   id: string;
@@ -115,14 +116,11 @@ export default function AutomationsPage() {
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8">
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Automations</h1>
-          <p className="text-sm text-ink-muted mt-0.5">
-            Triggered email sequences. Each step picks a saved template + a wait,
-            or a pinned date. Runs twice daily, 7:45am and 3:45pm Eastern.
-          </p>
-        </div>
+      <PageMeta
+        title="Automations"
+        description="Triggered email sequences; runs twice daily, 7:45am and 3:45pm Eastern."
+      />
+      <div className="flex items-start justify-end gap-3 mb-4">
         <div className="flex shrink-0 items-center gap-2">
           <SendingLimits />
           <button

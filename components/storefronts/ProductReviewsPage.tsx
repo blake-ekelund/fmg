@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, BadgeCheck, Check, Loader2, Search, Star, X } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 type Status = "pending" | "approved" | "rejected";
@@ -174,14 +175,10 @@ export default function ProductReviewsPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <p className="max-w-2xl text-sm text-gray-500">
-        Product reviews from customers, left on{" "}
-        <strong className="font-medium">sassyandco.com/review</strong> and{" "}
-        <strong className="font-medium">naturalinspirations.com/review</strong> — from
-        the insert QR code, email links, and invoice links. Everything arrives{" "}
-        <strong className="font-medium">pending</strong>; only approved reviews whose
-        author allowed featuring may be shown publicly.
-      </p>
+      <PageMeta
+        title="Product Reviews"
+        description="Customer reviews from the storefront /review pages — moderate before anything goes public."
+      />
 
       {error ? (
         <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
   fulfillmentState,
@@ -311,14 +312,17 @@ export default function PurchasesPage() {
 
   return (
     <div className="w-full space-y-6 p-6 md:px-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-2xl text-sm text-gray-500">
-          {view === "abandoned"
-            ? "Checkouts that were started but never paid — abandoned-cart material, not real orders."
+      <PageMeta
+        title="Orders"
+        description={
+          view === "abandoned"
+            ? "Checkouts started but never paid — abandoned carts, not real orders."
             : view === "archived"
-              ? "Taken off the page but kept on file. A Faire or MarketTime order still open on the marketplace comes back here on the next Sync, with its Fishbowl entry intact."
-              : "Orders from sassyandco.com, naturalinspirations.com, Faire, and MarketTime — D2C and wholesale."}
-        </p>
+              ? "Archived orders; open Faire/MarketTime ones return on the next Sync."
+              : "Orders from Sassy, NI, Faire, and MarketTime — D2C and wholesale."
+        }
+      />
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {(
             [

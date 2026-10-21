@@ -1,28 +1,23 @@
 "use client";
 
+import PageMeta from "@/components/PageMeta";
+
 type PageHeaderProps = {
-  title?: string; // kept for backwards compat but no longer rendered
+  /** Shown in the top bar (falls back to the nav label). */
+  title?: string;
+  /** One-sentence description — shown under the title in the top bar. */
   subtitle?: string;
   children?: React.ReactNode;
 };
 
-export default function PageHeader({
-  subtitle,
-  children,
-}: PageHeaderProps) {
-  if (!subtitle && !children) return null;
-
+/** Publishes title/subtitle to the top bar; renders only the page actions. */
+export default function PageHeader({ title, subtitle, children }: PageHeaderProps) {
   return (
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      {/* Left: subtitle */}
-      {subtitle && (
-        <p className="text-sm text-ink-muted">{subtitle}</p>
-      )}
-
-      {/* Right: page-specific actions */}
+    <>
+      <PageMeta title={title} description={subtitle} />
       {children && (
-        <div className="flex items-center gap-3 shrink-0">{children}</div>
+        <header className="flex items-center justify-end gap-3">{children}</header>
       )}
-    </header>
+    </>
   );
 }

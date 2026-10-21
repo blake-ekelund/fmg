@@ -5,6 +5,7 @@ import { Mail, Workflow, X } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
+import PageMeta from "@/components/PageMeta";
 import {
   useCustomers,
   applyFilters,
@@ -566,6 +567,14 @@ export default function CustomersPage({
 
   return (
     <div className="px-4 md:px-8 py-4 md:py-5 space-y-3">
+      <PageMeta
+        title={isD2C ? "D2C Customers" : "Wholesale Customers"}
+        description={
+          isD2C
+            ? "Direct-to-consumer shoppers with order history, spend, and status."
+            : "Wholesale accounts with order history, spend, and status."
+        }
+      />
 
       {/* Single-row toolbar: search · status multi-select · more filters · export */}
       <CustomersFilters
