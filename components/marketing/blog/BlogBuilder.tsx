@@ -333,7 +333,7 @@ export default function BlogBuilder({ brand, blocks, onChange, header, rail, onE
   return (
     <div className="grid min-h-[calc(100vh-57px)] md:grid-cols-[220px_minmax(0,1fr)_340px]">
       {/* Palette */}
-      <aside className="space-y-5 border-b border-gray-100 bg-gray-50/60 p-4 md:sticky md:top-[57px] md:h-[calc(100vh-57px)] md:overflow-y-auto md:border-b-0 md:border-r">
+      <aside className="space-y-5 border-b border-gray-100 bg-gray-50/60 p-4 md:sticky md:top-[112px] md:h-[calc(100vh-112px)] md:overflow-y-auto md:border-b-0 md:border-r">
         <div>
           <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Blocks</h3>
           <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -492,7 +492,7 @@ export default function BlogBuilder({ brand, blocks, onChange, header, rail, onE
       </div>
 
       {/* Right rail */}
-      <aside className="border-t border-gray-100 md:sticky md:top-[57px] md:h-[calc(100vh-57px)] md:overflow-y-auto md:border-l md:border-t-0">
+      <aside className="border-t border-gray-100 md:sticky md:top-[112px] md:h-[calc(100vh-112px)] md:overflow-y-auto md:border-l md:border-t-0">
         <div className="sticky top-0 z-[1] flex gap-1 border-b border-gray-100 bg-white p-2">
           {(
             [

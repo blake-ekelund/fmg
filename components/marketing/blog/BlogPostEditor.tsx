@@ -272,7 +272,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
   const rail = (
     <div className="space-y-5">
       {blocks ? (
-        <section className="rounded-xl border border-gray-200 p-4">
+        <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <label className="block text-[11px] font-medium text-gray-500">
             Title
             <input
@@ -285,7 +285,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
         </section>
       ) : null}
       {/* Status + schedule */}
-      <section className="rounded-xl border border-gray-200 p-4">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Publishing</h3>
         <p className="mt-2 text-sm text-gray-700">
           {isLive
@@ -316,7 +316,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
               }
               disabled={busy !== null || !publishAtIso}
               title={!publishAtIso ? "Pick a publish date first" : undefined}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50"
             >
               {busy === "schedule" ? <Loader2 size={14} className="animate-spin" /> : <CalendarClock size={14} />}
               {isScheduled ? "Update schedule" : "Schedule"}
@@ -388,7 +388,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
       </section>
 
       {/* Brand + slug */}
-      <section className="space-y-3 rounded-xl border border-gray-200 p-4">
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <label className="block text-[11px] font-medium text-gray-500">
           Brand
           <select
@@ -427,7 +427,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
       </section>
 
       {/* Tags */}
-      <section className="rounded-xl border border-gray-200 p-4">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <label className="block text-[11px] font-medium text-gray-500">
           Tags
           <div className="mt-1 flex flex-wrap gap-1.5">
@@ -469,7 +469,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
       </section>
 
       {/* SEO */}
-      <section className="rounded-xl border border-gray-200 p-4">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <label className="block text-[11px] font-medium text-gray-500">
           Search description
           <textarea
@@ -491,7 +491,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
       </section>
 
       {/* Hero */}
-      <section className="rounded-xl border border-gray-200 p-4">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <ImageField label="Hero image" value={hero} onChange={(url) => mark(setHero)(url)} onError={setError} />
         {hero && heroPreview && heroPreview !== hero ? (
           <p className="mt-1 text-[11px] text-gray-400">Site path — shows as {heroPreview}</p>
@@ -499,7 +499,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
       </section>
 
       {/* About */}
-      <section className="space-y-3 rounded-xl border border-gray-200 p-4">
+      <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">About this post</h3>
         <label className="block text-[11px] font-medium text-gray-500">
           Audience
@@ -573,12 +573,13 @@ export default function BlogPostEditor({ id }: { id: string }) {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* The post's own title is edited on the page — don't repeat it in the top bar. */}
       <PageMeta
-        title={title.trim() || "Untitled post"}
+        title="Edit blog post"
         description="Write the post, set its date, and preview it as it will look on the storefront."
       />
       {/* Toolbar */}
-      <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200/80 bg-white/90 px-4 py-2.5 backdrop-blur md:px-8">
+      <div className="sticky top-16 z-20 flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/95 px-4 py-2 backdrop-blur md:top-14 md:h-14 md:flex-nowrap md:px-8 md:py-0">
         <div className="flex items-center gap-3">
           <Link
             href="/marketing/blog"
@@ -631,7 +632,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
             className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-800 transition hover:bg-gray-50"
           >
             <Share2 size={13} />
-            Make a social post
+            <span className="hidden lg:inline">Make a social post</span>
           </Link>
           {previewUrl ? (
             <a
@@ -649,7 +650,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
               )}
             >
               <ExternalLink size={13} />
-              Preview on site
+              <span className="hidden lg:inline">Preview on site</span>
             </a>
           ) : null}
           <button
@@ -756,7 +757,7 @@ export default function BlogPostEditor({ id }: { id: string }) {
           </div>
 
           {/* Publishing rail */}
-          <aside className="md:sticky md:top-16 md:self-start">{rail}</aside>
+          <aside className="md:sticky md:top-[128px] md:self-start">{rail}</aside>
         </div>
       )}
     </div>
