@@ -38,6 +38,7 @@ import { onOpenRequest, onPostsChanged } from "./gridJobs";
 import NewSocialWizard from "./NewSocialWizard";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { ConfirmDialog, SocialStatusPill } from "./bits";
+import ConnectedAccounts from "./ConnectedAccounts";
 import BulkScheduleDialog from "@/components/ui/BulkScheduleDialog";
 
 /**
@@ -78,6 +79,7 @@ export default function SocialPostsPage() {
   const [hint, setHint] = useState<string | null>(null);
   const [bucket, setBucket] = useState<Bucket>("scheduled");
   const [conn, setConn] = useState<MetaConnectionStatus | null>(null);
+  const [connLoading, setConnLoading] = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
   // /marketing/social?fromBlog=<id>&brand=NI — "Make a social post" from the blog editor.
   const [fromBlog, setFromBlog] = useState<{ id: string; brand: SocialBrand } | null>(null);
@@ -115,7 +117,10 @@ export default function SocialPostsPage() {
 
   useEffect(() => {
     load();
-    getSocialStatus().then(setConn).catch(() => setConn(null));
+    getSocialStatus()
+      .then(setConn)
+      .catch(() => setConn(null))
+      .finally(() => setConnLoading(false));
   }, [load]);
 
   // Background grid jobs: reload when they create / schedule posts; toasts open the planner or preview.
@@ -248,7 +253,7 @@ export default function SocialPostsPage() {
         </button>
       </PageHeader>
 
-      <ConnectionStrip conn={conn} />
+      <ConnectedAccounts conn={conn} loading={connLoading} brand={brand} />
 
       {hint && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{hint}</div>
@@ -534,46 +539,5 @@ function PostRow({ post: p, selected, onToggle }: { post: SocialPost; selected: 
         )}
       </div>
     </Link>
-  );
-}
-
-/**
- * Silent when Meta is working. Only speaks up when something is actually
- * broken: no token at all, or a brand that IS set up failing to connect. A
- * brand with no Page id yet (Sassy for now) just isn't offered — no warning.
- */
-function ConnectionStrip({ conn }: { conn: MetaConnectionStatus | null }) {
-  if (!conn) return null;
-  const broken = conn.configured ? conn.brands.filter((b) => b.configured && !b.ok) : [];
-  const noneSetUp = conn.configured && conn.brands.every((b) => !b.configured);
-  if (conn.configured && !noneSetUp && broken.length === 0) return null;
-  if (noneSetUp) {
-    return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-        Meta is connected but no brand has a Page yet. Set META_PAGE_ID_NI / META_PAGE_ID_SASSY in Vercel:
-        <ul className="mt-1 font-mono text-xs">
-          {(conn.visiblePages ?? []).map((p) => (
-            <li key={p.id}>
-              {p.id} — {p.name}
-              {p.instagram ? ` (IG @${p.instagram})` : ""}
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-      <div>
-        {!conn.configured
-          ? "Meta isn't connected, so nothing will post. Set META_ACCESS_TOKEN in Vercel (docs/integrations.md, Meta section)."
-          : broken.map((b) => (
-              <div key={b.brand}>
-                {b.brand} can&apos;t post right now: {b.error}
-              </div>
-            ))}
-      </div>
-    </div>
   );
 }

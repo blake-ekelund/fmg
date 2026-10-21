@@ -53,8 +53,14 @@ export type BrandConnection = {
   /** A Page id is set for this brand. Unconfigured brands aren't an error. */
   configured: boolean;
   ok: boolean;
-  facebook: { id: string; name: string } | null;
-  instagram: { id: string; username: string | null; quota: { used: number; total: number } | null } | null;
+  facebook: { id: string; name: string; pictureUrl?: string | null; link?: string | null; followers?: number | null } | null;
+  instagram: {
+    id: string;
+    username: string | null;
+    quota: { used: number; total: number } | null;
+    pictureUrl?: string | null;
+    followers?: number | null;
+  } | null;
   error: string | null;
 };
 export type MetaConnectionStatus = {

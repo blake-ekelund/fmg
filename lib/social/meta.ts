@@ -316,6 +316,24 @@ export async function igQuota(acct: BrandAccount): Promise<{ used: number; total
   }
 }
 
+/* ─── Facebook Page profile (read-only, for the connected-accounts strip) ── */
+
+export async function fbPageProfile(
+  acct: BrandAccount,
+): Promise<{ pictureUrl: string | null; link: string | null; followers: number | null }> {
+  const r = await graph<{
+    link?: string;
+    followers_count?: number;
+    fan_count?: number;
+    picture?: { data?: { url?: string } };
+  }>("GET", acct.pageId, { fields: "link,followers_count,fan_count,picture.type(large){url}" }, acct.pageToken);
+  return {
+    pictureUrl: r.picture?.data?.url ?? null,
+    link: r.link ?? `https://www.facebook.com/${acct.pageId}`,
+    followers: r.followers_count ?? r.fan_count ?? null,
+  };
+}
+
 /* ─── Instagram profile + grid (read-only, for the feed preview) ───── */
 
 export async function igProfile(acct: BrandAccount): Promise<IgProfile> {

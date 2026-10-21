@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { SOCIAL_BRANDS, type BrandConnection, type MetaConnectionStatus } from "@/lib/social/types";
-import { MetaError, brandAccount, igQuota, listVisiblePages, metaConfigured, pageIdFor } from "@/lib/social/meta";
+import { MetaError, brandAccount, fbPageProfile, igProfile, igQuota, listVisiblePages, metaConfigured, pageIdFor } from "@/lib/social/meta";
 
 export const runtime = "nodejs";
 
@@ -35,12 +35,26 @@ export async function GET(request: Request) {
       }
       try {
         const a = await brandAccount(brand);
+        // Avatars + follower counts are decoration — never fail the status over them.
+        const [fb, ig, quota] = await Promise.all([
+          fbPageProfile(a).catch(() => null),
+          a.igUserId ? igProfile(a).catch(() => null) : null,
+          a.igUserId ? igQuota(a) : null,
+        ]);
         return {
           brand,
           configured: true,
           ok: !!a.igUserId,
-          facebook: { id: a.pageId, name: a.pageName },
-          instagram: a.igUserId ? { id: a.igUserId, username: a.igUsername, quota: await igQuota(a) } : null,
+          facebook: { id: a.pageId, name: a.pageName, pictureUrl: fb?.pictureUrl, link: fb?.link, followers: fb?.followers },
+          instagram: a.igUserId
+            ? {
+                id: a.igUserId,
+                username: ig?.username ?? a.igUsername,
+                quota,
+                pictureUrl: ig?.profilePictureUrl,
+                followers: ig?.followers,
+              }
+            : null,
           error: a.igUserId ? null : "No Instagram Business account is linked to this Page.",
         };
       } catch (e) {
