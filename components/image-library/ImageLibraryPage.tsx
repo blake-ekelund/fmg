@@ -491,17 +491,17 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
         key={f.id}
         onClick={() => openFolder(f.id)}
         {...folderDropProps(f.id)}
-        className={`group flex flex-col text-left transition ${
+        className={`group flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-sm transition hover:border-gray-300 hover:shadow ${
           dragging && !droppable ? "opacity-40" : ""
         }`}
       >
         <div
-          className={`relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-gray-100 transition ${
+          className={`relative aspect-[4/3] w-full overflow-hidden bg-gray-50 transition ${
             hot
-              ? "ring-4 ring-violet-500 ring-offset-2"
+              ? "ring-4 ring-inset ring-violet-500"
               : dragging && droppable
-                ? "ring-2 ring-violet-300 ring-offset-2"
-                : "group-hover:ring-2 group-hover:ring-gray-300 group-hover:ring-offset-2"
+                ? "ring-2 ring-inset ring-violet-300"
+                : ""
           }`}
         >
           {cover ? (
@@ -515,7 +515,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             />
           ) : (
             <div className="flex h-full items-center justify-center">
-              <Icon size={36} className="text-gray-300" />
+              <Icon size={28} className="text-gray-300" />
             </div>
           )}
           {hot && (
@@ -526,13 +526,13 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             </div>
           )}
         </div>
-        <div className="mt-2.5 flex items-start gap-2 px-0.5">
-          <Icon size={16} className={isInbox ? "mt-0.5 shrink-0 text-violet-500" : "mt-0.5 shrink-0 text-gray-400"} />
-          <span className="line-clamp-2 text-[15px] font-medium leading-snug text-gray-900" title={f.name}>
+        <div className="flex items-start gap-2 px-3 pt-2.5">
+          <Icon size={14} className={isInbox ? "mt-0.5 shrink-0 text-violet-500" : "mt-0.5 shrink-0 text-gray-400"} />
+          <span className="line-clamp-1 text-sm font-medium leading-snug text-gray-900" title={f.name}>
             {f.name}
           </span>
         </div>
-        <span className="mt-0.5 px-0.5 text-sm text-gray-500">
+        <span className="px-3 pb-2.5 pl-[34px] text-xs text-gray-500">
           {stats.count} {stats.count === 1 ? "image" : "images"}
         </span>
       </button>
@@ -542,7 +542,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   return (
     <div
       ref={rootRef}
-      className={pick ? "relative px-6 py-5" : "relative mx-auto max-w-[1400px] px-4 py-8 md:px-10 md:py-10"}
+      className={pick ? "relative px-6 py-5" : "relative w-full p-6 md:px-8"}
       {...pageDropProps}
       onDragEnd={() => {
         setDragging(null);
@@ -581,14 +581,14 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
           <nav className="flex min-w-0 flex-wrap items-center gap-1">
             <button
               onClick={() => openFolder(parentOf(folder))}
-              className="mr-1 rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+              className="mr-1 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
               aria-label="Back"
             >
-              <ArrowLeft size={22} />
+              <ArrowLeft size={16} />
             </button>
             <button
               onClick={() => openFolder(null)}
-              className="rounded-lg px-1.5 py-1 text-lg text-gray-500 hover:text-gray-900"
+              className="rounded-md px-1.5 py-1 text-sm text-gray-500 hover:text-gray-900"
             >
               Image Library
             </button>
@@ -597,16 +597,16 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
               const hot = dropTarget === c;
               return (
                 <span key={c} className="inline-flex min-w-0 items-center gap-1">
-                  <ChevronRight size={18} className="shrink-0 text-gray-300" />
+                  <ChevronRight size={14} className="shrink-0 text-gray-300" />
                   <button
                     onClick={() => openFolder(c)}
                     {...(last ? {} : folderDropProps(c))}
-                    className={`truncate rounded-lg px-1.5 py-1 ${
+                    className={`truncate rounded-md px-1.5 py-1 text-sm ${
                       hot
                         ? "bg-violet-100 text-violet-800 ring-2 ring-violet-500"
                         : last
-                          ? "text-2xl font-semibold tracking-tight text-gray-900"
-                          : "text-lg text-gray-500 hover:text-gray-900"
+                          ? "font-semibold text-gray-900"
+                          : "text-gray-500 hover:text-gray-900"
                     }`}
                   >
                     {nameOf(c)}
@@ -616,16 +616,16 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             })}
           </nav>
         ) : pick ? (
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Image Library</h1>
+          <h1 className="text-lg font-semibold text-gray-900">Image Library</h1>
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           {(!folder || canNestHere) && (
             <button
               onClick={() => setNewFolderOpen((o) => !o)}
-              className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-2.5 text-[15px] font-medium text-gray-800 transition hover:bg-gray-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
             >
-              <FolderPlus size={18} />
+              <FolderPlus size={14} />
               New folder
             </button>
           )}
@@ -634,9 +634,9 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
               title={`Uploads go into ${pathName(uploadTarget)}`}
-              className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-[15px] font-medium text-white transition hover:bg-gray-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50"
             >
-              {uploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
               {uploading ? "Uploading…" : "Upload"}
             </button>
           )}
@@ -655,7 +655,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
       </header>
 
       {current?.readOnly && current.id.startsWith("~") && (
-        <p className="mt-2 text-[15px] text-gray-500">
+        <p className="mt-2 text-sm text-gray-500">
           Product photos are edited on each product&apos;s page.
         </p>
       )}
@@ -667,7 +667,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             e.preventDefault();
             void handleCreateFolder();
           }}
-          className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl bg-gray-50 p-4"
+          className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm"
         >
           <input
             autoFocus
@@ -677,12 +677,12 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             onKeyDown={(e) => e.key === "Escape" && setNewFolderOpen(false)}
             placeholder={newFolderParent ? `New folder in ${nameOf(newFolderParent)}` : "Folder name"}
             maxLength={60}
-            className="min-w-[240px] flex-1 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-base focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"
+            className="min-w-[240px] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-gray-400 focus:outline-none"
           />
           <button
             type="submit"
             disabled={folderBusy || !newFolderName.trim()}
-            className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-[15px] font-medium text-white hover:bg-gray-700 disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-40"
           >
             {folderBusy && <Loader2 size={16} className="animate-spin" />}
             Create
@@ -690,7 +690,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
           <button
             type="button"
             onClick={() => setNewFolderOpen(false)}
-            className="rounded-full px-4 py-2.5 text-[15px] font-medium text-gray-600 hover:bg-gray-200"
+            className="rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
           >
             Cancel
           </button>
@@ -699,46 +699,46 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
 
       {/* Messages */}
       {notice && (
-        <div className="mt-6 flex items-center gap-2.5 rounded-2xl bg-emerald-50 px-5 py-3.5 text-[15px] text-emerald-800">
-          <Check size={18} className="shrink-0" />
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <Check size={15} className="shrink-0" />
           {notice}
         </div>
       )}
       {error && (
-        <div className="mt-6 rounded-2xl bg-rose-50 px-5 py-3.5 text-[15px] text-rose-700">{error}</div>
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
 
       {/* Folders */}
       {!loading && subfolders.length > 0 && (
-        <section className="mt-8">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">Folders</h2>
-          <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <section className="mt-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Folders</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {subfolders.map(renderTile)}
           </div>
         </section>
       )}
 
       {/* Images */}
-      <section className="mt-10">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <h2 className="mr-auto text-lg font-semibold text-gray-900">
+      <section className="mt-8">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="mr-auto text-xs font-semibold uppercase tracking-wider text-gray-500">
             {searching ? "Search results" : subfolders.length > 0 ? "All images" : "Images"}
             {!loading && filtered.length > 0 && (
-              <span className="ml-2 text-base font-normal text-gray-400 tabular-nums">{filtered.length}</span>
+              <span className="ml-2 rounded-full bg-gray-100 px-1.5 py-px text-[11px] font-semibold normal-case tracking-normal text-gray-500 tabular-nums">{filtered.length}</span>
             )}
           </h2>
 
-          <div className="relative w-full sm:w-72">
+          <div className="relative w-full sm:w-64">
             <Search
-              size={18}
-              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
             />
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search"
-              className="w-full rounded-full border border-gray-300 bg-white py-2.5 pl-10 pr-4 text-base focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"
+              placeholder="Search images"
+              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-gray-400 focus:outline-none"
             />
           </div>
 
@@ -746,7 +746,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             value={scope}
             onChange={(e) => setScope(e.target.value as ScopeFilter)}
             aria-label="Show"
-            className="rounded-full border border-gray-300 bg-white px-4 py-2.5 text-[15px] text-gray-700 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200"
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-gray-400 focus:outline-none"
           >
             <option value="all">All images</option>
             <option value="third_party">Shared with reps</option>
@@ -756,7 +756,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
           {!pick && pickable.length > 0 && !selecting && (
             <button
               onClick={() => setSelecting(true)}
-              className="rounded-full px-4 py-2.5 text-[15px] font-medium text-gray-700 hover:bg-gray-100"
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
             >
               Select
             </button>
@@ -765,7 +765,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
 
         {/* Selection bar */}
         {selecting && (
-          <div className="sticky top-2 z-30 mb-5 flex flex-wrap items-center gap-3 rounded-2xl bg-gray-900 px-5 py-3 text-[15px] text-white shadow-lg">
+          <div className="sticky top-20 z-30 mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-gray-900 px-4 py-2.5 text-sm text-white shadow-lg md:top-16">
             <span className="font-medium tabular-nums">
               {picked.size === 0 ? "Tap images to select" : `${picked.size} selected`}
             </span>
@@ -777,7 +777,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
                     : new Set(pickable.map((i) => i.path)),
                 )
               }
-              className="rounded-full px-3 py-1 text-gray-300 hover:bg-white/10 hover:text-white"
+              className="rounded-lg px-2.5 py-1 text-gray-300 hover:bg-white/10 hover:text-white"
             >
               {pickable.every((i) => picked.has(i.path)) ? "Clear" : "Select all"}
             </button>
@@ -785,7 +785,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
               <select
                 value={moveTo}
                 onChange={(e) => setMoveTo(e.target.value)}
-                className="max-w-[16rem] rounded-full border-0 bg-white/10 px-4 py-2 text-[15px] text-white focus:outline-none focus:ring-2 focus:ring-white/40 [&>option]:text-gray-900"
+                className="max-w-[16rem] rounded-lg border-0 bg-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/40 [&>option]:text-gray-900"
               >
                 <option value="">Move to…</option>
                 {fileableFolders.map((f) => (
@@ -797,7 +797,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
               <button
                 onClick={() => void moveImages(Array.from(picked), moveTo)}
                 disabled={moving || !moveTo || picked.size === 0}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 font-medium text-gray-900 hover:bg-gray-100 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 font-medium text-gray-900 hover:bg-gray-100 disabled:opacity-40"
               >
                 {moving && <Loader2 size={16} className="animate-spin" />}
                 Move
@@ -814,18 +814,18 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
         )}
 
         {loading ? (
-          <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="aspect-square animate-pulse rounded-2xl bg-gray-100" />
+              <div key={i} className="aspect-square animate-pulse rounded-xl bg-gray-100" />
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-gray-200 py-20 text-center">
-            <ImageIcon size={40} className="mb-4 text-gray-300" />
-            <p className="text-lg font-medium text-gray-800">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white py-14 text-center">
+            <ImageIcon size={24} className="mb-3 text-gray-300" />
+            <p className="text-sm font-medium text-gray-800">
               {searching ? "Nothing found" : folder ? "No images here yet" : "No images yet"}
             </p>
-            <p className="mt-1 max-w-sm text-[15px] text-gray-500">
+            <p className="mt-1 max-w-sm text-sm text-gray-400">
               {searching
                 ? "Try a different word."
                 : canWriteHere || !folder
@@ -836,7 +836,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
         ) : (
           <>
           {sizeFilter && (
-            <p className="mb-4 text-sm text-gray-500">
+            <p className="mb-3 text-xs text-gray-500">
               {showSmall ? "Showing every image — ones too small are marked." : `Showing images big enough for ${sizeFilter.label}.`}
               {(hiddenSmall > 0 || showSmall) && (
                 <>
@@ -849,13 +849,13 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
               )}
             </p>
           )}
-          <div className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {shown.map((img) => {
               const isLibrary = img.source === "library";
               const isPicked = selecting && picked.has(img.path);
               const isDragging = dragging?.includes(img.path) ?? false;
               return (
-                <div key={img.path} className={`group ${isDragging ? "opacity-30" : ""}`}>
+                <div key={img.path} className={`group overflow-hidden rounded-xl border bg-white shadow-sm transition hover:shadow ${isPicked ? "border-violet-500" : "border-gray-200 hover:border-gray-300"} ${isDragging ? "opacity-30" : ""}`}>
                   <button
                     draggable={isLibrary && !pick}
                     onDragStart={isLibrary && !pick ? (e) => onImageDragStart(e, img) : undefined}
@@ -866,12 +866,12 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
                           ? togglePick(img.path)
                           : setSelected(img)
                     }
-                    className={`relative block aspect-square w-full overflow-hidden rounded-2xl bg-gray-100 transition ${
+                    className={`relative block aspect-square w-full overflow-hidden bg-gray-50 transition ${
                       isLibrary && !pick ? "cursor-grab active:cursor-grabbing" : ""
                     } ${
                       isPicked
-                        ? "ring-4 ring-violet-500 ring-offset-2"
-                        : "hover:ring-2 hover:ring-gray-300 hover:ring-offset-2"
+                        ? "ring-4 ring-inset ring-violet-500"
+                        : ""
                     } ${selecting && !isLibrary ? "opacity-40" : ""}`}
                     aria-label={displayName(img)}
                   >
@@ -946,14 +946,14 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
                     )}
                   </button>
                   <div
-                    className="mt-2.5 truncate px-0.5 text-[15px] text-gray-800"
+                    className="truncate border-t border-gray-100 px-3 pt-2 text-sm font-medium text-gray-800 [&:last-child]:pb-2.5"
                     title={displayName(img)}
                   >
                     {displayName(img)}
                   </div>
                   {/* Say where it lives when that isn't the open folder (product titles already do). */}
                   {isLibrary && (searching || img.folder !== folder) && (
-                    <div className="truncate px-0.5 text-sm text-gray-500">
+                    <div className="truncate px-3 pb-2.5 text-xs text-gray-500">
                       {searching ? pathName(img.folder) : nameOf(img.folder)}
                     </div>
                   )}
@@ -962,14 +962,14 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             })}
           </div>
           {filtered.length > visible && (
-            <div className="mt-10 flex flex-col items-center gap-2">
+            <div className="mt-6 flex flex-col items-center gap-1.5">
               <button
                 onClick={() => setVisible((v) => v + BATCH * 2)}
-                className="rounded-full border border-gray-300 bg-white px-6 py-2.5 text-[15px] font-medium text-gray-800 hover:bg-gray-50"
+                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
               >
                 Show more
               </button>
-              <span className="text-sm text-gray-500 tabular-nums">
+              <span className="text-xs text-gray-500 tabular-nums">
                 Showing {visible} of {filtered.length}
               </span>
             </div>
@@ -980,13 +980,13 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
 
       {/* Empty folder housekeeping, out of the way at the bottom */}
       {folderEmpty && canWriteHere && (
-        <div className="mt-10 flex justify-center">
+        <div className="mt-8 flex justify-center">
           <button
             onClick={() => folder && void handleDeleteFolder(folder)}
             disabled={folderBusy}
-            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[15px] font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
           >
-            <Trash2 size={16} /> Delete this empty folder
+            <Trash2 size={14} /> Delete this empty folder
           </button>
         </div>
       )}
