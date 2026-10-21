@@ -10,7 +10,6 @@ import {
   KanbanSquare,
   PackageSearch,
   ImageIcon,
-  Camera,
   Zap,
   Mail,
   MessageSquare,
@@ -215,15 +214,6 @@ export const navSections: readonly NavSection[] = [
         icon: Activity,
         roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
-      {
-        // Block editor for storefront page content (v1: the Sassy homepage).
-        // Drafts autosave; Publish puts them live (stores read
-        // storefront_site_pages). See lib/site/pageBlocks.ts.
-        label: "Website",
-        href: "/storefronts/website",
-        icon: PanelsTopLeft,
-        roles: [...FULL_ACCESS, "marketing", "operations"],
-      },
     ],
   },
   {
@@ -279,25 +269,7 @@ export const navSections: readonly NavSection[] = [
     icon: Megaphone,
     items: [
       {
-        /* Browse the public `email-assets` bucket — the brand photos, logos, and
-           graphics used across templates — with metadata editing, delete, and a
-           per-image "safe for 3rd party" flag that surfaces it on the rep-group
-           portal. Same bucket the block editor's media-library modal reads. */
-        label: "Image Library",
-        href: "/marketing/assets",
-        icon: ImageIcon,
-        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
-      },
-      {
-        /* Brand photo collections on Unsplash (Sassy, NI) + UNSPLASH_PHOTOGRAPHERS — the same
-           photos the image pickers' "Unsplash" tab offers. See lib/unsplash.ts. */
-        label: "Photography",
-        href: "/marketing/photography",
-        icon: Camera,
-        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
-      },
-      {
-        label: "Social Media Posts",
+        label: "Social Media",
         href: "/marketing/social",
         icon: Share2,
         roles: [...FULL_ACCESS, "marketing", "operations"],
@@ -307,6 +279,26 @@ export const navSections: readonly NavSection[] = [
         href: "/marketing/blog",
         icon: Newspaper,
         roles: [...FULL_ACCESS, "marketing", "operations"],
+      },
+      {
+        // Block editor for storefront page content (all Sassy + NI pages).
+        // Drafts autosave; Publish puts them live (stores read
+        // storefront_site_pages). See lib/site/pageBlocks.ts. The route stays
+        // under /storefronts/ so existing links keep working.
+        label: "Website",
+        href: "/storefronts/website",
+        icon: PanelsTopLeft,
+        roles: [...FULL_ACCESS, "marketing", "operations"],
+      },
+      {
+        /* Browse the public `email-assets` bucket — the brand photos, logos, and
+           graphics used across templates — with metadata editing, delete, and a
+           per-image "safe for 3rd party" flag that surfaces it on the rep-group
+           portal. Same bucket the block editor's media-library modal reads. */
+        label: "Image Library",
+        href: "/marketing/assets",
+        icon: ImageIcon,
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
     ],
   },
@@ -464,6 +456,10 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   // Reached from inside another page rather than the sidebar:
   // (/templates moved into the Email section as "Designed Templates")
   { href: "/marketing", roles: [...FULL_ACCESS, "marketing", "operations"] }, // legacy tabbed marketing page
+  // Off the sidebar (Marketing is Social / Blog / Website / Image Library), but
+  // kept reachable for existing links; the same Unsplash photos are in every
+  // image picker's "Unsplash" tab.
+  { href: "/marketing/photography", roles: [...FULL_ACCESS, "sales", "marketing", "operations"] },
   { href: "/amazon-payments", roles: ["owner", "admin"] }, // placeholder, spec TBD
 ];
 
