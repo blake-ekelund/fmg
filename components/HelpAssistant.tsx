@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowRight, CalendarClock, Check, Download, History, Loader2, Send, Sparkles, SquarePen, Trash2, X } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useUser } from "@/components/UserContext";
 import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
 import type { PublishConfirm } from "@/lib/assistant/helpTools";
 
@@ -137,6 +138,7 @@ async function authHeader(): Promise<Record<string, string>> {
 
 export default function HelpAssistant() {
   const pathname = usePathname();
+  const userId = useUser().profile?.id ?? null;
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -220,31 +222,63 @@ export default function HelpAssistant() {
     }
   }
 
-  // Restore / persist the open conversation for this browser tab (the saved
-  // history lives server-side; this just survives a reload mid-chat).
+  /* Restore / persist the open conversation for this browser tab (the saved
+     history lives server-side; this just survives a reload mid-chat).
+
+     Chats are private: the tab copy is keyed by the signed-in user, so if
+     someone else signs in on the same browser they start empty — they never
+     see (or re-save) the previous person's chat. */
+  const storageKey = userId ? `${STORAGE_KEY}:${userId}` : null;
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
   useEffect(() => {
+    setMessages([]);
+    setConversationId(null);
+    conversationIdRef.current = null;
+    setView("chat");
+    setHistory(null);
+    setError(null);
     try {
-      const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null") as
-        | ChatMessage[]
-        | { messages: ChatMessage[]; conversationId: string | null }
-        | null;
-      if (Array.isArray(saved)) setMessages(saved);
-      else if (saved) {
+      sessionStorage.removeItem(STORAGE_KEY); // pre-privacy, un-keyed copy
+      const saved = storageKey
+        ? (JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as {
+            messages: ChatMessage[];
+            conversationId: string | null;
+          } | null)
+        : null;
+      if (saved) {
         setMessages(saved.messages ?? []);
         setConversationId(saved.conversationId ?? null);
       }
     } catch {
       /* storage unavailable — start fresh */
     }
-  }, []);
+    setRestoredFor(storageKey);
+  }, [storageKey]);
   useEffect(() => {
-    if (busy) return;
+    // Only write once this user's copy has been restored (never under another key).
+    if (busy || !storageKey || restoredFor !== storageKey) return;
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ messages: messages.slice(-30), conversationId }));
+      sessionStorage.setItem(storageKey, JSON.stringify({ messages: messages.slice(-30), conversationId }));
     } catch {
       /* ignore */
     }
-  }, [messages, busy, conversationId]);
+  }, [messages, busy, conversationId, storageKey, restoredFor]);
+
+  // Signing out (from anywhere) wipes this tab's copy of Sage chats.
+  useEffect(() => {
+    const { data } = supabaseBrowser().auth.onAuthStateChange((event) => {
+      if (event !== "SIGNED_OUT") return;
+      try {
+        for (const k of Object.keys(sessionStorage)) if (k.startsWith(STORAGE_KEY)) sessionStorage.removeItem(k);
+      } catch {
+        /* ignore */
+      }
+      setMessages([]);
+      setConversationId(null);
+      setOpen(false);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   /* Save the conversation to the user's Sage history after each reply, so Sage
      can recall it later and it shows under History. Best-effort: if history

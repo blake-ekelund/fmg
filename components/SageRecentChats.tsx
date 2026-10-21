@@ -37,9 +37,16 @@ export default function SageRecentChats({ collapsed }: { collapsed: boolean }) {
     }
     void load();
     window.addEventListener(SAGE_HISTORY_EVENT, load);
+    // Chats are private: drop the list the moment someone signs out, and load
+    // the new person's own list when they sign in.
+    const { data: auth } = supabaseBrowser().auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") setItems([]);
+      else if (event === "SIGNED_IN") void load();
+    });
     return () => {
       cancelled = true;
       window.removeEventListener(SAGE_HISTORY_EVENT, load);
+      auth.subscription.unsubscribe();
     };
   }, []);
 
