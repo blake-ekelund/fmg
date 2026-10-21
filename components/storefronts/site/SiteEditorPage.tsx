@@ -63,6 +63,7 @@ import { BLOCK_ICON, summary } from "./blockMeta";
 import { IconButton, move } from "./fields";
 import { useWidgets, type SiteWidget } from "./useWidgets";
 import SectionPicker from "./SectionPicker";
+import PublishReview, { diffPage } from "./PublishReview";
 import SiteHome from "./SiteHome";
 
 type PageState = {
@@ -470,6 +471,16 @@ function PageEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [stepHistory]);
 
+  // Esc closes the settings panel (dialogs on top handle their own Esc).
+  useEffect(() => {
+    if (!panelOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !document.querySelector('[role="dialog"]')) setPanelOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panelOpen]);
+
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
       if (saveState === "dirty" || saveState === "saving") e.preventDefault();
@@ -807,6 +818,24 @@ function PageEditor({
     });
   }, [page, blocks, widgetById]);
 
+  // What Publish would change, for the "N changes not live" pill and review.
+  const [review, setReview] = useState(false);
+  const closeReview = useCallback(() => setReview(false), []);
+  const changes = useMemo(() => {
+    if (!page) return [];
+    const labelFor = (b: PageBlock) =>
+      b.type === "widget" ? (widgetById.get(b.widgetId)?.name ?? "Saved section") : BLOCK_INFO[b.type].label;
+    const seen = new Set<string>();
+    const savedEdits = blocks.flatMap((x) => {
+      if (x.type !== "widget" || seen.has(x.widgetId)) return [];
+      seen.add(x.widgetId);
+      const wd = widgetById.get(x.widgetId);
+      if (!wd || JSON.stringify(wd.draft) === JSON.stringify(wd.published)) return [];
+      return [{ name: wd.name, otherPages: wd.usedOn.filter((u) => u.slug !== slug).map((u) => u.label) }];
+    });
+    return diffPage(page.published ?? def.defaults, blocks, labelFor, savedEdits);
+  }, [page, blocks, widgetById, def.defaults, slug]);
+
   const partParam = slug === "product" && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
   const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1&edit=1${partParam}&v=${frameKey}` : null;
   const canvasLoading = !!previewSrc && loadedFrame !== `${device}:${frameKey}`;
@@ -901,15 +930,8 @@ function PageEditor({
           </IconButton>
         </div>
         <SaveBadge state={saveState} />
-        {page?.publishedAt ? (
-          <span className={clsx("hidden text-[11px] md:inline", unpublished ? "text-amber-600" : "text-gray-400")}>
-            {unpublished ? "Unpublished changes" : `Live since ${when(page.publishedAt)}`}
-          </span>
-        ) : (
-          <span className="hidden text-[11px] text-gray-400 md:inline">Not published yet</span>
-        )}
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {slug === "product" ? (
             <select
               value={previewPart}
@@ -943,8 +965,11 @@ function PageEditor({
               </button>
             ))}
           </div>
-          <IconButton
-            label="Page settings — publishing, history, saved sections"
+          <IconButton label="Reload the page preview" onClick={() => setFrameKey((k) => k + 1)}>
+            {canvasLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          </IconButton>
+          <TextButton
+            active={panelOpen && tab === "page"}
             onClick={() => {
               if (panelOpen && tab === "page") setPanelOpen(false);
               else {
@@ -953,30 +978,49 @@ function PageEditor({
               }
             }}
           >
-            <PanelTop size={14} />
-          </IconButton>
-          <IconButton label="Reload canvas" onClick={() => setFrameKey((k) => k + 1)}>
-            {canvasLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          </IconButton>
+            <PanelTop size={14} /> Page settings
+          </TextButton>
           {page?.previewUrl ? (
             <a
               href={`${page.previewUrl}${partParam}`}
               target="_blank"
               rel="noreferrer"
-              title="Open the draft in a new tab"
-              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              title="Open the draft in a new tab, as a visitor would see it"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
             >
-              <ExternalLink size={14} />
+              <ExternalLink size={14} /> Preview
             </a>
           ) : null}
+          <span className="mx-0.5 hidden h-5 w-px bg-gray-200 sm:block" />
+          {/* Where this page stands, in words: what's live, and what isn't yet. */}
+          {unpublished ? (
+            <button
+              type="button"
+              onClick={() => setReview(true)}
+              disabled={!!busy || page?.notReady}
+              title="See what will change on the live site"
+              className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-200 transition hover:bg-amber-100"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              {!page?.publishedAt
+                ? "Not live yet"
+                : `${changes.length || 1} ${changes.length === 1 ? "change" : "changes"} not live`}
+            </button>
+          ) : page?.publishedAt ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live · {when(page.publishedAt)}
+            </span>
+          ) : (
+            <span className="text-[11px] text-gray-400">Showing the original page</span>
+          )}
           <button
             type="button"
             disabled={!!busy || page?.notReady || !unpublished}
-            onClick={() => action("publish")}
-            className="ml-1 inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none"
+            onClick={() => setReview(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none"
           >
             {busy === "publish" ? <Loader2 size={13} className="animate-spin" /> : null}
-            {unpublished ? "Publish" : "Published"}
+            {unpublished ? "Publish…" : "Published"}
           </button>
         </div>
       </header>
@@ -989,10 +1033,8 @@ function PageEditor({
       ) : null}
 
       <div
-        className={clsx(
-          "grid min-h-0 flex-1",
-          panelOpen ? "md:grid-cols-[220px_minmax(0,1fr)_340px]" : "md:grid-cols-[220px_minmax(0,1fr)]",
-        )}
+        // The settings panel slides over the page preview instead of squeezing it.
+        className="relative grid min-h-0 flex-1 overflow-hidden md:grid-cols-[220px_minmax(0,1fr)]"
       >
         {/* ── sections on this page ────────────────────────────────────── */}
         <aside className="min-h-0 space-y-4 overflow-y-auto border-b border-gray-100 bg-gray-50/60 p-4 md:border-b-0 md:border-r">
@@ -1206,10 +1248,23 @@ function PageEditor({
             setPicker(null);
           }}
         />
+        <PublishReview
+          open={review}
+          page={def.label}
+          host={host}
+          firstPublish={!page?.publishedAt}
+          changes={changes}
+          busy={busy === "publish"}
+          onClose={closeReview}
+          onPublish={async () => {
+            await action("publish");
+            setReview(false);
+          }}
+        />
 
-        {/* ── side panel (Settings / Page settings) ─────────────────────── */}
+        {/* ── side panel (Settings / Page settings), sliding over the page ── */}
         {panelOpen ? (
-        <aside className="min-h-0 overflow-y-auto border-t border-gray-100 bg-white md:border-l md:border-t-0">
+        <aside className="animate-slide-in-right absolute inset-y-0 right-0 z-30 w-full overflow-y-auto border-l border-gray-200 bg-white shadow-2xl sm:w-[380px]">
           <div className="sticky top-0 z-[1] flex gap-1 border-b border-gray-100 bg-white p-2">
             {(
               [
@@ -1244,7 +1299,7 @@ function PageEditor({
                 page={page}
                 unpublished={unpublished}
                 busy={busy}
-                onAction={action}
+                onAction={(name, versionId) => (name === "publish" ? setReview(true) : action(name, versionId))}
                 widgets={w.widgets}
                 onRenameWidget={w.rename}
                 onDeleteWidget={(id) => {
@@ -1572,6 +1627,22 @@ function WidgetPanel({
         onChange={onChangeDraft}
       />
     </div>
+  );
+}
+
+/** A top-bar button that says what it does. */
+function TextButton({ active, onClick, children }: { active?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={clsx(
+        "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition",
+        active ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   Bold,
+  ChevronDown,
   Copy,
   Eye,
   EyeOff,
@@ -27,10 +28,10 @@ import {
 /**
  * The toolbar that floats over the selected block on the Website editor's
  * canvas (positioned from the store bridge's "rect" messages). Block actions
- * on the left; while text is being typed on the page, its formatting
- * buttons (sent back to the bridge as "format"). Colors open a pop-over;
- * everything without a place on the page (links, product picks …) is under
- * Settings, which opens the side panel.
+ * say what they do (Colors, Settings, More); while text is being typed on
+ * the page, its formatting buttons (sent back to the bridge as "format").
+ * Colors and More open pop-overs; everything without a place on the page
+ * (links, product picks …) is under Settings, which opens the side panel.
  */
 
 export type FormatCmd = "bold" | "italic" | "h2" | "h3" | "p" | "ul" | "ol" | "link" | "unlink" | "accent";
@@ -119,18 +120,23 @@ export function CanvasToolbar({
   onSettings: () => void;
   onFormat: (cmd: FormatCmd, value?: string) => void;
 }) {
-  const [colorsOpen, setColorsOpen] = useState(false);
+  const [menu, setMenu] = useState<"colors" | "more" | null>(null);
+  const toggle = (m: "colors" | "more") => setMenu((cur) => (cur === m ? null : m));
+  const act = (fn: () => void) => {
+    setMenu(null);
+    fn();
+  };
   const wrap = useRef<HTMLDivElement | null>(null);
 
-  // A click anywhere else closes the colors pop-over.
+  // A click anywhere else closes the colors / More pop-over.
   useEffect(() => {
-    if (!colorsOpen) return;
+    if (!menu) return;
     const close = (e: MouseEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setColorsOpen(false);
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setMenu(null);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [colorsOpen]);
+  }, [menu]);
 
   const link = () => {
     const href = prompt("Link to — a page like /shop, or a full https:// address:");
@@ -197,35 +203,80 @@ export function CanvasToolbar({
         <Btn label="Move down" disabled={!canMoveDown} onClick={() => onMove(1)}>
           <ArrowDown size={14} />
         </Btn>
-        <Btn label="Duplicate" disabled={!canDuplicate} onClick={onDuplicate}>
-          <Copy size={14} />
-        </Btn>
-        <Btn label={hidden ? "Show on site" : "Hide from site"} disabled={!canHide} onClick={onToggleHidden}>
-          {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
-        </Btn>
         {showColors ? (
-          <Btn label="Colors" active={colorsOpen || colorsCount > 0} onClick={() => setColorsOpen((o) => !o)}>
-            <Palette size={14} />
+          <Btn label="Colors for this section" active={menu === "colors" || colorsCount > 0} onClick={() => toggle("colors")}>
+            <span className="inline-flex items-center gap-1 px-0.5 text-[11px] font-medium">
+              <Palette size={13} /> Colors
+            </span>
           </Btn>
         ) : null}
         <Btn label="Settings — links, products and everything not on the page" onClick={onSettings}>
-          <Settings2 size={14} />
+          <span className="inline-flex items-center gap-1 px-0.5 text-[11px] font-medium">
+            <Settings2 size={13} /> Settings
+          </span>
         </Btn>
-        <Btn label="Save as a reusable section" disabled={!canWidget} onClick={onWidget}>
-          <Puzzle size={14} />
-        </Btn>
-        <Btn label="Delete" danger disabled={!canDelete} onClick={onDelete}>
-          <Trash2 size={14} />
+        <Btn label="More — duplicate, hide, save for reuse, delete" active={menu === "more"} onClick={() => toggle("more")}>
+          <span className="inline-flex items-center gap-1 px-0.5 text-[11px] font-medium">
+            More <ChevronDown size={12} />
+          </span>
         </Btn>
       </div>
-      {colorsOpen ? (
+      {menu === "colors" ? (
         <div className="mt-1.5 max-h-[60vh] w-80 overflow-y-auto rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
           <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-gray-800">
-            <Palette size={13} className="text-gray-400" /> Colors for this block
+            <Palette size={13} className="text-gray-400" /> Colors for this section
           </div>
           {colorsPanel}
         </div>
+      ) : menu === "more" ? (
+        <div className="mt-1.5 w-60 rounded-xl border border-gray-200 bg-white p-1 shadow-xl">
+          <MenuItem disabled={!canDuplicate} onClick={() => act(onDuplicate)}>
+            <Copy size={14} /> Duplicate
+          </MenuItem>
+          <MenuItem disabled={!canHide} onClick={() => act(onToggleHidden)}>
+            {hidden ? <Eye size={14} /> : <EyeOff size={14} />} {hidden ? "Show on the site again" : "Hide from the site"}
+          </MenuItem>
+          <MenuItem disabled={!canWidget} onClick={() => act(onWidget)}>
+            <Puzzle size={14} /> Save to reuse on other pages
+          </MenuItem>
+          <div className="my-1 h-px bg-gray-100" />
+          <MenuItem danger disabled={!canDelete} onClick={() => act(onDelete)}>
+            <Trash2 size={14} /> Delete section
+          </MenuItem>
+          {!canDelete ? (
+            <p className="px-2.5 pb-1.5 pt-0.5 text-[10px] leading-snug text-gray-400">
+              This part is built by the store — you can change its words, not remove it.
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
+  );
+}
+
+function MenuItem({
+  onClick,
+  disabled,
+  danger,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className={clsx(
+        "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] transition disabled:cursor-not-allowed disabled:opacity-35",
+        danger ? "text-red-600 hover:bg-red-50" : "text-gray-700 hover:bg-gray-100",
+      )}
+    >
+      {children}
+    </button>
   );
 }

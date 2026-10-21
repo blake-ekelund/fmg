@@ -62,6 +62,19 @@
   --shadow-card: 0 1px 2px rgb(15 28 38 / 0.04), 0 1px 3px rgb(15 28 38 / 0.06);
   --shadow-raised: 0 4px 12px rgb(15 28 38 / 0.08), 0 1px 3px rgb(15 28 38 / 0.05);
   --shadow-overlay: 0 16px 48px rgb(15 28 38 / 0.16), 0 2px 8px rgb(15 28 38 / 0.08);
+
+  /* ─── Motion ─── */
+  --animate-slide-in-right: slide-in-right 0.18s ease-out;
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
 }
 
 :root {
