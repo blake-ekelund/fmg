@@ -4,16 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   CalendarClock,
-  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Film,
   Grid3x3,
   Images,
   LayoutGrid,
   Loader2,
+  Pencil,
   Plus,
+  RotateCcw,
+  Send,
   Share2,
   Trash2,
   Undo2,
@@ -21,24 +24,24 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { toast, updateToast } from "@/lib/toast";
-import PageHeader from "@/components/ui/PageHeader";
-import TabNav, { type Tab } from "@/components/ui/TabNav";
+import PageMeta from "@/components/PageMeta";
 import { useBrand } from "@/components/BrandContext";
 import { BrandPill, formatDateTime, relativeTime } from "@/components/marketing/blog/bits";
 import {
   PLATFORM_LABEL,
   type MetaConnectionStatus,
   type SocialBrand,
+  type SocialPlatform,
   type SocialPost,
 } from "@/lib/social/types";
-import { deleteSocialPost, getSocialStatus, listSocialPosts, updateSocialPost } from "./api";
+import { deleteSocialPost, getSocialStatus, listSocialPosts, publishSocialPostNow, updateSocialPost } from "./api";
 import FeedPreview from "./FeedPreview";
 import GridPlanner from "./GridPlanner";
 import { onOpenRequest, onPostsChanged } from "./gridJobs";
 import NewSocialWizard from "./NewSocialWizard";
 import SlidePreview, { SlideFonts } from "./SlidePreview";
 import { ConfirmDialog, SocialStatusPill } from "./bits";
-import ConnectedAccounts from "./ConnectedAccounts";
+import ConnectedAccounts, { PlatformLogo } from "./ConnectedAccounts";
 import BulkScheduleDialog from "@/components/ui/BulkScheduleDialog";
 
 /**
@@ -46,18 +49,24 @@ import BulkScheduleDialog from "@/components/ui/BulkScheduleDialog";
  * Instagram account via the Meta Graph API, now or at a scheduled time. The
  * social-publish cron (every 5 min) sends scheduled posts. The global brand
  * switch scopes the list.
+ *
+ * Layout: connected accounts → toolbar (status filter + create actions) →
+ * banded table, 25 a page, where every per-post action lives on its row.
  */
 
-type Bucket = "scheduled" | "drafts" | "published" | "attention";
+type Bucket = "all" | "scheduled" | "drafts" | "published" | "attention";
 
-const TABS: Tab<Bucket>[] = [
-  { value: "scheduled", label: "Scheduled" },
-  { value: "drafts", label: "Drafts" },
-  { value: "published", label: "Published" },
-  { value: "attention", label: "Needs attention" },
+const PAGE_SIZE = 25;
+
+const FILTERS: { value: Bucket; label: string; dot: string }[] = [
+  { value: "all", label: "All", dot: "bg-gray-400" },
+  { value: "scheduled", label: "Scheduled", dot: "bg-emerald-500" },
+  { value: "drafts", label: "Drafts", dot: "bg-amber-400" },
+  { value: "published", label: "Published", dot: "bg-green-600" },
+  { value: "attention", label: "Needs attention", dot: "bg-red-500" },
 ];
 
-function bucketOf(p: SocialPost): Bucket {
+function bucketOf(p: SocialPost): Exclude<Bucket, "all"> {
   if (p.status === "scheduled" || p.status === "publishing") return "scheduled";
   if (p.status === "published") return "published";
   if (p.status === "draft") return "drafts";
@@ -65,11 +74,35 @@ function bucketOf(p: SocialPost): Bucket {
 }
 
 const EMPTY_COPY: Record<Bucket, string> = {
+  all: "No posts yet. Start one with New post.",
   scheduled: "Nothing queued. Write a post, pick a date and time, and click Schedule — it posts by itself.",
   drafts: "No drafts. Start one with New post.",
   published: "Nothing has been posted from here yet.",
   attention: "All good — no failed posts.",
 };
+
+/** Where a post lands, by name: "@sassyskin" / "Natural Inspirations" rather than just "Instagram". */
+type AccountNames = Partial<Record<SocialBrand, Partial<Record<SocialPlatform, string>>>>;
+
+function accountNames(conn: MetaConnectionStatus | null): AccountNames {
+  const out: AccountNames = {};
+  for (const b of conn?.brands ?? []) {
+    out[b.brand] = {
+      instagram: b.instagram?.username ? `@${b.instagram.username}` : undefined,
+      facebook: b.facebook?.name,
+    };
+  }
+  return out;
+}
+
+/** Link to the live post. Older rows saved a Facebook id without a permalink. */
+function liveUrl(p: SocialPost, pl: SocialPlatform): string | null {
+  const r = p.results[pl];
+  if (r?.status !== "published") return null;
+  if (r.permalink) return r.permalink;
+  if (pl === "facebook" && r.id) return `https://www.facebook.com/${r.id}`;
+  return null;
+}
 
 export default function SocialPostsPage() {
   const { brand } = useBrand();
@@ -77,7 +110,8 @@ export default function SocialPostsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
-  const [bucket, setBucket] = useState<Bucket>("scheduled");
+  const [bucket, setBucket] = useState<Bucket>("all");
+  const [page, setPage] = useState(0);
   const [conn, setConn] = useState<MetaConnectionStatus | null>(null);
   const [connLoading, setConnLoading] = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -95,10 +129,12 @@ export default function SocialPostsPage() {
   const [feed, setFeed] = useState<{ brand: SocialBrand; drafts: boolean } | null>(null);
   // Open = { jobId }; a toast's button reopens the planner on its background job.
   const [planner, setPlanner] = useState<{ jobId: string | null } | null>(null);
-  // Multi-select: ids picked in the current tab; the bulk bar acts on them.
+  // Multi-select: ids picked in the current filter; the bulk bar acts on them.
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
+  // Dialog targets — one post from its row's actions, or the bulk selection.
+  const [toDelete, setToDelete] = useState<SocialPost[] | null>(null);
+  const [toSchedule, setToSchedule] = useState<SocialPost[] | null>(null);
+  const [toPublish, setToPublish] = useState<SocialPost | null>(null);
   const lastClicked = useRef<number | null>(null);
   const router = useRouter();
 
@@ -148,13 +184,13 @@ export default function SocialPostsPage() {
   const scoped = useMemo(() => (brand === "all" ? posts : posts.filter((p) => p.brand === brand)), [posts, brand]);
 
   const counts = useMemo(() => {
-    const c: Record<Bucket, number> = { scheduled: 0, drafts: 0, published: 0, attention: 0 };
+    const c: Record<Bucket, number> = { all: scoped.length, scheduled: 0, drafts: 0, published: 0, attention: 0 };
     for (const p of scoped) c[bucketOf(p)] += 1;
     return c;
   }, [scoped]);
 
   const rows = useMemo(() => {
-    const list = scoped.filter((p) => bucketOf(p) === bucket);
+    const list = bucket === "all" ? [...scoped] : scoped.filter((p) => bucketOf(p) === bucket);
     if (bucket === "scheduled") return list.sort((a, b) => (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? ""));
     if (bucket === "published") {
       return list.sort((a, b) => (b.published_at ?? b.updated_at).localeCompare(a.published_at ?? a.updated_at));
@@ -162,10 +198,17 @@ export default function SocialPostsPage() {
     return list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }, [scoped, bucket]);
 
+  // Back to page 1 whenever the filter or brand changes; clamp if rows shrink under us.
+  useEffect(() => setPage(0), [bucket, brand]);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = rows.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
   const defaultBrand: SocialBrand = brand === "Sassy" ? "Sassy" : "NI";
   // Unknown (status still loading / failed) stays undefined — don't warn on a guess.
   const connected: Partial<Record<SocialBrand, boolean>> = {};
   for (const b of conn?.brands ?? []) connected[b.brand] = b.configured && b.ok;
+  const names = useMemo(() => accountNames(conn), [conn]);
 
   const picked = rows.filter((p) => selected.has(p.id));
   const canSchedule = picked.filter((p) => (p.status === "draft" || p.status === "failed") && p.scheduled_at);
@@ -173,19 +216,20 @@ export default function SocialPostsPage() {
   // Anything not yet out can be given new times in one go.
   const canReschedule = picked.filter((p) => p.status === "draft" || p.status === "failed" || p.status === "scheduled");
   const canDelete = picked.filter((p) => p.status !== "publishing");
-  const allPicked = rows.length > 0 && picked.length === rows.length;
+  const pagePicked = pageRows.filter((p) => selected.has(p.id)).length;
+  const allPagePicked = pageRows.length > 0 && pagePicked === pageRows.length;
 
-  /** Tick / untick a row; with Shift, everything between it and the last one clicked. */
+  /** Tick / untick a row; with Shift, everything between it and the last one clicked on this page. */
   function toggle(i: number, shift: boolean) {
-    const id = rows[i].id;
+    const id = pageRows[i].id;
     setSelected((cur) => {
       const next = new Set(cur);
       const on = !cur.has(id);
       if (shift && lastClicked.current !== null) {
         const [a, b] = [Math.min(lastClicked.current, i), Math.max(lastClicked.current, i)];
         for (let k = a; k <= b; k++) {
-          if (on) next.add(rows[k].id);
-          else next.delete(rows[k].id);
+          if (on) next.add(pageRows[k].id);
+          else next.delete(pageRows[k].id);
         }
       } else if (on) next.add(id);
       else next.delete(id);
@@ -194,15 +238,27 @@ export default function SocialPostsPage() {
     lastClicked.current = i;
   }
 
-  /** Run one action over many posts in the background, with a progress toast. */
+  function togglePage() {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      for (const p of pageRows) {
+        if (allPagePicked) next.delete(p.id);
+        else next.add(p.id);
+      }
+      return next;
+    });
+  }
+
+  /** Run one action over one or many posts in the background, with a progress toast. */
   function runBulk(list: SocialPost[], verb: { doing: string; done: string }, fn: (p: SocialPost) => Promise<unknown>) {
     if (!list.length) return;
     setSelected(new Set());
-    const t = toast({ tone: "working", title: `${verb.doing} ${list.length} ${list.length === 1 ? "post" : "posts"}…` });
+    const noun = (n: number) => `${n} ${n === 1 ? "post" : "posts"}`;
+    const t = toast({ tone: "working", title: `${verb.doing} ${noun(list.length)}…` });
     void (async () => {
       const failed: string[] = [];
       for (let i = 0; i < list.length; i++) {
-        updateToast(t, { title: `${verb.doing} ${i + 1} of ${list.length}…` });
+        if (list.length > 1) updateToast(t, { title: `${verb.doing} ${i + 1} of ${list.length}…` });
         try {
           await fn(list[i]);
         } catch (e) {
@@ -219,42 +275,26 @@ export default function SocialPostsPage() {
               title: `${list.length - failed.length} of ${list.length} ${verb.done}`,
               body: failed.slice(0, 3).join(" · ") + (failed.length > 3 ? ` · and ${failed.length - 3} more` : ""),
             }
-          : { tone: "success", sticky: false, title: `${list.length} ${list.length === 1 ? "post" : "posts"} ${verb.done}` },
+          : { tone: "success", sticky: false, title: `${noun(list.length)} ${verb.done}` },
       );
     })();
   }
 
-  const tabs = TABS.map((t) => ({ ...t, label: `${t.label} · ${counts[t.value]}` }));
+  const rowActions: RowHandlers = {
+    publish: (p) => setToPublish(p),
+    schedule: (p) => setToSchedule([p]),
+    unschedule: (p) => runBulk([p], { doing: "Moving", done: "moved to drafts" }, (x) => updateSocialPost(x.id, { action: "draft" })),
+    retry: (p) => runBulk([p], { doing: "Retrying", done: "re-queued" }, (x) => updateSocialPost(x.id, { action: "retry" })),
+    remove: (p) => setToDelete([p]),
+  };
 
   return (
-    <div className="w-full space-y-6 p-6 md:px-8">
+    <div className="w-full space-y-4 p-6 md:px-8">
       <SlideFonts />
-      <PageHeader
+      <PageMeta
         title="Social Media"
-        subtitle="Write a post once and send it to the brand's Instagram and Facebook, now or scheduled."
-      >
-        <button
-          onClick={() => setFeed({ brand: defaultBrand, drafts: false })}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-        >
-          <Grid3x3 size={14} />
-          Preview grid
-        </button>
-        <button
-          onClick={() => setPlanner({ jobId: null })}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-        >
-          <LayoutGrid size={14} />
-          Plan a grid
-        </button>
-        <button
-          onClick={() => setWizardOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-gray-800"
-        >
-          <Plus size={14} />
-          New post
-        </button>
-      </PageHeader>
+        description="Write a post once and send it to the brand's Instagram and Facebook, now or scheduled."
+      />
 
       <ConnectedAccounts conn={conn} loading={connLoading} brand={brand} />
 
@@ -263,21 +303,75 @@ export default function SocialPostsPage() {
       )}
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
-      <TabNav
-        tabs={tabs}
-        active={bucket}
-        onChange={(b) => {
-          setBucket(b);
-          setSelected(new Set());
-        }}
-      />
+      {/* Toolbar: what you're looking at (left), what you can make (right). */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+          {FILTERS.map((f) => {
+            const active = bucket === f.value;
+            const n = counts[f.value];
+            const alarm = f.value === "attention" && n > 0;
+            return (
+              <button
+                key={f.value}
+                onClick={() => {
+                  setBucket(f.value);
+                  setSelected(new Set());
+                }}
+                className={clsx(
+                  "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                  active ? "bg-gray-900 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+                )}
+              >
+                {f.value !== "all" && <span className={clsx("h-2 w-2 rounded-full", f.dot)} />}
+                {f.label}
+                <span
+                  className={clsx(
+                    "min-w-[1.5rem] rounded-full px-1.5 py-px text-center text-[11px] font-semibold tabular-nums",
+                    alarm
+                      ? "bg-red-500 text-white"
+                      : active
+                        ? "bg-white/20 text-white"
+                        : "bg-gray-100 text-gray-500",
+                  )}
+                >
+                  {n}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setFeed({ brand: defaultBrand, drafts: false })}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
+          >
+            <Grid3x3 size={14} />
+            Preview grid
+          </button>
+          <button
+            onClick={() => setPlanner({ jobId: null })}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
+          >
+            <LayoutGrid size={14} />
+            Plan a grid
+          </button>
+          <button
+            onClick={() => setWizardOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800"
+          >
+            <Plus size={14} />
+            New post
+          </button>
+        </div>
+      </div>
 
       {loading ? (
         <div className="flex items-center gap-2 py-16 text-sm text-gray-400">
           <Loader2 size={16} className="animate-spin" /> Loading posts…
         </div>
       ) : rows.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 px-6 py-12 text-center">
+        <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center">
           {bucket === "scheduled" ? (
             <CalendarClock size={24} className="mx-auto text-gray-300" />
           ) : (
@@ -286,33 +380,63 @@ export default function SocialPostsPage() {
           <p className="mx-auto mt-3 max-w-md text-sm text-gray-400">{EMPTY_COPY[bucket]}</p>
         </div>
       ) : (
-        <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
-          <label className="flex cursor-pointer items-center gap-3 bg-gray-50/70 px-4 py-2 text-xs font-medium text-gray-500">
-            <input
-              type="checkbox"
-              checked={allPicked}
-              ref={(el) => {
-                if (el) el.indeterminate = picked.length > 0 && !allPicked;
-              }}
-              onChange={() => setSelected(allPicked ? new Set() : new Set(rows.map((p) => p.id)))}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            {picked.length ? `${picked.length} of ${rows.length} selected` : "Select all"}
-          </label>
-          {rows.map((p, i) => (
-            <PostRow key={p.id} post={p} selected={selected.has(p.id)} onToggle={(shift) => toggle(i, shift)} />
-          ))}
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1000px] text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  <th className="w-10 px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={allPagePicked}
+                      ref={(el) => {
+                        if (el) el.indeterminate = pagePicked > 0 && !allPagePicked;
+                      }}
+                      onChange={togglePage}
+                      className="h-4 w-4 rounded border-gray-300"
+                      aria-label="Select all on this page"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5">Post</th>
+                  <th className="px-3 py-2.5">Status</th>
+                  <th className="px-3 py-2.5">Accounts</th>
+                  <th className="px-3 py-2.5">Date</th>
+                  <th className="px-4 py-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((p, i) => (
+                  <PostRow
+                    key={p.id}
+                    post={p}
+                    names={names}
+                    selected={selected.has(p.id)}
+                    onToggle={(shift) => toggle(i, shift)}
+                    actions={rowActions}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            page={safePage}
+            pageCount={pageCount}
+            total={rows.length}
+            onPage={(n) => {
+              setPage(n);
+              lastClicked.current = null;
+            }}
+          />
         </div>
       )}
 
       {picked.length > 0 && (
         <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
           <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-gray-900 px-4 py-2.5 text-sm text-white shadow-2xl">
-            <span className="mr-2 font-medium">
-              {picked.length} selected
-            </span>
+            <span className="mr-2 font-medium">{picked.length} selected</span>
             {canReschedule.length > 0 && (
-              <BulkButton icon={<CalendarClock size={14} />} onClick={() => setScheduleOpen(true)}>
+              <BulkButton icon={<CalendarClock size={14} />} onClick={() => setToSchedule(canReschedule)}>
                 {canReschedule.some((p) => p.status === "scheduled") ? "Reschedule…" : "Schedule…"}
               </BulkButton>
             )}
@@ -337,7 +461,7 @@ export default function SocialPostsPage() {
               </BulkButton>
             )}
             {canDelete.length > 0 && (
-              <BulkButton icon={<Trash2 size={14} />} danger onClick={() => setConfirmDelete(true)}>
+              <BulkButton icon={<Trash2 size={14} />} danger onClick={() => setToDelete(canDelete)}>
                 Delete {canDelete.length < picked.length ? canDelete.length : ""}
               </BulkButton>
             )}
@@ -348,36 +472,58 @@ export default function SocialPostsPage() {
         </div>
       )}
 
-      {scheduleOpen && (
+      {toSchedule && (
         <BulkScheduleDialog
-          posts={canReschedule.map((p) => ({ id: p.id, title: p.title?.trim() || "Untitled post", scheduled: p.status === "scheduled" }))}
+          posts={toSchedule.map((p) => ({ id: p.id, title: p.title?.trim() || "Untitled post", scheduled: p.status === "scheduled" }))}
           busy={false}
-          onCancel={() => setScheduleOpen(false)}
+          onCancel={() => setToSchedule(null)}
           onConfirm={(times) => {
-            const at = new Map(canReschedule.map((p, i) => [p.id, times[i]]));
-            setScheduleOpen(false);
-            runBulk(
-              canReschedule,
-              { doing: "Scheduling", done: "scheduled" },
-              (p) => updateSocialPost(p.id, { scheduled_at: at.get(p.id)!, action: "schedule" }),
+            const list = toSchedule;
+            const at = new Map(list.map((p, i) => [p.id, times[i]]));
+            setToSchedule(null);
+            runBulk(list, { doing: "Scheduling", done: "scheduled" }, (p) =>
+              updateSocialPost(p.id, { scheduled_at: at.get(p.id)!, action: "schedule" }),
             );
           }}
         />
       )}
 
       <ConfirmDialog
-        open={confirmDelete}
-        title={`Delete ${canDelete.length} ${canDelete.length === 1 ? "post" : "posts"}?`}
+        open={!!toPublish}
+        title="Post this now?"
+        confirmLabel="Post now"
+        onCancel={() => setToPublish(null)}
+        onConfirm={() => {
+          const p = toPublish!;
+          setToPublish(null);
+          runBulk([p], { doing: "Posting", done: "posted" }, (x) => publishSocialPostNow(x.id, {}));
+        }}
+      >
+        {toPublish && (
+          <>
+            It goes live right away on{" "}
+            {toPublish.platforms
+              .map((pl) => names[toPublish.brand]?.[pl] ?? `${toPublish.brand} ${PLATFORM_LABEL[pl]}`)
+              .join(" and ")}
+            .
+          </>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!toDelete}
+        title={`Delete ${toDelete?.length ?? 0} ${toDelete?.length === 1 ? "post" : "posts"}?`}
         confirmLabel="Delete"
         tone="danger"
-        onCancel={() => setConfirmDelete(false)}
+        onCancel={() => setToDelete(null)}
         onConfirm={() => {
-          setConfirmDelete(false);
-          runBulk(canDelete, { doing: "Deleting", done: "deleted" }, (p) => deleteSocialPost(p.id));
+          const list = toDelete ?? [];
+          setToDelete(null);
+          runBulk(list, { doing: "Deleting", done: "deleted" }, (p) => deleteSocialPost(p.id));
         }}
       >
         They&apos;re removed from this list for good. Anything already on Instagram or Facebook stays there.
-        {canDelete.length < picked.length && " Posts that are publishing right now are skipped."}
+        {toDelete && toDelete.length < picked.length && " Posts that are publishing right now are skipped."}
       </ConfirmDialog>
 
       {feed && (
@@ -445,102 +591,332 @@ function BulkButton({
   );
 }
 
-function PostRow({ post: p, selected, onToggle }: { post: SocialPost; selected: boolean; onToggle: (shift: boolean) => void }) {
-  const thumb = p.media[0];
-  const when = p.status === "published" || p.status === "partial" ? p.published_at : p.scheduled_at;
-  return (
-    <Link
-      href={`/marketing/social/${p.id}`}
-      className={clsx("flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-gray-50/70", selected && "bg-blue-50/60")}
-    >
-      <input
-        type="checkbox"
-        checked={selected}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle(e.shiftKey);
-        }}
-        onChange={() => {}}
-        className="h-4 w-4 shrink-0 rounded border-gray-300"
-        aria-label={`Select ${p.title?.trim() || "post"}`}
-      />
-      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-gray-100">
-        {/* A designed post always shows its live design — the rendered images in
-            media can lag behind edits until the next render (publish re-renders). */}
-        {p.design?.slides[0] ? (
-          <SlidePreview slide={p.design.slides[0]} brand={p.brand} index={1} total={p.design.slides.length} width={56} />
-        ) : thumb?.kind === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumb.url} alt="" className="h-full w-full object-cover" />
-        ) : thumb?.kind === "video" ? (
-          <div className="flex h-full w-full items-center justify-center text-gray-400">
-            <Film size={20} />
-          </div>
-        ) : null}
-        {p.post_type === "carousel" && (
-          <span className="absolute right-1 top-1 rounded bg-black/50 p-0.5 text-white">
-            <Images size={10} />
-          </span>
-        )}
-      </div>
+function Pagination({
+  page,
+  pageCount,
+  total,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  total: number;
+  onPage: (n: number) => void;
+}) {
+  const from = page * PAGE_SIZE + 1;
+  const to = Math.min(total, (page + 1) * PAGE_SIZE);
+  // First, last, and a window around the current page; gaps become "…".
+  const shown = [...new Set([0, pageCount - 1, page - 1, page, page + 1])]
+    .filter((n) => n >= 0 && n < pageCount)
+    .sort((a, b) => a - b);
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-gray-900">
-          {p.title?.trim() || p.caption.trim() || <span className="text-gray-400">Untitled post</span>}
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-          <BrandPill brand={p.brand} />
-          <SocialStatusPill status={p.status} />
-          {p.design?.grid && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-700" title="Part of a grid set">
-              <LayoutGrid size={10} />
-              {p.design.grid.story} · {p.design.grid.slot}/{p.design.grid.size}
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-4 py-2.5 text-xs text-gray-500">
+      <span>
+        Showing <span className="font-semibold text-gray-700">{from}–{to}</span> of{" "}
+        <span className="font-semibold text-gray-700">{total}</span> {total === 1 ? "post" : "posts"}
+      </span>
+      {pageCount > 1 && (
+        <div className="flex items-center gap-1">
+          <PageButton disabled={page === 0} onClick={() => onPage(page - 1)} label="Previous page">
+            <ChevronLeft size={14} />
+          </PageButton>
+          {shown.map((n, i) => (
+            <span key={n} className="flex items-center gap-1">
+              {i > 0 && n - shown[i - 1] > 1 && <span className="px-1 text-gray-400">…</span>}
+              <PageButton active={n === page} onClick={() => onPage(n)} label={`Page ${n + 1}`}>
+                {n + 1}
+              </PageButton>
             </span>
-          )}
+          ))}
+          <PageButton disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)} label="Next page">
+            <ChevronRight size={14} />
+          </PageButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PageButton({
+  active,
+  disabled,
+  onClick,
+  label,
+  children,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      className={clsx(
+        "flex h-7 min-w-[1.75rem] items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums transition",
+        active ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-white hover:shadow-sm",
+        disabled && "pointer-events-none opacity-40",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+type RowHandlers = {
+  publish: (p: SocialPost) => void;
+  schedule: (p: SocialPost) => void;
+  unschedule: (p: SocialPost) => void;
+  retry: (p: SocialPost) => void;
+  remove: (p: SocialPost) => void;
+};
+
+function PostRow({
+  post: p,
+  names,
+  selected,
+  onToggle,
+  actions,
+}: {
+  post: SocialPost;
+  names: AccountNames;
+  selected: boolean;
+  onToggle: (shift: boolean) => void;
+  actions: RowHandlers;
+}) {
+  const thumb = p.media[0];
+  const href = `/marketing/social/${p.id}`;
+  const title = p.title?.trim() || p.caption.trim().split("\n")[0] || "";
+  // The caption is the post's description — skip it when it's already standing in as the title.
+  const description = p.title?.trim() ? p.caption.trim().replace(/\s+/g, " ") : "";
+  const out = p.status === "published" || p.status === "partial";
+  const when = out ? p.published_at : p.scheduled_at;
+  const whenLabel = out ? "Posted" : p.status === "draft" ? "Planned" : p.status === "failed" ? "Was due" : "Posts";
+
+  return (
+    <tr
+      className={clsx(
+        "border-b border-gray-100 align-middle transition-colors last:border-0",
+        selected ? "bg-blue-50/70" : "even:bg-gray-50/80 hover:bg-gray-100/60",
+      )}
+    >
+      <td className="px-4 py-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onClick={(e) => onToggle(e.shiftKey)}
+          onChange={() => {}}
+          className="h-4 w-4 rounded border-gray-300"
+          aria-label={`Select ${title || "post"}`}
+        />
+      </td>
+
+      {/* Post: thumbnail, title, description */}
+      <td className="px-3 py-3">
+        <div className="flex items-center gap-3">
+          <Link href={href} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-gray-100 ring-1 ring-gray-200">
+            {/* A designed post always shows its live design — the rendered images in
+                media can lag behind edits until the next render (publish re-renders). */}
+            {p.design?.slides[0] ? (
+              <SlidePreview slide={p.design.slides[0]} brand={p.brand} index={1} total={p.design.slides.length} width={56} />
+            ) : thumb?.kind === "image" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={thumb.url} alt="" className="h-full w-full object-cover" />
+            ) : thumb?.kind === "video" ? (
+              <div className="flex h-full w-full items-center justify-center text-gray-400">
+                <Film size={20} />
+              </div>
+            ) : null}
+            {p.post_type === "carousel" && (
+              <span className="absolute right-1 top-1 rounded bg-black/50 p-0.5 text-white">
+                <Images size={10} />
+              </span>
+            )}
+          </Link>
+          <div className="min-w-0 max-w-md">
+            <Link href={href} className="block truncate font-semibold text-gray-900 hover:text-blue-700 hover:underline">
+              {title || <span className="font-normal text-gray-400">Untitled post</span>}
+            </Link>
+            {description && <p className="mt-0.5 line-clamp-1 text-xs text-gray-500">{description}</p>}
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+              <BrandPill brand={p.brand} />
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 font-medium capitalize text-gray-600">{p.post_type}</span>
+              {p.design?.grid && (
+                <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 font-medium text-blue-700" title="Part of a grid set">
+                  <LayoutGrid size={10} />
+                  {p.design.grid.story} · {p.design.grid.slot}/{p.design.grid.size}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </td>
+
+      <td className="px-3 py-3">
+        <SocialStatusPill status={p.status} />
+        {p.last_error && (p.status === "failed" || p.status === "partial") && (
+          <p className="mt-1 max-w-[180px] line-clamp-2 text-[11px] text-red-600" title={p.last_error}>
+            {p.last_error}
+          </p>
+        )}
+      </td>
+
+      {/* Accounts: exactly where it went (or is going), with a link to each live post. */}
+      <td className="px-3 py-3">
+        <ul className="space-y-1.5">
           {p.platforms.map((pl) => {
             const r = p.results[pl];
+            const url = liveUrl(p, pl);
+            const name = names[p.brand]?.[pl] ?? `${p.brand} ${PLATFORM_LABEL[pl]}`;
             return (
-              <span key={pl} className="inline-flex items-center gap-1">
+              <li key={pl} className="flex items-center gap-1.5 text-xs">
+                <PlatformLogo platform={pl} size={14} muted={r?.status !== "published"} />
+                <span className={clsx("truncate", r?.status === "published" ? "font-medium text-gray-900" : "text-gray-500")}>
+                  {name}
+                </span>
                 {r?.status === "published" ? (
-                  <CheckCircle2 size={12} className="text-green-600" />
+                  url ? (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex shrink-0 items-center gap-0.5 font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      View post <ExternalLink size={10} />
+                    </a>
+                  ) : (
+                    <span className="shrink-0 font-medium text-green-700">Posted</span>
+                  )
                 ) : r?.status === "failed" ? (
-                  <AlertTriangle size={12} className="text-red-500" />
+                  <span className="shrink-0 font-medium text-red-600" title={r.error}>
+                    Failed
+                  </span>
                 ) : null}
-                {PLATFORM_LABEL[pl]}
-                {r?.permalink && (
-                  // A button, not a link — the whole row is already a link.
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      window.open(r.permalink, "_blank", "noopener,noreferrer");
-                    }}
-                    className="text-gray-400 hover:text-gray-700"
-                    aria-label={`Open on ${PLATFORM_LABEL[pl]}`}
-                  >
-                    <ExternalLink size={11} />
-                  </button>
-                )}
-              </span>
+              </li>
             );
           })}
-        </div>
-        {p.last_error && (p.status === "failed" || p.status === "partial") && (
-          <p className="mt-1 truncate text-[11px] text-red-600">{p.last_error}</p>
-        )}
-      </div>
+        </ul>
+      </td>
 
-      <div className="shrink-0 text-right text-xs text-gray-600">
+      <td className="whitespace-nowrap px-3 py-3 text-xs">
         {when ? (
           <>
-            <div>{formatDateTime(when)}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{whenLabel}</div>
+            <div className="text-gray-800">{formatDateTime(when)}</div>
             <div className="text-[11px] text-gray-400">{relativeTime(when)}</div>
           </>
         ) : (
           <span className="text-gray-400">No date</span>
         )}
-      </div>
+      </td>
+
+      <td className="px-4 py-3">
+        <div className="flex items-center justify-end gap-1">
+          <RowActions post={p} href={href} actions={actions} />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/** Every action that applies to this post's state: the main one labelled, the rest as icons. */
+function RowActions({ post: p, href, actions }: { post: SocialPost; href: string; actions: RowHandlers }) {
+  if (p.status === "publishing") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-sky-700">
+        <Loader2 size={13} className="animate-spin" /> Publishing…
+      </span>
+    );
+  }
+  const notOut = p.status === "draft" || p.status === "scheduled" || p.status === "failed";
+  const firstLive = p.platforms.map((pl) => liveUrl(p, pl)).find(Boolean);
+
+  return (
+    <>
+      {p.status === "failed" || p.status === "partial" ? (
+        <PrimaryAction icon={<RotateCcw size={13} />} onClick={() => actions.retry(p)}>
+          Retry
+        </PrimaryAction>
+      ) : notOut ? (
+        <PrimaryAction icon={<Send size={13} />} onClick={() => actions.publish(p)}>
+          Post now
+        </PrimaryAction>
+      ) : firstLive ? (
+        <a
+          href={firstLive}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
+        >
+          <ExternalLink size={13} /> View post
+        </a>
+      ) : null}
+
+      <IconAction label="Edit" href={href}>
+        <Pencil size={14} />
+      </IconAction>
+      {notOut && (
+        <IconAction label={p.status === "scheduled" ? "Reschedule" : "Schedule"} onClick={() => actions.schedule(p)}>
+          <CalendarClock size={14} />
+        </IconAction>
+      )}
+      {p.status === "scheduled" && (
+        <IconAction label="Move to drafts" onClick={() => actions.unschedule(p)}>
+          <Undo2 size={14} />
+        </IconAction>
+      )}
+      {p.status === "failed" && (
+        <IconAction label="Post now" onClick={() => actions.publish(p)}>
+          <Send size={14} />
+        </IconAction>
+      )}
+      <IconAction label="Delete" danger onClick={() => actions.remove(p)}>
+        <Trash2 size={14} />
+      </IconAction>
+    </>
+  );
+}
+
+function PrimaryAction({ icon, onClick, children }: { icon: React.ReactNode; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-gray-800"
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function IconAction({
+  label,
+  href,
+  onClick,
+  danger,
+  children,
+}: {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  const cls = clsx(
+    "flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition",
+    danger ? "hover:bg-red-50 hover:text-red-600" : "hover:bg-gray-200/70 hover:text-gray-900",
+  );
+  return href ? (
+    <Link href={href} className={cls} title={label} aria-label={label}>
+      {children}
     </Link>
+  ) : (
+    <button onClick={onClick} className={cls} title={label} aria-label={label}>
+      {children}
+    </button>
   );
 }
