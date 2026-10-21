@@ -25,6 +25,7 @@ import {
 import clsx from "clsx";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { toast, updateToast } from "@/lib/toast";
 import { JourneyStrip, EmailInspector, type StepResult } from "./Journey";
 import { flowKind, flowPriority, PRIORITY_OPTIONS } from "@/lib/automations/overlap";
 
@@ -189,8 +190,6 @@ export default function AutomationEditor({
   const [testEmail, setTestEmail] = useState(DEFAULT_TEST_EMAIL);
   /** "" = built-in sample; otherwise "<type>:<ref>" from the preview list. */
   const [testCustomer, setTestCustomer] = useState("");
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   /* Guard rail: reply rules are only offered when inbound mail is genuinely
      flowing. Otherwise "exit on reply" silently never fires, and "no reply
      after N days" exits everyone. */
@@ -363,9 +362,16 @@ export default function AutomationEditor({
   async function sendTest() {
     const to = testEmail.trim();
     if (!to) return;
-    setTesting(true);
-    setTestResult(null);
     setError(null);
+    /* Sending a whole sequence takes a while — follow it from a corner toast
+       so the editor stays usable. Page changes don't interrupt the request. */
+    const count = steps.length;
+    const name = automation?.name?.trim();
+    const t = toast({
+      tone: "working",
+      title: `Sending ${count} test email${count === 1 ? "" : "s"}…`,
+      body: `${name ? `“${name}” to ` : "To "}${to}. You can keep working.`,
+    });
     try {
       /* The chosen customer supplies merge values only — delivery still goes
          to the address in the test field, never to the customer. */
@@ -382,25 +388,33 @@ export default function AutomationEditor({
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setTestResult({ ok: false, text: json?.error ?? `Test failed (${res.status})` });
-        return;
-      }
+      if (!res.ok) throw new Error(json?.error ?? `Test failed (${res.status})`);
       const failed = json.total - json.sent;
       const using = json.usedCustomer
         ? ` using ${json.usedCustomer}'s data`
         : " using sample data";
-      setTestResult({
-        ok: failed === 0,
-        text:
-          failed === 0
-            ? `Sent ${json.sent} email${json.sent === 1 ? "" : "s"} to ${json.to}${using}.`
-            : `Sent ${json.sent} of ${json.total} to ${json.to}${using} — ${failed} failed.`,
-      });
+      updateToast(
+        t,
+        failed === 0
+          ? {
+              tone: "success",
+              title: `Sent ${json.sent} test email${json.sent === 1 ? "" : "s"}`,
+              body: `${name ? `“${name}” to ` : "To "}${json.to}${using}. Check your inbox.`,
+            }
+          : {
+              tone: "error",
+              title: `Sent ${json.sent} of ${json.total} test emails`,
+              body: `${failed} failed — to ${json.to}${using}.`,
+              sticky: true,
+            },
+      );
     } catch (e) {
-      setTestResult({ ok: false, text: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setTesting(false);
+      updateToast(t, {
+        tone: "error",
+        title: "Couldn't send the test emails",
+        body: e instanceof Error ? e.message : String(e),
+        sticky: true,
+      });
     }
   }
 
@@ -854,7 +868,7 @@ export default function AutomationEditor({
                 value={testEmail}
                 onChange={(e) => setTestEmail(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !testing && steps.length > 0) sendTest();
+                  if (e.key === "Enter" && steps.length > 0) sendTest();
                 }}
                 placeholder="you@example.com"
                 aria-label="Send the test to"
@@ -885,11 +899,11 @@ export default function AutomationEditor({
               )}
               <button
                 onClick={sendTest}
-                disabled={testing || !testEmail.trim() || steps.length === 0}
+                disabled={!testEmail.trim() || steps.length === 0}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-800 disabled:opacity-40"
               >
-                {testing ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-                {testing ? "Sending…" : `Send all ${steps.length} email${steps.length === 1 ? "" : "s"}`}
+                <Send size={12} />
+                {`Send all ${steps.length} email${steps.length === 1 ? "" : "s"}`}
               </button>
             </div>
             <p className="mt-2 text-[10px] text-ink-muted">
@@ -899,7 +913,7 @@ export default function AutomationEditor({
           </div>
         )}
 
-        {[testResult, runResult].map(
+        {[runResult].map(
           (r, i) =>
             r && (
               <div
