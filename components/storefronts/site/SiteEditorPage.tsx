@@ -131,8 +131,9 @@ function uid(type: string) {
  * The canvas is the store's own /preview page rendering the DRAFT in an
  * iframe, with the store's edit bridge (?edit=1): hovering outlines a block,
  * clicking selects it; "+ Add section" (on the page and in the list) opens
- * the SectionPicker. Edits autosave to the draft and the canvas
- * reloads (keeping its scroll); nothing reaches the live site until Publish.
+ * the SectionPicker. Edits autosave to the draft and the canvas reloads —
+ * in a second frame behind the visible one, swapped in once it's scrolled
+ * into place, so it never flashes; nothing reaches the live site until Publish.
  * Store + page live in the URL (?brand=…&page=…).
  */
 export default function SiteEditorPage() {
@@ -258,8 +259,15 @@ function PageEditor({
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [previewPart, setPreviewPart] = useState("");
   const [frameKey, setFrameKey] = useState(0);
-  // "device:frameKey" of the last canvas load that finished.
-  const [loadedFrame, setLoadedFrame] = useState("");
+  // "device|src" of the frame on screen. A new draft loads in a second frame
+  // behind it and is swapped in once it's ready (see the canvas).
+  const [shownKey, setShownKey] = useState<string | null>(null);
+  const framesRef = useRef(new Map<string, HTMLIFrameElement>());
+  const visibleKeyRef = useRef<string | null>(null);
+  const incomingKeyRef = useRef<string | null>(null);
+  // The incoming frame's last selection box, applied when it swaps in.
+  const incomingRectRef = useRef<Extract<FromBridge, { type: "rect" }> | null>(null);
+  const swapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [layerDrop, setLayerDrop] = useState<{ id: string; pos: "before" | "after" } | null>(null);
 
   const blocksRef = useRef<PageBlock[]>([]);
@@ -268,6 +276,59 @@ function PageEditor({
   const savingRef = useRef(false);
   const againRef = useRef(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+
+  /** The selected block's box (from the bridge's "rect", in frame
+   *  coordinates) → the canvas section's coordinates, for the toolbar. */
+  const applyRectRef = useRef((m: Extract<FromBridge, { type: "rect" }>) => {
+    const frame = frameRef.current?.getBoundingClientRect();
+    const sec = sectionRef.current?.getBoundingClientRect();
+    setSelBox(
+      m.rect && frame && sec
+        ? {
+            top: m.rect.top + frame.top - sec.top,
+            left: m.rect.left + frame.left - sec.left,
+            width: m.rect.width,
+            height: m.rect.height,
+            frameTop: frame.top - sec.top,
+            frameBottom: frame.bottom - sec.top,
+            frameLeft: frame.left - sec.left,
+            frameWidth: frame.width,
+          }
+        : null,
+    );
+  });
+
+  /** Put the frame loading behind on screen, once it's ready (or loaded,
+   *  for a store without the bridge). */
+  const promote = useCallback((k: string) => {
+    if (swapTimer.current) clearTimeout(swapTimer.current);
+    swapTimer.current = null;
+    // A newer edit replaced this frame while it loaded.
+    if (k !== incomingKeyRef.current) return;
+    setShownKey(k);
+    const r = incomingRectRef.current;
+    incomingRectRef.current = null;
+    // Point at the new frame now, so its rect (and every later message) counts.
+    frameRef.current = framesRef.current.get(k) ?? null;
+    visibleKeyRef.current = k;
+    incomingKeyRef.current = null;
+    if (r) applyRectRef.current(r);
+  }, []);
+  useEffect(
+    () => () => {
+      if (swapTimer.current) clearTimeout(swapTimer.current);
+    },
+    [],
+  );
+  /** To the page on screen and, while one loads behind it, that one too —
+   *  so a selection or recolor made meanwhile survives the swap. */
+  const postFrames = useCallback((m: Record<string, unknown>) => {
+    const msg = { src: "site-edit", ...m };
+    frameRef.current?.contentWindow?.postMessage(msg, "*");
+    const k = incomingKeyRef.current;
+    const inc = k ? framesRef.current.get(k) : null;
+    if (inc && inc !== frameRef.current) inc.contentWindow?.postMessage(msg, "*");
+  }, []);
   const layerDragRef = useRef<string | null>(null);
   // Saved widgets for this store; a widget save reloads the canvas.
   const reloadCanvas = useCallback(() => setFrameKey((k) => k + 1), []);
@@ -559,9 +620,9 @@ function PageEditor({
       selectedRef.current = id;
       setSiteHint(null);
       if (id) setTab("block");
-      frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(id), scroll }, "*");
+      postFrames({ type: "select", id: toCanvasId(id), scroll });
     },
-    [toCanvasId],
+    [toCanvasId, postFrames],
   );
 
   /** Insert a new block of `type` next to `targetId` (default: after the
@@ -653,8 +714,8 @@ function PageEditor({
   const labelsRef = useRef(labels);
   useEffect(() => {
     labelsRef.current = labels;
-    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "labels", labels }, "*");
-  }, [labels]);
+    postFrames({ type: "labels", labels });
+  }, [labels, postFrames]);
 
   // ── on-page editing ────────────────────────────────────────────────────
   const wRef = useRef(w);
@@ -693,7 +754,7 @@ function PageEditor({
     [fromCanvasId, update, brand, slug],
   );
   const postToCanvas = (m: Record<string, unknown>) =>
-    frameRef.current?.contentWindow?.postMessage({ src: "site-edit", ...m }, "*");
+    postFrames(m);
   /** A block's own colors: saved, and shown on the canvas without a reload. */
   const setColors = (id: string, colors: BlockColors | undefined) => {
     update(
@@ -712,8 +773,29 @@ function PageEditor({
     const onMessage = (e: MessageEvent<FromBridge>) => {
       // Only our canvas frame — matched by window, not origin, so a store
       // that redirects (www ↔ apex) still talks to the editor.
-      if (!frameRef.current || e.source !== frameRef.current.contentWindow || e.data?.src !== "site-edit") return;
+      if (e.data?.src !== "site-edit") return;
       const m = e.data;
+      // The frame loading behind the visible one: set it up like the old
+      // one (labels, scroll, selection), then swap it in. Nothing else from
+      // it counts until then — nobody can click it.
+      const incomingKey = incomingKeyRef.current;
+      const incoming = incomingKey ? framesRef.current.get(incomingKey) : null;
+      if (incoming && e.source === incoming.contentWindow) {
+        if (m.type === "ready") {
+          setBridgeFrame(frameKeyRef.current);
+          const w = incoming.contentWindow;
+          w?.postMessage({ src: "site-edit", type: "labels", labels: labelsRef.current }, "*");
+          w?.postMessage({ src: "site-edit", type: "restore", y: canvasScrollRef.current }, "*");
+          w?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(selectedRef.current), scroll: false }, "*");
+          // A beat for the scroll and outlines to land before it shows.
+          if (swapTimer.current) clearTimeout(swapTimer.current);
+          swapTimer.current = setTimeout(() => promote(incomingKey!), 180);
+        } else if (m.type === "rect") {
+          incomingRectRef.current = m;
+        }
+        return;
+      }
+      if (!frameRef.current || e.source !== frameRef.current.contentWindow) return;
       if (m.type === "scroll") {
         canvasScrollRef.current = m.y;
       } else if (m.type === "ready") {
@@ -780,27 +862,12 @@ function PageEditor({
       } else if (m.type === "image") {
         setImagePick({ id: m.id, path: m.path });
       } else if (m.type === "rect") {
-        const frame = frameRef.current?.getBoundingClientRect();
-        const sec = sectionRef.current?.getBoundingClientRect();
-        setSelBox(
-          m.rect && frame && sec
-            ? {
-                top: m.rect.top + frame.top - sec.top,
-                left: m.rect.left + frame.left - sec.left,
-                width: m.rect.width,
-                height: m.rect.height,
-                frameTop: frame.top - sec.top,
-                frameBottom: frame.bottom - sec.top,
-                frameLeft: frame.left - sec.left,
-                frameWidth: frame.width,
-              }
-            : null,
-        );
+        applyRectRef.current(m);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [insert, toCanvasId, setField, fromCanvasId]);
+  }, [insert, toCanvasId, setField, fromCanvasId, promote]);
 
   const hoverInCanvas = (id: string | null) =>
     frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "hover", id: toCanvasId(id) }, "*");
@@ -838,7 +905,29 @@ function PageEditor({
 
   const partParam = slug === "product" && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
   const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1&edit=1${partParam}&v=${frameKey}` : null;
-  const canvasLoading = !!previewSrc && loadedFrame !== `${device}:${frameKey}`;
+  // The frame on screen vs the one wanted now: already shown → settled; same
+  // device but different → the wanted one loads behind ("updating"); nothing
+  // shown yet or the device switched → it loads in place ("first loading").
+  const wantedKey = previewSrc ? `${device}|${previewSrc}` : null;
+  const buffered = !!wantedKey && !!shownKey && shownKey !== wantedKey && shownKey.startsWith(`${device}|`);
+  const visibleKey = buffered ? shownKey : wantedKey;
+  const frameKeys = wantedKey ? (buffered ? [shownKey!, wantedKey] : [wantedKey]) : [];
+  const firstLoading = !!wantedKey && !buffered && shownKey !== wantedKey;
+  const updating = buffered;
+  const canvasLoading = firstLoading;
+  useEffect(() => {
+    visibleKeyRef.current = visibleKey;
+    incomingKeyRef.current = buffered ? wantedKey : null;
+    frameRef.current = (visibleKey && framesRef.current.get(visibleKey)) || null;
+  });
+  const onFrameLoad = (k: string) => {
+    if (k === incomingKeyRef.current) {
+      // No word from the bridge soon after loading: swap anyway.
+      if (!swapTimer.current) swapTimer.current = setTimeout(() => promote(k), 1500);
+    } else if (k === wantedKey) {
+      setShownKey(k);
+    }
+  };
   // Loaded, but no word from the bridge — give it a moment before saying so.
   const [bridgeLate, setBridgeLate] = useState(false);
   useEffect(() => {
@@ -1141,18 +1230,38 @@ function PageEditor({
             </div>
           ) : null}
           {previewSrc ? (
-            <iframe
-              ref={frameRef}
-              key={device}
-              src={previewSrc}
-              title={`${def.label} — draft`}
-              onLoad={() => setLoadedFrame(`${device}:${frameKey}`)}
-              className={clsx(
-                "h-full rounded-xl border border-gray-200 bg-white shadow-sm transition-opacity",
-                device === "mobile" ? "w-[390px]" : "w-full",
-                canvasLoading && "opacity-70",
-              )}
-            />
+            // Two frames while the page updates: the new draft loads behind
+            // the one on screen and swaps in once it's scrolled into place,
+            // so an edit never shows a blank or jumping page.
+            <div className={clsx("relative h-full", device === "mobile" ? "w-[390px]" : "w-full")}>
+              {frameKeys.map((k) => {
+                const visible = k === visibleKey;
+                return (
+                  <iframe
+                    key={k}
+                    ref={(el) => {
+                      if (el) framesRef.current.set(k, el);
+                      else framesRef.current.delete(k);
+                    }}
+                    src={k.slice(k.indexOf("|") + 1)}
+                    title={visible ? `${def.label} — draft` : `${def.label} — updating`}
+                    tabIndex={visible ? undefined : -1}
+                    aria-hidden={visible ? undefined : true}
+                    onLoad={() => onFrameLoad(k)}
+                    className={clsx(
+                      "absolute inset-0 h-full w-full rounded-xl border border-gray-200 bg-white shadow-sm transition-opacity",
+                      visible ? "z-[1]" : "pointer-events-none z-0",
+                      visible && firstLoading && "opacity-70",
+                    )}
+                  />
+                );
+              })}
+              {updating ? (
+                <div className="pointer-events-none absolute right-3 top-3 z-[2] inline-flex items-center gap-1.5 rounded-full bg-gray-900/75 px-2.5 py-1 text-[10px] font-medium text-white shadow">
+                  <Loader2 size={11} className="animate-spin" /> Updating
+                </div>
+              ) : null}
+            </div>
           ) : (
             <div className="m-auto max-w-sm text-center text-sm text-gray-500">
               The canvas needs the store connection (SUPABASE_SERVICE_ROLE_KEY) — your edits still save.
