@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Camera, Check, Copy, ExternalLink, Heart, Info, Loader2, MapPin, Search, X } from "lucide-react";
+import { ArrowRight, Camera, Check, ChevronDown, Copy, ExternalLink, Heart, Info, Loader2, MapPin, Search, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import type { UnsplashPhoto, UnsplashSourceInfo } from "@/lib/unsplash";
 import PageMeta from "@/components/PageMeta";
@@ -96,151 +96,154 @@ export default function PhotographyPage() {
     ? photos.filter((p) => `${p.alt ?? ""} ${p.description ?? ""} ${p.photographer.name}`.toLowerCase().includes(q))
     : photos;
 
+  const active = info.find((s) => s.key === source) ?? sources.find((s) => s.key === source) ?? null;
+  const pick = (key: string) => {
+    setSource(key);
+    setPage(1);
+  };
+
   return (
-    <div className="px-4 md:px-8 py-6 md:py-8 space-y-6">
+    <div className="w-full space-y-4 p-6 md:px-8">
       <PageMeta
         title="Photography"
         description="Sassy and NI Unsplash collections; copy a photo's URL and credit the photographer."
       />
 
       {!configured ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 py-16 text-center">
-          <Camera size={32} className="mx-auto mb-3 text-gray-200" />
-          <p className="text-sm font-medium text-gray-600">Unsplash isn&apos;t connected yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-gray-400">
-            Set UNSPLASH_ACCESS_KEY in the server environment.
-          </p>
+        <div className="rounded-xl border border-dashed border-gray-200 bg-white py-14 text-center">
+          <Camera size={24} className="mx-auto mb-3 text-gray-300" />
+          <p className="text-sm font-medium text-gray-700">Unsplash isn&apos;t connected yet</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-gray-400">Set UNSPLASH_ACCESS_KEY in the server environment.</p>
         </div>
       ) : (
         <>
           <UnsplashPlusNotice info={info} />
 
-          {/* Sources — click a card to show only its photos */}
+          {/* Collections — click one to show only its photos, again to show all */}
           {info.length > 0 && (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {info.map((s) => (
-                <div
-                  key={s.key}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    setSource(source === s.key ? "" : s.key);
-                    setPage(1);
-                  }}
-                  className={`flex cursor-pointer gap-3 rounded-2xl border bg-white p-4 text-left transition ${
-                    source === s.key ? "border-gray-900 ring-1 ring-gray-900" : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  {s.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={s.image}
-                      alt=""
-                      className={`h-14 w-14 shrink-0 object-cover ${s.kind === "user" ? "rounded-full" : "rounded-xl"}`}
-                    />
-                  ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gray-100">
-                      <Camera size={20} className="text-gray-400" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="truncate text-sm font-semibold text-gray-900">{s.label}</p>
-                      <a
-                        href={s.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-gray-400 hover:text-gray-700"
-                        title="Open on Unsplash"
-                      >
-                        <ExternalLink size={12} />
-                      </a>
-                    </div>
-                    {s.subtitle && (
-                      <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-gray-500">
-                        {s.kind === "user" && <MapPin size={10} />} {s.subtitle}
-                      </p>
-                    )}
-                    <p className="mt-1.5 text-xs text-gray-600">
-                      {s.available < s.totalPhotos ? (
-                        <>
-                          <span className="font-medium text-gray-900">{fmt(s.available)}</span> of {fmt(s.totalPhotos)} available
-                          <span className="block text-[11px] text-gray-400">
-                            The other {fmt(s.totalPhotos - s.available)} are Unsplash+ (paid) and not offered through the API
-                          </span>
-                        </>
+            <section>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Collections</h2>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {info.map((s) => {
+                  const on = source === s.key;
+                  const hidden = s.totalPhotos - s.available;
+                  return (
+                    <div
+                      key={s.key}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={on}
+                      onClick={() => pick(on ? "" : s.key)}
+                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && pick(on ? "" : s.key)}
+                      className={`flex h-[76px] cursor-pointer items-center gap-3 rounded-xl border bg-white px-3.5 shadow-sm transition ${
+                        on ? "border-gray-900 ring-1 ring-gray-900" : "border-gray-200 hover:border-gray-300 hover:shadow"
+                      }`}
+                    >
+                      {s.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={s.image}
+                          alt=""
+                          className={`h-11 w-11 shrink-0 object-cover ring-1 ring-gray-200 ${s.kind === "user" ? "rounded-full" : "rounded-lg"}`}
+                        />
                       ) : (
-                        <>
-                          <span className="font-medium text-gray-900">{fmt(s.totalPhotos)}</span> photos
-                        </>
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+                          <Camera size={18} className="text-gray-400" />
+                        </div>
                       )}
-                    </p>
-                    {s.description && <p className="mt-1.5 line-clamp-2 text-xs text-gray-500">{s.description}</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-sm font-semibold text-gray-900">{s.label}</p>
+                          <a
+                            href={s.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="shrink-0 text-gray-400 hover:text-gray-700"
+                            title="Open on Unsplash"
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        </div>
+                        <p className="truncate text-xs text-gray-500">
+                          {s.kind === "user" && s.subtitle ? (
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin size={10} /> {s.subtitle}
+                            </span>
+                          ) : (
+                            s.subtitle || s.description || "Unsplash collection"
+                          )}
+                        </p>
+                        <p className="text-[11px] text-gray-400" title={hidden > 0 ? `${fmt(hidden)} are Unsplash+ (paid) and not offered through the API` : undefined}>
+                          <span className="font-semibold text-gray-700">{fmt(s.available)}</span> photos
+                          {hidden > 0 && <> · {fmt(hidden)} Unsplash+ hidden</>}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           )}
 
-          {/* Controls */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative min-w-[200px] max-w-sm flex-1">
-              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          {/* Photos toolbar */}
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <h2 className="mr-auto flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              Photos
+              <span className="rounded-full bg-gray-100 px-1.5 py-px text-[11px] font-semibold normal-case tracking-normal text-gray-500 tabular-nums">
+                {q ? `${filtered.length} of ${photos.length}` : photos.length}
+                {hasMore ? "+" : ""}
+              </span>
+              {active && (
+                <button
+                  onClick={() => pick("")}
+                  className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-white hover:bg-gray-700"
+                  title="Show every collection"
+                >
+                  {active.label} <X size={11} />
+                </button>
+              )}
+            </h2>
+            <div className="relative w-full sm:w-64">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                type="text"
+                type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search descriptions…"
-                className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+                placeholder="Search photos"
+                className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-gray-400 focus:outline-none"
               />
             </div>
-            {sources.length > 1 &&
-              [{ key: "", label: "All" }, ...sources].map((s) => (
-                <button
-                  key={s.key || "all"}
-                  onClick={() => {
-                    setSource(s.key);
-                    setPage(1);
-                  }}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                    source === s.key ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            <span className="ml-auto text-xs text-gray-400">
-              {q ? `${filtered.length} of ${photos.length} loaded` : `${photos.length} loaded`}
-            </span>
           </div>
 
           {sourceErrors.map((m) => (
-            <div key={m} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{m}</div>
+            <div key={m} className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{m}</div>
           ))}
-          {error && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
           {/* Grid */}
           {loading && photos.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 py-24 text-sm text-gray-400">
-              <Loader2 size={16} className="animate-spin" /> Loading photos…
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="aspect-[4/5] animate-pulse rounded-xl bg-gray-100" />
+              ))}
             </div>
           ) : filtered.length === 0 && !error ? (
-            <div className="py-24 text-center text-sm text-gray-500">
+            <div className="rounded-xl border border-dashed border-gray-200 bg-white py-14 text-center text-sm text-gray-400">
               {photos.length === 0 ? "No photos published yet." : "No matches in the photos loaded so far."}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
               {filtered.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => setOpen(p)}
-                  className="group relative aspect-[4/5] overflow-hidden rounded-xl"
+                  className="group relative aspect-[4/5] overflow-hidden rounded-xl shadow-sm ring-1 ring-gray-200 transition hover:shadow-md hover:ring-gray-300"
                   style={{ backgroundColor: p.color ?? "#f3f4f6" }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.thumb} alt={p.alt ?? ""} loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 pb-2 pt-6 text-left text-[11px] text-white opacity-0 transition group-hover:opacity-100">
+                  <img src={p.thumb} alt={p.alt ?? ""} loading="lazy" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 pb-2 pt-6 text-left text-[11px] font-medium text-white opacity-0 transition group-hover:opacity-100">
                     {p.photographer.name}
                   </div>
                 </button>
@@ -249,11 +252,11 @@ export default function PhotographyPage() {
           )}
 
           {hasMore && (
-            <div className="flex justify-center">
+            <div className="flex justify-center pt-2">
               <button
                 onClick={() => setPage((n) => n + 1)}
                 disabled={loading}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50"
               >
                 {loading && <Loader2 size={14} className="animate-spin" />} Load more
               </button>
@@ -272,33 +275,38 @@ export default function PhotographyPage() {
  * collections never reach this page or the pickers. The agreed workflow is to
  * download them under our Unsplash+ subscription and upload them to the Image
  * Library — spelled out here for the photographer, who works from this page.
+ * One quiet line until it's opened, so it doesn't crowd the photos.
  */
 function UnsplashPlusNotice({ info }: { info: UnsplashSourceInfo[] }) {
+  const [open, setOpen] = useState(false);
   const missing = info.reduce((n, s) => n + Math.max(0, s.totalPhotos - s.available), 0);
   return (
-    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 md:p-5">
-      <div className="flex gap-3">
-        <Info size={18} className="mt-0.5 shrink-0 text-sky-600" />
-        <div className="min-w-0 flex-1 text-sm text-sky-950">
-          <p className="font-semibold">
-            Unsplash+ photos don&apos;t appear here
-            {missing > 0 && (
-              <span className="font-normal text-sky-800"> — {missing.toLocaleString()} in our collections right now</span>
-            )}
+    <div className="rounded-lg border border-sky-200 bg-sky-50 text-sm text-sky-950">
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-2.5 text-left">
+        <Info size={15} className="shrink-0 text-sky-600" />
+        <span className="flex-1">
+          <span className="font-medium">Unsplash+ photos don&apos;t appear here</span>
+          {missing > 0 && <span className="text-sky-800"> — {missing.toLocaleString()} in our collections right now.</span>}
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-sky-700">
+          {open ? "Hide" : "How to use them"}
+          <ChevronDown size={13} className={`transition ${open ? "rotate-180" : ""}`} />
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-sky-200 px-4 py-3 pl-[39px] text-sky-900">
+          <p>
+            Unsplash only shares its free photos with other apps, so anything marked Unsplash+ is missing from this page
+            and from the email and blog image pickers. To make one usable:
           </p>
-          <p className="mt-1 text-sky-900">
-            Unsplash only shares its free photos with other apps, so anything marked Unsplash+ is missing from this
-            page and from the email and blog image pickers. To make one usable:
-          </p>
-          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sky-900">
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
             <li>Open it on unsplash.com, signed in to our Unsplash+ account, and download it.</li>
             <li>
-              Upload it to the <strong>Image Library</strong>, then give it a title and a short description of
-              what&apos;s in the shot. The AI email and blog writers choose photos by their descriptions, so a good
-              one gets it used.
+              Upload it to the <strong>Image Library</strong>, then give it a title and a short description of what&apos;s
+              in the shot. The AI email and blog writers choose photos by their descriptions, so a good one gets it used.
             </li>
           </ol>
-          <p className="mt-2 text-sky-900">It will then show under “Ours” in every image picker.</p>
+          <p className="mt-2">It will then show under “Ours” in every image picker.</p>
           <Link
             href="/marketing/assets"
             className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700"
@@ -306,7 +314,7 @@ function UnsplashPlusNotice({ info }: { info: UnsplashSourceInfo[] }) {
             Open the Image Library <ArrowRight size={13} />
           </Link>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -361,13 +369,13 @@ function PhotoDetail({ photo: p, onClose }: { photo: UnsplashPhoto; onClose: () 
           <div className="space-y-2">
             <button
               onClick={() => copy("url")}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
             >
               {copied === "url" ? <Check size={14} /> : <Copy size={14} />} {copied === "url" ? "Copied" : "Copy image URL"}
             </button>
             <button
               onClick={() => copy("credit")}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               {copied === "credit" ? <Check size={14} /> : <Copy size={14} />} {copied === "credit" ? "Copied" : "Copy credit line"}
             </button>
@@ -375,7 +383,7 @@ function PhotoDetail({ photo: p, onClose }: { photo: UnsplashPhoto; onClose: () 
               href={p.unsplashUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               <ExternalLink size={14} /> View on Unsplash
             </a>
