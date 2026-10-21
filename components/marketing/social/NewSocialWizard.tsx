@@ -5,7 +5,9 @@ import { Check, ChevronLeft, ChevronRight, Images, LayoutTemplate, Loader2, News
 import clsx from "clsx";
 import { SOCIAL_PURPOSES, starterDesign, type ProductOption, type SocialPurpose } from "@/lib/social/design";
 import { PLATFORM_LABEL, SOCIAL_PLATFORMS, type SocialBrand, type SocialPlatform, type SocialPost } from "@/lib/social/types";
+import { toast, updateToast } from "@/lib/toast";
 import { createSocialPost, generateSocialPost, listBlogPostsForSocial, listSocialProducts, type BlogOption } from "./api";
+import { postsChanged } from "./gridJobs";
 
 /**
  * New social post — the same walk-through as a new blog post or email:
@@ -58,7 +60,7 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
   const [parts, setParts] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [slideCount, setSlideCount] = useState(5);
-  const [busy, setBusy] = useState<null | "generating" | "creating">(null);
+  const [busy, setBusy] = useState<null | "creating">(null);
   const [error, setError] = useState<string | null>(null);
 
   const designed = format === "carousel" || format === "single";
@@ -120,8 +122,9 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
         onCreated(await createSocialPost({ brand, platforms, design: starterDesign(brand, format === "single") }));
         return;
       }
-      setBusy("generating");
-      const gen = await generateSocialPost({
+      // AI writing takes up to a minute — don't hold the dialog open for it.
+      // Close now, keep a toast going, and link to the draft when it lands.
+      generateInBackground({
         brand,
         purpose: purpose ?? "education",
         platforms,
@@ -131,22 +134,12 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
         parts: fromBlog ? [] : parts,
         blogId: fromBlog ? blogId : null,
       });
-      setBusy("creating");
-      onCreated(
-        await createSocialPost({
-          brand,
-          platforms,
-          title: gen.title,
-          design: gen.design,
-          // A scheduled article: suggest going out at the same moment.
-          ...(gen.scheduleSuggestion ? { scheduled_at: gen.scheduleSuggestion } : {}),
-        }),
-      );
+      onClose();
     });
   }
 
   const cta =
-    step < last ? "Continue" : ai || fromBlog ? (busy ? "Writing…" : "Generate") : busy ? "Creating…" : "Create";
+    step < last ? "Continue" : ai || fromBlog ? "Generate" : busy ? "Creating…" : "Create";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm">
@@ -288,7 +281,7 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
           {busy && (
             <div className="mt-3 flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
               <Loader2 size={14} className="animate-spin" />
-              {busy === "generating" ? "Writing your post — this takes up to a minute…" : "Creating the draft…"}
+              Creating the draft…
             </div>
           )}
           {error && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>}
@@ -315,6 +308,47 @@ export default function NewSocialWizard({ defaultBrand, initialBlogId, onClose, 
       </div>
     </div>
   );
+}
+
+/**
+ * Write + save an AI post outside the wizard: a "working" toast while Claude
+ * writes, then a success toast with a link to the new draft (or the error).
+ * Runs at module level, so it survives the wizard closing and page changes.
+ */
+function generateInBackground(input: Parameters<typeof generateSocialPost>[0]) {
+  const t = toast({
+    tone: "working",
+    title: "Writing your social post…",
+    body: input.blogId ? "Claude is turning the article into a post — up to a minute." : "Claude is writing the slides and caption — up to a minute.",
+  });
+  void (async () => {
+    try {
+      const gen = await generateSocialPost(input);
+      const post = await createSocialPost({
+        brand: input.brand,
+        platforms: input.platforms,
+        title: gen.title,
+        design: gen.design,
+        // A scheduled article: suggest going out at the same moment.
+        ...(gen.scheduleSuggestion ? { scheduled_at: gen.scheduleSuggestion } : {}),
+      });
+      postsChanged();
+      updateToast(t, {
+        tone: "success",
+        title: `“${decodeTitle(post.title ?? gen.title) || "Your post"}” is ready`,
+        body: "Saved as a draft — nothing posts until you say so.",
+        sticky: true,
+        action: { label: "Open post", run: (go) => go(`/marketing/social/${post.id}`) },
+      });
+    } catch (e) {
+      updateToast(t, {
+        tone: "error",
+        title: "Couldn't write the social post",
+        body: e instanceof Error ? e.message : undefined,
+        sticky: true,
+      });
+    }
+  })();
 }
 
 /** Some stored titles carry HTML entities (e.g. Don&apos;t). */

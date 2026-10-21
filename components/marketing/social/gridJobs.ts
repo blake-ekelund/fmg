@@ -123,7 +123,7 @@ export function onPostsChanged(handler: () => void): () => void {
   postsHandlers.add(handler);
   return () => postsHandlers.delete(handler);
 }
-function postsChanged() {
+export function postsChanged() {
   postsHandlers.forEach((h) => h());
 }
 
