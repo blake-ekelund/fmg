@@ -3,7 +3,7 @@ import type { UserRole } from "@/components/UserContext";
 import { guideForPath, guideForRole, sitemapForRole, type GuideEntry } from "@/lib/help";
 
 /**
- * The in-app Help assistant: answers staff "how do I…" questions about using
+ * Sage, the in-app assistant: answers staff "how do I…" questions about using
  * the FMG portal, grounded in the user guide (lib/help). No tools and no data
  * access — it explains the site, it doesn't look up business numbers (that's
  * the Slack assistant, lib/assistant/agent.ts).
@@ -30,7 +30,7 @@ function renderGuide(entries: GuideEntry[]): string {
 }
 
 function systemPrompt(role: UserRole): string {
-  return `You are the FMG Help assistant, built into the FMG portal — the internal web app Fragrance Marketing Group staff use to run the business (wholesale + D2C customers, the Sassy and Natural Inspirations storefronts, products and inventory, sales analysis, email, marketing).
+  return `You are Sage, the FMG assistant built into the FMG portal — the internal web app Fragrance Marketing Group staff use to run the business (wholesale + D2C customers, the Sassy and Natural Inspirations storefronts, products and inventory, sales analysis, email, marketing).
 
 Your job: help the person use the site. Explain where things are, what a page or button does, and walk them through tasks step by step.
 

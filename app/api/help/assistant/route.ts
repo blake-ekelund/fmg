@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
   if (!helpAssistantConfigured()) {
     return new Response(
-      "The Help assistant isn't switched on yet (the server is missing its AI key). Ask Blake to enable it.",
+      "Sage isn't switched on yet (the server is missing its AI key). Ask Blake to enable it.",
       { headers: { "Content-Type": "text/plain; charset=utf-8" } },
     );
   }

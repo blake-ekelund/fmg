@@ -9,7 +9,7 @@ import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
 import { openHelpAssistant } from "@/components/HelpAssistant";
 
 /**
- * /help — the user guide, browsable. Same content the Help assistant answers
+ * /help — the user guide, browsable. Same content Sage answers
  * from (lib/help), filtered to the pages the viewer's role can open.
  * ?page=<path> selects an entry.
  */
@@ -61,14 +61,14 @@ export default function HelpCenterPage() {
             <BookOpen size={20} className="text-brand-700" /> Help &amp; User Guide
           </h1>
           <p className="mt-1 text-sm text-ink-muted">
-            How every page works, with step-by-step instructions. Can&apos;t find it? Ask the Help assistant.
+            How every page works, with step-by-step instructions. Can&apos;t find it? Ask Sage.
           </p>
         </div>
         <button
           onClick={() => openHelpAssistant()}
           className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-600"
         >
-          <Sparkles size={15} /> Ask the assistant
+          <Sparkles size={15} /> Ask Sage
         </button>
       </div>
 

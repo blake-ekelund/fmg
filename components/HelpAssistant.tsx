@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { CircleHelp, Send, Sparkles, X, RotateCcw } from "lucide-react";
+import { Send, Sparkles, X, RotateCcw } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
 
 /**
- * The floating Help assistant, bottom-right on every internal page. Staff ask
+ * Sage, the floating assistant bottom-right on every internal page. Staff ask
  * "how do I…" questions about using the portal; /api/help/assistant answers
  * from the user guide in lib/help, aware of which page they're on and which
  * pages their role can open. It explains the site — it can't see live data or
@@ -22,7 +22,7 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 const STORAGE_KEY = "fmg-help-chat";
 const OPEN_EVENT = "fmg:open-help";
 
-/** Open the Help panel from anywhere (e.g. the /help page), optionally asking a question. */
+/** Open Sage from anywhere (e.g. the /help page), optionally asking a question. */
 export function openHelpAssistant(question?: string) {
   window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: question ?? null }));
 }
@@ -159,11 +159,11 @@ export default function HelpAssistant() {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          aria-label="Open Help assistant"
+          aria-label="Open Sage"
           className={`fixed ${lift} right-5 z-40 flex items-center gap-2 rounded-full bg-brand-700 px-4 py-3 text-sm font-medium text-white shadow-lg ring-1 ring-brand-900/10 transition hover:bg-brand-600`}
         >
-          <CircleHelp size={17} />
-          <span className="hidden sm:inline">Help</span>
+          <Sparkles size={17} />
+          <span>Ask Sage</span>
         </button>
       )}
 
@@ -176,7 +176,7 @@ export default function HelpAssistant() {
                   <Sparkles size={16} />
                 </span>
                 <div className="leading-tight">
-                  <div className="text-sm font-semibold text-ink">Help</div>
+                  <div className="text-sm font-semibold text-ink">Sage</div>
                   <button
                     onClick={() => router.push("/help")}
                     className="text-xs text-ink-muted underline-offset-2 hover:text-brand-700 hover:underline"
@@ -199,7 +199,7 @@ export default function HelpAssistant() {
                 )}
                 <button
                   onClick={() => setOpen(false)}
-                  aria-label="Close Help"
+                  aria-label="Close Sage"
                   className="rounded-lg p-1.5 text-ink-muted transition hover:bg-surface-muted hover:text-ink"
                 >
                   <X size={18} />
@@ -273,7 +273,7 @@ export default function HelpAssistant() {
                     }
                   }}
                   rows={1}
-                  placeholder="How do I…"
+                  placeholder="Ask Sage how to do anything…"
                   className="max-h-28 flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-line-strong focus:outline-none focus:ring-2 focus:ring-brand-700/10"
                 />
                 <button
