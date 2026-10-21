@@ -112,6 +112,7 @@ async function build(jobsRaw: unknown[]): Promise<CampaignRow[]> {
   const loadedJobs = new Set<string>();
   for (const j of jobs) {
     if (recipients.length >= MAX_RECIPIENTS) break;
+    let rowCount = 0;
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await supabaseServer
         .from("email_send_job_recipients")
@@ -122,9 +123,12 @@ async function build(jobsRaw: unknown[]): Promise<CampaignRow[]> {
       if (error) throw new Error(error.message);
       const page = (data as Recipient[] | null) ?? [];
       recipients.push(...page);
+      rowCount += page.length;
       if (page.length < PAGE) break;
     }
-    loadedJobs.add(j.id);
+    // Rep emails record a job with no recipient rows (reps aren't customers);
+    // they aren't customer campaigns, so leave them out.
+    if (rowCount > 0) loadedJobs.add(j.id);
   }
 
   /* 4. Opens + clicks for the messages those sends produced. Both counters are

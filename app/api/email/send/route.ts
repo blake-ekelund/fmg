@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { recipientCounts } from "@/lib/email/bulkSend";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { getAccessTokenForUser } from "@/lib/email/tokens";
 import {
@@ -195,8 +196,9 @@ async function renderBlockTemplate(
 /**
  * POST /api/email/send
  * Body: { recipients, subject_template, body_template | block_template_id, body_format?, cc? }
- * Sends one email per recipient (per-customer separate, not group). Returns
- * a job summary the UI can show.
+ * Sends one email per recipient (per-customer separate, not group) through the
+ * sender's Outlook. Queues the job and returns its id at once; the sends run
+ * after the response and the UI follows them via GET /api/email/bulk-send/{id}.
  */
 export async function POST(request: Request) {
   const user = await requireInternalUser(request);
@@ -317,16 +319,20 @@ export async function POST(request: Request) {
     [...contacts.values()].map((c) => c.email ?? "").filter(Boolean),
   );
 
-  // Open the job row.
+  // Open the job row. Sending happens after the response (see after() below),
+  // so the browser gets the job id at once and can follow it from a toast.
   const { data: jobRow, error: jobErr } = await supabaseServer
     .from("email_send_jobs")
     .insert({
       account_id: accountId,
+      transport: "outlook",
+      created_by: user.id,
       subject_template: subjectTemplate,
       body_template: bodyTemplate,
       target_count: body.recipients.length,
       // Attribute the send to its designed template so /templates can count sends.
       block_template_id: body.block_template_id ?? null,
+      cc_json: ccAddressesJson,
       status: "in_progress",
       started_at: new Date().toISOString(),
     })
@@ -340,58 +346,72 @@ export async function POST(request: Request) {
   }
   const jobId = jobRow.id as string;
 
-  let sentCount = 0;
-  let failedCount = 0;
-  // Counts sends where Graph refused the List-Unsubscribe headers and we fell
-  // back to sending without them. Surfaced in the response so a silent
-  // deliverability regression can't hide.
-  let headersRejected = 0;
-  const origin = publicOriginFromRequest(request);
-
-  // Per-recipient processor — extracted so we can run a small pool in parallel.
-  const sendOne = async (r: SendRequestBody["recipients"][number]): Promise<void> => {
-    const key = `${r.customer_type}:${r.customer_ref}`;
-    const contact = contacts.get(key);
-
-    const recipientRow = {
+  // Snapshot every recipient up front: the undeliverable ones settle now, the
+  // rest wait as 'pending' so progress polling (and Cancel) work from the start.
+  type Contact = ContactRow & { customer_type: "wholesale" | "d2c" };
+  type Queued = { id: string; r: SendRequestBody["recipients"][number]; contact: Contact };
+  const queuedRows: Queued[] = [];
+  const rows = body.recipients.map((r) => {
+    const contact = contacts.get(`${r.customer_type}:${r.customer_ref}`);
+    const id = randomUUID();
+    const base = {
+      id,
       job_id: jobId,
       customer_type: r.customer_type,
       customer_ref: r.customer_ref,
       customer_email: contact?.email ?? "",
       customer_name: contact?.name ?? null,
-      personalized_subject: "",
+      // personalized_* columns are NOT NULL — the send overwrites them.
+      personalized_subject: subjectTemplate,
       personalized_body: "",
-      status: "pending" as "pending" | "sent" | "failed" | "skipped",
+    };
+    if (!contact || !contact.email) {
+      return { ...base, status: "skipped", error_text: "No email address on file" };
+    }
+    if (suppressed.has(normalizeEmail(contact.email))) {
+      return { ...base, status: "skipped", error_text: "Unsubscribed" };
+    }
+    queuedRows.push({ id, r, contact });
+    return { ...base, status: "pending", error_text: null };
+  });
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabaseServer.from("email_send_job_recipients").insert(rows.slice(i, i + 500));
+    if (error) {
+      // Nothing has been sent yet — drop the half-written job entirely.
+      await supabaseServer.from("email_send_jobs").delete().eq("id", jobId);
+      return NextResponse.json({ error: `Could not queue recipients: ${error.message}` }, { status: 500 });
+    }
+  }
+
+  const origin = publicOriginFromRequest(request);
+
+  // Per-recipient processor — extracted so we can run a small pool in parallel.
+  const sendOne = async ({ id, r, contact }: Queued): Promise<void> => {
+    // Claim the row first. Cancel skips every unclaimed pending row, so a row
+    // we can't claim was cancelled and must not be sent.
+    const { data: claim } = await supabaseServer
+      .from("email_send_job_recipients")
+      .update({ claimed_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("status", "pending")
+      .is("claimed_at", null)
+      .select("id");
+    if (!claim || claim.length === 0) return;
+
+    const email = contact.email as string;
+    const outcome = {
+      personalized_subject: subjectTemplate,
+      personalized_body: "",
+      status: "failed" as "sent" | "failed",
       error_text: null as string | null,
       sent_at: null as string | null,
       message_id: null as string | null,
     };
 
-    if (!contact || !contact.email) {
-      recipientRow.status = "skipped";
-      recipientRow.error_text = "No email address on file";
-      // personalized_* columns are NOT NULL — fall back to the template text.
-      recipientRow.personalized_subject = subjectTemplate;
-      recipientRow.personalized_body = bodyTemplate;
-      failedCount++;
-      await supabaseServer.from("email_send_job_recipients").insert(recipientRow);
-      return;
-    }
-
-    if (suppressed.has(normalizeEmail(contact.email))) {
-      recipientRow.status = "skipped";
-      recipientRow.error_text = "Unsubscribed";
-      recipientRow.personalized_subject = subjectTemplate;
-      recipientRow.personalized_body = bodyTemplate;
-      failedCount++;
-      await supabaseServer.from("email_send_job_recipients").insert(recipientRow);
-      return;
-    }
-
     // Every recipient gets their own token, so the link opts out the person who
     // clicked it and nobody else.
     const unsubPayload = {
-      email: contact.email,
+      email,
       customerType: r.customer_type,
       customerRef: r.customer_ref,
     };
@@ -416,16 +436,15 @@ export async function POST(request: Request) {
     };
     const subject = applyMergeFields(subjectTemplate, vars);
     const bodyContent = applyMergeFields(bodyTemplate, vars);
-    recipientRow.personalized_subject = subject;
-    recipientRow.personalized_body = bodyContent;
+    outcome.personalized_subject = subject;
+    outcome.personalized_body = bodyContent;
 
     // Pre-generate the message id so the tracking pixel URL we embed in the
     // outbound HTML matches the row we'll insert below.
     const messageId = randomUUID();
-    // body_format was declared on this endpoint from the start but never read,
-    // so every send went through the plain-text escaper. Block templates
-    // arrive as finished HTML from lib/email/renderBlocks and must skip it.
-    // Omit the auto footer when the template already carries its own opt-out.
+    // Block templates arrive as finished HTML from lib/email/renderBlocks and
+    // must skip the plain-text escaper. Omit the auto footer when the template
+    // already carries its own opt-out.
     const footerHtml = bodyHasOwnUnsubscribe ? undefined : unsubscribeFooterHtml(unsubLink);
     const unsubHeaders = listUnsubscribeHeaders(origin, unsubPayload);
 
@@ -438,11 +457,14 @@ export async function POST(request: Request) {
       const sent = await sendEmail(accessToken, {
         subject,
         bodyHtml: tracked.html,
-        to: [{ address: contact.email, name: contact.name ?? undefined }],
+        to: [{ address: email, name: contact.name ?? undefined }],
         cc: ccRecipients.length > 0 ? ccRecipients : undefined,
         headers: unsubHeaders,
       });
-      if (!sent.headersApplied) headersRejected++;
+      // Mail delivered, but without one-click unsubscribe — worth a log line.
+      if (!sent.headersApplied) {
+        console.warn(`[email/send] job ${jobId}: Graph refused List-Unsubscribe headers`);
+      }
 
       // Upsert thread keyed by (account, conversationId).
       const { data: thread, error: threadErr } = await supabaseServer
@@ -479,7 +501,7 @@ export async function POST(request: Request) {
           internet_message_id: sent.internetMessageId,
           conversation_id: sent.conversationId,
           from_address: sent.fromAddress ?? senderEmail,
-          to_addresses: [{ address: contact.email, name: contact.name }],
+          to_addresses: [{ address: email, name: contact.name }],
           cc_addresses: ccAddressesJson,
           subject,
           // Store the original plain text so the UI can render bubbles cleanly,
@@ -507,40 +529,41 @@ export async function POST(request: Request) {
         );
       }
 
-      recipientRow.status = "sent";
-      recipientRow.sent_at = sent.sentAt;
-      recipientRow.message_id = msg.id;
-      sentCount++;
+      outcome.status = "sent";
+      outcome.sent_at = sent.sentAt;
+      outcome.message_id = msg.id;
     } catch (e) {
-      recipientRow.status = "failed";
-      recipientRow.error_text = e instanceof Error ? e.message : String(e);
-      failedCount++;
+      outcome.status = "failed";
+      outcome.error_text = e instanceof Error ? e.message : String(e);
     }
 
-    await supabaseServer.from("email_send_job_recipients").insert(recipientRow);
+    await supabaseServer.from("email_send_job_recipients").update(outcome).eq("id", id);
   };
 
-  // Run sendOne against the recipient list with a small concurrency pool.
-  await runWithConcurrency(body.recipients, SEND_CONCURRENCY, sendOne);
-
-  await supabaseServer
-    .from("email_send_jobs")
-    .update({
-      sent_count: sentCount,
-      failed_count: failedCount,
-      status: "completed",
-      completed_at: new Date().toISOString(),
-    })
-    .eq("id", jobId);
+  // Send after the response: the function keeps running (up to maxDuration)
+  // whether or not the browser stays on the page.
+  after(async () => {
+    await runWithConcurrency(queuedRows, SEND_CONCURRENCY, sendOne);
+    const counts = await recipientCounts(jobId);
+    const { data: job } = await supabaseServer.from("email_send_jobs").select("status").eq("id", jobId).maybeSingle();
+    await supabaseServer
+      .from("email_send_jobs")
+      .update({
+        sent_count: counts.sent,
+        failed_count: counts.failed + counts.skipped,
+        // A cancel stays a cancel; otherwise the run is done.
+        status: job?.status === "cancelled" ? "cancelled" : "completed",
+        completed_at: new Date().toISOString(),
+        error_summary: counts.failed > 0 ? `${counts.failed} failed, ${counts.skipped} skipped` : null,
+      })
+      .eq("id", jobId);
+  });
 
   return NextResponse.json({
     job_id: jobId,
-    sent: sentCount,
-    failed: failedCount,
     total: body.recipients.length,
-    // 0 on a healthy send. Non-zero means Graph refused the List-Unsubscribe
-    // headers for that many messages — mail delivered, one-click missing.
-    list_unsubscribe_rejected: headersRejected,
+    queued: queuedRows.length,
+    transport: "outlook",
   });
 }
 

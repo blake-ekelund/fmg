@@ -6,7 +6,6 @@ import {
   Mail,
   Loader2,
   AlertTriangle,
-  CheckCircle2,
   FileText,
   ChevronDown,
   Save,
@@ -17,6 +16,7 @@ import {
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { mergeGroupsFor } from "@/lib/email/mergeFields";
+import { trackSendJob } from "@/lib/email/trackSendJob";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 
 type Props = {
@@ -29,12 +29,6 @@ type Props = {
   onComplete: () => void;
 };
 
-type SendResult = {
-  total: number;
-  sent: number;
-  failed: number;
-};
-
 /** Enqueue response for a queued (Resend) bulk job. */
 type BulkJob = {
   job_id: string;
@@ -45,17 +39,6 @@ type BulkJob = {
   skipped_duplicate: number;
   /** Set when this is a test run — every copy delivers here. */
   test_email: string | null;
-};
-
-/** Live progress from GET /api/email/bulk-send/{id}. */
-type BulkProgress = {
-  status: "pending" | "in_progress" | "completed" | "cancelled" | "failed";
-  total: number;
-  pending: number;
-  sent: number;
-  failed: number;
-  skipped: number;
-  failed_sample: Array<{ customer_name: string | null; customer_email: string; error_text: string | null }>;
 };
 
 type OutlookStatus =
@@ -105,7 +88,6 @@ export default function ComposeEmailModal({
   const [cc, setCc] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outlook, setOutlook] = useState<OutlookStatus>({ state: "loading" });
 
@@ -115,12 +97,6 @@ export default function ComposeEmailModal({
   const [blockTemplates, setBlockTemplates] = useState<BlockTemplate[]>([]);
   const [blockTemplateId, setBlockTemplateId] = useState<string | null>(null);
   const [blockTemplatesLoading, setBlockTemplatesLoading] = useState(false);
-
-  /* Queued bulk send (designed templates go out via Resend in the background).
-     bulkJob is set once the job is accepted; bulkProgress tracks the worker. */
-  const [bulkJob, setBulkJob] = useState<BulkJob | null>(null);
-  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
-  const [cancelling, setCancelling] = useState(false);
 
   /* Test run: deliver every selected customer's copy to this address instead
      of the customer. Merge fields still use each customer's real data. */
@@ -235,54 +211,12 @@ export default function ComposeEmailModal({
 
   const selectedBlockTemplate = blockTemplates.find((t) => t.id === blockTemplateId) ?? null;
 
-  // Poll job progress while a queued send is running. The job lives on the
-  // server, so closing the modal never interrupts it — polling is display only.
-  useEffect(() => {
-    if (!open || !bulkJob) return;
-    const done = (s: string) => s === "completed" || s === "cancelled" || s === "failed";
-    if (bulkProgress && done(bulkProgress.status)) return;
-
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/email/bulk-send/${bulkJob.job_id}`, {
-          headers: await authHeader(),
-        });
-        if (!res.ok || cancelled) return;
-        const json = (await res.json()) as BulkProgress;
-        if (!cancelled) setBulkProgress(json);
-      } catch {
-        /* transient — next tick retries */
-      }
-    };
-    tick();
-    const interval = setInterval(tick, 2500);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [open, bulkJob, bulkProgress?.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function cancelBulkJob() {
-    if (!bulkJob) return;
-    setCancelling(true);
-    try {
-      await fetch(`/api/email/bulk-send/${bulkJob.job_id}`, {
-        method: "DELETE",
-        headers: await authHeader(),
-      });
-    } finally {
-      setCancelling(false);
-    }
-  }
-
   // Reset state when the modal closes.
   useEffect(() => {
     if (!open) {
       setSubject("");
       setCc("");
       setBody("");
-      setResult(null);
       setError(null);
       setSending(false);
       setTemplatesOpen(false);
@@ -291,9 +225,6 @@ export default function ComposeEmailModal({
       setPreviewHtml(null);
       setPreviewError(null);
       setPreviewLoading(false);
-      setBulkJob(null);
-      setBulkProgress(null);
-      setCancelling(false);
       setTestMode(false);
       setTestEmail("");
     }
@@ -348,10 +279,16 @@ export default function ComposeEmailModal({
     }
   }
 
+  /** The send is now a server-side job: follow it from a toast and get out of the way. */
+  function handOff(jobId: string, subjectLine: string, total: number, test: string | null) {
+    trackSendJob({ jobId, subject: subjectLine, total, testEmail: test });
+    onComplete();
+    onClose();
+  }
+
   async function send() {
     setSending(true);
     setError(null);
-    setResult(null);
     try {
       const recipients = ids.map((id) => ({ customer_type: customerType, customer_ref: id }));
 
@@ -373,12 +310,19 @@ export default function ComposeEmailModal({
         if (!res.ok) {
           setError(json?.error ?? `Request failed (${res.status})`);
         } else {
-          setBulkJob(json as BulkJob);
+          const job = json as BulkJob;
+          handOff(
+            job.job_id,
+            subject.trim() || selectedBlockTemplate?.subject || selectedBlockTemplate?.name || "",
+            job.total,
+            job.test_email,
+          );
         }
         return;
       }
 
-      // Typed 1:1 mail keeps the synchronous Outlook path.
+      // Typed mail goes out through the sender's Outlook, server-side after
+      // the request returns.
       const res = await fetch("/api/email/send", {
         method: "POST",
         headers: {
@@ -397,7 +341,7 @@ export default function ComposeEmailModal({
       if (!res.ok) {
         setError(json?.error ?? `Request failed (${res.status})`);
       } else {
-        setResult({ total: json.total, sent: json.sent, failed: json.failed });
+        handOff(json.job_id, subject, json.total, null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -407,15 +351,12 @@ export default function ComposeEmailModal({
   }
 
   function close() {
-    if ((result && result.sent > 0) || bulkJob) onComplete();
     onClose();
   }
 
   const TEST_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const canSend =
     !sending &&
-    !result &&
-    !bulkJob &&
     (mode === "block"
       ? // Queued Resend sends don't need Outlook; the template's own subject
         // is the fallback when none is typed.
@@ -469,37 +410,6 @@ export default function ComposeEmailModal({
             </div>
           )}
 
-          {bulkJob ? (
-            <BulkProgressPanel
-              job={bulkJob}
-              progress={bulkProgress}
-              cancelling={cancelling}
-              onCancel={cancelBulkJob}
-            />
-          ) : result ? (
-            <div
-              className={
-                "rounded-xl border px-4 py-3 text-sm " +
-                (result.failed === 0
-                  ? "border-green-200 bg-green-50 text-green-700"
-                  : "border-amber-200 bg-amber-50 text-amber-700")
-              }
-            >
-              <div className="flex items-center gap-2 font-medium">
-                {result.failed === 0 ? (
-                  <CheckCircle2 size={16} />
-                ) : (
-                  <AlertTriangle size={16} />
-                )}
-                Sent {result.sent} of {result.total}
-              </div>
-              {result.failed > 0 && (
-                <div className="text-xs mt-1">
-                  {result.failed} failed (no email on file, send error, or skipped).
-                </div>
-              )}
-            </div>
-          ) : (
             <>
               {/* Compose mode */}
               <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 text-xs">
@@ -841,24 +751,20 @@ export default function ComposeEmailModal({
                 </div>
               )}
             </>
-          )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-gray-100 shrink-0">
           <span className="text-[11px] text-gray-400">
-            {bulkJob
-              ? "Sending runs on the server — closing this window won't stop it."
-              : "Each customer gets their own email — recipients won't see each other."}
+            Each customer gets their own email. Sending runs in the background — you can keep working.
           </span>
           <div className="flex gap-2">
             <button
               onClick={close}
               className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 transition"
             >
-              {result || bulkJob ? "Close" : "Cancel"}
+              Cancel
             </button>
-            {!result && !bulkJob && (
               <button
                 onClick={send}
                 disabled={!canSend}
@@ -881,7 +787,6 @@ export default function ComposeEmailModal({
                   </>
                 )}
               </button>
-            )}
           </div>
         </div>
       </div>
@@ -916,125 +821,6 @@ export default function ComposeEmailModal({
             />
           </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-/** Live view of a queued Resend bulk job: bar, counts, cancel. */
-function BulkProgressPanel({
-  job,
-  progress,
-  cancelling,
-  onCancel,
-}: {
-  job: BulkJob;
-  progress: BulkProgress | null;
-  cancelling: boolean;
-  onCancel: () => void;
-}) {
-  const p = progress;
-  const doneCount = p ? p.sent + p.failed + p.skipped : job.total - job.queued;
-  const pct = p && p.total > 0 ? Math.round((doneCount / p.total) * 100) : 0;
-  const finished =
-    p && (p.status === "completed" || p.status === "cancelled" || p.status === "failed");
-  const skippedAtQueue =
-    job.skipped_no_email + job.skipped_unsubscribed + job.skipped_duplicate;
-
-  return (
-    <div className="space-y-3">
-      {job.test_email && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <span className="font-medium">Test run</span> — every copy is being
-          delivered to <span className="font-medium">{job.test_email}</span>.
-          No customers are receiving email.
-        </div>
-      )}
-      <div
-        className={clsx(
-          "rounded-xl border px-4 py-3 text-sm",
-          finished
-            ? p!.failed === 0
-              ? "border-green-200 bg-green-50 text-green-700"
-              : "border-amber-200 bg-amber-50 text-amber-700"
-            : "border-blue-200 bg-blue-50 text-blue-700",
-        )}
-      >
-        <div className="flex items-center gap-2 font-medium">
-          {finished ? (
-            p!.failed === 0 ? (
-              <CheckCircle2 size={16} />
-            ) : (
-              <AlertTriangle size={16} />
-            )
-          ) : (
-            <Loader2 size={16} className="animate-spin" />
-          )}
-          {!p
-            ? `Queued ${job.queued} of ${job.total} — starting…`
-            : p.status === "completed"
-              ? `Done — sent ${p.sent} of ${p.total}`
-              : p.status === "cancelled"
-                ? `Cancelled — ${p.sent} sent before stopping`
-                : `Sending… ${p.sent} of ${p.total - p.skipped} delivered`}
-        </div>
-
-        {/* Progress bar */}
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/70">
-          <div
-            className={clsx(
-              "h-full rounded-full transition-all duration-500",
-              finished && p!.failed === 0 ? "bg-green-500" : finished ? "bg-amber-500" : "bg-blue-500",
-            )}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
-          {p && <span>{p.pending} waiting</span>}
-          {p && p.failed > 0 && <span className="font-medium">{p.failed} failed</span>}
-          {skippedAtQueue > 0 && (
-            <span>
-              {skippedAtQueue} skipped up front
-              {" ("}
-              {[
-                job.skipped_no_email > 0 ? `${job.skipped_no_email} no email` : null,
-                job.skipped_unsubscribed > 0 ? `${job.skipped_unsubscribed} unsubscribed` : null,
-                job.skipped_duplicate > 0 ? `${job.skipped_duplicate} duplicate` : null,
-              ]
-                .filter(Boolean)
-                .join(", ")}
-              {")"}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {p && p.failed_sample.length > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
-            Failures
-          </div>
-          <ul className="space-y-0.5 text-xs text-gray-600">
-            {p.failed_sample.map((f, i) => (
-              <li key={i} className="truncate">
-                <span className="font-medium">{f.customer_name ?? f.customer_email}</span>
-                {f.error_text ? ` — ${f.error_text}` : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {!finished && (
-        <button
-          onClick={onCancel}
-          disabled={cancelling}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition disabled:opacity-40"
-        >
-          {cancelling ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
-          Stop sending
-        </button>
       )}
     </div>
   );

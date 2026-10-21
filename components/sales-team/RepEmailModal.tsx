@@ -6,22 +6,15 @@ import {
   Mail,
   Loader2,
   AlertTriangle,
-  CheckCircle2,
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { trackSendJob } from "@/lib/email/trackSendJob";
 import type { SalesRep } from "./reps";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   reps: SalesRep[];
-};
-
-type SendResult = {
-  total: number;
-  sent: number;
-  failed: number;
-  failures?: string[];
 };
 
 type OutlookStatus =
@@ -53,7 +46,6 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
   const [cc, setCc] = useState("");
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outlook, setOutlook] = useState<OutlookStatus>({ state: "loading" });
 
@@ -88,7 +80,6 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
       setSubject("");
       setCc("");
       setBody("");
-      setResult(null);
       setError(null);
       setSending(false);
     }
@@ -101,7 +92,6 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
   async function send() {
     setSending(true);
     setError(null);
-    setResult(null);
     try {
       const res = await fetch("/api/email/send-reps", {
         method: "POST",
@@ -122,7 +112,11 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
       });
       const json = await res.json();
       if (!res.ok) setError(json?.error ?? `Request failed (${res.status})`);
-      else setResult({ total: json.total, sent: json.sent, failed: json.failed, failures: json.failures });
+      else {
+        // The send is now a server-side job: follow it from a toast and get out of the way.
+        trackSendJob({ jobId: json.job_id, subject, total: json.total });
+        onClose();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -135,8 +129,7 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
     subject.trim().length > 0 &&
     body.trim().length > 0 &&
     sendable.length > 0 &&
-    !sending &&
-    !result;
+    !sending;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -184,29 +177,7 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
             </div>
           )}
 
-          {result ? (
-            <div
-              className={
-                "rounded-xl border px-4 py-3 text-sm " +
-                (result.failed === 0
-                  ? "border-green-200 bg-green-50 text-green-700"
-                  : "border-amber-200 bg-amber-50 text-amber-700")
-              }
-            >
-              <div className="flex items-center gap-2 font-medium">
-                {result.failed === 0 ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                Sent {result.sent} of {result.total}
-              </div>
-              {result.failed > 0 && result.failures && result.failures.length > 0 && (
-                <ul className="text-xs mt-2 space-y-0.5 list-disc list-inside">
-                  {result.failures.map((f, i) => (
-                    <li key={i}>{f}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : (
-            <>
+          <>
               {/* Cc */}
               <div>
                 <label className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5 block">
@@ -289,22 +260,20 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
                 </div>
               )}
             </>
-          )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-gray-100 shrink-0">
           <span className="text-[11px] text-gray-400">
-            Each rep gets their own email — recipients won&apos;t see each other.
+            Each rep gets their own email. Sending runs in the background — you can keep working.
           </span>
           <div className="flex gap-2">
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 transition"
             >
-              {result ? "Close" : "Cancel"}
+              Cancel
             </button>
-            {!result && (
               <button
                 onClick={send}
                 disabled={!canSend}
@@ -322,7 +291,6 @@ export default function RepEmailModal({ open, onClose, reps }: Props) {
                   </>
                 )}
               </button>
-            )}
           </div>
         </div>
       </div>
