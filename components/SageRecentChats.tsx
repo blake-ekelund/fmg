@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { MessageSquare, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { MessageSquare, Sparkles, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { openSageConversation, SAGE_HISTORY_EVENT } from "@/components/HelpAssistant";
+import { deleteSageConversation, openSageConversation, SAGE_HISTORY_EVENT } from "@/components/HelpAssistant";
 
 /**
  * "Recent chats" at the bottom of the sidebar: the signed-in user's latest Sage
- * conversations. Clicking one opens Sage on it. Refreshes whenever Sage saves
- * or deletes a chat. Renders nothing until there's history (or when the
+ * conversations. Clicking one opens Sage on it; the hover trash deletes it
+ * (two clicks). Refreshes whenever Sage saves or deletes a chat. Renders
+ * nothing until there's history (or when the
  * sage_conversations migration isn't applied yet).
  */
 
@@ -18,6 +19,12 @@ const SHOWN = 5;
 
 export default function SageRecentChats({ collapsed }: { collapsed: boolean }) {
   const [items, setItems] = useState<Item[]>([]);
+  // The chat whose trash was clicked once — a second click deletes it.
+  const [armed, setArmed] = useState<string | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (armTimer.current) clearTimeout(armTimer.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +57,18 @@ export default function SageRecentChats({ collapsed }: { collapsed: boolean }) {
     };
   }, []);
 
+  function arm(id: string) {
+    setArmed(id);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => setArmed(null), 6000);
+  }
+
+  function remove(id: string) {
+    setArmed(null);
+    setItems((prev) => prev.filter((c) => c.id !== id)); // the refresh after the delete fills the gap
+    deleteSageConversation(id);
+  }
+
   if (!items.length) return null;
 
   // Collapsed rail: one icon that opens the latest chat.
@@ -75,15 +94,34 @@ export default function SageRecentChats({ collapsed }: { collapsed: boolean }) {
       </div>
       <div className="space-y-px">
         {items.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => openSageConversation(c.id)}
-            title={c.title}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-white/55 transition-colors hover:bg-white/8 hover:text-white"
-          >
-            <MessageSquare size={13} className="shrink-0" />
-            <span className="truncate">{c.title}</span>
-          </button>
+          <div key={c.id} className="group flex items-center rounded-lg transition-colors hover:bg-white/8">
+            <button
+              onClick={() => openSageConversation(c.id)}
+              title={c.title}
+              className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-1.5 text-left text-[12.5px] text-white/55 transition-colors group-hover:text-white"
+            >
+              <MessageSquare size={13} className="shrink-0" />
+              <span className="truncate">{c.title}</span>
+            </button>
+            {/* Two clicks to delete: the trash turns into a red "Delete" for a few seconds. */}
+            {armed === c.id ? (
+              <button
+                onClick={() => remove(c.id)}
+                className="mr-1 shrink-0 rounded-md bg-red-500/90 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-red-500"
+              >
+                Delete
+              </button>
+            ) : (
+              <button
+                onClick={() => arm(c.id)}
+                aria-label={`Delete “${c.title}”`}
+                title="Delete chat"
+                className="mr-1 shrink-0 rounded-md p-1 text-white/40 opacity-0 transition hover:bg-white/10 hover:text-red-300 focus:opacity-100 group-hover:opacity-100"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
+          </div>
         ))}
       </div>
     </div>

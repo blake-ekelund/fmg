@@ -123,6 +123,12 @@ export function openSageConversation(conversationId: string) {
 export const SAGE_HISTORY_EVENT = "fmg:sage-history";
 const historyChanged = () => window.dispatchEvent(new Event(SAGE_HISTORY_EVENT));
 
+const DELETE_EVENT = "fmg:sage-delete";
+/** Delete one of the user's saved chats (the sidebar's Recent chats trash). */
+export function deleteSageConversation(conversationId: string) {
+  window.dispatchEvent(new CustomEvent<string>(DELETE_EVENT, { detail: conversationId }));
+}
+
 const SUGGESTIONS = [
   "Which products are running low on stock?",
   "Pull a report of wholesale customers who haven't ordered in 2026",
@@ -344,6 +350,7 @@ export default function HelpAssistant() {
   // the latest through refs.
   const sendRef = useRef<(q: string) => void>(() => {});
   const loadRef = useRef<(id: string) => void>(() => {});
+  const removeRef = useRef<(id: string) => Promise<void>>(async () => {});
   useEffect(() => {
     const onOpen = (e: Event) => {
       setOpen(true);
@@ -351,8 +358,14 @@ export default function HelpAssistant() {
       if (typeof d === "string") sendRef.current(d);
       else if (d?.conversationId) loadRef.current(d.conversationId);
     };
+    // Deletes from the sidebar go through the same path as the History trash.
+    const onDelete = (e: Event) => void removeRef.current((e as CustomEvent<string>).detail);
     window.addEventListener(OPEN_EVENT, onOpen);
-    return () => window.removeEventListener(OPEN_EVENT, onOpen);
+    window.addEventListener(DELETE_EVENT, onDelete);
+    return () => {
+      window.removeEventListener(OPEN_EVENT, onOpen);
+      window.removeEventListener(DELETE_EVENT, onDelete);
+    };
   }, []);
 
   useEffect(() => {
@@ -489,6 +502,7 @@ export default function HelpAssistant() {
 
   sendRef.current = send;
   loadRef.current = loadConversation;
+  removeRef.current = removeConversation;
 
   /* Confirmation cards (schedule / publish). Only the user's "Yes" runs it —
      the same API call the Social / Blog page makes, under their own token. */
