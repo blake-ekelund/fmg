@@ -50,17 +50,26 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   /* 1. Every enrollment that belongs to a cohort. */
-  const { data: enrollRows, error: enrollErr } = await supabaseServer
-    .from("automation_enrollments")
-    .select(
-      "id, automation_id, cohort_label, cohort_number, status, exit_reason, enrolled_at, customer_type, customer_ref, is_test",
-    )
-    .not("cohort_number", "is", null)
-    .order("enrolled_at", { ascending: false })
-    .limit(MAX_ENROLLMENTS);
-  if (enrollErr) return NextResponse.json({ error: enrollErr.message }, { status: 500 });
+  /* Paged: PostgREST caps each response (max-rows), so a single
+     .limit(MAX_ENROLLMENTS) silently came back short. id breaks enrolled_at
+     ties so pages don't overlap or skip. */
+  const enrollRows: unknown[] = [];
+  for (let from = 0; from < MAX_ENROLLMENTS; from += 1000) {
+    const { data, error: enrollErr } = await supabaseServer
+      .from("automation_enrollments")
+      .select(
+        "id, automation_id, cohort_label, cohort_number, status, exit_reason, enrolled_at, customer_type, customer_ref, is_test",
+      )
+      .not("cohort_number", "is", null)
+      .order("enrolled_at", { ascending: false })
+      .order("id")
+      .range(from, Math.min(from + 1000, MAX_ENROLLMENTS) - 1);
+    if (enrollErr) return NextResponse.json({ error: enrollErr.message }, { status: 500 });
+    enrollRows.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
 
-  const enrollments = (enrollRows ?? []) as Array<{
+  const enrollments = enrollRows as Array<{
     id: string;
     automation_id: string;
     cohort_label: string | null;

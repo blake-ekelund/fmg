@@ -7,8 +7,10 @@ export const runtime = "nodejs";
 
 /** Guard rails — results reporting reads recipient rows in bulk. */
 const MAX_JOBS = 100;
-const MAX_RECIPIENTS = 20000;
+const MAX_RECIPIENTS = 60000;
+const PAGE = 1000;
 const CHUNK = 200;
+const PARALLEL = 8;
 
 /**
  * One bulk-send campaign, shaped to line up with automation cohorts on the
@@ -101,39 +103,56 @@ async function build(jobsRaw: unknown[]): Promise<CampaignRow[]> {
     message_id: string | null;
     customer_email: string | null;
   };
+  /* PostgREST caps every response (max-rows), so one big .limit() across many
+     jobs silently returned a few thousand rows shared among them — a 3,491-
+     recipient blast showed 114. Page each job in a stable order instead, and
+     load whole jobs only: past the cap, older jobs are dropped rather than
+     shown with partial counts. */
   const recipients: Recipient[] = [];
-  const jobIds = jobs.map((j) => j.id);
-  for (let i = 0; i < jobIds.length && recipients.length < MAX_RECIPIENTS; i += 20) {
-    const { data } = await supabaseServer
-      .from("email_send_job_recipients")
-      .select("job_id, status, message_id, customer_email")
-      .in("job_id", jobIds.slice(i, i + 20))
-      .limit(MAX_RECIPIENTS - recipients.length);
-    recipients.push(...(((data as Recipient[] | null) ?? [])));
+  const loadedJobs = new Set<string>();
+  for (const j of jobs) {
+    if (recipients.length >= MAX_RECIPIENTS) break;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabaseServer
+        .from("email_send_job_recipients")
+        .select("job_id, status, message_id, customer_email")
+        .eq("job_id", j.id)
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      const page = (data as Recipient[] | null) ?? [];
+      recipients.push(...page);
+      if (page.length < PAGE) break;
+    }
+    loadedJobs.add(j.id);
   }
 
   /* 4. Opens + clicks for the messages those sends produced. Both counters are
-        trigger-maintained, so reading the message/link rows is enough. */
+        trigger-maintained, so reading the message/link rows is enough. Chunks
+        run a few at a time — a handful of campaigns is tens of thousands of
+        messages. */
   const messageIds = recipients.map((r) => r.message_id).filter((m): m is string => !!m);
   const openedMessages = new Set<string>();
   const clickedMessages = new Set<string>();
-  for (let i = 0; i < messageIds.length; i += CHUNK) {
-    const slice = messageIds.slice(i, i + CHUNK);
-    const { data: opened } = await supabaseServer
-      .from("email_messages")
-      .select("id")
-      .in("id", slice)
-      .gt("open_count", 0);
-    for (const m of ((opened as Array<{ id: string }> | null) ?? [])) openedMessages.add(m.id);
-
-    const { data: clicked } = await supabaseServer
-      .from("email_message_links")
-      .select("message_id")
-      .in("message_id", slice)
-      .gt("click_count", 0);
-    for (const l of ((clicked as Array<{ message_id: string }> | null) ?? [])) {
-      clickedMessages.add(l.message_id);
-    }
+  const slices: string[][] = [];
+  for (let i = 0; i < messageIds.length; i += CHUNK) slices.push(messageIds.slice(i, i + CHUNK));
+  for (let i = 0; i < slices.length; i += PARALLEL) {
+    await Promise.all(
+      slices.slice(i, i + PARALLEL).map(async (slice) => {
+        const [{ data: opened }, { data: clicked }] = await Promise.all([
+          supabaseServer.from("email_messages").select("id").in("id", slice).gt("open_count", 0),
+          supabaseServer
+            .from("email_message_links")
+            .select("message_id")
+            .in("message_id", slice)
+            .gt("click_count", 0),
+        ]);
+        for (const m of ((opened as Array<{ id: string }> | null) ?? [])) openedMessages.add(m.id);
+        for (const l of ((clicked as Array<{ message_id: string }> | null) ?? [])) {
+          clickedMessages.add(l.message_id);
+        }
+      }),
+    );
   }
 
   /* 5. Post-send opt-outs: an unsubscribe/complaint recorded AFTER the
@@ -190,6 +209,7 @@ async function build(jobsRaw: unknown[]): Promise<CampaignRow[]> {
     else row.noAction++;
   }
 
-  // Jobs whose recipients were all skipped/failed still show (size 0).
-  return [...byJob.values()];
+  // Jobs whose recipients were all skipped/failed still show (size 0); jobs
+  // past the recipient cap were never loaded, so they're left out.
+  return [...byJob.values()].filter((row) => loadedJobs.has(row.key));
 }
