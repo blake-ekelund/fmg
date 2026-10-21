@@ -6,6 +6,7 @@ import { TOOL_DEFS as DATA_TOOL_DEFS, runTool as runDataTool } from "./tools";
 import { FILTER_OPS, METRIC_FNS, datasetsForRole, describeDatasets, runQuery, type QuerySpec } from "./dataCatalog";
 import { searchConversations } from "./sageMemory";
 import { exportFilename, probeExport, readExportSpec, type ExportSpec } from "./reportExport";
+import { JE_COLUMNS, JE_COLUMN_LABELS, type SavedSettlement } from "@/lib/amazonSettlement";
 
 /**
  * What Sage (the in-app assistant) can DO, beyond explaining the site.
@@ -13,7 +14,9 @@ import { exportFilename, probeExport, readExportSpec, type ExportSpec } from "./
  * The rule: Sage creates DRAFTS and looks things up. It never sends, publishes,
  * schedules, deletes or pushes anything — every create here lands as a draft
  * the user opens, checks and ships themselves. That keeps every action
- * reversible without needing a confirm step in the chat.
+ * reversible without needing a confirm step in the chat. (Importing an Amazon
+ * settlement saves a journal entry, but it's derived from the user's own file,
+ * internal-only, and deletable on the page.)
  *
  * Each tool is gated on a page: it's only offered when the user's role can open
  * that page (getAllowedPaths), so Sage can't do anything the user couldn't do
@@ -31,6 +34,8 @@ export type ToolContext = {
   authorization: string;
   /** The saved conversation this turn belongs to (excluded from recall). */
   conversationId?: string | null;
+  /** Text files the user attached in this chat (resent each turn by the widget). */
+  attachments?: { name: string; text: string }[];
 };
 
 /** Something Sage made — shown in the chat as a button to open it. */
@@ -644,7 +649,68 @@ const proposePublishing: HelpTool = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Accounting                                                         */
+/* ------------------------------------------------------------------ */
+
+const importAmazonSettlement: HelpTool = {
+  page: "/accounting/amazon-payments",
+  status: "Building the journal entry…",
+  def: {
+    name: "import_amazon_settlement",
+    description:
+      "Turn an attached Amazon settlement report (Seller Central's tab-separated Flat File V2 .txt) into its journal entry and save it to Accounting → Amazon Payments. Use when the user attaches a settlement file and wants the journal entry / wants it added to Amazon Payments. Re-importing the same settlement replaces its saved entry. Report back the period, the Total, and whether it ties to Amazon's deposit.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_name: { type: "string", description: "Name of the attached file, exactly as listed in the chat." },
+      },
+      required: ["file_name"],
+    },
+  },
+  async run(input, ctx) {
+    const files = ctx.attachments ?? [];
+    const wanted = str(input.file_name, 200);
+    const file = files.find((f) => f.name === wanted) ?? (files.length === 1 ? files[0] : undefined);
+    if (!file) {
+      return {
+        result: {
+          imported: false,
+          error: files.length ? `No attached file named "${wanted}".` : "No file is attached — ask the user to attach the settlement report with the paperclip.",
+          attached: files.map((f) => f.name),
+        },
+      };
+    }
+    const out = await callApi<{ saved: boolean; replaced: boolean; entry: SavedSettlement }>(
+      ctx,
+      "POST",
+      "/api/accounting/amazon-settlements",
+      { text: file.text, file_name: file.name },
+    );
+    const e = out.entry;
+    return {
+      result: {
+        imported: true,
+        saved: out.saved,
+        ...(out.saved ? {} : { note: "Saving isn't switched on yet (database migration pending) — the entry was built but not stored." }),
+        replaced_existing: out.replaced,
+        period: e.label,
+        deposit_date: e.depositDate,
+        columns: Object.fromEntries(JE_COLUMNS.map((c) => [JE_COLUMN_LABELS[c], e.columns[c]])),
+        total: e.total,
+        amazon_reported_total: e.reportedTotal,
+        ties_to_deposit: e.reconciles,
+      },
+      action: {
+        label: "Open Amazon Payments",
+        href: `/accounting/amazon-payments?settlement=${encodeURIComponent(e.settlementId)}`,
+      },
+    };
+  },
+};
+
 const STATIC_TOOLS: HelpTool[] = [
+  importAmazonSettlement,
   recallConversations,
   proposePublishing,
   createEmailTemplate,

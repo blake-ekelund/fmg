@@ -321,6 +321,34 @@ Shows our brand photo collections on Unsplash in one place — the same photos t
 Unsplash only shares free photos with other apps. Download it on unsplash.com while signed in to our Unsplash+ account, upload it to the **Image Library**, and give it a title and short description. It then shows under "Ours" in every picker.`,
   },
 
+  /* ─────────────────────────── Amazon Payments ─────────────────────────── */
+  {
+    path: "/accounting/amazon-payments",
+    title: "Amazon Payments",
+    section: "Accounting",
+    summary:
+      "Turn an Amazon settlement report into the journal entry for that period — sales, shipping, fees, advertising, promos, refunds, other, and the deposit total.",
+    body: `## What it's for
+Each Amazon settlement (roughly every two weeks) becomes one journal-entry row for the books. Owner and admin only.
+
+## Adding a settlement
+1. In Seller Central go to Payments → Reports Repository and download the settlement's **Flat File V2** (.txt).
+2. On [Amazon Payments](/accounting/amazon-payments) click **Upload** (or drop the file anywhere on the page). Several files at once is fine.
+3. Or attach the file to Sage with the paperclip and ask for the journal entry — Sage saves it here too.
+
+Uploading the same settlement again replaces its row; it never duplicates.
+
+## Reading the table
+- Columns: **Sales**, **Shipping**, **Amazon Fees** (commission, FBA fulfillment, shipping chargebacks), **Cost of Advertising**, **Promo Rebates** (shipping promotions), **FBA Fees** (inbound transportation plus storage/removal/placement), **Refunded Sales**, **Other** (item promotions, inventory reimbursements, anything new), **Total** = what Amazon deposited.
+- Newest period first, 10 per page. Click any column header to sort by it; click again to flip the order.
+- Click a row to see which settlement lines feed each column, whether it ties to Amazon's deposit, and **Delete entry**.
+
+## Exporting
+- **Copy for Excel** copies every entry (in the current sort) to paste into a spreadsheet.
+- **Download CSV** saves the same thing as a file.
+- **Clear** deletes every saved entry (asks first). Re-upload the reports to bring them back.`,
+  },
+
   /* ─────────────────────────── System Handbook ─────────────────────────── */
   {
     path: "/handbook",

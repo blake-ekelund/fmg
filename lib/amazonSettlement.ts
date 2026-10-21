@@ -73,6 +73,25 @@ export type SettlementJournalEntry = {
   lineCount: number;
 };
 
+/** A journal entry as stored in amazon_settlements (id null = not saved). */
+export type SavedSettlement = SettlementJournalEntry & {
+  id: string | null;
+  fileName: string | null;
+  createdAt: string | null;
+};
+
+/** amazon_settlements column for each JE column. */
+export const JE_DB_COLUMNS: Record<JeColumn, string> = {
+  sales: "sales",
+  shipping: "shipping",
+  amazonFees: "amazon_fees",
+  advertising: "advertising",
+  promoRebates: "promo_rebates",
+  fbaFees: "fba_fees",
+  refundedSales: "refunded_sales",
+  other: "other",
+};
+
 export function classifyLine(
   transactionType: string,
   amountType: string,

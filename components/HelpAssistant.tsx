@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowRight, CalendarClock, Check, Download, History, Loader2, Send, Sparkles, SquarePen, Trash2, X } from "lucide-react";
+import { ArrowRight, CalendarClock, Check, Download, History, Loader2, Paperclip, Send, Sparkles, SquarePen, Trash2, X } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useUser } from "@/components/UserContext";
 import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
@@ -56,7 +56,16 @@ type ChatMessage = {
   actions?: ChatAction[];
   /** Two suggested follow-ups, shown as buttons under the latest reply. */
   next?: string[];
+  /** Names of files attached with this message (their text lives in filesRef). */
+  files?: string[];
 };
+
+/* Attachments: text files only (e.g. an Amazon settlement report), kept for
+   the current chat and resent each turn so Sage's tools can read them. Never
+   saved with the conversation. */
+type Attachment = { name: string; text: string };
+const MAX_FILE_BYTES = 1_500_000;
+const FILE_ACCEPT = ".txt,.tsv,.csv,text/plain,text/csv,text/tab-separated-values";
 
 /* Sage ends each reply with "[[next: A | B]]". Pull that line out as chips —
    and while it is still streaming in, hide the partial marker. */
@@ -91,7 +100,9 @@ type HelpEvent ={ t: "text"; v: string } | { t: "status"; v: string } | ({ t: "a
    follow-ups ("change its subject line") know which one. */
 const forApi = (m: ChatMessage) => ({
   role: m.role,
-  content: m.actions?.length
+  content: m.files?.length
+    ? `${m.content}\n\n[Attached: ${m.files.join(", ")}]`
+    : m.actions?.length
     ? `${m.content}\n\n[Shown: ${m.actions
         .map((a) =>
           "href" in a
@@ -154,6 +165,14 @@ export default function HelpAssistant() {
     messagesRef.current = messages;
   }, [messages]);
   const [input, setInput] = useState("");
+  // Files attached in this chat (name → text), and the ones waiting to go with the next message.
+  const filesRef = useRef<Map<string, string>>(new Map());
+  const [pendingFiles, setPendingFiles] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const clearFiles = () => {
+    filesRef.current = new Map();
+    setPendingFiles([]);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -238,6 +257,7 @@ export default function HelpAssistant() {
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
   useEffect(() => {
     setMessages([]);
+    clearFiles();
     setConversationId(null);
     conversationIdRef.current = null;
     setView("chat");
@@ -280,6 +300,7 @@ export default function HelpAssistant() {
         /* ignore */
       }
       setMessages([]);
+      clearFiles();
       setConversationId(null);
       setOpen(false);
     });
@@ -326,6 +347,7 @@ export default function HelpAssistant() {
       const j = (await res.json()) as { conversation?: { id: string; messages: ChatMessage[] } | null };
       if (!j.conversation) throw new Error("That conversation couldn't be found.");
       conversationIdRef.current = j.conversation.id;
+      clearFiles();
       setConversationId(j.conversation.id);
       setMessages(j.conversation.messages ?? []);
       setError(null);
@@ -430,14 +452,18 @@ export default function HelpAssistant() {
   }
 
   async function send(text: string) {
-    const q = text.trim();
+    const attaching = pendingFiles;
+    const names = attaching.map((f) => f.name);
+    const q = text.trim() || (names.length ? `Here's ${names.join(", ")}.` : "");
     if (!q || busy) return;
     unlockAudio(); // while we still have the click / Enter gesture
     const startedAt = Date.now();
     setView("chat");
     setError(null);
     setInput("");
-    const next: ChatMessage[] = [...messages, { role: "user", content: q }];
+    for (const f of attaching) filesRef.current.set(f.name, f.text);
+    setPendingFiles([]);
+    const next: ChatMessage[] = [...messages, { role: "user", content: q, ...(names.length ? { files: names } : {}) }];
     setMessages([...next, { role: "assistant", content: "" }]);
     setBusy(true);
     let reply = "";
@@ -446,7 +472,12 @@ export default function HelpAssistant() {
       const res = await fetch("/api/help/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ messages: next.map(forApi), pathname, conversationId: conversationIdRef.current }),
+        body: JSON.stringify({
+          messages: next.map(forApi),
+          pathname,
+          conversationId: conversationIdRef.current,
+          attachments: [...filesRef.current].map(([name, text]) => ({ name, text })),
+        }),
       });
       if (!res.ok || !res.body) {
         const j = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -498,6 +529,25 @@ export default function HelpAssistant() {
       setBusy(false);
       setStatus(null);
     }
+  }
+
+  async function attach(list: FileList | null) {
+    if (!list?.length) return;
+    setError(null);
+    const out: Attachment[] = [];
+    for (const f of Array.from(list)) {
+      if (f.size > MAX_FILE_BYTES) {
+        setError(`${f.name} is too large to attach (1.5 MB max).`);
+        continue;
+      }
+      if (!/\.(txt|tsv|csv)$/i.test(f.name) && !f.type.startsWith("text/")) {
+        setError(`Sage can read text files (.txt, .csv, .tsv) — ${f.name} isn't one.`);
+        continue;
+      }
+      out.push({ name: f.name, text: await f.text() });
+    }
+    setPendingFiles((prev) => [...prev.filter((p) => !out.some((o) => o.name === p.name)), ...out].slice(-5));
+    inputRef.current?.focus();
   }
 
   sendRef.current = send;
@@ -557,6 +607,7 @@ export default function HelpAssistant() {
 
   /** Start a new conversation (the current one stays in History). */
   function reset() {
+    clearFiles();
     setMessages([]);
     setError(null);
     conversationIdRef.current = null;
@@ -716,10 +767,15 @@ export default function HelpAssistant() {
 
             {messages.map((m, i) =>
               m.role === "user" ? (
-                <div key={i} className="flex justify-end">
+                <div key={i} className="flex flex-col items-end gap-1">
                   <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-brand-700 px-3 py-2 text-sm text-white">
                     {m.content}
                   </div>
+                  {m.files?.map((name) => (
+                    <span key={name} className="inline-flex max-w-[85%] items-center gap-1 truncate text-[11px] text-ink-muted">
+                      <Paperclip size={11} className="shrink-0" /> {name}
+                    </span>
+                  ))}
                 </div>
               ) : m.content || m.actions?.length ? (
                 <div key={i} className="flex flex-col items-start gap-2">
@@ -791,7 +847,47 @@ export default function HelpAssistant() {
           </div>
 
           <div className="border-t border-line px-3 py-3">
+            {pendingFiles.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {pendingFiles.map((f) => (
+                  <span
+                    key={f.name}
+                    className="inline-flex max-w-full items-center gap-1 rounded-lg bg-surface-muted px-2 py-1 text-xs text-ink"
+                  >
+                    <Paperclip size={12} className="shrink-0 text-ink-muted" />
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      onClick={() => setPendingFiles((prev) => prev.filter((p) => p.name !== f.name))}
+                      aria-label={`Remove ${f.name}`}
+                      className="text-ink-muted hover:text-ink"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={FILE_ACCEPT}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void attach(e.target.files);
+                e.target.value = "";
+              }}
+            />
             <div className="flex items-end gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                aria-label="Attach a file"
+                title="Attach a file (e.g. an Amazon settlement report)"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-ink-muted transition hover:bg-surface-muted hover:text-ink disabled:opacity-40"
+              >
+                <Paperclip size={16} />
+              </button>
               <textarea
                 ref={inputRef}
                 value={input}
@@ -808,7 +904,7 @@ export default function HelpAssistant() {
               />
               <button
                 onClick={() => send(input)}
-                disabled={busy || !input.trim()}
+                disabled={busy || (!input.trim() && !pendingFiles.length)}
                 aria-label="Send"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-40"
               >

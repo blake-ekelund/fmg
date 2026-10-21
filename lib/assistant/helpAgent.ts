@@ -81,6 +81,19 @@ USER GUIDE:
 ${renderGuide(guideForRole(role))}`;
 }
 
+/* Name + a short peek at each attached file, so Sage can tell what it is and
+   pick the right tool. The full text stays server-side for the tools. */
+function attachedFiles(files: ToolContext["attachments"]): string {
+  if (!files?.length) return "";
+  const list = files.map((f) => {
+    const lines = f.text.split(/\r?\n/).filter((l) => l.trim()).length;
+    const head = f.text.slice(0, 300).split(/\r?\n/)[0].replace(/\t/g, " | ").slice(0, 240);
+    const kind = /settlement-id\tsettlement-start-date/i.test(f.text.slice(0, 400)) ? "Amazon settlement report, " : "";
+    return `"${f.name}" (${kind}${lines.toLocaleString()} lines; first line: ${head})`;
+  });
+  return ` Files I've attached in this chat: ${list.join("; ")}.`;
+}
+
 /**
  * Run one turn: stream text, run any tools Sage calls (emitting status and
  * "open it" actions), and loop until it answers. Throws on API/config failure
@@ -114,7 +127,7 @@ export async function* streamHelpAnswer(
     .join("; ");
   const where = `[I'm on ${pathname}${here ? ` — the "${here.title}" page` : ""}. Today is ${today}.${
     recent ? ` My recent chats with you: ${recent}.` : ""
-  }]`;
+  }${attachedFiles(ctx.attachments)}]`;
   const messages: Anthropic.MessageParam[] = history.map((m, i) => ({
     role: m.role,
     content: i === history.length - 1 && m.role === "user" ? `${where}\n\n${m.content}` : m.content,
