@@ -65,6 +65,7 @@ import { useWidgets, type SiteWidget } from "./useWidgets";
 import SectionPicker from "./SectionPicker";
 import PublishReview, { diffPage } from "./PublishReview";
 import SiteHome from "./SiteHome";
+import PageMeta from "@/components/PageMeta";
 
 type PageState = {
   draft: PageBlock[];
@@ -193,7 +194,12 @@ export default function SiteEditorPage() {
   const goHome = useCallback(() => router.push("?"), [router]);
 
   if (onHome) {
-    return <SiteHome brands={filter === "all" ? SITE_BRANDS.map((x) => x.brand) : [filter]} onOpen={open} />;
+    return (
+      <>
+        <PageMeta title="Website" description="Every Sassy and NI storefront page — edit it here, then publish when it's ready." />
+        <SiteHome brands={filter === "all" ? SITE_BRANDS.map((x) => x.brand) : [filter]} onOpen={open} />
+      </>
+    );
   }
 
   return (
@@ -940,7 +946,7 @@ function PageEditor({
 
   if (!page && !error) {
     return (
-      <div className="flex h-[calc(100vh-64px)] items-center justify-center text-sm text-gray-500">
+      <div className="flex h-[calc(100dvh-64px)] items-center justify-center text-sm text-gray-500 md:h-[calc(100dvh-56px)]">
         <Loader2 size={16} className="mr-2 animate-spin" /> Loading {def.label.toLowerCase()}…
       </div>
     );
@@ -954,9 +960,10 @@ function PageEditor({
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col">
+    <div className="flex h-[calc(100dvh-64px)] flex-col md:h-[calc(100dvh-56px)]">
+      <PageMeta title="Website" description={`Editing ${def.label} — changes save as a draft and go live when you publish.`} />
       {/* ── top bar ─────────────────────────────────────────────────────── */}
-      <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2.5">
+      <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2">
         <button
           type="button"
           onClick={async () => {
@@ -1005,7 +1012,7 @@ function PageEditor({
             </optgroup>
           ))}
         </select>
-        <span className="hidden truncate text-xs text-gray-400 lg:inline">
+        <span className="hidden truncate text-xs text-gray-400 2xl:inline">
           {host}
           {def.path}
         </span>
@@ -1058,6 +1065,7 @@ function PageEditor({
             {canvasLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           </IconButton>
           <TextButton
+            title="Page settings"
             active={panelOpen && tab === "page"}
             onClick={() => {
               if (panelOpen && tab === "page") setPanelOpen(false);
@@ -1067,7 +1075,7 @@ function PageEditor({
               }
             }}
           >
-            <PanelTop size={14} /> Page settings
+            <PanelTop size={14} /> <span className="hidden xl:inline">Page settings</span>
           </TextButton>
           {page?.previewUrl ? (
             <a
@@ -1077,7 +1085,7 @@ function PageEditor({
               title="Open the draft in a new tab, as a visitor would see it"
               className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
             >
-              <ExternalLink size={14} /> Preview
+              <ExternalLink size={14} /> <span className="hidden xl:inline">Preview</span>
             </a>
           ) : null}
           <span className="mx-0.5 hidden h-5 w-px bg-gray-200 sm:block" />
@@ -1106,7 +1114,7 @@ function PageEditor({
             type="button"
             disabled={!!busy || page?.notReady || !unpublished}
             onClick={() => setReview(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none"
           >
             {busy === "publish" ? <Loader2 size={13} className="animate-spin" /> : null}
             {unpublished ? "Publish…" : "Published"}
@@ -1740,11 +1748,13 @@ function WidgetPanel({
 }
 
 /** A top-bar button that says what it does. */
-function TextButton({ active, onClick, children }: { active?: boolean; onClick: () => void; children: React.ReactNode }) {
+function TextButton({ active, onClick, title, children }: { active?: boolean; onClick: () => void; title?: string; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
+      aria-label={title}
       className={clsx(
         "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition",
         active ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
