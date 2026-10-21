@@ -349,8 +349,9 @@ export default function SocialPostsPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {/* Toolbar: what you're looking at (left), what you can make (right). */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+      {/* One row on a normal desktop; if it ever wraps, the make-buttons stay right-aligned. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* List / Calendar — icons with tooltips, to keep the row short */}
         <div className="flex gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
           {(
             [
@@ -361,17 +362,19 @@ export default function SocialPostsPage() {
             <button
               key={v}
               onClick={() => switchLayout(v)}
+              title={`${label} view`}
+              aria-label={`${label} view`}
+              aria-pressed={layout === v}
               className={clsx(
-                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                "inline-flex h-8 w-9 items-center justify-center rounded-lg transition",
                 layout === v ? "bg-gray-900 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
               )}
             >
-              <Icon size={14} />
-              {label}
+              <Icon size={16} />
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+        <div className="flex flex-wrap gap-0.5 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
           {FILTERS.map((f) => {
             const active = bucket === f.value;
             const n = counts[f.value];
@@ -384,7 +387,7 @@ export default function SocialPostsPage() {
                   setSelected(new Set());
                 }}
                 className={clsx(
-                  "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                  "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition",
                   active ? "bg-gray-900 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
                 )}
               >
@@ -406,9 +409,8 @@ export default function SocialPostsPage() {
             );
           })}
         </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <button
             onClick={() => setFeed({ brand: defaultBrand, drafts: false })}
             className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
