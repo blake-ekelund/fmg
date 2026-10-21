@@ -16,6 +16,9 @@ export const maxDuration = 120;
  * Re-checks everything: each sheet's dataset must be one the caller's role can
  * see (dataCatalog gates each dataset on its page), whatever Sage put in it.
  */
+/** Letters, digits, _ - and spaces, then .xlsx or .csv (what exportFilename() makes). */
+const SAFE_FILENAME = /^[\w\- ]+\.(xlsx|csv)$/;
+
 export async function POST(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -26,7 +29,9 @@ export async function POST(request: Request) {
     const { body: file, contentType } = await buildExport(spec, user.access as UserRole);
     const ext = spec.format;
     const filename =
-      typeof body.filename === "string" && new RegExp(`^[\w\- ]+\.${ext}$`).test(body.filename) ? body.filename : `report.${ext}`;
+      typeof body.filename === "string" && SAFE_FILENAME.test(body.filename) && body.filename.endsWith(`.${ext}`)
+        ? body.filename
+        : `report.${ext}`;
     return new Response(file as BodyInit, {
       headers: {
         "Content-Type": contentType,
