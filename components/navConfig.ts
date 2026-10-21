@@ -34,6 +34,7 @@ import {
   Star,
   PanelsTopLeft,
   Calculator,
+  Landmark,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -339,6 +340,13 @@ export const navSections: readonly NavSection[] = [
         label: "Amazon Payments",
         href: "/accounting/amazon-payments",
         icon: Receipt,
+        roles: ["owner", "admin"],
+      },
+      {
+        // Stripe deposits → the orders each one paid, read live from Stripe.
+        label: "Stripe Payouts",
+        href: "/accounting/stripe-payouts",
+        icon: Landmark,
         roles: ["owner", "admin"],
       },
     ],

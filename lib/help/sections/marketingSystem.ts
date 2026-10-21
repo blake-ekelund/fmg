@@ -352,6 +352,23 @@ Uploading the same settlement again replaces its row; it never duplicates.
 Sage can answer questions about saved entries — e.g. "what was our Amazon deposit on Oct 10?", "which period had the highest ad spend?", "total Amazon fees in Q3". Each entry covers a settlement period (start → end date) and was deposited a couple of days after it ends.`,
   },
 
+  /* ─────────────────────────── Stripe Payouts ─────────────────────────── */
+  {
+    path: "/accounting/stripe-payouts",
+    title: "Stripe Payouts",
+    section: "Accounting",
+    summary:
+      "Every Stripe deposit to the bank, broken into the orders it paid, refunds and Stripe fees — for the deposit's journal entry in QuickBooks.",
+    body: `## What it's for
+Stripe pays card sales (Sassy checkout and wholesale card-on-file charges) into the bank in batches. Fishbowl has already put each order into QuickBooks as an invoice, so each deposit's journal entry clears those invoices. This page shows which orders each deposit paid. Owner and admin only.
+
+## Using it
+- One row per deposit, newest first, read live from Stripe: **Payments**, **Refunds**, **Stripe Fees**, **Other**, **Net Deposit** (what hit the bank) and how many orders it paid.
+- Click a row for the lines: each payment's order #, customer, **Fishbowl #** and Fishbowl customer, with amount, fee and net. **Copy lines** copies them for Excel.
+- A warning marks payments that couldn't be matched to an order, and any deposit whose lines don't add up.
+- **Show example** swaps in made-up payouts to show how it works; it's clearly labelled. **Refresh** re-reads Stripe. Arrows page through older deposits (10 at a time).`,
+  },
+
   /* ─────────────────────────── System Handbook ─────────────────────────── */
   {
     path: "/handbook",
