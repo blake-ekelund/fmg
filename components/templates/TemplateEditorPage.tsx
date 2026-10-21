@@ -57,7 +57,7 @@ import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import HtmlTemplateEditor from "./HtmlTemplateEditor";
 import ClientPreviewMatrix from "./ClientPreviewMatrix";
 import SendTestModal from "./SendTestModal";
-import NewTemplateWizard, { type NewTemplateResult } from "./NewTemplateWizard";
+import NewTemplateWizard, { onTemplateGenerated, type NewTemplateResult } from "./NewTemplateWizard";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
 import PageMeta from "@/components/PageMeta";
 import { toast, updateToast } from "@/lib/toast";
@@ -411,6 +411,33 @@ export default function TemplateEditorPage() {
     startGradeRun(templates.length);
   }
 
+  /* Background "Generate with AI" (NewTemplateWizard): refresh the list when a
+     draft lands, and open it when its toast's button is clicked while this
+     page is mounted — leaving any open editor first (closeEditor saves it). */
+  const [openWhenLoaded, setOpenWhenLoaded] = useState<string | null>(null);
+  const editorOpenNow = useRef(false);
+  editorOpenNow.current = !!editingId || isNew;
+  const closeEditorRef = useRef<() => void>(() => {});
+  useEffect(
+    () =>
+      onTemplateGenerated((e) => {
+        if (e.kind === "open") {
+          if (editorOpenNow.current) closeEditorRef.current();
+          setOpenWhenLoaded(e.id);
+        }
+        void refresh();
+      }),
+    [refresh],
+  );
+  useEffect(() => {
+    if (!openWhenLoaded || loading) return;
+    const target = templates.find((t) => t.id === openWhenLoaded);
+    if (target) {
+      setOpenWhenLoaded(null);
+      openEditor(target);
+    }
+  }, [openWhenLoaded, loading, templates]);
+
   // Deep link: /templates?edit=<id> opens that template straight into the
   // editor (the automation journey's "Edit email" uses it). Read once, after
   // the list has loaded, then dropped from the URL so Back returns to the list.
@@ -532,6 +559,7 @@ export default function TemplateEditorPage() {
     setEditingId(null);
     setIsNew(false);
   }
+  closeEditorRef.current = closeEditor;
 
   // Block operations
   function addBlock(type: BlockType) {

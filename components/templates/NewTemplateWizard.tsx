@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Upload, Type, LayoutGrid, Loader2, Check, Sparkles } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
+import { toast, updateToast } from "@/lib/toast";
 import {
   createDefaultBlock,
   TEMPLATE_PURPOSES,
@@ -60,6 +61,102 @@ async function authHeader(): Promise<Record<string, string>> {
 
 const STEP_LABELS = ["Brand", "Audience", "Purpose", "Title", "Description", "Start"];
 
+/* ─── Background AI generation ───────────────────────────────────────
+   Generate with AI writes the email, saves it as a draft and reports from a
+   corner toast. It runs at module level, so it survives the wizard closing
+   and page changes. The Templates page listens here to refresh its list and
+   to open the new draft when the toast's button is clicked while it's
+   mounted (otherwise the button deep-links to /templates?edit=<id>). */
+export type TemplateGenEvent = { kind: "created"; id: string } | { kind: "open"; id: string };
+const genListeners = new Set<(e: TemplateGenEvent) => void>();
+export function onTemplateGenerated(fn: (e: TemplateGenEvent) => void): () => void {
+  genListeners.add(fn);
+  return () => {
+    genListeners.delete(fn);
+  };
+}
+
+function generateTemplateInBackground(input: {
+  name: string;
+  description: string;
+  brand: Brand;
+  channel: Channel;
+  purpose: TemplatePurpose[];
+  prompt: string;
+}) {
+  const label = input.name || "your email";
+  const t = toast({
+    tone: "working",
+    title: `Writing “${label}”…`,
+    body: "Claude is building it from our blocks & layouts — up to a minute. You can keep working.",
+  });
+  void (async () => {
+    try {
+      const res = await fetch("/api/email/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({
+          brand: input.brand,
+          channel: input.channel,
+          purpose: input.purpose,
+          prompt: input.prompt,
+          name: input.name,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Generation failed. Try again.");
+
+      // Same draft shape the editor's own first save writes.
+      const { data, error } = await supabase
+        .from("email_templates")
+        .insert({
+          name: input.name || "Untitled Template",
+          subject: json.subject ?? "",
+          type: "email",
+          brand: input.brand,
+          channel: input.channel,
+          source: "blocks",
+          blocks: JSON.parse(JSON.stringify((json.blocks as EmailBlock[]) ?? [])),
+          raw_html: null,
+          text_body: null,
+          sms_body: "",
+          preview_text: json.preview_text ?? "",
+          from_name: "",
+          purpose: input.purpose,
+          description: input.description,
+          status: "draft",
+          updated_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (error || !data) throw new Error(error?.message ?? "Couldn't save the draft.");
+      const id = data.id as string;
+      genListeners.forEach((l) => l({ kind: "created", id }));
+
+      updateToast(t, {
+        tone: "success",
+        title: `“${label}” is ready`,
+        body: "Saved as a draft template — have a look and tweak it.",
+        sticky: true,
+        action: {
+          label: "Open template",
+          run: (go) => {
+            if (genListeners.size) genListeners.forEach((l) => l({ kind: "open", id }));
+            else go(`/templates?edit=${id}`);
+          },
+        },
+      });
+    } catch (e) {
+      updateToast(t, {
+        tone: "error",
+        title: `Couldn't write “${label}”`,
+        body: e instanceof Error ? e.message : "Generation failed.",
+        sticky: true,
+      });
+    }
+  })();
+}
+
 export default function NewTemplateWizard({ open, onClose, onComplete }: Props) {
   const [step, setStep] = useState(0);
   const [brand, setBrand] = useState<Brand>("ni");
@@ -71,7 +168,6 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
   const [aiPrompt, setAiPrompt] = useState("");
 
   const [importing, setImporting] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -85,7 +181,6 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
     setStart(null);
     setAiPrompt("");
     setImporting(false);
-    setGenerating(false);
     setError(null);
   }
 
@@ -102,12 +197,12 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
       case 3: return name.trim().length > 0;
       case 4: return true; // description optional
       case 5:
-        if (!start || importing || generating) return false;
+        if (!start || importing) return false;
         if (start === "ai") return aiPrompt.trim().length > 0;
         return true;
       default: return false;
     }
-  }, [step, brand, channel, purpose, name, start, aiPrompt, importing, generating]);
+  }, [step, brand, channel, purpose, name, start, aiPrompt, importing]);
 
   function togglePurpose(v: TemplatePurpose) {
     setPurpose((cur) => (cur.includes(v) ? cur.filter((p) => p !== v) : [...cur, v]));
@@ -160,28 +255,21 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
     }
   }
 
-  async function handleGenerate() {
+  function handleGenerate() {
     setError(null);
     const p = aiPrompt.trim();
-    if (!p) return;
-    setGenerating(true);
-    try {
-      const res = await fetch("/api/email/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ brand, channel, purpose, prompt: p, name }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(json.error ?? "Generation failed. Try again.");
-        setGenerating(false);
-        return;
-      }
-      finish((json.blocks as EmailBlock[]) ?? [], json.subject ?? "", json.preview_text ?? "");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Generation failed.");
-      setGenerating(false);
-    }
+    if (!p || purpose.length === 0) return;
+    // AI writing takes up to a minute — don't hold the wizard open for it.
+    // Close now, keep a toast going, and link to the draft when it lands.
+    generateTemplateInBackground({
+      name: name.trim(),
+      description: description.trim(),
+      brand,
+      channel,
+      purpose,
+      prompt: p,
+    });
+    close();
   }
 
   function onContinue() {
@@ -297,7 +385,7 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
                   <button
                     key={s.value}
                     onClick={() => { setStart(s.value); setError(null); }}
-                    disabled={importing || generating}
+                    disabled={importing}
                     className={clsx(
                       "flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition disabled:opacity-50",
                       start === s.value ? "border-gray-900 bg-gray-50" : "border-gray-200 hover:bg-gray-50",
@@ -321,12 +409,11 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
                     rows={4}
-                    disabled={generating}
                     placeholder="Describe the email — e.g. “Spring launch for the Eucalyptus Rosemary Mint collection. Hero, two product cards side by side, 15% off with code SPRING15, shop CTA.”"
                     className="w-full resize-y rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-60"
                   />
                   <p className="mt-1 text-[11px] text-gray-400">
-                    Claude builds it from our blocks and section layouts using the {brand === "sassy" ? "Sassy" : brand === "ni" ? "Natural Inspirations" : "brand"} voice — then it opens in the editor to tweak.
+                    Claude builds it from our blocks and section layouts using the {brand === "sassy" ? "Sassy" : brand === "ni" ? "Natural Inspirations" : "brand"} voice. It runs in the background and is saved as a draft — a notice links to it when it is ready.
                   </p>
                 </div>
               )}
@@ -334,12 +421,6 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
                 <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
                   <Loader2 size={14} className="animate-spin" />
                   Converting your HTML into editable blocks…
-                </div>
-              )}
-              {generating && (
-                <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
-                  <Loader2 size={14} className="animate-spin" />
-                  Building your email from our blocks & layouts…
                 </div>
               )}
               {error && (
@@ -360,7 +441,7 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
         <div className="flex flex-shrink-0 items-center justify-between border-t border-gray-100 px-5 py-2.5">
           <button
             onClick={() => (step === 0 ? close() : setStep((s) => s - 1))}
-            disabled={importing || generating}
+            disabled={importing}
             className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40"
           >
             <ChevronLeft size={14} />
@@ -376,9 +457,9 @@ export default function NewTemplateWizard({ open, onClose, onComplete }: Props) 
               : start === "upload"
                 ? "Choose file"
                 : start === "ai"
-                  ? (generating ? "Generating…" : "Generate")
+                  ? "Generate"
                   : "Create"}
-            {!generating && <ChevronRight size={14} />}
+            <ChevronRight size={14} />
           </button>
         </div>
       </div>
