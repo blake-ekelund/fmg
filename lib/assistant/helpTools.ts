@@ -4,6 +4,7 @@ import { getAllowedPaths } from "@/components/navConfig";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { TOOL_DEFS as DATA_TOOL_DEFS, runTool as runDataTool } from "./tools";
 import { FILTER_OPS, METRIC_FNS, datasetsForRole, describeDatasets, runQuery, type QuerySpec } from "./dataCatalog";
+import { searchConversations } from "./sageMemory";
 
 /**
  * What Sage (the in-app assistant) can DO, beyond explaining the site.
@@ -27,6 +28,8 @@ export type ToolContext = {
   origin: string;
   /** The user's "Bearer …" header, forwarded so self-calls act as them. */
   authorization: string;
+  /** The saved conversation this turn belongs to (excluded from recall). */
+  conversationId?: string | null;
 };
 
 /** Something Sage made — shown in the chat as a button to open it. */
@@ -496,7 +499,27 @@ const updateTask: HelpTool = {
   },
 };
 
+const recallConversations: HelpTool = {
+  page: "*",
+  status: "Checking our past conversations…",
+  def: {
+    name: "recall_conversations",
+    description:
+      "Search this user's past conversations with you (Sage). Use when they refer to something from before (\"what did we decide…\", \"the email you made last week\", \"like last time\") or when earlier context would clearly help. Only their own chats. Pass a few key words; an empty query returns the most recent chats.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "Key words, e.g. 'holiday email NI'." } },
+    },
+  },
+  async run(input, ctx) {
+    const r = await searchConversations(ctx.userId, str(input.query, 200), ctx.conversationId);
+    if (!r.ready) return { result: { error: "Conversation history isn't switched on yet." } };
+    return { result: r.matches.length ? r : { matches: [], note: "No past conversations matched." } };
+  },
+};
+
 const STATIC_TOOLS: HelpTool[] = [
+  recallConversations,
   createEmailTemplate,
   createTask,
   updateTask,

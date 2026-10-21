@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { UserRole } from "@/components/UserContext";
 import { guideForPath, guideForRole, sitemapForRole, type GuideEntry } from "@/lib/help";
 import { runHelpTool, toolStatus, toolsForRole, type ToolAction, type ToolContext } from "./helpTools";
+import { listConversations } from "./sageMemory";
 
 /**
  * Sage — the in-app assistant. Explains how to use the FMG portal (grounded in
@@ -53,6 +54,7 @@ Doing tasks:
 - The user sees ONLY the text you write — never tool results or your reasoning. After looking something up, always write out the answer itself (the actual products, customers, numbers), not just a pointer to a page.
 - Present small result sets as a short list ("- **Name** — $1,234"); for more than ~15 rows, summarize and offer an export.
 - When an answer points somewhere useful, link the page inline, e.g. [Inventory](/inventory).
+- You remember past conversations with this person: their latest message lists recent chat titles, and recall_conversations searches them. When they refer to earlier work ("the email you made", "what we found last week", "do it like last time"), recall it rather than asking them to repeat themselves. Don't bring up old chats unprompted unless clearly relevant.
 - If they ask for something you have no tool for, say you can't do that yet and give the steps to do it themselves.
 
 Explaining the site:
@@ -95,7 +97,16 @@ export async function* streamHelpAnswer(
   // Where the user is (and today's date), on their latest turn only — keeps
   // the cached prefix stable as they move around the site.
   const here = guideForPath(pathname);
-  const where = `[I'm on ${pathname}${here ? ` — the "${here.title}" page` : ""}. Today is ${today}.]`;
+  // Titles of their recent chats, so Sage knows there's history to recall.
+  const past = await listConversations(ctx.userId, 7).catch(() => ({ ready: false, items: [] }));
+  const recent = past.items
+    .filter((c) => c.id !== ctx.conversationId)
+    .slice(0, 6)
+    .map((c) => `"${c.title}" (${c.updated_at.slice(0, 10)})`)
+    .join("; ");
+  const where = `[I'm on ${pathname}${here ? ` — the "${here.title}" page` : ""}. Today is ${today}.${
+    recent ? ` My recent chats with you: ${recent}.` : ""
+  }]`;
   const messages: Anthropic.MessageParam[] = history.map((m, i) => ({
     role: m.role,
     content: i === history.length - 1 && m.role === "user" ? `${where}\n\n${m.content}` : m.content,

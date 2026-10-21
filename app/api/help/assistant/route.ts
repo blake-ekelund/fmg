@@ -15,7 +15,7 @@ export const maxDuration = 300;
 /**
  * POST /api/help/assistant — one turn of Sage, the in-app assistant.
  *
- * Body: { messages: { role, content }[], pathname: string }
+ * Body: { messages: { role, content }[], pathname: string, conversationId?: string }
  * Returns: NDJSON stream of HelpEvent — {t:"text"|"status", v} and
  * {t:"action", label, href} for each draft Sage creates.
  *
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify(off) + "\n", { headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { messages?: unknown; pathname?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { messages?: unknown; pathname?: unknown; conversationId?: unknown };
   const pathname =
     typeof body.pathname === "string" && body.pathname.startsWith("/") ? body.pathname.slice(0, 200) : "/dashboard";
   const raw = Array.isArray(body.messages) ? body.messages : [];
@@ -62,6 +62,7 @@ export async function POST(request: Request) {
     userId: user.id,
     origin: new URL(request.url).origin,
     authorization: request.headers.get("authorization") ?? "",
+    conversationId: typeof body.conversationId === "string" ? body.conversationId : null,
   };
   const encoder = new TextEncoder();
   const send = (e: HelpEvent) => encoder.encode(JSON.stringify(e) + "\n");

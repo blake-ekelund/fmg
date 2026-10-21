@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowRight, Download, Loader2, Send, Sparkles, X, RotateCcw } from "lucide-react";
+import { ArrowRight, Download, History, Loader2, Send, Sparkles, SquarePen, Trash2, X } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
 
@@ -24,7 +24,20 @@ type ChatAction =
   | { label: string; download: { spec: unknown; filename: string } };
 type ChatMessage = { role: "user" | "assistant"; content: string; actions?: ChatAction[] };
 
-type HelpEvent = { t: "text"; v: string } | { t: "status"; v: string } | ({ t: "action" } & ChatAction);
+type HistoryItem = { id: string; title: string; updated_at: string };
+
+/** "2:14 PM" today, "Yesterday", "Mon", or "Oct 3". */
+function when(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const days = Math.floor((new Date(now.toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 86_400_000);
+  if (days === 0) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (days === 1) return "Yesterday";
+  if (days < 7) return d.toLocaleDateString("en-US", { weekday: "short" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+type HelpEvent ={ t: "text"; v: string } | { t: "status"; v: string } | ({ t: "action" } & ChatAction);
 
 /* What the server sees of past turns: what Sage made rides along as text so
    follow-ups ("change its subject line") know which one. */
@@ -65,6 +78,12 @@ export default function HelpAssistant() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // The saved conversation this chat belongs to (null until its first save).
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
+  conversationIdRef.current = conversationId;
+  const [view, setView] = useState<"chat" | "history">("chat");
+  const [history, setHistory] = useState<{ ready: boolean; items: HistoryItem[]; error?: string } | null>(null);
   // A reply landed while the panel was closed — the launcher says so.
   const [hasUnread, setHasUnread] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -130,11 +149,19 @@ export default function HelpAssistant() {
     }
   }
 
-  // Restore / persist the conversation for this browser tab.
+  // Restore / persist the open conversation for this browser tab (the saved
+  // history lives server-side; this just survives a reload mid-chat).
   useEffect(() => {
     try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) setMessages(JSON.parse(saved) as ChatMessage[]);
+      const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null") as
+        | ChatMessage[]
+        | { messages: ChatMessage[]; conversationId: string | null }
+        | null;
+      if (Array.isArray(saved)) setMessages(saved);
+      else if (saved) {
+        setMessages(saved.messages ?? []);
+        setConversationId(saved.conversationId ?? null);
+      }
     } catch {
       /* storage unavailable — start fresh */
     }
@@ -142,11 +169,69 @@ export default function HelpAssistant() {
   useEffect(() => {
     if (busy) return;
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-30)));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ messages: messages.slice(-30), conversationId }));
     } catch {
       /* ignore */
     }
-  }, [messages, busy]);
+  }, [messages, busy, conversationId]);
+
+  /* Save the conversation to the user's Sage history after each reply, so Sage
+     can recall it later and it shows under History. Best-effort: if history
+     isn't set up (migration not applied) the server returns id null. */
+  async function persist(all: ChatMessage[]) {
+    try {
+      const res = await fetch("/api/help/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ id: conversationIdRef.current, messages: all }),
+      });
+      const j = (await res.json().catch(() => null)) as { id?: string | null } | null;
+      if (res.ok && j?.id) {
+        conversationIdRef.current = j.id;
+        setConversationId(j.id);
+      }
+    } catch {
+      /* history is a nice-to-have — never block the chat on it */
+    }
+  }
+
+  async function openHistory() {
+    setView("history");
+    setHistory(null);
+    try {
+      const res = await fetch("/api/help/conversations", { headers: await authHeader(), cache: "no-store" });
+      const j = (await res.json()) as { ready?: boolean; items?: HistoryItem[]; error?: string };
+      if (!res.ok) throw new Error(j.error ?? "Couldn't load your history.");
+      setHistory({ ready: j.ready !== false, items: j.items ?? [] });
+    } catch (e) {
+      setHistory({ ready: true, items: [], error: e instanceof Error ? e.message : "Couldn't load your history." });
+    }
+  }
+
+  async function loadConversation(id: string) {
+    try {
+      const res = await fetch(`/api/help/conversations?id=${encodeURIComponent(id)}`, { headers: await authHeader() });
+      const j = (await res.json()) as { conversation?: { id: string; messages: ChatMessage[] } | null };
+      if (!j.conversation) throw new Error("That conversation couldn't be found.");
+      conversationIdRef.current = j.conversation.id;
+      setConversationId(j.conversation.id);
+      setMessages(j.conversation.messages ?? []);
+      setError(null);
+      setView("chat");
+    } catch (e) {
+      setHistory((h) => (h ? { ...h, error: e instanceof Error ? e.message : "Couldn't open that." } : h));
+    }
+  }
+
+  async function removeConversation(id: string) {
+    setHistory((h) => (h ? { ...h, items: h.items.filter((c) => c.id !== id) } : h));
+    if (conversationIdRef.current === id) reset();
+    try {
+      await fetch(`/api/help/conversations?id=${encodeURIComponent(id)}`, { method: "DELETE", headers: await authHeader() });
+    } catch {
+      /* already gone from the list; a failed delete reappears next time */
+    }
+  }
 
   // send() is redeclared each render; the listener reads the latest through a ref.
   const sendRef = useRef<(q: string) => void>(() => {});
@@ -226,6 +311,7 @@ export default function HelpAssistant() {
     if (!q || busy) return;
     unlockAudio(); // while we still have the click / Enter gesture
     const startedAt = Date.now();
+    setView("chat");
     setError(null);
     setInput("");
     const next: ChatMessage[] = [...messages, { role: "user", content: q }];
@@ -237,7 +323,7 @@ export default function HelpAssistant() {
       const res = await fetch("/api/help/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ messages: next.map(forApi), pathname }),
+        body: JSON.stringify({ messages: next.map(forApi), pathname, conversationId: conversationIdRef.current }),
       });
       if (!res.ok || !res.body) {
         const j = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -274,10 +360,13 @@ export default function HelpAssistant() {
         setMessages([...next, { role: "assistant", content: reply, actions: [...actions] }]);
       }
       if (!reply.trim() && !actions.length) throw new Error("Sage didn't send a reply. Try again.");
+      void persist([...next, { role: "assistant", content: reply, actions }]);
       announceDone(true, Date.now() - startedAt);
     } catch (e) {
       // Keep anything Sage already made — the draft exists even if the reply broke off.
-      setMessages(reply || actions.length ? [...next, { role: "assistant", content: reply, actions }] : next);
+      const kept: ChatMessage[] = reply || actions.length ? [...next, { role: "assistant", content: reply, actions }] : next;
+      setMessages(kept);
+      if (kept.length > next.length) void persist(kept);
       const msg = e instanceof Error ? e.message : "Something went wrong.";
       setError(msg);
       announceDone(false, Date.now() - startedAt);
@@ -289,9 +378,13 @@ export default function HelpAssistant() {
 
   sendRef.current = send;
 
+  /** Start a new conversation (the current one stays in History). */
   function reset() {
     setMessages([]);
     setError(null);
+    conversationIdRef.current = null;
+    setConversationId(null);
+    setView("chat");
     inputRef.current?.focus();
   }
 
@@ -353,7 +446,18 @@ export default function HelpAssistant() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              {messages.length > 0 && (
+              <button
+                onClick={() => (view === "history" ? setView("chat") : openHistory())}
+                disabled={busy}
+                aria-label={view === "history" ? "Back to the chat" : "Past conversations"}
+                title={view === "history" ? "Back to the chat" : "Past conversations"}
+                className={`rounded-lg p-1.5 transition hover:bg-surface-muted hover:text-ink disabled:opacity-40 ${
+                  view === "history" ? "bg-surface-muted text-ink" : "text-ink-muted"
+                }`}
+              >
+                <History size={16} />
+              </button>
+              {(messages.length > 0 || view === "history") && (
                 <button
                   onClick={reset}
                   disabled={busy}
@@ -361,7 +465,7 @@ export default function HelpAssistant() {
                   title="New conversation"
                   className="rounded-lg p-1.5 text-ink-muted transition hover:bg-surface-muted hover:text-ink disabled:opacity-40"
                 >
-                  <RotateCcw size={16} />
+                  <SquarePen size={16} />
                 </button>
               )}
               <button
@@ -374,7 +478,52 @@ export default function HelpAssistant() {
             </div>
           </div>
 
-          <div ref={scrollRef} onClick={onTranscriptClick} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+          {view === "history" && (
+            <div className="flex-1 overflow-y-auto px-2 py-2">
+              <div className="px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+                Past conversations
+              </div>
+              {!history && (
+                <div className="flex items-center gap-2 px-2 py-3 text-sm text-ink-muted">
+                  <Loader2 size={14} className="animate-spin" /> Loading…
+                </div>
+              )}
+              {history && !history.ready && (
+                <p className="px-2 py-3 text-sm text-ink-muted">
+                  Conversation history isn&apos;t switched on yet — ask Blake to run the database update.
+                </p>
+              )}
+              {history?.error && <p className="px-2 py-2 text-xs text-red-700">{history.error}</p>}
+              {history?.ready && !history.error && history.items.length === 0 && (
+                <p className="px-2 py-3 text-sm text-ink-muted">No past conversations yet. Sage saves each chat here.</p>
+              )}
+              {history?.items.map((c) => (
+                <div
+                  key={c.id}
+                  className={`group flex items-center gap-1 rounded-lg ${c.id === conversationId ? "bg-brand-50" : "hover:bg-surface-muted"}`}
+                >
+                  <button onClick={() => loadConversation(c.id)} className="min-w-0 flex-1 px-2 py-2 text-left">
+                    <div className="truncate text-sm text-ink">{c.title}</div>
+                    <div className="text-[11px] text-ink-muted">{when(c.updated_at)}</div>
+                  </button>
+                  <button
+                    onClick={() => removeConversation(c.id)}
+                    aria-label={`Delete “${c.title}”`}
+                    title="Delete"
+                    className="mr-1 rounded-md p-1.5 text-ink-subtle opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div
+            ref={scrollRef}
+            onClick={onTranscriptClick}
+            className={`flex-1 space-y-3 overflow-y-auto px-4 py-4 ${view === "history" ? "hidden" : ""}`}
+          >
             {messages.length === 0 && (
               <div className="space-y-3">
                 <p className="text-sm text-ink-secondary">
