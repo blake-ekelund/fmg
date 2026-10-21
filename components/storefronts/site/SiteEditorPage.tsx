@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useBrand } from "@/components/BrandContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
   BLOCK_INFO,
@@ -162,12 +163,34 @@ function uid(type: string) {
 export default function SiteEditorPage() {
   const router = useRouter();
   const params = useSearchParams();
+  // The top-right Sassy / NI / All switch picks the store. "All" can't edit
+  // two stores at once, so it falls back to the URL / the store picker here.
+  const { brand: filter, setBrand: setFilter } = useBrand();
   const b = params.get("brand");
-  const brand: SiteBrand = isSiteBrand(b) ? b : "Sassy";
+  const brand: SiteBrand = isSiteBrand(b) ? b : filter !== "all" ? filter : "Sassy";
   const q = params.get("page");
   const slug = q && sitePageFor(brand, q) ? q : "home";
   const [statuses, setStatuses] = useState<PageStatus[]>([]);
   const [statusTick, setStatusTick] = useState(0);
+
+  // A deep link to the other store (?brand=NI while the switch says Sassy)
+  // moves the switch along with it — once, on arrival.
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (arrived.current) return;
+    arrived.current = true;
+    if (isSiteBrand(b) && filter !== "all" && filter !== b) setFilter(b);
+  }, [b, filter, setFilter]);
+
+  // Flipping the switch afterwards opens the same page on that store.
+  const lastFilter = useRef(filter);
+  useEffect(() => {
+    if (lastFilter.current === filter) return;
+    lastFilter.current = filter;
+    if (filter !== "all" && filter !== brand) {
+      router.replace(`?brand=${filter}&page=${sitePageFor(filter, slug) ? slug : "home"}`, { scroll: false });
+    }
+  }, [filter, brand, slug, router]);
 
   useEffect(() => {
     let alive = true;
@@ -211,6 +234,7 @@ function PageEditor({
   onNavigate: (brand: SiteBrand, slug: string) => void;
   onChanged: () => void;
 }) {
+  const { brand: filter } = useBrand();
   const def = sitePageFor(brand, slug)!;
   const host = SITE_BRANDS.find((x) => x.brand === brand)!.host;
   const [page, setPage] = useState<PageState | null>(null);
@@ -746,6 +770,8 @@ function PageEditor({
     <div className="flex h-[calc(100vh-64px)] flex-col">
       {/* ── top bar ─────────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2.5">
+        {/* Only with the top switch on All — otherwise that switch is the store picker. */}
+        {filter === "all" ? (
         <select
           value={brand}
           aria-label="Website"
@@ -761,6 +787,7 @@ function PageEditor({
             </option>
           ))}
         </select>
+        ) : null}
         <select
           value={slug}
           aria-label="Page"
