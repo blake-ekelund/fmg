@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, Settings, LogOut, ChevronDown, Blocks } from "lucide-react";
+import { Search, Settings, LogOut, ChevronDown, Blocks, CircleHelp } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { navItems } from "./navConfig";
@@ -193,6 +193,14 @@ function UserMenu() {
             >
               <Settings size={14} className="text-ink-subtle" />
               Settings
+            </Link>
+            <Link
+              href="/help"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-secondary hover:bg-surface-muted hover:text-ink transition"
+            >
+              <CircleHelp size={14} className="text-ink-subtle" />
+              Help &amp; User Guide
             </Link>
             {isAdmin && (
               <Link

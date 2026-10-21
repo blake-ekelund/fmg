@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import TopBar from "@/components/TopBar";
 import Toaster from "@/components/ui/Toaster";
+import HelpAssistant from "@/components/HelpAssistant";
 import { PageMetaProvider } from "@/components/PageMeta";
 import { useUser } from "@/components/UserContext";
 import { getAllowedPaths, getDefaultRoute } from "@/components/navConfig";
@@ -126,6 +127,7 @@ export default function LayoutShell({
 
         <main className="flex-1">{children}</main>
       </div>
+      <HelpAssistant />
       <Toaster />
     </div>
     </PageMetaProvider>
