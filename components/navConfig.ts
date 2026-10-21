@@ -33,6 +33,7 @@ import {
   Newspaper,
   Star,
   PanelsTopLeft,
+  Calculator,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -329,6 +330,20 @@ export const navSections: readonly NavSection[] = [
     ],
   },
   {
+    // Bookkeeping helpers: turn a marketplace's payout report into the journal
+    // entry the books take. Parsed in the browser; nothing is stored.
+    label: "Accounting",
+    icon: Calculator,
+    items: [
+      {
+        label: "Amazon Payments",
+        href: "/accounting/amazon-payments",
+        icon: Receipt,
+        roles: ["owner", "admin"],
+      },
+    ],
+  },
+  {
     // Internal engineering surface: the founder-facing System Handbook (how it
     // all works + where the docs are) and the technical roadmap tracking
     // in-flight work (e.g. the Point B / Synapse connector).
@@ -461,7 +476,7 @@ const EXTRA_ALLOWED: ReadonlyArray<{ href: string; roles?: UserRole[] }> = [
   // kept reachable for existing links; the same Unsplash photos are in every
   // image picker's "Unsplash" tab.
   { href: "/marketing/photography", roles: [...FULL_ACCESS, "sales", "marketing", "operations"] },
-  { href: "/amazon-payments", roles: ["owner", "admin"] }, // placeholder, spec TBD
+  { href: "/amazon-payments", roles: ["owner", "admin"] }, // legacy alias → redirects to /accounting/amazon-payments
 ];
 
 /** Get all allowed href paths for a role (used for route guarding) */
