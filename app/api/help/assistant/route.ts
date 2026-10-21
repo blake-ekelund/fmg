@@ -4,20 +4,24 @@ import {
   helpAssistantConfigured,
   streamHelpAnswer,
   type HelpChatMessage,
+  type HelpEvent,
 } from "@/lib/assistant/helpAgent";
 import type { UserRole } from "@/components/UserContext";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Creating drafts calls the AI generators (up to ~2 min for a blog post).
+export const maxDuration = 300;
 
 /**
- * POST /api/help/assistant — one turn of the in-app Help chat.
+ * POST /api/help/assistant — one turn of Sage, the in-app assistant.
  *
  * Body: { messages: { role, content }[], pathname: string }
- * Returns: text/plain stream of the reply.
+ * Returns: NDJSON stream of HelpEvent — {t:"text"|"status", v} and
+ * {t:"action", label, href} for each draft Sage creates.
  *
  * Internal staff only. The role comes from the session (never the body) and
- * decides which pages' guide entries the assistant is given.
+ * decides which guide entries and tools Sage gets. Tools that call our own API
+ * routes forward the user's token, so they act exactly as the user.
  */
 
 const MAX_MESSAGES = 20;
@@ -28,10 +32,8 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   if (!helpAssistantConfigured()) {
-    return new Response(
-      "Sage isn't switched on yet (the server is missing its AI key). Ask Blake to enable it.",
-      { headers: { "Content-Type": "text/plain; charset=utf-8" } },
-    );
+    const off: HelpEvent = { t: "text", v: "Sage isn't switched on yet (the server is missing its AI key). Ask Blake to enable it." };
+    return new Response(JSON.stringify(off) + "\n", { headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } });
   }
 
   const body = (await request.json().catch(() => ({}))) as { messages?: unknown; pathname?: unknown };
@@ -55,16 +57,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Send at least one message ending with a user turn." }, { status: 400 });
   }
 
+  const ctx = {
+    role: user.access as UserRole,
+    userId: user.id,
+    origin: new URL(request.url).origin,
+    authorization: request.headers.get("authorization") ?? "",
+  };
   const encoder = new TextEncoder();
+  const send = (e: HelpEvent) => encoder.encode(JSON.stringify(e) + "\n");
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const chunk of streamHelpAnswer(user.access as UserRole, pathname, messages)) {
-          controller.enqueue(encoder.encode(chunk));
+        for await (const event of streamHelpAnswer(ctx, pathname, messages)) {
+          controller.enqueue(send(event));
         }
       } catch (e) {
         console.error("[help/assistant]", e);
-        controller.enqueue(encoder.encode("\n\nSorry — the assistant hit a snag. Please try again in a moment."));
+        controller.enqueue(send({ t: "text", v: "\n\nSorry — I hit a snag. Please try again in a moment." }));
       } finally {
         controller.close();
       }
@@ -72,6 +81,6 @@ export async function POST(request: Request) {
   });
 
   return new Response(stream, {
-    headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" },
   });
 }

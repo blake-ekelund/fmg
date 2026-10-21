@@ -71,8 +71,10 @@ The in-app **Technical Roadmap** page (`/technical-roadmap`, owner/admin) is the
 living companion to these docs — it tracks in-flight integration work.
 
 **The staff user guide** lives in code at `lib/help/sections/*.ts` (one entry per
-page). It's shown at `/help` and is what the floating **Help** assistant
+page). It's shown at `/help` and is what **Sage**, the floating assistant
 (bottom-right of every page; `components/HelpAssistant.tsx` →
-`/api/help/assistant` → `lib/assistant/helpAgent.ts`) answers from. When you
+`/api/help/assistant` → `lib/assistant/helpAgent.ts`) answers from. Sage can
+also act — create drafts and look up data — through the role-gated tools in
+`lib/assistant/helpTools.ts`; it never sends, publishes or schedules. When you
 change what a page does, update its guide entry in the same commit — the
 assistant can only be as right as the guide.

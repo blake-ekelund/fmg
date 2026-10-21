@@ -44,17 +44,23 @@ export function renderMarkdown(text: string): string {
   };
   for (const line of text.split("\n")) {
     const bullet = line.match(/^\s*[-•*]\s+(.*)$/);
-    const step = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const step = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
     const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
     if (bullet || step) {
       const kind = bullet ? "ul" : "ol";
       if (list !== kind) {
         close();
-        html.push(kind === "ul" ? '<ul class="my-1 list-disc space-y-0.5 pl-4">' : '<ol class="my-1 list-decimal space-y-1 pl-5">');
+        // Bullets nested under a step close the <ol>; resume at the step's own
+        // number so "3." doesn't render as a fresh "1.".
+        html.push(
+          kind === "ul"
+            ? '<ul class="my-1 list-disc space-y-0.5 pl-4">'
+            : `<ol start="${Number(step![1]) || 1}" class="my-1 list-decimal space-y-1 pl-5">`,
+        );
         list = kind;
       }
       const nested = /^\s{2,}/.test(line) ? ' class="ml-4"' : "";
-      html.push(`<li${nested}>${inline((bullet ?? step)![1])}</li>`);
+      html.push(`<li${nested}>${inline(bullet ? bullet[1] : step![2])}</li>`);
     } else if (heading) {
       close();
       const size = heading[1].length <= 2 ? "mt-4 text-[15px]" : "mt-3";

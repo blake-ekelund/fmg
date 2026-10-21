@@ -61,7 +61,7 @@ export default function HelpCenterPage() {
             <BookOpen size={20} className="text-brand-700" /> Help &amp; User Guide
           </h1>
           <p className="mt-1 text-sm text-ink-muted">
-            How every page works, with step-by-step instructions. Can&apos;t find it? Ask Sage.
+            How every page works, with step-by-step instructions. Can&apos;t find it? Ask Sage, the assistant in the bottom-right corner.
           </p>
         </div>
         <button

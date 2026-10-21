@@ -2,22 +2,35 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Send, Sparkles, X, RotateCcw } from "lucide-react";
+import { ArrowRight, Loader2, Send, Sparkles, X, RotateCcw } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { isAppPath, renderMarkdown } from "@/lib/help/markdown";
 
 /**
  * Sage, the floating assistant bottom-right on every internal page. Staff ask
- * "how do I…" questions about using the portal; /api/help/assistant answers
- * from the user guide in lib/help, aware of which page they're on and which
- * pages their role can open. It explains the site — it can't see live data or
- * click anything.
+ * "how do I…" questions, or ask Sage to do something — draft an email
+ * template, add a task, write a social or blog post, look up stock or a
+ * customer. /api/help/assistant answers from the user guide in lib/help and
+ * the role-gated tools in lib/assistant/helpTools.ts. Everything it creates is
+ * a draft, shown here as an "Open" button.
  *
  * Mounted once in LayoutShell, so the conversation survives client-side
  * navigation (and is mirrored to sessionStorage to survive a reload).
  */
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatAction = { label: string; href: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; actions?: ChatAction[] };
+
+type HelpEvent = { t: "text"; v: string } | { t: "status"; v: string } | ({ t: "action" } & ChatAction);
+
+/* What the server sees of past turns: drafts Sage made ride along as text so
+   follow-ups ("change its subject line") know which one. */
+const forApi = (m: ChatMessage) => ({
+  role: m.role,
+  content: m.actions?.length
+    ? `${m.content}\n\n[Created: ${m.actions.map((a) => `${a.label} → ${a.href}`).join("; ")}]`
+    : m.content,
+});
 
 const STORAGE_KEY = "fmg-help-chat";
 const OPEN_EVENT = "fmg:open-help";
@@ -29,9 +42,9 @@ export function openHelpAssistant(question?: string) {
 
 const SUGGESTIONS = [
   "What can I do on this page?",
+  "Draft an NI holiday gift email for D2C shoppers",
+  "Add a task for me to review Q4 promos by Friday",
   "How do I email a group of customers?",
-  "How do I check the status of an order?",
-  "How do I schedule a social media post?",
 ];
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -48,6 +61,7 @@ export default function HelpAssistant() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -83,7 +97,7 @@ export default function HelpAssistant() {
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, busy, open]);
+  }, [messages, busy, open, status]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -103,7 +117,14 @@ export default function HelpAssistant() {
     const href = (e.target as HTMLElement).closest("a")?.getAttribute("href");
     if (!href || !isAppPath(href)) return;
     e.preventDefault();
-    router.push(href);
+    go(href);
+  }
+
+  /* /templates?edit= is read once on mount, so a hard load guarantees the
+     editor opens even when we're already on /templates. */
+  function go(href: string) {
+    if (href.startsWith("/templates?") && pathname === "/templates") window.location.assign(href);
+    else router.push(href);
   }
 
   async function send(text: string) {
@@ -114,31 +135,55 @@ export default function HelpAssistant() {
     const next: ChatMessage[] = [...messages, { role: "user", content: q }];
     setMessages([...next, { role: "assistant", content: "" }]);
     setBusy(true);
+    let reply = "";
+    const actions: ChatAction[] = [];
     try {
       const res = await fetch("/api/help/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ messages: next, pathname }),
+        body: JSON.stringify({ messages: next.map(forApi), pathname }),
       });
       if (!res.ok || !res.body) {
         const j = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(j?.error ?? "The assistant couldn't answer right now.");
+        throw new Error(j?.error ?? "Sage couldn't answer right now.");
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let reply = "";
+      let buf = "";
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        reply += decoder.decode(value, { stream: true });
-        setMessages([...next, { role: "assistant", content: reply }]);
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let ev: HelpEvent;
+          try {
+            ev = JSON.parse(line) as HelpEvent;
+          } catch {
+            continue;
+          }
+          if (ev.t === "text") {
+            reply += ev.v;
+            setStatus(null);
+          } else if (ev.t === "status") {
+            setStatus(ev.v);
+          } else if (ev.t === "action" && isAppPath(ev.href)) {
+            actions.push({ label: ev.label, href: ev.href });
+            setStatus(null);
+          }
+        }
+        setMessages([...next, { role: "assistant", content: reply, actions: [...actions] }]);
       }
-      if (!reply.trim()) throw new Error("The assistant didn't send a reply. Try again.");
+      if (!reply.trim() && !actions.length) throw new Error("Sage didn't send a reply. Try again.");
     } catch (e) {
-      setMessages(next);
+      // Keep anything Sage already made — the draft exists even if the reply broke off.
+      setMessages(reply || actions.length ? [...next, { role: "assistant", content: reply, actions }] : next);
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setBusy(false);
+      setStatus(null);
     }
   }
 
@@ -211,8 +256,8 @@ export default function HelpAssistant() {
               {messages.length === 0 && (
                 <div className="space-y-3">
                   <p className="text-sm text-ink-secondary">
-                    Ask how to do anything in the portal — where to find something, what a button does, or step-by-step
-                    help with a task.
+                    Hi, I&apos;m Sage. Ask me how to do anything in the portal — or ask me to do it: draft an email
+                    template, add a task, write a social or blog post, or look something up.
                   </p>
                   <div className="flex flex-col gap-2">
                     {SUGGESTIONS.map((s) => (
@@ -235,17 +280,36 @@ export default function HelpAssistant() {
                       {m.content}
                     </div>
                   </div>
-                ) : m.content ? (
-                  <div key={i} className="flex justify-start">
-                    <div
-                      className="max-w-[92%] space-y-1.5 rounded-2xl rounded-bl-sm bg-surface-muted px-3 py-2 text-sm text-ink [&_strong]:font-semibold"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
-                    />
+                ) : m.content || m.actions?.length ? (
+                  <div key={i} className="flex flex-col items-start gap-2">
+                    {m.content && (
+                      <div
+                        className="max-w-[92%] space-y-1.5 rounded-2xl rounded-bl-sm bg-surface-muted px-3 py-2 text-sm text-ink [&_strong]:font-semibold"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                      />
+                    )}
+                    {m.actions?.map((a) => (
+                      <button
+                        key={a.href}
+                        onClick={() => go(a.href)}
+                        className="inline-flex max-w-[92%] items-center gap-1.5 rounded-xl border border-brand-700/20 bg-brand-50 px-3 py-2 text-left text-sm font-medium text-brand-700 transition hover:bg-brand-100"
+                      >
+                        <span className="truncate">{a.label}</span>
+                        <ArrowRight size={14} className="shrink-0" />
+                      </button>
+                    ))}
                   </div>
                 ) : null,
               )}
 
-              {waiting && (
+              {status && (
+                <div className="flex items-center gap-2 text-xs text-ink-muted">
+                  <Loader2 size={13} className="animate-spin" />
+                  {status}
+                </div>
+              )}
+
+              {waiting && !status && (
                 <div className="flex justify-start">
                   <div className="flex gap-1 rounded-2xl rounded-bl-sm bg-surface-muted px-3 py-3">
                     <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-muted [animation-delay:-0.2s]" />
@@ -273,7 +337,7 @@ export default function HelpAssistant() {
                     }
                   }}
                   rows={1}
-                  placeholder="Ask Sage how to do anything…"
+                  placeholder="Ask Sage, or tell it what to make…"
                   className="max-h-28 flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-line-strong focus:outline-none focus:ring-2 focus:ring-brand-700/10"
                 />
                 <button
@@ -286,7 +350,7 @@ export default function HelpAssistant() {
                 </button>
               </div>
               <p className="mt-2 text-center text-[11px] text-ink-subtle">
-                Explains how the site works · can&apos;t see your data or click for you
+                Sage makes drafts — sending, posting and publishing stay with you
               </p>
             </div>
           </div>
