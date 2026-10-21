@@ -214,6 +214,7 @@ export default function BlogPostsPage() {
           defaultBrand={(brand === "NI" ? "NI" : "Sassy") as BlogBrand}
           onClose={() => setWizardOpen(false)}
           onCreated={(post) => router.push(`/marketing/blog/${post.id}`)}
+          onBackgroundCreated={() => void load()}
         />
       )}
 

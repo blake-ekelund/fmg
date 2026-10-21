@@ -7,6 +7,7 @@ import type { BlogBrand, BlogPostRow } from "@/lib/blogPosts";
 import { BLOG_FORMATS, brandTemplate } from "@/lib/blog/blocks";
 import { importBlogHtml } from "@/lib/blog/importHtml";
 import { BLOG_AUDIENCES, BLOG_PURPOSES, starterTags, type BlogAudience, type BlogPurpose } from "@/lib/blog/meta";
+import { toast, updateToast } from "@/lib/toast";
 import { createPost, generatePost } from "./api";
 
 /**
@@ -35,9 +36,11 @@ type Props = {
   defaultBrand: BlogBrand;
   onClose: () => void;
   onCreated: (post: BlogPostRow) => void;
+  /** An AI post finished writing in the background (the wizard is long closed) — reload lists. */
+  onBackgroundCreated?: (post: BlogPostRow) => void;
 };
 
-export default function NewBlogWizard({ open, defaultBrand, onClose, onCreated }: Props) {
+export default function NewBlogWizard({ open, defaultBrand, onClose, onCreated, onBackgroundCreated }: Props) {
   const [step, setStep] = useState(0);
   const [brand, setBrand] = useState<BlogBrand>(defaultBrand);
   const [audience, setAudience] = useState<BlogAudience>("d2c");
@@ -46,7 +49,7 @@ export default function NewBlogWizard({ open, defaultBrand, onClose, onCreated }
   const [description, setDescription] = useState("");
   const [start, setStart] = useState<Start | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [busy, setBusy] = useState<null | "generating" | "importing" | "creating">(null);
+  const [busy, setBusy] = useState<null | "importing" | "creating">(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -140,24 +143,15 @@ export default function NewBlogWizard({ open, defaultBrand, onClose, onCreated }
     } else if (start === "upload") {
       fileRef.current?.click();
     } else if (start === "ai") {
-      void run(async () => {
-        setBusy("generating");
-        const gen = await generatePost({
-          brand,
-          audience,
-          purpose: purpose!,
-          title: title.trim(),
-          description: description.trim(),
-          prompt: prompt.trim(),
-        });
-        await create({
-          ...shared(),
-          blocks: gen.blocks,
-          seo_meta: gen.seo_meta || description.trim() || undefined,
-          tags: gen.tags.length ? gen.tags : shared().tags,
-          hero_image_url: gen.hero_image_url || undefined,
-        });
-      });
+      // AI writing takes up to a minute — don't hold the dialog open for it.
+      // Close now, keep a toast going, and link to the draft when it lands.
+      generateInBackground(
+        shared(),
+        { brand, audience, purpose: purpose!, title: title.trim(), description: description.trim(), prompt: prompt.trim() },
+        onBackgroundCreated,
+      );
+      reset();
+      onClose();
     }
   }
 
@@ -169,7 +163,7 @@ export default function NewBlogWizard({ open, defaultBrand, onClose, onCreated }
       : start === "upload"
         ? busy ? "Importing…" : "Choose file"
         : start === "ai"
-          ? busy ? "Writing…" : "Generate"
+          ? "Generate"
           : busy ? "Creating…" : "Create";
 
   return (
@@ -313,11 +307,7 @@ export default function NewBlogWizard({ open, defaultBrand, onClose, onCreated }
           {busy && (
             <div className="mt-3 flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
               <Loader2 size={14} className="animate-spin" />
-              {busy === "generating"
-                ? "Writing your post — this takes up to a minute…"
-                : busy === "importing"
-                  ? "Turning your HTML into blocks…"
-                  : "Creating the draft…"}
+              {busy === "importing" ? "Turning your HTML into blocks…" : "Creating the draft…"}
             </div>
           )}
           {error && (
@@ -356,6 +346,50 @@ export default function NewBlogWizard({ open, defaultBrand, onClose, onCreated }
       </div>
     </div>
   );
+}
+
+/**
+ * Write + save an AI post outside the wizard: a "working" toast while Claude
+ * writes, then a success toast with a link to the new draft (or the error).
+ * Runs at module level, so it survives the wizard closing and page changes.
+ */
+function generateInBackground(
+  base: Parameters<typeof createPost>[0],
+  input: Parameters<typeof generatePost>[0],
+  onDone?: (post: BlogPostRow) => void,
+) {
+  const t = toast({
+    tone: "working",
+    title: "Writing your blog post…",
+    body: `“${input.title}” — Claude is writing it, up to a minute.`,
+  });
+  void (async () => {
+    try {
+      const gen = await generatePost(input);
+      const post = await createPost({
+        ...base,
+        blocks: gen.blocks,
+        seo_meta: gen.seo_meta || base.seo_meta,
+        tags: gen.tags.length ? gen.tags : base.tags,
+        hero_image_url: gen.hero_image_url || undefined,
+      });
+      onDone?.(post);
+      updateToast(t, {
+        tone: "success",
+        title: `“${input.title}” is ready`,
+        body: "Saved as a draft — nothing goes live until you publish.",
+        sticky: true,
+        action: { label: "Open post", run: (go) => go(`/marketing/blog/${post.id}`) },
+      });
+    } catch (e) {
+      updateToast(t, {
+        tone: "error",
+        title: "Couldn't write the blog post",
+        body: e instanceof Error ? e.message : undefined,
+        sticky: true,
+      });
+    }
+  })();
 }
 
 function Step({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
