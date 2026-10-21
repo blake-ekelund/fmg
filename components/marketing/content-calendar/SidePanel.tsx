@@ -45,7 +45,7 @@ export default function SidePanel({
   onClose: () => void;
 }) {
   return (
-    <div className="w-[320px] shrink-0 rounded-2xl border border-gray-200 bg-white overflow-hidden flex flex-col">
+    <div className="flex w-[320px] shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
         <div>

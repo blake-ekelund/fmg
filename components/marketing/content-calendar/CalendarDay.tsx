@@ -67,33 +67,22 @@ export default function CalendarDay({
   return (
     <div
       onClick={onClick}
-      className={`
-        group
-        bg-white
-        h-24 lg:h-28
-        p-2
-        border-t border-l border-gray-100
-        cursor-pointer
-        transition
-        flex flex-col
-        ${past ? "opacity-40" : "hover:bg-gray-50"}
-        ${isToday ? "ring-2 ring-blue-200 z-10" : ""}
-      `}
+      className={`group flex h-24 cursor-pointer flex-col p-1.5 transition lg:h-28 ${
+        past ? "bg-gray-50/80 hover:bg-gray-100/70" : "bg-white hover:bg-gray-50"
+      }`}
     >
-      {/* Day number */}
+      {/* Day number — today is a filled dot */}
       <div className="flex items-center justify-between">
         <span
-          className={`text-xs font-medium ${
-            isToday
-              ? "text-blue-700"
-              : "text-gray-700"
+          className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-semibold tabular-nums ${
+            isToday ? "bg-gray-900 text-white" : past ? "text-gray-400" : "text-gray-700"
           }`}
         >
           {day}
         </span>
 
         {items.length > 0 && (
-          <span className="text-[10px] text-gray-400">
+          <span className="rounded-full bg-gray-100 px-1.5 text-[10px] font-semibold tabular-nums text-gray-500">
             {items.length}
           </span>
         )}
@@ -113,9 +102,9 @@ export default function CalendarDay({
                 h-[16px]
                 overflow-hidden
                 ${promo.isStart && promo.isEnd ? "rounded" : ""}
-                ${promo.isStart && !promo.isEnd ? "rounded-l ml-0 -mr-2" : ""}
-                ${!promo.isStart && promo.isEnd ? "rounded-r -ml-2 mr-0" : ""}
-                ${!promo.isStart && !promo.isEnd ? "-mx-2" : ""}
+                ${promo.isStart && !promo.isEnd ? "rounded-l ml-0 -mr-1.5" : ""}
+                ${!promo.isStart && promo.isEnd ? "rounded-r -ml-1.5 mr-0" : ""}
+                ${!promo.isStart && !promo.isEnd ? "-mx-1.5" : ""}
                 px-1
               `}
               title={`${promo.name}${promo.code ? ` (${promo.code})` : ""}`}
@@ -145,33 +134,19 @@ export default function CalendarDay({
           return (
             <div
               key={item.id}
-              className={`
-                flex items-center gap-1.5
-                rounded-full
-                px-2 py-0.5
-                text-[11px]
-                font-medium
-                truncate
-                ${meta?.className ?? "bg-gray-100 text-gray-700"}
-              `}
+              title={`${item.platform} · ${item.content_type} · ${item.status}${item.description ? `\n${item.description}` : ""}`}
+              className={`flex items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                meta?.className ?? "bg-gray-100 text-gray-700"
+              } ${past ? "opacity-70" : ""}`}
             >
               {/* Status dot */}
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  STATUS_DOT[item.status]
-                }`}
-              />
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[item.status]}`} />
 
               {/* Platform icon */}
-              <PlatformIcon
-                size={12}
-                className="opacity-80"
-              />
+              <PlatformIcon size={11} className="shrink-0 opacity-80" />
 
-              {/* Platform name */}
-              <span className="truncate">
-                {item.platform}
-              </span>
+              {/* What it is — the description when there is one, else the format */}
+              <span className="truncate">{item.description?.trim() || item.content_type || item.platform}</span>
             </div>
           );
         })}

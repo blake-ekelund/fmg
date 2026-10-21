@@ -1,5 +1,6 @@
 import { ViewMode } from "./types";
 
+/** Calendar / Table switch — the same segmented control as the other marketing pages. */
 export default function ViewToggle({
   view,
   onChange,
@@ -8,30 +9,14 @@ export default function ViewToggle({
   onChange: (v: ViewMode) => void;
 }) {
   return (
-    <div
-      className="
-        hidden md:inline-flex
-        rounded-xl
-        border border-gray-200
-        p-1
-        bg-white
-      "
-    >
+    <div className="hidden gap-1 rounded-xl border border-gray-200 bg-white p-1 shadow-sm md:inline-flex">
       {(["calendar", "table"] as ViewMode[]).map((v) => (
         <button
           key={v}
           onClick={() => onChange(v)}
-          className={`
-            px-3 py-1.5
-            text-sm
-            rounded-lg
-            transition
-            ${
-              view === v
-                ? "bg-gray-100 text-black"
-                : "text-gray-500 hover:text-black"
-            }
-          `}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            view === v ? "bg-gray-900 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+          }`}
         >
           {v === "calendar" ? "Calendar" : "Table"}
         </button>

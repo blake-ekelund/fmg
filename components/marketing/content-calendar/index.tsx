@@ -102,10 +102,38 @@ export default function MarketingContentSection() {
   }
 
   return (
-    <div className="px-4 md:px-8 py-6 md:py-8 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-end flex-wrap gap-3">
-        <div className="flex items-center gap-2">
+    // The Marketing page already pads its tabs — no second gutter here.
+    <div className="space-y-4">
+      {/* Toolbar: month (calendar view) on the left, view + Add on the right */}
+      <div className="flex flex-wrap items-center gap-3">
+        {view === "calendar" && (
+          <div className="hidden items-center gap-1 md:flex">
+            <button
+              onClick={() => setMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+              aria-label="Previous month"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="min-w-[150px] text-center text-base font-semibold text-gray-900">
+              {month.toLocaleString("default", { month: "long", year: "numeric" })}
+            </div>
+            <button
+              onClick={() => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+              aria-label="Next month"
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button
+              onClick={() => setMonth(new Date())}
+              className="ml-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
+            >
+              Today
+            </button>
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-2">
           <ViewToggle view={view} onChange={setView} />
           <button
             onClick={() => {
@@ -113,10 +141,10 @@ export default function MarketingContentSection() {
               setSelectedDate(panelDate);
               setAddOpen(true);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800"
           >
             <Plus size={14} />
-            Add Content
+            Add content
           </button>
         </div>
       </div>
@@ -138,33 +166,7 @@ export default function MarketingContentSection() {
         {/* Calendar / Table area */}
         <div className="flex-1 min-w-0">
           {view === "calendar" && (
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-4">
-              {/* Month navigation */}
-              <div className="flex items-center justify-center gap-4">
-                <button
-                  onClick={() =>
-                    setMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))
-                  }
-                  className="h-8 w-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition"
-                >
-                  <ChevronLeft size={18} className="text-gray-500" />
-                </button>
-                <div className="text-sm font-semibold text-gray-700 min-w-[160px] text-center">
-                  {month.toLocaleString("default", {
-                    month: "long",
-                    year: "numeric",
-                  })}
-                </div>
-                <button
-                  onClick={() =>
-                    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))
-                  }
-                  className="h-8 w-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition"
-                >
-                  <ChevronRight size={18} className="text-gray-500" />
-                </button>
-              </div>
-
+            <div className="space-y-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
               <CalendarView
                 month={month}
                 items={visibleItems}
@@ -175,7 +177,7 @@ export default function MarketingContentSection() {
           )}
 
           {view === "table" && (
-            <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
               <TableView
                 items={visibleItems}
                 onSelectItem={(item) => {

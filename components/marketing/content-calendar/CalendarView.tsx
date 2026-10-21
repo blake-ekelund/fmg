@@ -125,11 +125,11 @@ export default function CalendarView({
   return (
     <>
       {/* Day labels */}
-      <div className="grid grid-cols-7 text-xs text-gray-500">
+      <div className="grid grid-cols-7 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
           <div
             key={d}
-            className="text-center py-1 font-medium"
+            className="py-1 text-center"
           >
             {d}
           </div>
