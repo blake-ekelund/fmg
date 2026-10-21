@@ -5,7 +5,7 @@ import type { UserRole } from "@/components/UserContext";
 import { SettlementParseError } from "@/lib/amazonSettlement";
 import {
   AMAZON_PAYMENTS_PATH,
-  deleteSettlements,
+  deleteSettlement,
   importSettlement,
   listSettlements,
 } from "@/lib/amazonSettlementStore";
@@ -17,7 +17,7 @@ export const runtime = "nodejs";
  *
  * GET                          → { ready, items: SavedSettlement[] } (newest period first)
  * POST { text, file_name }     → { saved, replaced, entry }  (parse + save; same settlement = replace)
- * DELETE ?id=…  |  ?all=1      → { ok: true }
+ * DELETE ?id=…                → { ok: true }  (one entry at a time — there's no delete-all)
  *
  * Gated on the page (owner/admin). Sage's import tool calls POST with the
  * user's token. `ready: false` / `saved: false` = migration not applied yet.
@@ -59,11 +59,10 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   if (!(await authorize(request))) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
-  const params = new URL(request.url).searchParams;
-  const id = params.get("id");
-  if (!id && params.get("all") !== "1") return NextResponse.json({ error: "Pass id or all=1." }, { status: 400 });
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Pass the entry's id." }, { status: 400 });
   try {
-    await deleteSettlements(id ? [id] : "all");
+    await deleteSettlement(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't delete." }, { status: 500 });

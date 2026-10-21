@@ -372,7 +372,7 @@ const DATASETS: Record<string, Dataset> = {
   amazon_settlements: {
     title: "Amazon settlement journal entries",
     description:
-      "Accounting → Amazon Payments: one row per Amazon settlement period, the bookkeeping journal entry built from the settlement report. Amounts in dollars; fees/refunds are negative. total = what Amazon deposited.",
+      "Accounting → Amazon Payments: one row per Amazon settlement (payout), the bookkeeping journal entry built from the settlement report. Each row covers sales from start_date through end_date (about two weeks) and was paid into the bank on deposit_date, a few days after end_date. Name an entry by its period, e.g. '09/24/2026 to 10/08/2026 (deposited 10/10/2026)'. 'Which payment covers <date>' = start_date lte <date> AND end_date gte <date>; 'paid/deposited in <month>' = filter deposit_date; 'sales in <month/quarter>' = filter by end_date and say periods can straddle month ends. Amounts in dollars; fees/refunds are negative. total = the amount Amazon deposited.",
     source: "amazon_settlements",
     page: "/accounting/amazon-payments",
     columns: {

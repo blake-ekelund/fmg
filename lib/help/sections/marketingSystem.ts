@@ -346,7 +346,10 @@ Uploading the same settlement again replaces its row; it never duplicates.
 ## Exporting
 - **Copy for Excel** copies every entry (in the current sort) to paste into a spreadsheet.
 - **Download CSV** saves the same thing as a file.
-- **Clear** deletes every saved entry (asks first). Re-upload the reports to bring them back.`,
+- To remove an entry, click its row and use **Delete entry** (asks first). Entries are deleted one at a time; re-upload the report to bring one back.
+
+## Asking Sage
+Sage can answer questions about saved entries — e.g. "what was our Amazon deposit on Oct 10?", "which period had the highest ad spend?", "total Amazon fees in Q3". Each entry covers a settlement period (start → end date) and was deposited a couple of days after it ends.`,
   },
 
   /* ─────────────────────────── System Handbook ─────────────────────────── */

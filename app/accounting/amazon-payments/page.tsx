@@ -157,14 +157,6 @@ function AmazonPayments() {
     setEntries((prev) => prev.filter((p) => p.settlementId !== je.settlementId));
   };
 
-  const clearAll = async () => {
-    if (!window.confirm(`Delete all ${entries.length} saved journal entries? This can't be undone (re-upload the files to get them back).`))
-      return;
-    const res = await fetch("/api/accounting/amazon-settlements?all=1", { method: "DELETE", headers: await authHeader() });
-    if (!res.ok) return setErrors(["Couldn't clear the entries."]);
-    setEntries([]);
-    setPage(0);
-  };
 
   const copyForExcel = async () => {
     const tsv = [HEADERS, ...sorted.map(rowValues)].map((r) => r.join("\t")).join("\n");
@@ -242,13 +234,6 @@ function AmazonPayments() {
         </button>
         <button onClick={downloadCsv} disabled={!entries.length} className={btn}>
           <Download size={14} /> Download CSV
-        </button>
-        <button
-          onClick={clearAll}
-          disabled={!entries.length}
-          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-red-700 disabled:opacity-40 disabled:pointer-events-none"
-        >
-          <Trash2 size={14} /> Clear
         </button>
       </div>
 

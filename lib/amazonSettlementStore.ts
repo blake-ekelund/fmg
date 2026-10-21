@@ -104,8 +104,7 @@ export async function importSettlement(
   return { saved: true, replaced: !!existing, entry: fromRow(data as Row) };
 }
 
-export async function deleteSettlements(ids: string[] | "all"): Promise<void> {
-  const q = supabaseServer.from("amazon_settlements").delete();
-  const { error } = ids === "all" ? await q.not("id", "is", null) : await q.in("id", ids);
+export async function deleteSettlement(id: string): Promise<void> {
+  const { error } = await supabaseServer.from("amazon_settlements").delete().eq("id", id);
   if (error && !tableMissing(error.message)) throw new Error(error.message);
 }
