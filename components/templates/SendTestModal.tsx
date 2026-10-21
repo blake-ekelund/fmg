@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Send, Loader2, CheckCircle2, Search, User } from "lucide-react";
+import { X, Send, Loader2, Search, User } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { sendTemplateTest } from "@/lib/email/sendTemplateTest";
 import type { EmailTemplate } from "./types";
 
 /**
@@ -11,7 +12,8 @@ import type { EmailTemplate } from "./types";
  * merge fields resolve to that account's actual data — the email still goes to
  * the tester's own address, so you see exactly how it looks with real values.
  *
- * Saves first (so the server renders what's on screen), then POSTs to
+ * Saves first (so the server renders what's on screen), then hands the send to
+ * a corner toast (lib/email/sendTemplateTest.ts) and closes, POSTing to
  * /api/email/block-templates/[id]/test (renders by source; not a campaign).
  */
 type Props = {
@@ -39,7 +41,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function SendTestModal({ open, onClose, templateId, onRequestSave }: Props) {
   const [to, setTo] = useState("");
   const [state, setState] = useState<
-    { s: "idle" } | { s: "sending" } | { s: "ok"; to: string; used: string | null } | { s: "err"; msg: string }
+    { s: "idle" } | { s: "sending" } | { s: "err"; msg: string }
   >({ s: "idle" });
 
   // Customer picker (optional).
@@ -101,24 +103,9 @@ export default function SendTestModal({ open, onClose, templateId, onRequestSave
       setState({ s: "err", msg: "Save the template first, then send a test." });
       return;
     }
-    try {
-      const res = await fetch(`/api/email/block-templates/${id}/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({
-          to: address,
-          ...(customer ? { customer_type: customer.customer_type, customer_ref: customer.customer_ref } : {}),
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setState({ s: "err", msg: json.error ?? `Send failed (${res.status}).` });
-        return;
-      }
-      setState({ s: "ok", to: json.sentTo ?? address, used: json.usedCustomer ?? customer?.name ?? null });
-    } catch (e) {
-      setState({ s: "err", msg: e instanceof Error ? e.message : "Send failed." });
-    }
+    // Saved — the send itself is followed from a toast so the editor is free.
+    sendTemplateTest({ templateId: id, to: address, customer });
+    onClose();
   }
 
   return (
@@ -137,18 +124,6 @@ export default function SendTestModal({ open, onClose, templateId, onRequestSave
         </div>
 
         <div className="px-5 py-4">
-          {state.s === "ok" ? (
-            <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
-              <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
-              <div className="text-sm text-emerald-800">
-                Test sent to <span className="font-medium">{state.to}</span>
-                {state.used ? (
-                  <> using <span className="font-medium">{state.used}</span>&rsquo;s merge data</>
-                ) : null}
-                . Check your inbox.
-              </div>
-            </div>
-          ) : (
             <>
               <label className="block text-[11px] font-medium uppercase tracking-wider text-gray-500 mb-1.5">
                 Send to
@@ -219,23 +194,20 @@ export default function SendTestModal({ open, onClose, templateId, onRequestSave
               </p>
               {state.s === "err" && <p className="mt-2 text-[11px] text-rose-600">{state.msg}</p>}
             </>
-          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/60">
           <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-200 transition">
-            {state.s === "ok" ? "Close" : "Cancel"}
+            Cancel
           </button>
-          {state.s !== "ok" && (
-            <button
-              onClick={send}
-              disabled={state.s === "sending" || !to.trim()}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition disabled:opacity-50"
-            >
-              {state.s === "sending" ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-              {state.s === "sending" ? "Sending…" : "Send test"}
-            </button>
-          )}
+          <button
+            onClick={send}
+            disabled={state.s === "sending" || !to.trim()}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition disabled:opacity-50"
+          >
+            {state.s === "sending" ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            {state.s === "sending" ? "Saving…" : "Send test"}
+          </button>
         </div>
       </div>
     </div>

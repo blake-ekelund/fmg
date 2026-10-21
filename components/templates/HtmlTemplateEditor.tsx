@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { mergeGroupsFor } from "@/lib/email/mergeFields";
 import { validateTemplateBody } from "@/lib/email/htmlTemplate";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
+import { sendTemplateTest } from "@/lib/email/sendTemplateTest";
 import type { Brand, Channel, EmailTemplate } from "./types";
 import { formatHtml } from "./formatHtml";
 import { resizeImageForEmail } from "./resizeImage";
@@ -48,12 +49,6 @@ type Props = {
   onRequestSave: () => Promise<EmailTemplate | null>;
 };
 
-async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export default function HtmlTemplateEditor({
   templateId,
   htmlView,
@@ -85,7 +80,7 @@ export default function HtmlTemplateEditor({
 
   const [testTo, setTestTo] = useState("");
   const [testState, setTestState] = useState<
-    { s: "idle" } | { s: "sending" } | { s: "ok"; to: string } | { s: "err"; msg: string }
+    { s: "idle" } | { s: "sending" } | { s: "err"; msg: string }
   >({ s: "idle" });
 
   /* ── Replace the HTML file ─────────────────────────────────────────────── */
@@ -176,21 +171,9 @@ export default function HtmlTemplateEditor({
       setTestState({ s: "err", msg: "Save the template first." });
       return;
     }
-    try {
-      const res = await fetch(`/api/email/block-templates/${id}/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ to: testTo.trim() }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setTestState({ s: "err", msg: json.error ?? "Send failed." });
-        return;
-      }
-      setTestState({ s: "ok", to: json.sentTo ?? testTo.trim() });
-    } catch (e) {
-      setTestState({ s: "err", msg: e instanceof Error ? e.message : "Send failed." });
-    }
+    // Saved — the send itself is followed from a toast so the editor is free.
+    sendTemplateTest({ templateId: id, to: testTo.trim() });
+    setTestState({ s: "idle" });
   }
 
   return (
@@ -447,11 +430,8 @@ export default function HtmlTemplateEditor({
             className="mt-2 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 transition disabled:opacity-50"
           >
             {testState.s === "sending" ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            {testState.s === "sending" ? "Sending..." : "Send test email"}
+            {testState.s === "sending" ? "Saving..." : "Send test email"}
           </button>
-          {testState.s === "ok" && (
-            <p className="mt-2 text-[11px] text-emerald-600">Sent to {testState.to}.</p>
-          )}
           {testState.s === "err" && (
             <p className="mt-2 text-[11px] text-rose-600">{testState.msg}</p>
           )}
