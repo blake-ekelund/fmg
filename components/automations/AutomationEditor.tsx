@@ -170,6 +170,9 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Automations with a "Run now" in flight — outlives the editor so a run can't be doubled. */
+const runsInFlight = new Set<string>();
+
 export default function AutomationEditor({
   automationId,
   onChanged,
@@ -464,32 +467,54 @@ export default function AutomationEditor({
     ) {
       return;
     }
-    setRunning(true);
+    // A run enrolls and sends — never start a second one on top of it, even
+    // from a remounted editor (the guard is module-level).
+    if (runsInFlight.has(automationId)) {
+      toast({ tone: "info", title: `“${automation.name}” is already running`, body: "Its notice will say when it's done." });
+      return;
+    }
     setRunResult(null);
     setError(null);
+    /* Enrolling + sending can take a while — follow it from a corner toast so
+       the editor (and the rest of the app) stays usable. */
+    runsInFlight.add(automationId);
+    const name = automation.name;
+    const t = toast({
+      tone: "working",
+      title: `Running “${name}”…`,
+      body: `${cfg.test_mode ? `Test mode — everything goes to ${cfg.test_email}` : "Enrolling and emailing real customers"}. You can keep working.`,
+    });
     try {
       const res = await fetch(
         `/api/cron/automations?automation=${encodeURIComponent(automationId)}`,
         { headers: await authHeader() },
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setRunResult({ ok: false, text: json?.error ?? `Run failed (${res.status})` });
-        return;
-      }
+      if (!res.ok) throw new Error(json?.error ?? `Run failed (${res.status})`);
       const errs: string[] = json.errors ?? [];
-      setRunResult({
-        ok: errs.length === 0,
-        text: errs.length
-          ? `Enrolled ${json.enrolled ?? 0}, sent ${json.sent ?? 0}. Problems: ${errs.join("; ")}`
-          : `Enrolled ${json.enrolled ?? 0} · sent ${json.sent ?? 0} · failed ${json.failed ?? 0}`,
-      });
+      const summary = `Enrolled ${json.enrolled ?? 0} · sent ${json.sent ?? 0} · failed ${json.failed ?? 0}`;
+      updateToast(
+        t,
+        errs.length || (json.failed ?? 0) > 0
+          ? {
+              tone: "error",
+              title: `“${name}” ran with problems`,
+              body: errs.length ? `${summary}. ${errs.join("; ")}` : summary,
+              sticky: true,
+            }
+          : { tone: "success", title: `“${name}” ran`, body: summary, sticky: true },
+      );
       await reload();
       await onChanged();
     } catch (e) {
-      setRunResult({ ok: false, text: e instanceof Error ? e.message : String(e) });
+      updateToast(t, {
+        tone: "error",
+        title: `Couldn't run “${name}”`,
+        body: e instanceof Error ? e.message : String(e),
+        sticky: true,
+      });
     } finally {
-      setRunning(false);
+      runsInFlight.delete(automationId);
     }
   }
 
@@ -823,11 +848,10 @@ export default function AutomationEditor({
             {automation.enabled && (
               <button
                 onClick={runNow}
-                disabled={running}
                 title="Enroll and send the first step now, without waiting for the scheduled run"
                 className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-xs font-medium text-ink-secondary transition hover:bg-surface-muted disabled:opacity-50"
               >
-                {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                <Play size={13} />
                 Run now
               </button>
             )}
