@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
 import type { VarianceRow } from "@/lib/inventoryVariance";
+import { fetchPointBRows, normPart, resolveOnHand } from "@/lib/inventoryOnHand";
 import { ForecastRow } from "../types";
 
 type Units90Row = {
@@ -11,52 +12,25 @@ type Units90Row = {
 
 export type PointBStatus = "loading" | "ok" | "error";
 
-const normPart = (part: string) => part.trim().toUpperCase();
-
 /**
- * Lay Point B's live count over a row.
- *
- * Point B is the building, so its physical count is what the forecast runs on
- * whenever it has one that means the same thing as Fishbowl's. Two cases fall
- * back to the Fishbowl snapshot instead, and say so: the part isn't in Synapse
- * at all, or Synapse counts it in a different unit (24 CS is not 24 eaches —
- * forecasting off it would read as a stock-out that isn't real).
+ * Lay Point B's live count over a row. The rule — Point B AVAILABLE when it
+ * has a comparable count, else Fishbowl — lives in lib/inventoryOnHand.ts so
+ * the Dashboard's understock/overstock levers count exactly what this page
+ * shows. The variance stays physical-vs-Fishbowl-on-hand (both totals).
  */
 function applyPointB(row: ForecastRow, vr: VarianceRow | undefined): ForecastRow {
-  const fishbowl = row.fishbowl_on_hand ?? null;
-  const unitClash =
-    !!vr && (vr.flags.includes("uom-mismatch") || vr.flags.includes("mixed-uom"));
-
-  if (vr && vr.synapse !== null && !unitClash) {
-    /* The forecast runs on Point B AVAILABLE: physical stock minus anything
-       held (Suspense / QC Hold) and minus stock already committed to open
-       orders — what can actually be sold. The variance, though, stays
-       physical-vs-Fishbowl-on-hand (the variance report's rule): Fishbowl's
-       on_hand is a physical count, and netting only one side would invent a
-       gap that isn't there. */
-    const available = vr.synapseAvailable ?? vr.synapse;
-    return {
-      ...row,
-      on_hand: available,
-      on_hand_source: "pointb",
-      pointb_on_hand: available,
-      pointb_physical: vr.synapse,
-      pointb_held: vr.synapseHeld ?? 0,
-      pointb_committed: vr.synapseCommitted ?? 0,
-      variance: fishbowl === null ? null : vr.synapse - fishbowl,
-      variance_note: fishbowl === null ? "Not in the Fishbowl snapshot" : null,
-    };
-  }
-
+  const r = resolveOnHand(row.fishbowl_on_hand ?? null, vr);
   return {
     ...row,
-    on_hand: fishbowl ?? 0,
-    on_hand_source: "fishbowl",
-    pointb_on_hand: vr?.synapse ?? null,
-    variance: null,
-    variance_note: unitClash
-      ? `Units differ — Fishbowl ${vr?.fishbowlUom ?? "?"}, Point B ${vr?.synapseUom ?? "?"}. Forecast uses Fishbowl.`
-      : "Not on hand at Point B. Forecast uses Fishbowl.",
+    on_hand: r.onHand,
+    on_hand_source: r.source,
+    // On a fallback the cell still shows Point B's physical figure, if any.
+    pointb_on_hand: r.source === "pointb" ? r.pointbAvailable : r.pointbPhysical,
+    pointb_physical: r.pointbPhysical,
+    pointb_held: r.pointbHeld,
+    pointb_committed: r.pointbCommitted,
+    variance: r.variance,
+    variance_note: r.note,
   };
 }
 
@@ -78,21 +52,12 @@ export function useForecastData() {
        seconds. Start it now, in parallel with the Supabase reads, and overlay
        it when it lands — the table shouldn't wait on the warehouse to draw. */
     const pointbPromise = (async () => {
-      // Internal API routes authenticate off an Authorization header, not the
-      // session cookie.
-      const { data: session } = await supabase.auth.getSession();
+      await Promise.resolve(); // status resets happen off the effect's sync path
       if (!cancelled) {
         setPointbStatus("loading");
         setPointbError(null);
       }
-      const token = session.session?.access_token;
-      const res = await fetch("/api/inventory/variance", {
-        cache: "no-store",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(json?.error ?? `Point B read failed (${res.status})`);
-      return (json?.rows ?? []) as VarianceRow[];
+      return fetchPointBRows();
     })();
 
     async function load() {
@@ -203,9 +168,8 @@ export function useForecastData() {
          5. Overlay Point B (live)
       -------------------------------- */
       try {
-        const pointb = await pointbPromise;
+        const byPart = await pointbPromise;
         if (cancelled) return;
-        const byPart = new Map(pointb.map((r) => [normPart(r.part), r]));
         // Functional update keyed by part: on-order/avg edits made while Point
         // B was loading survive, because only the on-hand fields are touched.
         setRows((prev) => prev.map((r) => applyPointB(r, byPart.get(normPart(r.part)))));

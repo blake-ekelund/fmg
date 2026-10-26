@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { fetchPointBRows, normPart, resolveOnHand } from "@/lib/inventoryOnHand";
+import type { VarianceRow } from "@/lib/inventoryVariance";
 import type { BrandFilter } from "@/types/brand";
 
 export type InventoryStatus = "at_risk" | "review" | "healthy" | "no_demand";
@@ -63,6 +65,19 @@ export function useDashboardInventory(brand: BrandFilter) {
     async function load() {
       setLoading(true);
 
+      /* Point B is the source of truth for on-hand (lib/inventoryOnHand.ts) —
+         the same rule the Inventory page forecasts on, so "Review understock /
+         overstock" here counts exactly what the filtered page shows. Started
+         now so the live warehouse read overlaps the Supabase reads; a failure
+         falls back to the Fishbowl snapshot rather than blanking the dashboard. */
+      const pointbPromise = fetchPointBRows().then(
+        (rows) => ({ rows, error: null as string | null }),
+        (e: unknown) => ({
+          rows: new Map<string, VarianceRow>(),
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+
       // 1. Forecasted products
       let productsQuery = supabase
         .from("inventory_products")
@@ -109,18 +124,24 @@ export function useDashboardInventory(brand: BrandFilter) {
         ]) ?? []
       );
 
+      const pointb = await pointbPromise;
       if (cancelled) return;
 
       // 4. Merge & classify
       const merged: DashboardInventoryItem[] = (products ?? []).map((p) => {
         const inv = inventoryMap.get(p.part);
-        const onHand = inv?.on_hand ?? 0;
+        const onHand = resolveOnHand(
+          inv ? inv.on_hand : null,
+          pointb.rows.get(normPart(p.part)),
+        ).onHand;
         const onOrder = inv?.on_order ?? 0;
         const units = units90Map.get(p.part) ?? 0;
         const avgDemand =
           p.avg_monthly_demand && p.avg_monthly_demand > 0
             ? p.avg_monthly_demand
-            : units / 3;
+            : // Rounded like the Inventory page, so a borderline SKU gets
+              // the same status in both places.
+              Math.round(units / 3);
 
         const { status, monthsOfSupply } = classifyStatus(onHand, onOrder, avgDemand);
 

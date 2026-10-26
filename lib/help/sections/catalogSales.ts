@@ -172,7 +172,7 @@ Click any row (outside the editable boxes) to go to its product page.
 - **Point B** numbers are read live from the warehouse system every time the page loads, so they're never stale. Stock on hold (Suspense / QC Hold) can only be released by Point B, not from this page.
 - **Fishbowl** numbers and **On Order** come from a Fishbowl snapshot refreshed about three times a day (roughly 4 AM, 12 PM and 8 PM Eastern), or whenever someone clicks **Refresh inventory**. An **On Order** number you type is saved to the current snapshot only, so the next refresh replaces it with Fishbowl's figure.
 - Because committed-to-order stock is taken out of PB Avail *and* average demand is still subtracted month by month, the forecast leans slightly cautious until those orders ship.
-- The Dashboard's understock / overstock counts still use Fishbowl's numbers, so they can differ slightly from what this page shows.
+- The Dashboard's **Review understock / Review overstock** counts use the same Point B-first numbers, so they match what this page shows when you click through.
 - The CSV export includes the forecast on-hand and its source, Point B available, Point B physical, Fishbowl on hand and variance.
 - **Avg / Mo** defaults to last-90-days units ÷ 3. Typing a number saves it to the product as a manual override; setting it back to 0 returns it to the automatic figure.
 - Only products included in the forecast appear here; archived ones don't.

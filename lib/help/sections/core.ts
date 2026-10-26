@@ -24,7 +24,7 @@ Everything on the page follows the **brand toggle** in the top bar (**All**, **N
   - **Sales YTD** — this year's sales to date vs. the same period last year, with a green/red % arrow. Click to open Sales Analysis.
   - **This month** — month-to-date sales, which day of the month it is, and what the month is "on pace for". Click to open Sales Analysis.
   - **Customers** — active wholesale customers, how many are at risk (and what share of the book that is), and new customers this year. Click to open Wholesale customers.
-  - **Inventory** — number of SKUs with less than 1.5 months of stock cover ("need reorder" or "all covered"), plus how many are on watch. Click to open Inventory.
+  - **Inventory** — number of SKUs with less than 1.5 months of stock cover (counted on Point B available stock, the same as the Inventory page) ("need reorder" or "all covered"), plus how many are on watch. Click to open Inventory.
   - Under the tiles, one line splits YTD sales into **Wholesale** and **D2C** with each one's change vs. last year.
 - **Do today** — at most five ranked "moves", each priced in dollars, with the total "at stake". Today these are rep agencies whose territory is down year-over-year ("Check in: (agency)"); clicking one opens that agency's rep analysis ("Build analysis"). Smaller items are counted but not shown ("these are the five worth your morning").
 - **Standing reviews** — beneath the moves: "Review understock" and "Review overstock", each showing a SKU count. Click to open Inventory pre-filtered to that list.

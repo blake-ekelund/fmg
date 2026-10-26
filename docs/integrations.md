@@ -124,10 +124,13 @@ Hold), `held` and `committed`. Nothing stores these; every consumer reads live:
   Point B fields next to the Fishbowl snapshot.
 - The Inventory page's **Refresh inventory** button runs
   `fishbowl-inventory-sync?now=1` and then re-reads Point B. Read-only on both.
+- The **Dashboard** inventory tiles and the Review understock / overstock
+  levers (`components/dashboard/hooks/useDashboardInventory.ts`) use the same
+  rule. The rule itself lives in `lib/inventoryOnHand.ts` (`resolveOnHand`,
+  `fetchPointBRows`), shared by the forecast and the Dashboard.
 
-Not yet on Point B: the Dashboard understock/overstock levers
-(`lib/inventoryHealth.ts`) and storefront `on_hand` still read the Fishbowl
-snapshot.
+Not yet on Point B: storefront `on_hand` (the stock levels the Sassy and NI
+stores show) still reads the Fishbowl snapshot.
 
 **Current state.** The Fishbowl ↔ Synapse bridge today is a **third-party
 connector, "LilyPad" (Sharpe Concepts)** — *not* FMG code. It runs as a Fishbowl
