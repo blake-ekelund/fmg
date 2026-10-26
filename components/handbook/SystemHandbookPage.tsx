@@ -46,16 +46,16 @@ function SectionHeader({ icon: Icon, title, sub }: { icon: LucideIcon; title: st
 const STACK: { icon: LucideIcon; label: string; value: string; note: string }[] = [
   { icon: Server, label: "Hosting", value: "Vercel", note: "Runs the website; auto-deploys from the code repo." },
   { icon: Database, label: "Database & login", value: "Supabase", note: "The portal's own data and user accounts." },
-  { icon: Warehouse, label: "Business data (ERP)", value: "Fishbowl", note: "Inventory and sales orders — the source of record." },
-  { icon: Warehouse, label: "Fulfillment", value: "Point B Solutions", note: "The 3PL warehouse (Synapse) that ships orders." },
+  { icon: Warehouse, label: "Business data (ERP)", value: "Fishbowl", note: "Sales orders and the books — the source of record. Its stock count is a copy; Point B is the truth." },
+  { icon: Warehouse, label: "Fulfillment", value: "Point B Solutions", note: "The 3PL warehouse (Synapse) that ships orders — and the source of truth for stock on hand." },
   { icon: Code2, label: "The code", value: "GitHub repository", note: "Every line of the portal, version-controlled." },
   { icon: FileText, label: "Full documentation", value: "/docs in the repo", note: "The technical handbook a new developer reads first." },
 ];
 
 /* Systems in plain English */
 const SYSTEMS: { name: string; blurb: string }[] = [
-  { name: "Fishbowl", blurb: "The backbone. Holds inventory and sales orders; the portal syncs from it on a schedule." },
-  { name: "Point B / Synapse", blurb: "The warehouse that physically ships orders. Sends tracking and freight back into Fishbowl." },
+  { name: "Fishbowl", blurb: "The backbone. Holds sales orders and an inventory count; the portal syncs from it on a schedule." },
+  { name: "Point B / Synapse", blurb: "The warehouse that physically ships orders. Sends tracking and freight back into Fishbowl. Its live stock count drives the Inventory forecast." },
   { name: "Shopify", blurb: "Powers the Natural Inspirations store; feeds catalog and order analytics." },
   { name: "Faire", blurb: "Wholesale marketplace — orders flow in, shipments are confirmed back." },
   { name: "MarketTime", blurb: "A second wholesale marketplace — orders flow in on a schedule, like Faire." },
@@ -66,7 +66,7 @@ const SYSTEMS: { name: string; blurb: string }[] = [
 
 /* Friendly automation summary */
 const AUTOMATIONS: { title: string; when: string; body: string }[] = [
-  { title: "Inventory & sales refresh", when: "3×/day", body: "Pulls the latest stock and orders out of Fishbowl into the portal." },
+  { title: "Inventory & sales refresh", when: "3×/day", body: "Pulls the latest stock and orders out of Fishbowl into the portal (Refresh inventory on the Inventory page does it on demand). Point B stock is read live, not on a schedule." },
   { title: "Storefront orders → Fishbowl", when: "every 15 min", body: "New website orders are entered into Fishbowl automatically as estimates." },
   { title: "Shipping & delivery emails", when: "hourly", body: "Watches for tracking, emails customers when an order ships and when it arrives." },
   { title: "Marketing email", when: "on schedule", body: "Sends automations and bulk campaigns, and keeps deliverability healthy." },

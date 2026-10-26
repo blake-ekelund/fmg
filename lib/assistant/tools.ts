@@ -1,5 +1,11 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabaseServer";
+import {
+  synapseConfigured,
+  getSynapseInventoryRows,
+  rollUpSynapseInventory,
+  type SynapseItemStock,
+} from "@/lib/pointb";
 
 /**
  * Read-only "tools" the Slack assistant (Claude) can call to answer questions
@@ -53,17 +59,51 @@ async function getInventory(input: { part_number?: string; query?: string }) {
   if (error) return { error: error.message };
   if (!data || data.length === 0) return { results: [], note: "No matching parts found." };
 
+  /* Point B is the source of truth for stock (the Inventory page forecasts on
+     its AVAILABLE figure), so read it live alongside the Fishbowl snapshot.
+     A failed or unconfigured read degrades to Fishbowl-only and says so. */
+  let pointb: Map<string, SynapseItemStock> | null = null;
+  let pointbNote: string | null = null;
+  if (synapseConfigured()) {
+    try {
+      const rolled = rollUpSynapseInventory(await getSynapseInventoryRows());
+      pointb = new Map([...rolled].map(([item, s]) => [item.trim().toUpperCase(), s]));
+    } catch (e) {
+      pointbNote = `Point B live read failed (${e instanceof Error ? e.message : String(e)}) — figures are Fishbowl only.`;
+    }
+  } else {
+    pointbNote = "Point B isn't connected here — figures are Fishbowl only.";
+  }
+
   return {
     warehouse: "Point B Solutions",
-    results: (data as Record<string, number | string>[]).map((r) => ({
-      part: r.part,
-      description: r.description,
-      on_hand: r.on_hand,
-      available: r.available,
-      on_order: r.on_order,
-      short: r.short,
-      uom: r.uom,
-    })),
+    note:
+      pointbNote ??
+      "pointb_available is the number to quote for stock (physical minus held and committed-to-orders); it's what the Inventory page forecasts on. variance = pointb_physical − fishbowl_on_hand. Point B fields are null when the part isn't at Point B or is counted in a different unit.",
+    results: (data as Record<string, number | string>[]).map((r) => {
+      const sy = pointb?.get(String(r.part).trim().toUpperCase());
+      // Same rule as the variance report: different units aren't comparable.
+      const fbUom = String(r.uom ?? "").trim().toUpperCase();
+      const unitClash =
+        !!sy && (sy.uoms.length > 1 || (!!fbUom && sy.uoms.some((u) => u.trim().toUpperCase() !== fbUom)));
+      const usable = sy && !unitClash ? sy : null;
+      return {
+        part: r.part,
+        description: r.description,
+        // Synapse's `available` already nets the negative Committed rows.
+        pointb_available: usable ? usable.available : null,
+        pointb_physical: usable ? usable.physical : null,
+        pointb_held: usable ? usable.held : null,
+        pointb_committed: usable ? usable.committed : null,
+        fishbowl_on_hand: r.on_hand,
+        fishbowl_available: r.available,
+        variance: usable ? usable.physical - Number(r.on_hand) : null,
+        on_order: r.on_order,
+        short: r.short,
+        uom: r.uom,
+        ...(unitClash ? { unit_note: `Point B counts this in ${sy!.uoms.join("+")}, Fishbowl in ${fbUom}` } : {}),
+      };
+    }),
   };
 }
 
@@ -202,7 +242,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "get_inventory",
     description:
-      "Look up current on-hand and available stock for FMG products at the Point B Solutions warehouse, from the latest Fishbowl inventory snapshot. Call this when the user asks about stock, availability, on-hand quantity, or whether a part/product is in stock. Search by part number or by a word in the product description.",
+      "Look up current stock for FMG products at the Point B Solutions warehouse: Point B's live count (the source of truth — quote pointb_available for 'how many do we have'), next to the latest Fishbowl snapshot and the variance between them. Call this when the user asks about stock, availability, on-hand quantity, or whether a part/product is in stock. Search by part number or by a word in the product description.",
     input_schema: {
       type: "object",
       properties: {

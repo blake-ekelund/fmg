@@ -176,9 +176,9 @@ const DATASETS: Record<string, Dataset> = {
     defaultOrder: { column: "part", ascending: true },
   },
   inventory: {
-    title: "Inventory on hand (latest snapshot)",
+    title: "Fishbowl inventory (latest snapshot)",
     description:
-      "Current stock per part at the warehouse (Point B), from the most recent inventory snapshot — the Inventory page's numbers. Join to products by part for brand/demand.",
+      "Fishbowl's stock per part, from the most recent snapshot (refreshed ~3×/day). NOT the source of truth: the Inventory page forecasts on Point B's live AVAILABLE count, which this table doesn't hold. For a single part's stock, use get_inventory (it returns Point B live + Fishbowl + variance); use this table for bulk lists/aggregates of Fishbowl figures or on_order. Join to products by part for brand/demand.",
     source: "inventory_snapshot_items",
     page: "/inventory",
     columns: {

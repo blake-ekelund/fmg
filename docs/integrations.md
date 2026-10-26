@@ -109,6 +109,26 @@ exhausted (a hung session), credentials, or the API host/TLS tunnel being down.
 physically ships orders. Facility `PB1`, customer `1590`. **Point B is the
 source of truth for inventory** — Fishbowl and the warehouse drift.
 
+**Inventory reads (live, no cron).** `lib/pointb.ts` `getSynapseInventoryRows()`
+(`POST /inventory/by-customer`) + `rollUpSynapseInventory()` give per-part
+`physical` (all rows except negative Committed), `available` (inventory status
+AV only — already net of the negative Committed rows, excludes Suspense / QC
+Hold), `held` and `committed`. Nothing stores these; every consumer reads live:
+
+- `/api/inventory/variance` → the **Variance Report** and the **Inventory
+  forecast** (`components/inventory/forecasting/hooks/useForecastData.ts`). The
+  forecast runs on Point B **available**; the Variance column is Point B
+  **physical** − Fishbowl `on_hand` (both totals). A part falls back to
+  Fishbowl's count when it isn't in Synapse or the units differ (EA vs CS).
+- Sage's `get_inventory` tool (`lib/assistant/tools.ts`) returns the same
+  Point B fields next to the Fishbowl snapshot.
+- The Inventory page's **Refresh inventory** button runs
+  `fishbowl-inventory-sync?now=1` and then re-reads Point B. Read-only on both.
+
+Not yet on Point B: the Dashboard understock/overstock levers
+(`lib/inventoryHealth.ts`) and storefront `on_hand` still read the Fishbowl
+snapshot.
+
 **Current state.** The Fishbowl ↔ Synapse bridge today is a **third-party
 connector, "LilyPad" (Sharpe Concepts)** — *not* FMG code. It runs as a Fishbowl
 REST integrated app (`appKey 9818`), logs into Fishbowl as user

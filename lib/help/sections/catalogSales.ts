@@ -119,27 +119,42 @@ Changes **save automatically** when you finish an input: leave a text field (or 
     title: "Inventory",
     section: "Catalog",
     summary:
-      "Inventory forecast for every current product: on hand, on order, average monthly demand and projected stock for the next 12 months, colour-coded by risk.",
+      "Inventory forecast for every current product: Point B available stock next to Fishbowl's count and the variance, on order, average monthly demand and projected stock for the next 12 months, colour-coded by risk.",
     body: `## What it's for
-Shows whether each current product will run out. For every product included in the forecast it combines stock on hand and on order with average monthly demand and projects stock month by month. Visible to owner, admin, full-access users and operations.
+Shows whether each current product will run out. For every product included in the forecast it combines stock available at the Point B warehouse and on order with average monthly demand and projects stock month by month. Point B is the warehouse, so its count is the source of truth; Fishbowl's count is shown alongside so you can see where the two disagree. Visible to owner, admin, full-access users and operations.
 
 ## What's on the page
 - **Search** ("Search part, name, fragrance…") — also matches status words like "at risk".
 - **Status** dropdown (multi-select): **At risk**, **Review**, **Healthy**, **No demand**, with counts. Nothing ticked = all.
 - **Monthly / Quarterly** toggle (desktop) — 12 monthly columns or 4 quarter-end columns.
 - **Export** (desktop) — downloads a CSV. On a phone this is **Email to me** instead.
-- **Snapshot** badge on the right, e.g. "Snapshot Oct 20 · 1d ago". It turns amber when 14+ days old. Owners/admins also see an **Upload** link here (goes to Integrations).
-- Table: status dot, Part, Name, Brand (when the top bar is on "All"), Fragrance, On Hand, **On Order** (editable), **Avg / Mo** (editable), then the projection columns. Click a header to sort.
+- **Refresh inventory** — pulls a fresh Fishbowl snapshot and re-reads Point B, in one click. A line under the toolbar says what happened (e.g. "Fishbowl re-pulled (540 parts) · Point B re-read live"). It only reads — nothing changes in Fishbowl or Point B.
+- **Point B** chip — "Loading Point B…", then "Point B live" (or "Point B live · N on Fishbowl" when some parts had to use Fishbowl's count). Red "Point B unavailable · using Fishbowl" means the live read failed and the whole forecast is on Fishbowl. Click it to open the Variance Report.
+- **Fishbowl** badge on the right, e.g. "Fishbowl Oct 20 · 1d ago" — the age of the Fishbowl snapshot. It turns amber when 14+ days old. Owners/admins also see an **Upload** link here (goes to Integrations).
+- Table: status dot, Part, Name, Brand (when the top bar is on "All"), Fragrance, **PB Avail**, **Fishbowl**, **Variance**, **On Order** (editable), **Avg / Mo** (editable), then the projection columns. Click a header to sort.
+
+## The three stock columns
+- **PB Avail** — what Point B can actually sell right now: physical stock minus anything on hold (Suspense / QC Hold) and minus stock already committed to open orders. **The forecast and status run on this number.** Hover it to see the physical / held / committed breakdown.
+- **Fishbowl** — on hand in the latest Fishbowl snapshot.
+- **Variance** — Point B **physical** minus Fishbowl on hand (both totals, the same rule as the Variance Report). Blue **+** = Point B holds more than Fishbowl thinks; red **−** = less; "—" = can't be compared (hover for why).
+- An amber **FB** tag in the PB Avail column means that part is forecast on Fishbowl's number instead, because Point B doesn't stock it or counts it in a different unit (e.g. cases vs eaches). Hover for the reason.
 
 ## Status meanings
-Months of supply = (on hand + on order) ÷ avg monthly demand.
+Months of supply = (PB available + on order) ÷ avg monthly demand.
 - **Healthy**: more than 3 months. **Review**: 1.5–3 months. **At risk**: 1.5 months or less (row tinted red). **No demand**: avg demand is 0.
 - Projection cells: red = less than one month of demand left, yellow = under three months, green = three months or more.
 
 ## How to…
 ### See what's about to run out
 1. Open the **Status** dropdown and tick **At risk** (and **Review** if you want).
-2. Sort by status or On Hand by clicking the column header.
+2. Sort by status or PB Avail by clicking the column header.
+
+### Find where Fishbowl and Point B disagree
+1. Click the **Variance** header to sort the biggest gaps to the top or bottom.
+2. For the full reconciliation (held, committed, units, notes, archiving), click the **Point B** chip to open the Variance Report.
+
+### Get the very latest numbers
+Click **Refresh inventory**. Point B is already read live every time the page opens; the button also pulls a fresh Fishbowl snapshot instead of waiting for the next scheduled one.
 
 ### Change a product's demand or on-order quantity
 1. Click into the **On Order** or **Avg / Mo** box on that row and type the number.
@@ -154,7 +169,11 @@ Months of supply = (on hand + on order) ÷ avg monthly demand.
 Click any row (outside the editable boxes) to go to its product page.
 
 ## Good to know
-- On hand and on order come from Fishbowl and refresh automatically about three times a day (roughly 4 AM, 12 PM and 8 PM Eastern). An **On Order** number you type is saved to the current snapshot only, so the next sync replaces it with Fishbowl's figure.
+- **Point B** numbers are read live from the warehouse system every time the page loads, so they're never stale. Stock on hold (Suspense / QC Hold) can only be released by Point B, not from this page.
+- **Fishbowl** numbers and **On Order** come from a Fishbowl snapshot refreshed about three times a day (roughly 4 AM, 12 PM and 8 PM Eastern), or whenever someone clicks **Refresh inventory**. An **On Order** number you type is saved to the current snapshot only, so the next refresh replaces it with Fishbowl's figure.
+- Because committed-to-order stock is taken out of PB Avail *and* average demand is still subtracted month by month, the forecast leans slightly cautious until those orders ship.
+- The Dashboard's understock / overstock counts still use Fishbowl's numbers, so they can differ slightly from what this page shows.
+- The CSV export includes the forecast on-hand and its source, Point B available, Point B physical, Fishbowl on hand and variance.
 - **Avg / Mo** defaults to last-90-days units ÷ 3. Typing a number saves it to the product as a manual override; setting it back to 0 returns it to the automatic figure.
 - Only products included in the forecast appear here; archived ones don't.
 - Links from the Dashboard can open this page pre-filtered to understock (At risk + Review) or to **Overstock · slow movers**, shown as a violet chip you can clear with its ×.
