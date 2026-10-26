@@ -86,7 +86,8 @@ export default function ForecastSection({
   initialFilter?: string;
 }) {
   const router = useRouter();
-  const { rows, setRows, snapshotDate } = useForecastData();
+  const { rows, setRows, snapshotDate, pointbStatus, pointbError } =
+    useForecastData();
   const scheduleSave = useDebouncedSave();
   const { brand } = useBrand();
   const { profile } = useUser();
@@ -203,7 +204,11 @@ export default function ForecastSection({
       "Fragrance",
       "Size",
       "Product Type",
-      "On Hand",
+      "On Hand (Forecast)",
+      "On Hand Source",
+      "Point B On Hand",
+      "Fishbowl On Hand",
+      "Variance (Point B - Fishbowl)",
       "On Order",
       "Avg Monthly Demand",
       "Lead Time (Months)",
@@ -230,6 +235,10 @@ export default function ForecastSection({
         row.size ?? "",
         row.product_type ?? "",
         row.on_hand,
+        row.on_hand_source === "pointb" ? "Point B" : "Fishbowl",
+        row.pointb_on_hand ?? "",
+        row.fishbowl_on_hand ?? "",
+        row.variance ?? "",
         row.on_order,
         row.avg_monthly_demand,
         row.lead_time_months ?? 0,
@@ -403,6 +412,13 @@ export default function ForecastSection({
         case "on_hand":
           cmp = a.on_hand - b.on_hand;
           break;
+        case "fishbowl_on_hand":
+          cmp = (a.fishbowl_on_hand ?? -Infinity) - (b.fishbowl_on_hand ?? -Infinity);
+          break;
+        case "variance":
+          // Lines that can't be compared sort as 0 rather than to one end.
+          cmp = (a.variance ?? 0) - (b.variance ?? 0);
+          break;
         case "on_order":
           cmp = a.on_order - b.on_order;
           break;
@@ -415,6 +431,12 @@ export default function ForecastSection({
     });
     return sorted;
   }, [rows, passesFilters, effectiveSortKey, effectiveSortDir]);
+
+  /** Visible parts whose forecast had to fall back to Fishbowl. */
+  const fishbowlFallbacks = useMemo(
+    () => visibleRows.filter((r) => r.on_hand_source === "fishbowl").length,
+    [visibleRows],
+  );
 
   /* ─── Snapshot freshness ─── */
 
@@ -432,7 +454,7 @@ export default function ForecastSection({
       day: "numeric",
     });
     return {
-      label: `Snapshot ${dateStr} · ${days === 0 ? "today" : `${days}d ago`}`,
+      label: `Fishbowl ${dateStr} · ${days === 0 ? "today" : `${days}d ago`}`,
       days,
       stale: days >= 14,
     };
@@ -533,10 +555,49 @@ export default function ForecastSection({
                 : "Email to me"}
           </button>
 
-          {/* Snapshot freshness — pinned to the far right of the row. */}
+          {/* Point B — the forecast's source of truth. Says when it's still
+              loading, when it failed (whole table on Fishbowl), and how many
+              parts fell back to Fishbowl, so the numbers never silently
+              switch source. */}
+          <Link
+            href="/inventory/variance"
+            title={
+              pointbStatus === "error"
+                ? `Point B read failed: ${pointbError ?? "unknown error"}. Forecast is using Fishbowl.`
+                : "On hand comes from Point B (live). Open the full variance report."
+            }
+            className={clsx(
+              "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition hover:border-gray-300",
+              pointbStatus === "error"
+                ? "border-red-200 bg-red-50 text-red-700"
+                : "border-gray-200 bg-white text-gray-500",
+            )}
+          >
+            {pointbStatus === "loading" ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <span
+                className={clsx(
+                  "inline-block h-1.5 w-1.5 rounded-full",
+                  pointbStatus === "ok" ? "bg-green-500" : "bg-red-500",
+                )}
+              />
+            )}
+            <span>
+              {pointbStatus === "loading"
+                ? "Loading Point B…"
+                : pointbStatus === "error"
+                  ? "Point B unavailable · using Fishbowl"
+                  : fishbowlFallbacks > 0
+                    ? `Point B live · ${fishbowlFallbacks} on Fishbowl`
+                    : "Point B live"}
+            </span>
+          </Link>
+
+          {/* Fishbowl snapshot freshness — pinned to the far right of the row. */}
           <div
             className={clsx(
-              "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs",
               snapshotMeta.stale
                 ? "border-amber-200 bg-amber-50 text-amber-700"
                 : "border-gray-200 bg-white text-gray-500",

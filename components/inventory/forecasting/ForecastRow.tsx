@@ -26,6 +26,27 @@ function parseFormatted(value: string): number {
   return numeric ? Number(numeric) : 0;
 }
 
+/** Signed, so the direction reads at a glance: + means Point B holds more. */
+export function formatVariance(row: Row): string {
+  if (row.on_hand_source === "pending") return "…";
+  if (row.variance == null) return "—";
+  if (row.variance === 0) return "0";
+  return `${row.variance > 0 ? "+" : "−"}${formatNumber(Math.abs(row.variance))}`;
+}
+
+export function varianceClass(v: number | null | undefined): string {
+  if (v == null || v === 0) return "text-gray-400";
+  return v > 0 ? "text-blue-700 font-medium" : "text-red-700 font-medium";
+}
+
+function onHandTitle(row: Row): string | undefined {
+  if (row.on_hand_source === "fishbowl") {
+    return row.variance_note ?? "Point B unavailable — forecast uses Fishbowl.";
+  }
+  if (row.on_hand_source === "pointb") return "Point B (live) — used for the forecast";
+  return undefined;
+}
+
 function statusVisuals(label: ReturnType<typeof getInventoryStatus>) {
   switch (label) {
     case "at risk":
@@ -133,9 +154,40 @@ export default function ForecastRow({
         {row.fragrance ?? "—"}
       </td>
 
-      {/* On Hand */}
-      <td className="px-2 py-2 text-right tabular-nums text-xs text-gray-700">
-        {formatNumber(row.on_hand)}
+      {/* On Hand — Point B, the count the forecast runs on */}
+      <td
+        className="px-2 py-2 text-right tabular-nums text-xs text-gray-700 whitespace-nowrap"
+        title={onHandTitle(row)}
+      >
+        {row.on_hand_source === "pending" ? (
+          <span className="text-gray-300">…</span>
+        ) : row.pointb_on_hand != null ? (
+          formatNumber(row.pointb_on_hand)
+        ) : (
+          <span className="text-gray-300">—</span>
+        )}
+        {row.on_hand_source === "fishbowl" && (
+          <span className="ml-1 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700">
+            FB {formatNumber(row.on_hand)}
+          </span>
+        )}
+      </td>
+
+      {/* Fishbowl on hand */}
+      <td className="px-2 py-2 text-right tabular-nums text-xs text-gray-500">
+        {row.fishbowl_on_hand != null ? (
+          formatNumber(row.fishbowl_on_hand)
+        ) : (
+          <span className="text-gray-300">—</span>
+        )}
+      </td>
+
+      {/* Variance: Point B − Fishbowl */}
+      <td
+        className={clsx("px-2 py-2 text-right tabular-nums text-xs", varianceClass(row.variance))}
+        title={row.variance_note ?? undefined}
+      >
+        {formatVariance(row)}
       </td>
 
       {/* On Order (editable) */}

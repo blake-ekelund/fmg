@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import clsx from "clsx";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import ForecastRow from "./ForecastRow";
+import ForecastRow, { formatVariance, varianceClass } from "./ForecastRow";
 import {
   ForecastRow as Row,
   Period,
@@ -153,8 +153,27 @@ export default function ForecastTable({
                 widthClass="text-left"
               />
               <SortableTh
-                label="On Hand"
+                label="Point B"
+                title="On hand at Point B (live) — the forecast runs on this"
                 sortKey="on_hand"
+                activeKey={sortKey}
+                dir={sortDir}
+                onSort={onSort}
+                widthClass="text-right whitespace-nowrap"
+              />
+              <SortableTh
+                label="Fishbowl"
+                title="On hand in the latest Fishbowl snapshot"
+                sortKey="fishbowl_on_hand"
+                activeKey={sortKey}
+                dir={sortDir}
+                onSort={onSort}
+                widthClass="text-right"
+              />
+              <SortableTh
+                label="Variance"
+                title="Point B − Fishbowl. + means Point B holds more than Fishbowl thinks."
+                sortKey="variance"
                 activeKey={sortKey}
                 dir={sortDir}
                 onSort={onSort}
@@ -214,6 +233,7 @@ export default function ForecastTable({
 
 function SortableTh({
   label,
+  title,
   sortKey,
   activeKey,
   dir,
@@ -221,6 +241,7 @@ function SortableTh({
   widthClass,
 }: {
   label: string;
+  title?: string;
   sortKey: SortKey;
   activeKey: SortKey;
   dir: SortDir;
@@ -230,6 +251,7 @@ function SortableTh({
   const active = activeKey === sortKey;
   return (
     <th
+      title={title}
       onClick={() => onSort(sortKey)}
       className={clsx(
         "px-2 py-2.5 font-medium select-none cursor-pointer hover:text-gray-600 transition-colors group",
@@ -339,12 +361,33 @@ function MobileCard({
         </div>
       </div>
 
-      {/* Stats + editable */}
-      <div className="grid grid-cols-3 gap-3" onClick={stopRow}>
-        <div>
-          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">On Hand</div>
-          <div className="text-sm tabular-nums font-medium text-gray-900">{fmt(r.on_hand)}</div>
+      {/* On hand by system — Point B drives the forecast */}
+      <div className="grid grid-cols-3 gap-3">
+        <div title={r.variance_note ?? undefined}>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Point B</div>
+          <div className="text-sm tabular-nums font-medium text-gray-900">
+            {r.on_hand_source === "pending" ? "…" : r.pointb_on_hand != null ? fmt(r.pointb_on_hand) : "—"}
+          </div>
+          {r.on_hand_source === "fishbowl" && (
+            <div className="text-[10px] text-amber-700">Using Fishbowl</div>
+          )}
         </div>
+        <div>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Fishbowl</div>
+          <div className="text-sm tabular-nums text-gray-600">
+            {r.fishbowl_on_hand != null ? fmt(r.fishbowl_on_hand) : "—"}
+          </div>
+        </div>
+        <div title={r.variance_note ?? undefined}>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Variance</div>
+          <div className={clsx("text-sm tabular-nums", varianceClass(r.variance))}>
+            {formatVariance(r)}
+          </div>
+        </div>
+      </div>
+
+      {/* Editable */}
+      <div className="grid grid-cols-2 gap-3" onClick={stopRow}>
         <div>
           <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">On Order</div>
           <input
