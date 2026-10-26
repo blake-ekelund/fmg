@@ -10,6 +10,7 @@ import {
   Loader2,
   Check,
   X,
+  RefreshCw,
 } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
@@ -86,8 +87,43 @@ export default function ForecastSection({
   initialFilter?: string;
 }) {
   const router = useRouter();
-  const { rows, setRows, snapshotDate, pointbStatus, pointbError } =
+  const { rows, setRows, snapshotDate, pointbStatus, pointbError, reload } =
     useForecastData();
+  const [refreshState, setRefreshState] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [refreshNote, setRefreshNote] = useState<string | null>(null);
+
+  /* "Refresh inventory": pull a fresh Fishbowl snapshot (the same ?now=1 run
+     the Integrations "Sync now" button uses, so the shrink guard still
+     applies), then reload — which re-reads the new snapshot AND Point B live.
+     Both systems are only READ; nothing is written to Fishbowl or Synapse.
+     A Fishbowl failure still reloads, so Point B is at least current. */
+  async function handleRefreshInventory() {
+    if (refreshState === "running") return;
+    setRefreshState("running");
+    setRefreshNote(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const res = await fetch("/api/cron/fishbowl-inventory-sync?now=1", {
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.synced) {
+        setRefreshState("done");
+        setRefreshNote(`Fishbowl re-pulled (${json.parts} parts) · Point B re-read live`);
+      } else {
+        setRefreshState("error");
+        setRefreshNote(
+          `Fishbowl not refreshed: ${json?.reason ?? json?.error ?? `HTTP ${res.status}`} · Point B re-read live`,
+        );
+      }
+    } catch (e) {
+      setRefreshState("error");
+      setRefreshNote(`Fishbowl not refreshed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    reload();
+  }
   const scheduleSave = useDebouncedSave();
   const { brand } = useBrand();
   const { profile } = useUser();
@@ -206,9 +242,10 @@ export default function ForecastSection({
       "Product Type",
       "On Hand (Forecast)",
       "On Hand Source",
-      "Point B On Hand",
+      "Point B Available",
+      "Point B Physical",
       "Fishbowl On Hand",
-      "Variance (Point B - Fishbowl)",
+      "Variance (Point B Physical - Fishbowl)",
       "On Order",
       "Avg Monthly Demand",
       "Lead Time (Months)",
@@ -237,6 +274,7 @@ export default function ForecastSection({
         row.on_hand,
         row.on_hand_source === "pointb" ? "Point B" : "Fishbowl",
         row.pointb_on_hand ?? "",
+        row.pointb_physical ?? "",
         row.fishbowl_on_hand ?? "",
         row.variance ?? "",
         row.on_order,
@@ -555,6 +593,17 @@ export default function ForecastSection({
                 : "Email to me"}
           </button>
 
+          {/* Refresh both systems at once */}
+          <button
+            onClick={handleRefreshInventory}
+            disabled={refreshState === "running"}
+            title="Pull a fresh Fishbowl snapshot and re-read Point B live (read-only — changes nothing in either system)"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:border-gray-300 disabled:opacity-60 disabled:cursor-wait"
+          >
+            <RefreshCw size={13} className={clsx(refreshState === "running" && "animate-spin")} />
+            {refreshState === "running" ? "Refreshing…" : "Refresh inventory"}
+          </button>
+
           {/* Point B — the forecast's source of truth. Says when it's still
               loading, when it failed (whole table on Fishbowl), and how many
               parts fell back to Fishbowl, so the numbers never silently
@@ -567,7 +616,7 @@ export default function ForecastSection({
                 : "On hand comes from Point B (live). Open the full variance report."
             }
             className={clsx(
-              "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition hover:border-gray-300",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition hover:border-gray-300",
               pointbStatus === "error"
                 ? "border-red-200 bg-red-50 text-red-700"
                 : "border-gray-200 bg-white text-gray-500",
@@ -635,6 +684,17 @@ export default function ForecastSection({
               </button>
             </span>
           </div>
+        )}
+
+        {refreshNote && (
+          <p
+            className={clsx(
+              "text-xs",
+              refreshState === "error" ? "text-amber-700" : "text-gray-500",
+            )}
+          >
+            {refreshNote}
+          </p>
         )}
 
         {emailNote && (

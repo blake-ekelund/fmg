@@ -153,8 +153,8 @@ export default function ForecastTable({
                 widthClass="text-left"
               />
               <SortableTh
-                label="Point B"
-                title="On hand at Point B (live) — the forecast runs on this"
+                label="PB Avail"
+                title="Available at Point B (live): physical minus held and committed. The forecast runs on this."
                 sortKey="on_hand"
                 activeKey={sortKey}
                 dir={sortDir}
@@ -172,7 +172,7 @@ export default function ForecastTable({
               />
               <SortableTh
                 label="Variance"
-                title="Point B − Fishbowl. + means Point B holds more than Fishbowl thinks."
+                title="Point B physical − Fishbowl on hand (both totals, like the variance report). + means Point B holds more than Fishbowl thinks."
                 sortKey="variance"
                 activeKey={sortKey}
                 dir={sortDir}
@@ -364,7 +364,7 @@ function MobileCard({
       {/* On hand by system — Point B drives the forecast */}
       <div className="grid grid-cols-3 gap-3">
         <div title={r.variance_note ?? undefined}>
-          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Point B</div>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">PB Available</div>
           <div className="text-sm tabular-nums font-medium text-gray-900">
             {r.on_hand_source === "pending" ? "…" : r.pointb_on_hand != null ? fmt(r.pointb_on_hand) : "—"}
           </div>

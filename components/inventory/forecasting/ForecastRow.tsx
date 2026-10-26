@@ -43,7 +43,13 @@ function onHandTitle(row: Row): string | undefined {
   if (row.on_hand_source === "fishbowl") {
     return row.variance_note ?? "Point B unavailable — forecast uses Fishbowl.";
   }
-  if (row.on_hand_source === "pointb") return "Point B (live) — used for the forecast";
+  if (row.on_hand_source === "pointb") {
+    const parts = [`Available at Point B (live) — used for the forecast`];
+    if (row.pointb_physical != null) parts.push(`Physical ${formatNumber(row.pointb_physical)}`);
+    if (row.pointb_held) parts.push(`− held (Suspense/QC) ${formatNumber(row.pointb_held)}`);
+    if (row.pointb_committed) parts.push(`− committed to orders ${formatNumber(row.pointb_committed)}`);
+    return parts.join("\n");
+  }
   return undefined;
 }
 

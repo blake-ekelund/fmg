@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
 import type { VarianceRow } from "@/lib/inventoryVariance";
@@ -28,11 +28,21 @@ function applyPointB(row: ForecastRow, vr: VarianceRow | undefined): ForecastRow
     !!vr && (vr.flags.includes("uom-mismatch") || vr.flags.includes("mixed-uom"));
 
   if (vr && vr.synapse !== null && !unitClash) {
+    /* The forecast runs on Point B AVAILABLE: physical stock minus anything
+       held (Suspense / QC Hold) and minus stock already committed to open
+       orders — what can actually be sold. The variance, though, stays
+       physical-vs-Fishbowl-on-hand (the variance report's rule): Fishbowl's
+       on_hand is a physical count, and netting only one side would invent a
+       gap that isn't there. */
+    const available = vr.synapseAvailable ?? vr.synapse;
     return {
       ...row,
-      on_hand: vr.synapse,
+      on_hand: available,
       on_hand_source: "pointb",
-      pointb_on_hand: vr.synapse,
+      pointb_on_hand: available,
+      pointb_physical: vr.synapse,
+      pointb_held: vr.synapseHeld ?? 0,
+      pointb_committed: vr.synapseCommitted ?? 0,
       variance: fishbowl === null ? null : vr.synapse - fishbowl,
       variance_note: fishbowl === null ? "Not in the Fishbowl snapshot" : null,
     };
@@ -57,6 +67,9 @@ export function useForecastData() {
   const [snapshotDate, setSnapshotDate] = useState<Date | null>(null);
   const [pointbStatus, setPointbStatus] = useState<PointBStatus>("loading");
   const [pointbError, setPointbError] = useState<string | null>(null);
+  /* Bumped by reload() — re-runs the whole load: the newest Fishbowl snapshot
+     from Supabase and a fresh live read of Point B. */
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,7 +225,9 @@ export function useForecastData() {
     return () => {
       cancelled = true;
     };
-  }, [brand]);
+  }, [brand, reloadKey]);
 
-  return { rows, setRows, loading, snapshotDate, pointbStatus, pointbError };
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  return { rows, setRows, loading, snapshotDate, pointbStatus, pointbError, reload };
 }

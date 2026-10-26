@@ -17,8 +17,14 @@ export type ForecastRow = Product & {
   on_hand_source?: OnHandSource;
   /** Fishbowl snapshot on-hand, or null when the part isn't in the snapshot. */
   fishbowl_on_hand?: number | null;
-  /** Point B (Synapse) physical on-hand, or null when it has no row / no read. */
+  /** Point B (Synapse) AVAILABLE — physical minus held and committed — or null
+   *  when it has no row / no read. This is what the forecast runs on. */
   pointb_on_hand?: number | null;
+  /** The pieces behind pointb_on_hand, for the tooltip. Physical is what the
+   *  variance compares against Fishbowl. */
+  pointb_physical?: number | null;
+  pointb_held?: number;
+  pointb_committed?: number;
   /** Point B − Fishbowl, null when the two aren't comparable (a missing side or
    *  different units) — the same rule as the variance report. */
   variance?: number | null;
