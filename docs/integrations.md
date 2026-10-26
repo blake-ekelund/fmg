@@ -39,6 +39,7 @@ work happens after the handler's own gating.
 |------|-----------|-----------|--------------|
 | `fishbowl-sales-sync` | `0 0,7,8,15,16,23 * * *` | 3 AM / 11 AM / 7 PM ET | Pull sales orders + line items from Fishbowl → Supabase cache. |
 | `fishbowl-inventory-sync` | `0 0,1,8,9,16,17 * * *` | 4 AM / 12 PM / 8 PM ET | Pull Point B inventory availability from Fishbowl → Supabase. Offset ~1h from sales sync so they never fight for a license seat. |
+| `pointb-inventory-sync` | `*/15 * * * *` | every 15 min | Save Point B (Synapse) available per part → `pointb_inventory`, which `storefront_products.on_hand` prefers over Fishbowl. Zeroes parts that leave Synapse; shrink + empty-pull guards. |
 | `fishbowl-estimate-sweep` | `*/15 * * * *` | every 15 min | Push new storefront orders into Fishbowl as **Estimates**. |
 | `fishbowl-tracking-sync` | `7,37 * * * *` | :07 / :37 each hour | Read tracking numbers off shipped SOs in Fishbowl → mark orders shipped → email the customer once. |
 | `carrier-delivery-sync` | `23 * * * *` | :23 each hour | Ask USPS/FedEx/UPS if shipped packages arrived → stamp delivered → email the customer once. |
@@ -111,9 +112,11 @@ source of truth for inventory** — Fishbowl and the warehouse drift.
 
 **Inventory reads (live, no cron).** `lib/pointb.ts` `getSynapseInventoryRows()`
 (`POST /inventory/by-customer`) + `rollUpSynapseInventory()` give per-part
-`physical` (all rows except negative Committed), `available` (inventory status
-AV only — already net of the negative Committed rows, excludes Suspense / QC
-Hold), `held` and `committed`. Nothing stores these; every consumer reads live:
+`physical` (all rows except negative Committed — includes picked stock, as
+Fishbowl does until it ships), `available` (sellable: inventory status AV,
+net of the negative Committed rows, and EXCLUDING PickNotShipd rows, which
+carry status AV but are already pulled for an order), `picked`, `held`
+(Suspense / QC Hold) and `committed`.
 
 - `/api/inventory/variance` → the **Variance Report** and the **Inventory
   forecast** (`components/inventory/forecasting/hooks/useForecastData.ts`). The
@@ -123,14 +126,21 @@ Hold), `held` and `committed`. Nothing stores these; every consumer reads live:
 - Sage's `get_inventory` tool (`lib/assistant/tools.ts`) returns the same
   Point B fields next to the Fishbowl snapshot.
 - The Inventory page's **Refresh inventory** button runs
-  `fishbowl-inventory-sync?now=1` and then re-reads Point B. Read-only on both.
+  `fishbowl-inventory-sync?now=1`, then `pointb-inventory-sync`, then re-reads
+  Point B. Writes nothing to Fishbowl or Synapse.
 - The **Dashboard** inventory tiles and the Review understock / overstock
   levers (`components/dashboard/hooks/useDashboardInventory.ts`) use the same
   rule. The rule itself lives in `lib/inventoryOnHand.ts` (`resolveOnHand`,
   `fetchPointBRows`), shared by the forecast and the Dashboard.
 
-Not yet on Point B: storefront `on_hand` (the stock levels the Sassy and NI
-stores show) still reads the Fishbowl snapshot.
+**Storefronts** can't call Synapse (they read `storefront_products` with the
+anon key), so `/api/cron/pointb-inventory-sync` (every 15 min, and from the
+Refresh inventory button) saves Point B per part into `pointb_inventory`.
+`storefront_products.on_hand` = that row's `available` when it's comparable
+(same unit as Fishbowl) and synced < 6 h ago, else the Fishbowl snapshot.
+Parts that leave Synapse are zeroed, never deleted (deleting would fall back to
+Fishbowl's stale count and show a sold-out product as in stock). Migration
+`20261026000000_pointb_inventory.sql`. Faire still gets Fishbowl `on_hand`.
 
 **Current state.** The Fishbowl ↔ Synapse bridge today is a **third-party
 connector, "LilyPad" (Sharpe Concepts)** — *not* FMG code. It runs as a Fishbowl

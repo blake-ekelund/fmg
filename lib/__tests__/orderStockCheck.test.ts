@@ -13,6 +13,7 @@ function stock(
         net: r.net ?? r.available ?? 0,
         physical: r.physical ?? r.available ?? 0,
         available: r.available ?? 0,
+        picked: r.picked ?? 0,
         held: r.held ?? 0,
         committed: r.committed ?? 0,
         uoms: r.uoms ?? ["EA"],

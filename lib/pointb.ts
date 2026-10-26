@@ -461,8 +461,14 @@ export type SynapseItemStock = {
   /** Physically in the building: everything except the negative Committed
    *  rows. This is the figure to compare against Fishbowl `on_hand`. */
   physical: number;
-  /** inventory_status AV only. */
+  /** Sellable: inventory_status AV, net of the negative Committed rows, and
+   *  EXCLUDING PickNotShipd stock — that's already pulled for an order and
+   *  just hasn't left the dock. */
   available: number;
+  /** PickNotShipd — picked for an order, still in the building. Counted in
+   *  `physical` (Fishbowl still counts it on hand until it ships), never in
+   *  `available`. */
+  picked: number;
   /** Held back from selling — QC Hold + Suspense. */
   held: number;
   /** Negated Committed rows, as a positive number. */
@@ -513,11 +519,17 @@ export function rollUpSynapseInventory(
   for (const r of rows) {
     const cur =
       out.get(r.item) ??
-      { item: r.item, net: 0, physical: 0, available: 0, held: 0, committed: 0, uoms: [], lots: 0 };
+      { item: r.item, net: 0, physical: 0, available: 0, picked: 0, held: 0, committed: 0, uoms: [], lots: 0 };
     cur.net += r.qty;
     if (r.status === "CM") cur.committed += -r.qty;
     else cur.physical += r.qty;
-    if (r.inventoryStatus === "AV") cur.available += r.qty;
+    /* Picked (PN) and Committed (CM) are separate stages, verified on live data
+       2026-10-26: CM is reserved-not-yet-picked, PN is already picked (69
+       items carried both, with unrelated quantities). Both are spoken for, so
+       neither is sellable. PN rows carry status AV, which is how the earlier
+       "AV only" rule let 3,689 picked units read as available. */
+    if (r.status === "PN") cur.picked += r.qty;
+    else if (r.inventoryStatus === "AV") cur.available += r.qty;
     else cur.held += r.qty;
     if (r.uom && !cur.uoms.includes(r.uom)) cur.uoms.push(r.uom);
     if (r.lot && r.lot !== "(none)") cur.lots++;

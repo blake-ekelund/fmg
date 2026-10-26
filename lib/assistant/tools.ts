@@ -79,7 +79,7 @@ async function getInventory(input: { part_number?: string; query?: string }) {
     warehouse: "Point B Solutions",
     note:
       pointbNote ??
-      "pointb_available is the number to quote for stock (physical minus held and committed-to-orders); it's what the Inventory page forecasts on. variance = pointb_physical − fishbowl_on_hand. Point B fields are null when the part isn't at Point B or is counted in a different unit.",
+      "pointb_available is the number to quote for stock (physical minus held, committed-to-orders and already-picked stock); it's what the Inventory page forecasts on. variance = pointb_physical − fishbowl_on_hand. Point B fields are null when the part isn't at Point B or is counted in a different unit.",
     results: (data as Record<string, number | string>[]).map((r) => {
       const sy = pointb?.get(String(r.part).trim().toUpperCase());
       // Same rule as the variance report: different units aren't comparable.
@@ -90,11 +90,12 @@ async function getInventory(input: { part_number?: string; query?: string }) {
       return {
         part: r.part,
         description: r.description,
-        // Synapse's `available` already nets the negative Committed rows.
+        // Synapse `available` is sellable only: held, committed and picked are out (lib/pointb.ts rollup).
         pointb_available: usable ? usable.available : null,
         pointb_physical: usable ? usable.physical : null,
         pointb_held: usable ? usable.held : null,
         pointb_committed: usable ? usable.committed : null,
+        pointb_picked: usable ? usable.picked : null,
         fishbowl_on_hand: r.on_hand,
         fishbowl_available: r.available,
         variance: usable ? usable.physical - Number(r.on_hand) : null,

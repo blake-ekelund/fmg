@@ -4,9 +4,9 @@
  * count the same products.
  *
  * Point B is the building, so its AVAILABLE count (physical minus Suspense / QC
- * Hold, net of stock committed to open orders) is the source of truth. The
- * Fishbowl snapshot stands in, per part, only when Point B has no comparable
- * number: the part isn't in Synapse at all, or Synapse counts it in a different
+ * Hold, stock committed to open orders, and stock already picked for orders)
+ * is the source of truth. The Fishbowl snapshot stands in, per part, only when
+ * Point B has no comparable number: the part isn't in Synapse at all, or Synapse counts it in a different
  * unit (24 CS is not 24 eaches — planning off it would read as a stock-out that
  * isn't real). Client-safe: the Point B read goes through /api/inventory/variance.
  */
@@ -25,6 +25,7 @@ export type ResolvedOnHand = {
   pointbPhysical: number | null;
   pointbHeld: number;
   pointbCommitted: number;
+  pointbPicked: number;
   /** Point B physical − Fishbowl on_hand (both totals, the variance report's
    *  rule), or null when not comparable. */
   variance: number | null;
@@ -42,7 +43,7 @@ export function resolveOnHand(
     !!vr && (vr.flags.includes("uom-mismatch") || vr.flags.includes("mixed-uom"));
 
   if (vr && vr.synapse !== null && !unitClash) {
-    // Synapse's `available` already nets the negative Committed rows.
+    // Synapse `available` is sellable only: held, committed and picked are out (lib/pointb.ts rollup).
     const available = vr.synapseAvailable ?? vr.synapse;
     return {
       onHand: available,
@@ -51,6 +52,7 @@ export function resolveOnHand(
       pointbPhysical: vr.synapse,
       pointbHeld: vr.synapseHeld ?? 0,
       pointbCommitted: vr.synapseCommitted ?? 0,
+      pointbPicked: vr.synapsePicked ?? 0,
       variance: fishbowlOnHand === null ? null : vr.synapse - fishbowlOnHand,
       note: fishbowlOnHand === null ? "Not in the Fishbowl snapshot" : null,
     };
@@ -63,6 +65,7 @@ export function resolveOnHand(
     pointbPhysical: vr?.synapse ?? null,
     pointbHeld: 0,
     pointbCommitted: 0,
+    pointbPicked: 0,
     variance: null,
     note: unitClash
       ? `Units differ — Fishbowl ${vr?.fishbowlUom ?? "?"}, Point B ${vr?.synapseUom ?? "?"}. Forecast uses Fishbowl.`

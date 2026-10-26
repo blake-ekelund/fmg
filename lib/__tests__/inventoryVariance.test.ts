@@ -66,6 +66,19 @@ describe("rollUpSynapseInventory", () => {
     expect(s.get("A")!.physical).toBe(50);
   });
 
+  it("keeps picked and committed stock out of available", () => {
+    // PN rows carry inventory_status AV, but picked stock is already spoken for.
+    const s = rollup([
+      syn("A", 100),
+      syn("A", 10, { status: "PN", statusDesc: "PickNotShipd" }),
+      syn("A", -30, { status: "CM", statusDesc: "Committed" }),
+    ]);
+    const a = s.get("A")!;
+    expect(a.available).toBe(70);
+    expect(a.picked).toBe(10);
+    expect(a.physical).toBe(110);
+  });
+
   it("splits available from held (QC Hold / Suspense)", () => {
     const s = rollup([
       syn("A", 100),

@@ -128,13 +128,13 @@ Shows whether each current product will run out. For every product included in t
 - **Status** dropdown (multi-select): **At risk**, **Review**, **Healthy**, **No demand**, with counts. Nothing ticked = all.
 - **Monthly / Quarterly** toggle (desktop) — 12 monthly columns or 4 quarter-end columns.
 - **Export** (desktop) — downloads a CSV. On a phone this is **Email to me** instead.
-- **Refresh inventory** — pulls a fresh Fishbowl snapshot and re-reads Point B, in one click. A line under the toolbar says what happened (e.g. "Fishbowl re-pulled (540 parts) · Point B re-read live"). It only reads — nothing changes in Fishbowl or Point B.
+- **Refresh inventory** — in one click: pulls a fresh Fishbowl snapshot, updates the Sassy and NI storefronts' stock from Point B, and re-reads Point B here. A line under the toolbar says what happened (e.g. "Fishbowl re-pulled (540 parts) · stores updated from Point B (285 in stock) · Point B re-read live"). Nothing changes in Fishbowl or Point B.
 - **Point B** chip — "Loading Point B…", then "Point B live" (or "Point B live · N on Fishbowl" when some parts had to use Fishbowl's count). Red "Point B unavailable · using Fishbowl" means the live read failed and the whole forecast is on Fishbowl. Click it to open the Variance Report.
 - **Fishbowl** badge on the right, e.g. "Fishbowl Oct 20 · 1d ago" — the age of the Fishbowl snapshot. It turns amber when 14+ days old. Owners/admins also see an **Upload** link here (goes to Integrations).
 - Table: status dot, Part, Name, Brand (when the top bar is on "All"), Fragrance, **PB Avail**, **Fishbowl**, **Variance**, **On Order** (editable), **Avg / Mo** (editable), then the projection columns. Click a header to sort.
 
 ## The three stock columns
-- **PB Avail** — what Point B can actually sell right now: physical stock minus anything on hold (Suspense / QC Hold) and minus stock already committed to open orders. **The forecast and status run on this number.** Hover it to see the physical / held / committed breakdown.
+- **PB Avail** — what Point B can actually sell right now: physical stock minus anything on hold (Suspense / QC Hold), minus stock committed to open orders, and minus stock already picked for orders but not yet shipped. **The forecast and status run on this number.** Hover it to see the physical / held / committed / picked breakdown.
 - **Fishbowl** — on hand in the latest Fishbowl snapshot.
 - **Variance** — Point B **physical** minus Fishbowl on hand (both totals, the same rule as the Variance Report). Blue **+** = Point B holds more than Fishbowl thinks; red **−** = less; "—" = can't be compared (hover for why).
 - An amber **FB** tag in the PB Avail column means that part is forecast on Fishbowl's number instead, because Point B doesn't stock it or counts it in a different unit (e.g. cases vs eaches). Hover for the reason.
@@ -171,7 +171,8 @@ Click any row (outside the editable boxes) to go to its product page.
 ## Good to know
 - **Point B** numbers are read live from the warehouse system every time the page loads, so they're never stale. Stock on hold (Suspense / QC Hold) can only be released by Point B, not from this page.
 - **Fishbowl** numbers and **On Order** come from a Fishbowl snapshot refreshed about three times a day (roughly 4 AM, 12 PM and 8 PM Eastern), or whenever someone clicks **Refresh inventory**. An **On Order** number you type is saved to the current snapshot only, so the next refresh replaces it with Fishbowl's figure.
-- Because committed-to-order stock is taken out of PB Avail *and* average demand is still subtracted month by month, the forecast leans slightly cautious until those orders ship.
+- Because committed and picked stock is taken out of PB Avail *and* average demand is still subtracted month by month, the forecast leans slightly cautious until those orders ship.
+- The Sassy and NI storefronts use the same PB Avail number to decide what shows as in stock (it's saved for them every 15 minutes). If Point B hasn't been saved for 6 hours, the stores fall back to Fishbowl's count.
 - The Dashboard's **Review understock / Review overstock** counts use the same Point B-first numbers, so they match what this page shows when you click through.
 - The CSV export includes the forecast on-hand and its source, Point B available, Point B physical, Fishbowl on hand and variance.
 - **Avg / Mo** defaults to last-90-days units ÷ 3. Typing a number saves it to the product as a manual override; setting it back to 0 returns it to the automatic figure.

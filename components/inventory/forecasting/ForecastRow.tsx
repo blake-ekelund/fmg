@@ -48,6 +48,7 @@ function onHandTitle(row: Row): string | undefined {
     if (row.pointb_physical != null) parts.push(`Physical ${formatNumber(row.pointb_physical)}`);
     if (row.pointb_held) parts.push(`− held (Suspense/QC) ${formatNumber(row.pointb_held)}`);
     if (row.pointb_committed) parts.push(`− committed to orders ${formatNumber(row.pointb_committed)}`);
+    if (row.pointb_picked) parts.push(`− picked, not yet shipped ${formatNumber(row.pointb_picked)}`);
     return parts.join("\n");
   }
   return undefined;

@@ -29,6 +29,7 @@ function applyPointB(row: ForecastRow, vr: VarianceRow | undefined): ForecastRow
     pointb_physical: r.pointbPhysical,
     pointb_held: r.pointbHeld,
     pointb_committed: r.pointbCommitted,
+    pointb_picked: r.pointbPicked,
     variance: r.variance,
     variance_note: r.note,
   };

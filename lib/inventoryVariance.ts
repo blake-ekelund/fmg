@@ -65,6 +65,8 @@ export type VarianceRow = {
   synapseAvailable: number | null;
   synapseHeld: number | null;
   synapseCommitted: number | null;
+  /** Picked for an order, not yet shipped — physical, but not available. */
+  synapsePicked: number | null;
   fishbowlAvailable: number | null;
   /** The unit each side counts in, shown so a mismatch is legible rather than
    *  just asserted. Normalized to upper case. */
@@ -208,6 +210,7 @@ export function buildVarianceRows(
       synapseAvailable: sy ? sy.available : null,
       synapseHeld: sy ? sy.held : null,
       synapseCommitted: sy ? sy.committed : null,
+      synapsePicked: sy ? sy.picked : null,
       fishbowlAvailable: fb?.available ?? null,
       fishbowlUom,
       synapseUom: synapseUoms.length ? synapseUoms.join("+") : null,

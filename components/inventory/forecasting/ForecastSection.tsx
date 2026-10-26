@@ -94,34 +94,55 @@ export default function ForecastSection({
 
   /* "Refresh inventory": pull a fresh Fishbowl snapshot (the same ?now=1 run
      the Integrations "Sync now" button uses, so the shrink guard still
-     applies), then reload — which re-reads the new snapshot AND Point B live.
-     Both systems are only READ; nothing is written to Fishbowl or Synapse.
-     A Fishbowl failure still reloads, so Point B is at least current. */
+     applies), then save Point B's count for the storefronts (after Fishbowl,
+     because that sync judges units against the new snapshot), then reload —
+     which re-reads the new snapshot AND Point B live. Nothing is written to
+     Fishbowl or Synapse. Each step's failure is reported but doesn't stop the
+     next, so the page always ends up as current as it can be. */
   async function handleRefreshInventory() {
     if (refreshState === "running") return;
     setRefreshState("running");
     setRefreshNote(null);
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      const res = await fetch("/api/cron/fishbowl-inventory-sync?now=1", {
+    const notes: string[] = [];
+    let failed = false;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    const call = async (path: string) => {
+      const res = await fetch(path, {
         cache: "no-store",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const json = await res.json().catch(() => null);
-      if (res.ok && json?.synced) {
-        setRefreshState("done");
-        setRefreshNote(`Fishbowl re-pulled (${json.parts} parts) · Point B re-read live`);
-      } else {
-        setRefreshState("error");
-        setRefreshNote(
-          `Fishbowl not refreshed: ${json?.reason ?? json?.error ?? `HTTP ${res.status}`} · Point B re-read live`,
-        );
+      return { ok: res.ok, status: res.status, json };
+    };
+
+    try {
+      const fb = await call("/api/cron/fishbowl-inventory-sync?now=1");
+      if (fb.ok && fb.json?.synced) notes.push(`Fishbowl re-pulled (${fb.json.parts} parts)`);
+      else {
+        failed = true;
+        notes.push(`Fishbowl not refreshed: ${fb.json?.reason ?? fb.json?.error ?? `HTTP ${fb.status}`}`);
       }
     } catch (e) {
-      setRefreshState("error");
-      setRefreshNote(`Fishbowl not refreshed: ${e instanceof Error ? e.message : String(e)}`);
+      failed = true;
+      notes.push(`Fishbowl not refreshed: ${e instanceof Error ? e.message : String(e)}`);
     }
+
+    try {
+      const pb = await call("/api/cron/pointb-inventory-sync");
+      if (pb.ok && pb.json?.synced) notes.push(`stores updated from Point B (${pb.json.inStock} in stock)`);
+      else {
+        failed = true;
+        notes.push(`stores not updated: ${pb.json?.reason ?? pb.json?.error ?? `HTTP ${pb.status}`}`);
+      }
+    } catch (e) {
+      failed = true;
+      notes.push(`stores not updated: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    notes.push("Point B re-read live");
+    setRefreshState(failed ? "error" : "done");
+    setRefreshNote(notes.join(" · "));
     reload();
   }
   const scheduleSave = useDebouncedSave();
@@ -597,7 +618,7 @@ export default function ForecastSection({
           <button
             onClick={handleRefreshInventory}
             disabled={refreshState === "running"}
-            title="Pull a fresh Fishbowl snapshot and re-read Point B live (read-only — changes nothing in either system)"
+            title="Pull a fresh Fishbowl snapshot, update the storefronts from Point B, and re-read Point B live (changes nothing in Fishbowl or Point B)"
             className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:border-gray-300 disabled:opacity-60 disabled:cursor-wait"
           >
             <RefreshCw size={13} className={clsx(refreshState === "running" && "animate-spin")} />
