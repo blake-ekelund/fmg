@@ -39,6 +39,7 @@ import type { ForecastRow } from "@/components/inventory/forecasting/types";
 import type { Section as MediaSection } from "@/components/marketing/media-kit/components/modalSections/types";
 import ProductPhotos from "./ProductPhotos";
 import { DetailsSection } from "./DetailsSection";
+import BomSection from "./BomSection";
 
 /* ─── Types ─── */
 
@@ -65,7 +66,7 @@ type SalesRow = {
   units_fulfilled: number;
 };
 
-type Section = "details" | "inventory" | "media" | "sales";
+type Section = "details" | "inventory" | "bom" | "media" | "sales";
 
 type TabIndicator = {
   color: string;
@@ -617,6 +618,7 @@ export default function ProductDetailPage({
     return {
       details: detailsIndicator,
       inventory: invIndicator,
+      bom: null,
       sales: salesIndicator,
       media: mediaIndicator,
     };
@@ -651,6 +653,7 @@ export default function ProductDetailPage({
   const NAV_SECTIONS: { value: Section; label: string }[] = [
     { value: "details", label: "Details" },
     { value: "inventory", label: "Inventory" },
+    { value: "bom", label: "BOM" },
     { value: "sales", label: "Sales" },
     { value: "media", label: "Media" },
   ];
@@ -940,6 +943,9 @@ export default function ProductDetailPage({
               onChanged={loadMedia}
             />
           )}
+
+          {/* ─── BILL OF MATERIALS ─── */}
+          {section === "bom" && <BomSection part={part} />}
 
           {/* ─── SALES ANALYSIS ─── */}
           {section === "sales" && (

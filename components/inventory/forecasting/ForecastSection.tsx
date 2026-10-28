@@ -11,6 +11,7 @@ import {
   Check,
   X,
   RefreshCw,
+  ShoppingCart,
 } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
@@ -592,6 +593,17 @@ export default function ForecastSection({
             <Download size={13} />
             Export
           </button>
+
+          {/* Hand the same status filter to Purchasing, so "what's running
+              low" here becomes "what to order" there, product family by family. */}
+          <Link
+            href={`/inventory/purchasing${statusFilter.size ? `?status=${encodeURIComponent([...statusFilter].join(","))}` : ""}`}
+            title="Work out which ingredients to order for these products"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-900 bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-gray-800"
+          >
+            <ShoppingCart size={13} />
+            Order ingredients
+          </Link>
 
           {/* Email to me — mobile only (desktop downloads via Export instead). */}
           <button

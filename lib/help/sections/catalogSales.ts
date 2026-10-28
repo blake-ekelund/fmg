@@ -66,7 +66,7 @@ This is everything about a single SKU. It is where you edit product descriptions
 ## What's on the page
 - Top bar: **Back to products**, and previous/next arrows that step through current (non-archived) products alphabetically, with a "3 / 120"-style position counter.
 - Header: product name, SKU and a trend badge (Growing / New / Stable / Declining).
-- Four tabs, each with a small status badge: **Details** (shows D2C / Wholesale / Both when published), **Inventory** (Healthy / Review / At Risk), **Sales** (trend), **Media** (Complete or "N missing").
+- Five tabs, each with a small status badge where it helps: **Details** (shows D2C / Wholesale / Both when published), **Inventory** (Healthy / Review / At Risk), **BOM**, **Sales** (trend), **Media** (Complete or "N missing").
 - A **Delete this product** box at the bottom of every tab.
 
 ## Saving
@@ -105,6 +105,14 @@ Changes **save automatically** when you finish an input: leave a text field (or 
 1. Edit **Min Qty**, **Max Qty**, **Lead Time (mo)** and **Avg Monthly Demand**.
 2. The **12-Month Projection** chart and table update; months below Min are amber, below zero red.
 3. **Include in Forecast** off = archived: removed from forecasting and taken off the storefronts.
+
+### Check what a product is made of (BOM tab)
+The **BOM** tab shows the product's bill of materials from Fishbowl (read-only):
+- **Can build now** (and **Incl. on order**): how many units the components on hand could make, and which component runs out first (the **bottleneck**, highlighted amber).
+- **Material cost / unit**: rolled up from each component's last vendor price (Fishbowl average cost when there's no vendor price).
+- Per component: quantity per unit (converted when the BOM uses a different unit, e.g. "1 6thb = 0.167 bx" for a shipper per 6), **On hand** (hover for stock by location: Kapra, FMG, Point B…; Amazon stock isn't counted), **On order** (hover for the open POs), **Covers** (finished units that component alone could supply), cost, and **Shared with** — click it to list every other product that uses the same component.
+- A component that's itself made from a BOM (e.g. the lotion inside a tester) links to its own product page.
+- **Plan a purchase** opens Purchasing focused on this product.
 
 ## Good to know
 - **Sales** tab: last 12 months of revenue, units and average price from Fishbowl, plus TTM totals. Read-only.
@@ -181,6 +189,44 @@ Click any row (outside the editable boxes) to go to its product page.
 - On a phone the view is monthly only, sorted by part, shown as cards with **Show 25 more**.`,
   },
 
+  /* ─────────────────────────── Purchasing ───────────────────────────── */
+  {
+    path: "/inventory/purchasing",
+    title: "Purchasing",
+    section: "Catalog",
+    summary:
+      "Work out which ingredients to order, one product family at a time: what's running low, what Kapra can make with what's on hand, and an order list per vendor coloured by how soon it has to go out.",
+    body: `## What it's for
+Turns "what's running low" (the Inventory page) into "what ingredients do I order, from whom, and how soon". It reads each product's recipe (bill of materials) from Fishbowl and works one **family** at a time — products that share an ingredient (the same tube, bottle, pump, fill or label) or the same product line, so testers sit with their parents. Read-only: nothing is ordered in Fishbowl. Visible to owner, admin, full-access users and operations.
+
+## What's on the page
+- **Families** (left) — most urgent first. Each shows red / amber dots for products at risk / to review, how many products, and roughly what its order costs (red when something must be ordered now). Click one to work on it.
+- **The family's products** (middle) — the Inventory page's own columns and colours: status dot, On Hand, On Order, Avg / Mo, **Months left**. Then **Can make** (units the ingredients on hand and on order could make; "→ 1,450" in green is what the order list would add) and **Make** (editable — blue once you've changed it).
+- The **status** dropdown works like the Inventory page: the ticked statuses are the products you're ordering for (At risk + Review by default). **Stock for N months** sets how much to make.
+- Click a product to see its **recipe**: each ingredient, how much per unit, what we have, what the whole family needs, what's short, and where it is (Kapra, the FMG location, "made by Kapra" for fill). "In N products" marks a shared ingredient.
+- **Order list** (right) — the total, then one line per vendor with a coloured dot: **red = order now** (the products would run out before it could arrive and be filled), **amber = order soon**, **green = can wait**. Click a vendor to see and change quantities, see which products one buy covers, and **Copy order** (ready to paste into an email). **Download this order list** saves it as a spreadsheet.
+- **Send to Kapra first** — ingredients the plan needs that are sitting somewhere other than Kapra.
+- **Check in Fishbowl first** — ingredients that show zero everywhere with nothing on order. They may just not be counted in Fishbowl, so they're left out of the total.
+- **Ingredients & minimums** (button above the products, or **Minimums & prices** under the order list) opens a drawer with every ingredient in the family, grouped by vendor:
+  - Per vendor: **Run minimum** (the whole order must reach this many units — e.g. Kapra's batch size), **Each item at least** (e.g. 500 of each fragrance) and **Lead time**.
+  - Per ingredient: **Price**, **Min**, **Multiple** (order in packs of) and **Lead** time. A blank box uses the vendor's rule, then Fishbowl — the grey number shows what's in effect, and blue boxes are your changes. Saves when you leave a box, for everyone.
+- When a vendor's order is under its run minimum, the order list says how far under, and **Top up** spreads the extra across that vendor's items in proportion to how much each needs.
+
+## How to…
+### Order for the most urgent family
+1. Click the top family on the left.
+2. Check the **Make** numbers (change any you disagree with).
+3. Open each red vendor in the **Order list**, adjust quantities if needed, and **Copy order**.
+
+### Start from the Inventory page
+Click **Order ingredients** on the Inventory page — Purchasing opens with the same status filter.
+
+## Good to know
+- Fill ("goop") is made and held by Kapra and ordered from them with each run, so zero fill in stock is normal.
+- "How soon" = months left on the most urgent product using the ingredient, minus the vendor's lead time plus 2 weeks for filling. When Fishbowl has no lead time, 8 weeks is assumed (shown as "~8 wk?").
+- Ingredient stock counts Kapra, the FMG location and Point B (live); Amazon stock isn't counted.
+- Prices come from the most recent purchase order for each ingredient (hover a cost to see which PO date), else Fishbowl's vendor price, else average cost — unless you've typed a price. Order quantities follow the minimums and multiples you set; without one, they're the exact shortfall.`,
+  },
   /* ─────────────────────────── Variance Report ───────────────────────────── */
   {
     path: "/inventory/variance",
