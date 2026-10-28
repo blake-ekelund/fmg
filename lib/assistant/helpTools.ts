@@ -709,7 +709,125 @@ const importAmazonSettlement: HelpTool = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* Purchasing                                                         */
+/* ------------------------------------------------------------------ */
+
+const purchasingPlan: HelpTool = {
+  page: "/inventory/purchasing",
+  status: "Working out what to order…",
+  def: {
+    name: "purchasing_plan",
+    description:
+      "The Purchasing page's ingredient plan, from Fishbowl recipes (BOMs), stock, open POs, Point B and the minimums/prices people set — the same numbers as the page. Without `family`: every product family ranked by urgency with what its order would cost (use for 'what do I need to order?', 'where do I start?'). With `family` (a product line like 'mini hand creme', 'lotion', 'fragrance mist', or a product name/part): that family's products to make (months left, make, can make now / after ordering), the order per vendor (urgency now/soon/later, total, lead weeks, items with qty, price, which products each covers, and how far under a vendor's run minimum), ingredients to check in Fishbowl first, and stock to send to Kapra. Urgency 'now' means the products would run out before the ingredient could arrive and be filled at Kapra.",
+    input_schema: {
+      type: "object",
+      properties: {
+        family: { type: "string", description: "Product line, product name or part number. Omit for the overview of all families." },
+        months: { type: "number", description: "Months of stock to plan for. Default 6." },
+        include_all: { type: "boolean", description: "Plan for every product, not just At risk + Review ones. Default false." },
+      },
+    },
+  },
+  async run(input, ctx) {
+    const qs = new URLSearchParams();
+    const family = str(input.family, 120);
+    if (family) qs.set("family", family);
+    if (typeof input.months === "number" && input.months > 0) qs.set("months", String(Math.round(input.months)));
+    if (input.include_all === true) qs.set("include", "all");
+    const out = await callApi<Record<string, unknown> & { page?: string; family?: string }>(
+      ctx,
+      "GET",
+      `/api/inventory/purchasing-plan?${qs}`,
+    );
+    return {
+      result: out,
+      action: { label: out.family ? `Open ${out.family} in Purchasing` : "Open Purchasing", href: out.page ?? "/inventory/purchasing" },
+    };
+  },
+};
+
+const recipeLookup: HelpTool = {
+  page: "/inventory/purchasing",
+  status: "Looking up the recipe…",
+  def: {
+    name: "recipe_lookup",
+    description:
+      "Look up a product's recipe (bill of materials: each ingredient, per-unit quantity, what we have, on order, vendor, how many products share it, how many we can make now and what runs out first), or one ingredient (usable stock and stock by location, open POs with due dates, vendor, current price and where it came from, lead time, its minimum/multiple/vendor run minimum, and every product it goes into). Use for 'what's in X?', 'how many X can we make?', 'what uses the white lotion bottle?', 'what does the 12oz pump cost?'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Product or ingredient name words, or a part number." },
+      },
+      required: ["query"],
+    },
+  },
+  async run(input, ctx) {
+    const q = str(input.query, 120);
+    const out = await callApi<Record<string, unknown>>(ctx, "GET", `/api/inventory/purchasing-plan?lookup=${encodeURIComponent(q)}`);
+    return { result: out };
+  },
+};
+
+const setOrderingRule: HelpTool = {
+  page: "/inventory/purchasing",
+  status: "Saving the ordering rule…",
+  def: {
+    name: "set_ordering_rule",
+    description:
+      "Save an ordering rule the Purchasing page applies (shared with everyone; same as the Ingredients & minimums drawer). For a VENDOR (exact Fishbowl vendor name, e.g. 'Kapra Cosmetics'): run_minimum (the whole order must reach this many units, e.g. Kapra's batch), each_item_minimum (every item at least this many, e.g. 500 per fragrance), lead_days. For an INGREDIENT (part number): min_order, multiple (order in packs of), price (per unit, overrides Fishbowl's last PO price), lead_days. Send null to clear a value back to Fishbowl's. Only set what the user explicitly told you; confirm what you saved.",
+    input_schema: {
+      type: "object",
+      properties: {
+        vendor: { type: "string", description: "Vendor name, for vendor rules." },
+        part: { type: "string", description: "Ingredient part number, for ingredient rules (use recipe_lookup to find it)." },
+        run_minimum: { type: ["number", "null"] },
+        each_item_minimum: { type: ["number", "null"] },
+        min_order: { type: ["number", "null"] },
+        multiple: { type: ["number", "null"] },
+        price: { type: ["number", "null"] },
+        lead_days: { type: ["number", "null"] },
+      },
+    },
+  },
+  async run(input, ctx) {
+    const vendor = str(input.vendor, 120);
+    const part = str(input.part, 60);
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(input, k);
+    let body: Record<string, unknown>;
+    if (part) {
+      body = { kind: "part", part };
+      if (has("min_order")) body.min_qty = input.min_order;
+      if (has("multiple")) body.multiple = input.multiple;
+      if (has("price")) body.unit_price = input.price;
+      if (has("lead_days")) body.lead_days = input.lead_days;
+    } else if (vendor) {
+      body = { kind: "vendor", vendor };
+      if (has("run_minimum")) body.min_run_qty = input.run_minimum;
+      if (has("each_item_minimum")) body.item_min_qty = input.each_item_minimum;
+      if (has("lead_days")) body.lead_days = input.lead_days;
+    } else {
+      return { result: { saved: false, error: "Say which vendor or ingredient part the rule is for." } };
+    }
+    if (Object.keys(body).length <= 2) return { result: { saved: false, error: "No rule values were given." } };
+    const res = await fetch(new URL("/api/inventory/purchasing-settings", ctx.origin), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: ctx.authorization },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json().catch(() => null)) as { setting?: unknown; error?: string } | null;
+    if (!res.ok) return { result: { saved: false, error: json?.error ?? `Couldn't save (${res.status}).` } };
+    return {
+      result: { saved: true, setting: json?.setting },
+      action: { label: "Open Purchasing", href: "/inventory/purchasing" },
+    };
+  },
+};
+
 const STATIC_TOOLS: HelpTool[] = [
+  purchasingPlan,
+  recipeLookup,
+  setOrderingRule,
   importAmazonSettlement,
   recallConversations,
   proposePublishing,

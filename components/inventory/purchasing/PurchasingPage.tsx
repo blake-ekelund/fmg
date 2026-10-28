@@ -3,17 +3,27 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
-import { Loader2, RefreshCw, Search, Download, Copy, Check, ChevronDown, ChevronRight, Layers, SlidersHorizontal, AlertTriangle } from "lucide-react";
+import { Loader2, RefreshCw, Search, Download, Copy, Check, ChevronDown, ChevronRight, Layers, SlidersHorizontal, AlertTriangle, FileDown, Printer } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
 import { useForecastData } from "@/components/inventory/forecasting/hooks/useForecastData";
 import StatusFilterDropdown from "@/components/inventory/forecasting/StatusFilterDropdown";
 import {
   type InventoryStatus,
   type ForecastRow,
-  getInventoryStatus,
   STATUS_RANK,
 } from "@/components/inventory/forecasting/types";
 import { useBomData } from "./useBomData";
+import {
+  NO_VENDOR,
+  planFamily as planFamilyFor,
+  rankFamilies,
+  sendToKapra,
+  toPlanRow,
+  vendorOrders,
+  type BuyLine,
+  type PlanContext,
+  type PlanRow,
+} from "@/lib/purchasingPlan";
 import { usePurchasingSettings } from "./usePurchasingSettings";
 import IngredientsDrawer from "./IngredientsDrawer";
 import {
@@ -22,23 +32,38 @@ import {
   bomFamilies,
   buildable,
   isFill,
-  orderUrgency,
-  planRequirements,
-  orderQty,
-  priceFor,
-  leadDaysFor,
   topUpToRun,
   vendorFor,
   type Boms,
   type Family,
   type PartSetting,
   type VendorSetting,
-  type PriceSource,
   type Requirement,
-  type Urgency,
 } from "@/lib/bomPlan";
 import type { BomPart } from "@/lib/fishbowlBom";
 import { URGENCY_STYLE, fmt, friendlyName, money, unitWord } from "./purchasingText";
+import { supabase } from "@/lib/supabaseClient";
+import type { PoDefaults } from "@/lib/fishbowlPoDefaults";
+import { buildPoHtml, buildPoImportCsv, headerFor, type PurchaseOrderDraft } from "@/lib/poExport";
+
+
+/* Each vendor's usual PO header (from its last Fishbowl PO), fetched the first
+   time someone makes a PO and reused for the visit. */
+let poDefaultsCache: Promise<PoDefaults> | null = null;
+function fetchPoDefaults(): Promise<PoDefaults> {
+  poDefaultsCache ??= (async () => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    const res = await fetch("/api/inventory/po-defaults", { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(json?.error ?? `Couldn't read vendor PO details (${res.status})`);
+    return json as PoDefaults;
+  })().catch((e) => {
+    poDefaultsCache = null;
+    throw e;
+  });
+  return poDefaultsCache;
+}
 
 /* Same statuses, colours and wording as the Inventory page. */
 const STATUS_OPTIONS: { value: InventoryStatus; label: string; dotClass: string }[] = [
@@ -55,28 +80,7 @@ const STATUS_DOT: Record<InventoryStatus, string> = {
 };
 const DEFAULT_STATUSES: InventoryStatus[] = ["at risk", "needs review"];
 
-type Row = {
-  p: ForecastRow;
-  name: string;
-  status: InventoryStatus;
-  have: number;
-  cover: number | null;
-  suggested: number;
-};
-
-type BuyLine = {
-  priceSource: PriceSource | null;
-  priceDate: string | null;
-  r: Requirement;
-  part: BomPart | undefined;
-  buy: number;
-  cost: number | null;
-  lineCost: number | null;
-  urgency: Urgency;
-  leadDays: number;
-  leadAssumed: boolean;
-  vendor: string;
-};
+type Row = PlanRow & { p: ForecastRow };
 
 /**
  * Purchasing, one SKU family at a time.
@@ -123,18 +127,10 @@ export default function PurchasingPage({
     if (!boms) return [];
     return products
       .filter((p) => !!boms[p.part])
-      .map((p) => {
-        const avg = p.avg_monthly_demand;
-        const have = p.on_hand + p.on_order;
-        return {
-          p,
-          name: p.display_name || p.part,
-          status: getInventoryStatus(p.on_hand, p.on_order, avg),
-          have,
-          cover: avg > 0 ? have / avg : null,
-          suggested: avg > 0 ? Math.max(0, Math.ceil(targetMonths * avg - have)) : 0,
-        };
-      });
+      .map((p) => ({
+        ...toPlanRow(p.part, p.display_name || p.part, p.on_hand, p.on_order, p.avg_monthly_demand, targetMonths),
+        p,
+      }));
   }, [products, boms, targetMonths]);
   const rowOf = useMemo(() => new Map(rows.map((r) => [r.p.part, r])), [rows]);
 
@@ -150,8 +146,8 @@ export default function PurchasingPage({
   /* A product is in the plan when its status is ticked (nothing ticked = all)
      or someone typed a Make for it. */
   const makeFor = useMemo(
-    () => (r: Row) => {
-      const o = makeOverride.get(r.p.part);
+    () => (r: PlanRow) => {
+      const o = makeOverride.get(r.part);
       if (o !== undefined) return o;
       return statusFilter.size === 0 || statusFilter.has(r.status) ? r.suggested : 0;
     },
@@ -160,68 +156,22 @@ export default function PurchasingPage({
 
   /* ─── Plan + order list for one family ─── */
 
-  const planFamily = useMemo(() => {
-    return (fam: Family) => {
-      const plan = new Map<string, number>();
-      for (const part of fam.parts) {
-        const r = rowOf.get(part);
-        if (!r) continue;
-        const m = makeFor(r);
-        if (m > 0) plan.set(part, m);
-      }
-      const req = boms ? planRequirements(boms, plan, supply) : new Map<string, Requirement>();
-      const lines: BuyLine[] = [];
-      for (const r of req.values()) {
-        if (r.hasBom || r.needed <= 0) continue;
-        const part = parts[r.part];
-        const ps = partSettings.get(r.part);
-        const vs = vendorSettings.get(vendorFor(part) ?? "");
-        const buy = buyOverride.get(r.part) ?? orderQty(r.short, part, ps, vs);
-        if (buy <= 0) continue;
-        const covers = r.usedBy.map((u) => rowOf.get(u)?.cover).filter((c): c is number => c != null);
-        const u = orderUrgency({
-          coverMonths: covers.length ? Math.min(...covers) : null,
-          leadTimeDays: leadDaysFor(part, ps, vs),
-          stockAnywhere: Object.values(part?.stockByLocation ?? {}).reduce((s, q) => s + Math.max(0, q), 0),
-          onOrder: part?.onOrder ?? 0,
-          madeToOrder: isFill(part),
-        });
-        const pr = priceFor(part, ps);
-        const cost = pr.price;
-        lines.push({
-          r,
-          part,
-          buy,
-          cost,
-          lineCost: cost !== null ? cost * buy : null,
-          ...u,
-          vendor: vendorFor(part) ?? "No vendor on file",
-          priceSource: pr.source,
-          priceDate: pr.date,
-        });
-      }
-      return { plan, req, lines };
-    };
-  }, [rowOf, makeFor, boms, supply, parts, buyOverride, partSettings, vendorSettings]);
+  /* The plan maths lives in lib/purchasingPlan.ts — shared with Sage. */
+  const planCtx = useMemo<PlanContext | null>(
+    () =>
+      boms
+        ? { boms, parts, supply, rowOf, makeFor, partSettings, vendorSettings, buyOverride }
+        : null,
+    [boms, parts, supply, rowOf, makeFor, partSettings, vendorSettings, buyOverride],
+  );
+  const planFamily = useMemo(
+    () => (fam: Family) =>
+      planCtx ? planFamilyFor(fam, planCtx) : { plan: new Map<string, number>(), req: new Map<string, Requirement>(), lines: [] as BuyLine[] },
+    [planCtx],
+  );
 
   /* Rail summary per family, most urgent first. */
-  const familyCards = useMemo(() => {
-    return families
-      .map((f) => {
-        const { plan, lines } = planFamily(f);
-        const ordering = lines.filter((l) => l.urgency !== "check");
-        const statuses = f.parts.map((p) => rowOf.get(p)?.status);
-        return {
-          f,
-          atRisk: statuses.filter((s) => s === "at risk").length,
-          review: statuses.filter((s) => s === "needs review").length,
-          toMake: plan.size,
-          cost: ordering.reduce((s, l) => s + (l.lineCost ?? 0), 0),
-          now: ordering.filter((l) => l.urgency === "now").length,
-        };
-      })
-      .sort((a, b) => b.now - a.now || b.atRisk - a.atRisk || b.review - a.review || b.f.parts.length - a.f.parts.length);
-  }, [families, planFamily, rowOf]);
+  const familyCards = useMemo(() => (planCtx ? rankFamilies(families, planCtx) : []), [families, planCtx]);
 
   const selectedId =
     picked ??
@@ -272,7 +222,7 @@ export default function PurchasingPage({
     return [...seen]
       .map((c) => parts[c])
       .filter((p): p is BomPart => !!p)
-      .map((p) => ({ part: p, vendor: vendorFor(p) ?? "No vendor on file", usedBy: whereUsed.get(p.part)?.length ?? 0 }))
+      .map((p) => ({ part: p, vendor: vendorFor(p) ?? NO_VENDOR, usedBy: whereUsed.get(p.part)?.length ?? 0 }))
       .sort((a, b) => a.part.description.localeCompare(b.part.description));
   }, [family, boms, parts, whereUsed]);
 
@@ -616,47 +566,95 @@ function OrderList({
   const ordering = lines.filter((l) => l.urgency !== "check");
   const toCheck = lines.filter((l) => l.urgency === "check");
 
-  const vendors = useMemo(() => {
-    const g = new Map<string, BuyLine[]>();
-    for (const l of ordering) g.set(l.vendor, [...(g.get(l.vendor) ?? []), l]);
-    return [...g.entries()]
-      .map(([vendor, items]) => {
-        items.sort((a, b) => URGENCY_STYLE[a.urgency].rank - URGENCY_STYLE[b.urgency].rank || (b.lineCost ?? 0) - (a.lineCost ?? 0));
-        return {
-          vendor,
-          items,
-          worst: items[0].urgency,
-          total: items.reduce((s, i) => s + (i.lineCost ?? 0), 0),
-          weeks: Math.ceil(Math.max(...items.map((i) => i.leadDays)) / 7),
-          units: items.reduce((s, i) => s + i.buy, 0),
-          runMin: vendorSettings.get(vendor)?.min_run_qty ?? null,
-          guessed: items.some((i) => i.leadAssumed),
-        };
-      })
-      .sort((a, b) => URGENCY_STYLE[a.worst].rank - URGENCY_STYLE[b.worst].rank || b.total - a.total);
-  }, [ordering, vendorSettings]);
+  const vendors = useMemo(() => vendorOrders(lines, vendorSettings), [lines, vendorSettings]);
 
   const total = ordering.reduce((s, l) => s + (l.lineCost ?? 0), 0);
 
-  const toKapra = useMemo(() => {
-    const out: { part: string; text: string }[] = [];
-    for (const r of req.values()) {
-      if (r.hasBom || r.needed <= 0) continue;
-      const p = parts[r.part];
-      const atKapra = p?.stockByLocation[FILLER_LOCATION] ?? 0;
-      if (atKapra >= r.needed) continue;
-      const away = awayFromFiller(p);
-      const awayTotal = away.reduce((s, a) => s + a.qty, 0);
-      if (awayTotal <= 0) continue;
-      const send = Math.min(awayTotal, r.needed - atKapra);
-      const unit = unitWord(p?.uom, send);
-      out.push({
-        part: r.part,
-        text: `${fmt(send)}${unit ? ` ${unit}` : ""} ${friendlyName(p?.description, r.part)} — from ${away.map((a) => a.location).join(" & ")}`,
-      });
+  const toKapra = useMemo(
+    () =>
+      sendToKapra(req, parts).map((t) => {
+        const p = parts[t.part];
+        const unit = unitWord(p?.uom, t.qty);
+        return {
+          part: t.part,
+          text: `${fmt(t.qty)}${unit ? ` ${unit}` : ""} ${friendlyName(p?.description, t.part)} — from ${t.from.join(" & ")}`,
+        };
+      }),
+    [req, parts],
+  );
+
+  /* ─── Fishbowl POs ─── */
+
+  const [poBusy, setPoBusy] = useState(false);
+  const [poError, setPoError] = useState<string | null>(null);
+
+  function draftFor(v: (typeof vendors)[number], defaults: PoDefaults | null): PurchaseOrderDraft {
+    const today = new Date();
+    return {
+      vendor: v.vendor,
+      header: headerFor(v.vendor, defaults),
+      lines: v.items.map((i) => {
+        const due = new Date(today);
+        due.setDate(due.getDate() + i.leadDays);
+        return {
+          part: i.r.part,
+          description: i.part?.description ?? i.r.part,
+          vendorPartNumber: i.part?.vendorPartNumber ?? null,
+          qty: i.buy,
+          uom: i.part?.uom ?? null,
+          unitPrice: i.cost,
+          dueDate: due.toISOString().slice(0, 10),
+          // Like Fishbowl's own Kapra POs: name the finished products it's for.
+          note: i.r.usedBy.map((u) => `${u} ${nameOf(u)}`).join("; ").slice(0, 250),
+        };
+      }),
+    };
+  }
+
+  async function poFiles(list: typeof vendors) {
+    if (list.length === 0) return;
+    setPoBusy(true);
+    setPoError(null);
+    try {
+      const defaults = await fetchPoDefaults();
+      const today = new Date().toISOString().slice(0, 10);
+      const csv = buildPoImportCsv(list.map((v) => draftFor(v, defaults)), today);
+      const name = list.length === 1 ? list[0].vendor : familyName;
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fishbowl_po_${name.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}_${today}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setPoError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPoBusy(false);
     }
-    return out;
-  }, [req, parts]);
+  }
+
+  async function printPo(v: (typeof vendors)[number]) {
+    // Open the window first (inside the click) so pop-up blockers allow it.
+    const w = window.open("", "_blank");
+    setPoBusy(true);
+    setPoError(null);
+    try {
+      const defaults = await fetchPoDefaults();
+      const html = buildPoHtml(draftFor(v, defaults), new Date().toISOString().slice(0, 10));
+      if (w) {
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        w.focus();
+        w.print();
+      }
+    } catch (e) {
+      w?.close();
+      setPoError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPoBusy(false);
+    }
+  }
 
   async function copyOrder(v: (typeof vendors)[number]) {
     const text = [
@@ -786,13 +784,38 @@ function OrderList({
                         </div>
                       </div>
                     ))}
-                    <button
-                      onClick={() => copyOrder(v)}
-                      className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      {copied === v.vendor ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-                      {copied === v.vendor ? "Copied" : "Copy order"}
-                    </button>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {v.vendor !== NO_VENDOR && (
+                        <>
+                          <button
+                            onClick={() => poFiles([v])}
+                            disabled={poBusy}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-900 bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                            title="A file to import in Fishbowl (File → Import → Purchase Order). Lands as a draft (Bid Request) for you to check and issue."
+                          >
+                            <FileDown size={14} /> Fishbowl PO
+                          </button>
+                          <button
+                            onClick={() => printPo(v)}
+                            disabled={poBusy}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            title="A printable PO to send the vendor"
+                          >
+                            <Printer size={14} /> Print PO
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => copyOrder(v)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        {copied === v.vendor ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                        {copied === v.vendor ? "Copied" : "Copy order"}
+                      </button>
+                    </div>
+                    {v.vendor === NO_VENDOR && (
+                      <p className="text-xs text-gray-500">No vendor on file in Fishbowl, so no PO can be made — set a default vendor on these parts in Fishbowl.</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -802,13 +825,24 @@ function OrderList({
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 px-4 py-2.5">
           {ordering.length > 0 && (
+            <button
+              onClick={() => poFiles(vendors.filter((v) => v.vendor !== NO_VENDOR))}
+              disabled={poBusy}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-900 hover:underline disabled:opacity-50"
+              title="Every vendor's PO in one Fishbowl import file"
+            >
+              <FileDown size={14} /> All vendors as Fishbowl POs
+            </button>
+          )}
+          {ordering.length > 0 && (
             <button onClick={exportCsv} className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900">
-              <Download size={14} /> Download this order list
+              <Download size={14} /> Spreadsheet
             </button>
           )}
           <button onClick={onEditRules} className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900">
             <SlidersHorizontal size={14} /> Minimums &amp; prices
           </button>
+          {poError && <p className="w-full text-xs text-red-700">{poError}</p>}
         </div>
       </div>
 

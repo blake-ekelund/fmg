@@ -210,18 +210,22 @@ Turns "what's running low" (the Inventory page) into "what ingredients do I orde
 - **Ingredients & minimums** (button above the products, or **Minimums & prices** under the order list) opens a drawer with every ingredient in the family, grouped by vendor:
   - Per vendor: **Run minimum** (the whole order must reach this many units — e.g. Kapra's batch size), **Each item at least** (e.g. 500 of each fragrance) and **Lead time**.
   - Per ingredient: **Price**, **Min**, **Multiple** (order in packs of) and **Lead** time. A blank box uses the vendor's rule, then Fishbowl — the grey number shows what's in effect, and blue boxes are your changes. Saves when you leave a box, for everyone.
+  - What they mean: **Min** = never order less than this (a vendor's minimum, e.g. 1,200 labels). **Multiple** = order in packs of this — the amount is rounded up to it (cases of 48 bottles → 100 short becomes 144). **Lead** = days from ordering until it arrives at Kapra; with 2 weeks for filling it decides red/amber/green. Vendor **Run minimum** = the whole order to that vendor must reach this many units (Kapra's batch); **Each item at least** = every item on that order at least this many (e.g. 500 of each fragrance).
 - When a vendor's order is under its run minimum, the order list says how far under, and **Top up** spreads the extra across that vendor's items in proportion to how much each needs.
 
 ## How to…
 ### Order for the most urgent family
 1. Click the top family on the left.
 2. Check the **Make** numbers (change any you disagree with).
-3. Open each red vendor in the **Order list**, adjust quantities if needed, and **Copy order**.
+3. Open each red vendor in the **Order list**, adjust quantities if needed, then click **Fishbowl PO** (or **All vendors as Fishbowl POs** at the bottom).
+4. In Fishbowl: **File → Import → Purchase Order**, pick the file. Each vendor arrives as a draft PO (Bid Request) with its usual contact, remit-to, ship-to, terms, carrier and standing note copied from its last PO, and Fishbowl assigns the PO number. Check it — especially the ship-to — and issue it.
+5. **Print PO** gives a printable copy in the same layout to email the vendor. **Copy order** puts a plain list on the clipboard.
 
 ### Start from the Inventory page
 Click **Order ingredients** on the Inventory page — Purchasing opens with the same status filter.
 
 ## Good to know
+- **Ask Sage** can do this with you: "What should I order this week?", "What's in the Sea Salt mini hand creme?", "What uses the white lotion bottle?", or tell it a rule ("Kapra's minimum is 3,000 a run, 500 per fragrance") and it saves it. It can't issue POs — use **Fishbowl PO**.
 - Fill ("goop") is made and held by Kapra and ordered from them with each run, so zero fill in stock is normal.
 - "How soon" = months left on the most urgent product using the ingredient, minus the vendor's lead time plus 2 weeks for filling. When Fishbowl has no lead time, 8 weeks is assumed (shown as "~8 wk?").
 - Ingredient stock counts Kapra, the FMG location and Point B (live); Amazon stock isn't counted.
