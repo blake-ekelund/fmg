@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
-import { Loader2, RefreshCw, Search, Download, Copy, Check, ChevronDown, ChevronRight, Layers, SlidersHorizontal, AlertTriangle, FileDown, Printer } from "lucide-react";
+import { Loader2, RefreshCw, Search, Download, Copy, Check, ChevronDown, ChevronRight, Layers, SlidersHorizontal, AlertTriangle, FileDown, Printer, X } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
 import { useForecastData } from "@/components/inventory/forecasting/hooks/useForecastData";
 import StatusFilterDropdown from "@/components/inventory/forecasting/StatusFilterDropdown";
@@ -21,6 +21,7 @@ import {
   toPlanRow,
   vendorOrders,
   type BuyLine,
+  type VendorOrder,
   type PlanContext,
   type PlanRow,
 } from "@/lib/purchasingPlan";
@@ -567,6 +568,7 @@ function OrderList({
   const toCheck = lines.filter((l) => l.urgency === "check");
 
   const vendors = useMemo(() => vendorOrders(lines, vendorSettings), [lines, vendorSettings]);
+  const openOrder = vendors.find((v) => v.vendor === openVendor) ?? null;
 
   const total = ordering.reduce((s, l) => s + (l.lineCost ?? 0), 0);
 
@@ -711,114 +713,25 @@ function OrderList({
 
         <div className="divide-y divide-gray-100">
           {vendors.map((v) => {
-            const isOpen = openVendor === v.vendor;
+            const under = v.runMin !== null && v.units < v.runMin;
             return (
-              <div key={v.vendor}>
-                <button onClick={() => setOpenVendor(isOpen ? null : v.vendor)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-gray-50">
-                  <span className={clsx("h-2.5 w-2.5 shrink-0 rounded-full", URGENCY_STYLE[v.worst].dot)} title={URGENCY_STYLE[v.worst].label} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-gray-900">{v.vendor}</span>
-                    <span className="block text-xs text-gray-500">
-                      {URGENCY_STYLE[v.worst].label} · {v.items.length} item{v.items.length === 1 ? "" : "s"} · ~{v.weeks} wk{v.guessed ? "?" : ""}
-                    </span>
-                    {v.runMin !== null && v.units < v.runMin && (
-                      <span className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-amber-700">
-                        <AlertTriangle size={11} /> {fmt(v.runMin - v.units)} under the {fmt(v.runMin)} minimum
-                      </span>
-                    )}
+              <button
+                key={v.vendor}
+                onClick={() => setOpenVendor(v.vendor)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50"
+              >
+                <span className={clsx("h-2.5 w-2.5 shrink-0 rounded-full", URGENCY_STYLE[v.worst].dot)} title={URGENCY_STYLE[v.worst].label} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-gray-900">{v.vendor}</span>
+                  <span className={clsx("block truncate text-xs", under ? "font-medium text-amber-700" : "text-gray-500")}>
+                    {under
+                      ? `${fmt((v.runMin as number) - v.units)} under minimum`
+                      : `${v.items.length} item${v.items.length === 1 ? "" : "s"} · ~${v.weeks} wk${v.guessed ? "?" : ""}`}
                   </span>
-                  <span className="text-sm font-medium tabular-nums text-gray-900">{money(v.total)}</span>
-                  <ChevronDown size={14} className={clsx("text-gray-400 transition-transform", isOpen && "rotate-180")} />
-                </button>
-                {isOpen && (
-                  <div className="space-y-2 bg-gray-50/70 px-4 pb-3 pt-1">
-                    {v.runMin !== null && v.units < v.runMin && (
-                      <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                        <span className="flex-1">
-                          {fmt(v.units)} of {fmt(v.runMin)} units — add {fmt(v.runMin - v.units)} to reach {v.vendor}&rsquo;s minimum run.
-                        </span>
-                        <button
-                          onClick={() => {
-                            const extra = topUpToRun(
-                              v.items.map((i) => ({
-                                part: i.r.part,
-                                buy: i.buy,
-                                weight: i.r.needed,
-                                multiple: partSettings.get(i.r.part)?.multiple ?? null,
-                              })),
-                              v.runMin as number,
-                            );
-                            for (const i of v.items) {
-                              const add = extra.get(i.r.part);
-                              if (add) onBuy(i.r.part, i.buy + add);
-                            }
-                          }}
-                          className="shrink-0 rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-700"
-                          title="Spread the extra across these items in proportion to how much each needs"
-                        >
-                          Top up
-                        </button>
-                      </div>
-                    )}
-                    {v.items.map((i) => (
-                      <div key={i.r.part} className="text-sm">
-                        <div className="flex items-start gap-2">
-                          <span className={clsx("mt-1.5 h-2 w-2 shrink-0 rounded-full", URGENCY_STYLE[i.urgency].dot)} />
-                          <span className="min-w-0 flex-1 text-gray-800">{friendlyName(i.part?.description, i.r.part)}</span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 pl-4">
-                          <input
-                            inputMode="numeric"
-                            value={i.buy === 0 ? "" : String(i.buy)}
-                            onChange={(e) => onBuy(i.r.part, Number(e.target.value.replace(/[^\d]/g, "")))}
-                            className={clsx(
-                              "h-7 w-20 rounded-md border px-2 text-right tabular-nums outline-none focus:ring-2 focus:ring-gray-300",
-                              overridden(i.r.part) ? "border-blue-300 bg-blue-50" : "border-gray-200 bg-white",
-                            )}
-                          />
-                          <span className="text-gray-500">{unitWord(i.part?.uom, i.buy)}</span>
-                          <span className="ml-auto tabular-nums text-gray-700" title={i.cost !== null ? `$${i.cost.toFixed(i.cost < 1 ? 3 : 2)} each (${i.priceSource ?? "no price"}${i.priceDate ? `, ${i.priceDate.slice(0, 10)}` : ""})` : "No price in Fishbowl — set one under Minimums & prices"}>{i.lineCost !== null ? money(i.lineCost) : "no price"}</span>
-                        </div>
-                        <div className={clsx("pl-4 text-xs", i.r.usedBy.length > 1 ? "font-medium text-violet-700" : "text-gray-500")} title={i.r.usedBy.map(nameOf).join("\n")}>
-                          {i.r.usedBy.length > 1 ? `One buy covers ${i.r.usedBy.length} products` : `For ${nameOf(i.r.usedBy[0] ?? "")}`}
-                        </div>
-                      </div>
-                    ))}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {v.vendor !== NO_VENDOR && (
-                        <>
-                          <button
-                            onClick={() => poFiles([v])}
-                            disabled={poBusy}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-900 bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-                            title="A file to import in Fishbowl (File → Import → Purchase Order). Lands as a draft (Bid Request) for you to check and issue."
-                          >
-                            <FileDown size={14} /> Fishbowl PO
-                          </button>
-                          <button
-                            onClick={() => printPo(v)}
-                            disabled={poBusy}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                            title="A printable PO to send the vendor"
-                          >
-                            <Printer size={14} /> Print PO
-                          </button>
-                        </>
-                      )}
-                      <button
-                        onClick={() => copyOrder(v)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                      >
-                        {copied === v.vendor ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-                        {copied === v.vendor ? "Copied" : "Copy order"}
-                      </button>
-                    </div>
-                    {v.vendor === NO_VENDOR && (
-                      <p className="text-xs text-gray-500">No vendor on file in Fishbowl, so no PO can be made — set a default vendor on these parts in Fishbowl.</p>
-                    )}
-                  </div>
-                )}
-              </div>
+                </span>
+                <span className="text-sm font-semibold tabular-nums text-gray-900">{money(v.total)}</span>
+                <ChevronRight size={15} className="shrink-0 text-gray-300" />
+              </button>
             );
           })}
         </div>
@@ -866,6 +779,205 @@ function OrderList({
           ))}
         </Collapsible>
       )}
+
+      {openOrder && (
+        <VendorOrderDrawer
+          v={openOrder}
+          onClose={() => setOpenVendor(null)}
+          onBuy={onBuy}
+          overridden={overridden}
+          nameOf={nameOf}
+          onTopUp={() => {
+            const extra = topUpToRun(
+              openOrder.items.map((i) => ({
+                part: i.r.part,
+                buy: i.buy,
+                weight: i.r.needed,
+                multiple: partSettings.get(i.r.part)?.multiple ?? null,
+              })),
+              openOrder.runMin as number,
+            );
+            for (const i of openOrder.items) {
+              const add = extra.get(i.r.part);
+              if (add) onBuy(i.r.part, i.buy + add);
+            }
+          }}
+          onFishbowlPo={() => poFiles([openOrder])}
+          onPrint={() => printPo(openOrder)}
+          onCopy={() => copyOrder(openOrder)}
+          copied={copied === openOrder.vendor}
+          busy={poBusy}
+          error={poError}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── One vendor's order, in a drawer ───────────────────────────────────── */
+
+function VendorOrderDrawer({
+  v, onClose, onBuy, overridden, nameOf, onTopUp, onFishbowlPo, onPrint, onCopy, copied, busy, error,
+}: {
+  v: VendorOrder;
+  onClose: () => void;
+  onBuy: (part: string, qty: number) => void;
+  overridden: (part: string) => boolean;
+  nameOf: (part: string) => string;
+  onTopUp: () => void;
+  onFishbowlPo: () => void;
+  onPrint: () => void;
+  onCopy: () => void;
+  copied: boolean;
+  busy: boolean;
+  error: string | null;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const under = v.runMin !== null && v.units < v.runMin;
+  const canPo = v.vendor !== NO_VENDOR;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-[600px] flex-col bg-white shadow-xl">
+        {/* Header */}
+        <div className="flex items-start gap-3 border-b border-gray-200 px-6 py-5">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className={clsx("rounded-full px-2.5 py-0.5 text-xs font-medium", URGENCY_STYLE[v.worst].pill)}>{URGENCY_STYLE[v.worst].label}</span>
+            </div>
+            <h2 className="mt-1.5 truncate text-xl font-semibold text-gray-900">{v.vendor}</h2>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Summary */}
+        <div className="grid grid-cols-3 border-b border-gray-100">
+          <Stat label="Order total" value={money(v.total)} />
+          <Stat label="Items" value={String(v.items.length)} />
+          <Stat label="Arrives in" value={`~${v.weeks} weeks`} hint={v.guessed ? "no lead time in Fishbowl — 8 weeks assumed" : undefined} />
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {under && (
+            <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <AlertTriangle size={16} className="shrink-0 text-amber-600" />
+              <div className="flex-1 text-sm text-amber-900">
+                <b>{fmt((v.runMin as number) - v.units)} units under</b> {v.vendor}&rsquo;s {fmt(v.runMin as number)} minimum run.
+              </div>
+              <button
+                onClick={onTopUp}
+                className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+                title="Spread the extra across these items in proportion to how much each needs"
+              >
+                Top up
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-[minmax(0,1fr)_128px_88px] gap-x-4 border-b border-gray-100 pb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+            <span>Ingredient</span>
+            <span className="text-right">Quantity</span>
+            <span className="text-right">Cost</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {v.items.map((i) => {
+              const unit = unitWord(i.part?.uom, i.buy);
+              const covers = i.r.usedBy.length;
+              return (
+                <div key={i.r.part} className="grid grid-cols-[minmax(0,1fr)_128px_88px] items-center gap-x-4 py-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={clsx("h-2 w-2 shrink-0 rounded-full", URGENCY_STYLE[i.urgency].dot)} title={URGENCY_STYLE[i.urgency].label} />
+                      <span className="truncate text-sm font-medium text-gray-900" title={i.part?.description}>
+                        {friendlyName(i.part?.description, i.r.part)}
+                      </span>
+                    </div>
+                    <div
+                      className={clsx("truncate pl-4 text-xs", covers > 1 ? "text-violet-700" : "text-gray-500")}
+                      title={i.r.usedBy.map(nameOf).join("\n")}
+                    >
+                      {covers > 1 ? `Covers ${covers} products` : `For ${nameOf(i.r.usedBy[0] ?? "")}`}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <input
+                      inputMode="numeric"
+                      value={i.buy === 0 ? "" : String(i.buy)}
+                      onChange={(e) => onBuy(i.r.part, Number(e.target.value.replace(/[^\d]/g, "")))}
+                      className={clsx(
+                        "h-9 w-[88px] rounded-lg border px-2 text-right text-sm tabular-nums outline-none focus:ring-2 focus:ring-gray-300",
+                        overridden(i.r.part) ? "border-blue-300 bg-blue-50" : "border-gray-200 bg-white",
+                      )}
+                    />
+                    <span className="w-8 text-xs text-gray-500">{unit}</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm tabular-nums text-gray-900">{i.lineCost !== null ? money(i.lineCost) : "—"}</div>
+                    <div className="text-[11px] text-gray-400" title={i.priceDate ? `From the PO of ${i.priceDate.slice(0, 10)}` : undefined}>
+                      {i.cost !== null ? `$${i.cost.toFixed(i.cost < 1 ? 3 : 2)} ea` : "no price"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="border-t border-gray-200 px-6 py-4">
+          {canPo ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={onFishbowlPo}
+                disabled={busy}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                title="Import in Fishbowl: File → Import → Purchase Order. Arrives as a draft to check and issue."
+              >
+                <FileDown size={16} /> Fishbowl PO
+              </button>
+              <button
+                onClick={onPrint}
+                disabled={busy}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                <Printer size={16} /> Print PO
+              </button>
+              <button
+                onClick={onCopy}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600">
+              These parts have no vendor in Fishbowl, so no PO can be made. Set a default vendor on them in Fishbowl, then refresh.
+            </p>
+          )}
+          {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="px-6 py-3" title={hint}>
+      <div className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</div>
+      <div className="text-lg font-semibold tabular-nums text-gray-900">
+        {value}
+        {hint && <span className="text-gray-400">?</span>}
+      </div>
     </div>
   );
 }
