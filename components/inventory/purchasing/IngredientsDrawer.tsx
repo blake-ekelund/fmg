@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import SlideOver from "./SlideOver";
 import clsx from "clsx";
 import { X, Search } from "lucide-react";
 import type { BomPart } from "@/lib/fishbowlBom";
@@ -40,13 +41,6 @@ export default function IngredientsDrawer({
 }) {
   const [q, setQ] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
   const groups = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const g = new Map<string, typeof ingredients>();
@@ -57,12 +51,8 @@ export default function IngredientsDrawer({
     return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [ingredients, q]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-[640px] flex-col bg-white shadow-xl">
+    <SlideOver open={open} onClose={onClose} widthClass="max-w-[640px]">
         <div className="flex items-start gap-3 border-b border-gray-200 px-5 py-4">
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold text-gray-900">Ingredients &amp; minimums</h2>
@@ -146,8 +136,7 @@ export default function IngredientsDrawer({
           })}
           {groups.length === 0 && <p className="text-sm text-gray-400">No ingredients match.</p>}
         </div>
-      </div>
-    </div>
+    </SlideOver>
   );
 }
 

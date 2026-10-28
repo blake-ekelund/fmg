@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { Loader2, RefreshCw, Search, Download, Copy, Check, ChevronDown, ChevronRight, Layers, SlidersHorizontal, AlertTriangle, FileDown, Printer, X } from "lucide-react";
@@ -27,6 +27,7 @@ import {
 } from "@/lib/purchasingPlan";
 import { usePurchasingSettings } from "./usePurchasingSettings";
 import IngredientsDrawer from "./IngredientsDrawer";
+import SlideOver from "./SlideOver";
 import {
   FILLER_LOCATION,
   awayFromFiller,
@@ -568,7 +569,9 @@ function OrderList({
   const toCheck = lines.filter((l) => l.urgency === "check");
 
   const vendors = useMemo(() => vendorOrders(lines, vendorSettings), [lines, vendorSettings]);
-  const openOrder = vendors.find((v) => v.vendor === openVendor) ?? null;
+  // The drawer keeps the last vendor while it slides closed, so it never blanks mid-animation.
+  const [shownVendor, setShownVendor] = useState<string | null>(null);
+  const openOrder = vendors.find((v) => v.vendor === (openVendor ?? shownVendor)) ?? null;
 
   const total = ordering.reduce((s, l) => s + (l.lineCost ?? 0), 0);
 
@@ -717,7 +720,7 @@ function OrderList({
             return (
               <button
                 key={v.vendor}
-                onClick={() => setOpenVendor(v.vendor)}
+                onClick={() => { setOpenVendor(v.vendor); setShownVendor(v.vendor); }}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50"
               >
                 <span className={clsx("h-2.5 w-2.5 shrink-0 rounded-full", URGENCY_STYLE[v.worst].dot)} title={URGENCY_STYLE[v.worst].label} />
@@ -783,6 +786,7 @@ function OrderList({
       {openOrder && (
         <VendorOrderDrawer
           v={openOrder}
+          open={openVendor !== null}
           onClose={() => setOpenVendor(null)}
           onBuy={onBuy}
           overridden={overridden}
@@ -817,9 +821,10 @@ function OrderList({
 /* ─── One vendor's order, in a drawer ───────────────────────────────────── */
 
 function VendorOrderDrawer({
-  v, onClose, onBuy, overridden, nameOf, onTopUp, onFishbowlPo, onPrint, onCopy, copied, busy, error,
+  v, open, onClose, onBuy, overridden, nameOf, onTopUp, onFishbowlPo, onPrint, onCopy, copied, busy, error,
 }: {
   v: VendorOrder;
+  open: boolean;
   onClose: () => void;
   onBuy: (part: string, qty: number) => void;
   overridden: (part: string) => boolean;
@@ -832,19 +837,11 @@ function VendorOrderDrawer({
   busy: boolean;
   error: string | null;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const under = v.runMin !== null && v.units < v.runMin;
   const canPo = v.vendor !== NO_VENDOR;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-[600px] flex-col bg-white shadow-xl">
+    <SlideOver open={open} onClose={onClose}>
         {/* Header */}
         <div className="flex items-start gap-3 border-b border-gray-200 px-6 py-5">
           <div className="min-w-0 flex-1">
@@ -965,8 +962,7 @@ function VendorOrderDrawer({
           )}
           {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
         </div>
-      </div>
-    </div>
+    </SlideOver>
   );
 }
 
