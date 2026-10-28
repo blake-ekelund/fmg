@@ -27,7 +27,7 @@ import {
 } from "@/lib/purchasingPlan";
 import { usePurchasingSettings } from "./usePurchasingSettings";
 import IngredientsDrawer from "./IngredientsDrawer";
-import SlideOver from "./SlideOver";
+import SlideOver from "@/components/ui/SlideOver";
 import {
   FILLER_LOCATION,
   awayFromFiller,

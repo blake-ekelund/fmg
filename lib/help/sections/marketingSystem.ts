@@ -281,7 +281,7 @@ Click **Upload** (several at once is fine) or drag photos from your computer ont
 Click **New folder**, type a name, click **Create**. Folders can be nested up to 3 levels. An empty folder shows **Delete this empty folder**.
 
 ### Move images into a folder
-Drag an image onto a folder tile or breadcrumb, or click **Select**, tap images (or **Select all**), choose **Move to…**, and click **Move**.
+Drag an image onto a folder tile or breadcrumb, or click **Select**, tap images (or **Select all**) and click **Move to folder**. A panel slides in from the right: pick a folder (search, or **New folder** to make one), then click **Move to …** at the bottom.
 
 ### Add alt text, a name or a description
 Click the image. Edit **Name**, **Folder**, **Who can use it**, **Description** (notes, usage guidance, photographer) and **Alt text** (describes the image for screen readers), then **Save changes**. Good descriptions help the AI email and blog writers pick the photo.

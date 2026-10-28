@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import SlideOver from "./SlideOver";
+import SlideOver from "@/components/ui/SlideOver";
 import clsx from "clsx";
 import { X, Search } from "lucide-react";
 import type { BomPart } from "@/lib/fishbowlBom";

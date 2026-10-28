@@ -17,10 +17,12 @@ import {
   X,
   Package,
   Inbox,
+  FolderInput,
 } from "lucide-react";
 import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
 import { listImages, createFolder, deleteFolder, deleteImages, refileImages } from "./api";
 import ImageDetailModal from "./ImageDetailModal";
+import MoveToFolderDrawer, { type MoveTarget } from "./MoveToFolderDrawer";
 import PageMeta from "@/components/PageMeta";
 import { displayName, fileName } from "./format";
 import type { LibraryFolder, LibraryImage, ShareScope } from "./types";
@@ -128,7 +130,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   const [folderBusy, setFolderBusy] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [moveTo, setMoveTo] = useState("");
+  const [moveOpen, setMoveOpen] = useState(false);
   const [moving, setMoving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -227,6 +229,40 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   const newFolderParent = canNestHere ? folder : null;
   // Uploads go into the open folder when it can take them.
   const uploadTarget = canWriteHere && folder ? folder : pick?.inbox ?? DEFAULT_FOLDER;
+
+  /* Folders the Move drawer offers: writable library folders in tree order
+     (parents before children), never upload inboxes — those are a pile to
+     file FROM, not into. */
+  const moveTargets = useMemo<MoveTarget[]>(
+    () =>
+      folderList
+        .filter((f) => writable(f) && f.kind !== "inbox")
+        .map((f) => ({
+          id: f.id,
+          name: nameOf(f.id),
+          path: pathName(f.id),
+          depth: depthOf(f.id) - 1,
+          count: folderStats.get(f.id)?.count ?? 0,
+          thumb: folderStats.get(f.id)?.thumbs[0]?.url ?? null,
+        }))
+        .sort((a, b) => a.path.localeCompare(b.path)),
+    [folderList, nameOf, pathName, folderStats],
+  );
+
+  /** Make a top-level folder from the Move drawer; returns its id (null on failure). */
+  async function createFolderForMove(name: string): Promise<string | null> {
+    setError(null);
+    try {
+      const created = await createFolder(name, null);
+      setFolderList((prev) =>
+        prev.some((f) => f.id === created) ? prev : [...prev, { id: created, name: name.trim(), readOnly: false }],
+      );
+      return created;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't create folder.");
+      return null;
+    }
+  }
 
   const fileableFolders = useMemo(
     () =>
@@ -333,7 +369,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   function stopSelecting() {
     setSelecting(false);
     setPicked(new Set());
-    setMoveTo("");
+    setMoveOpen(false);
     setConfirmDelete(false);
   }
 
@@ -837,25 +873,13 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
                 <Trash2 size={16} />
                 Delete
               </button>
-              <select
-                value={moveTo}
-                onChange={(e) => setMoveTo(e.target.value)}
-                className="max-w-[16rem] rounded-lg border-0 bg-white/10 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/40 [&>option]:text-gray-900"
-              >
-                <option value="">Move to…</option>
-                {fileableFolders.map((f) => (
-                  <option key={f} value={f}>
-                    {pathName(f)}
-                  </option>
-                ))}
-              </select>
               <button
-                onClick={() => void moveImages(Array.from(picked), moveTo)}
-                disabled={moving || !moveTo || picked.size === 0}
+                onClick={() => setMoveOpen(true)}
+                disabled={moving || picked.size === 0}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 font-medium text-gray-900 hover:bg-gray-100 disabled:opacity-40"
               >
-                {moving && <Loader2 size={16} className="animate-spin" />}
-                Move
+                <FolderInput size={16} />
+                Move to folder
               </button>
               <button
                 onClick={stopSelecting}
@@ -1045,6 +1069,19 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             <Trash2 size={14} /> Delete this empty folder
           </button>
         </div>
+      )}
+
+      {!pick && (
+        <MoveToFolderDrawer
+          open={moveOpen}
+          onClose={() => setMoveOpen(false)}
+          count={picked.size}
+          folders={moveTargets}
+          currentFolder={folder}
+          busy={moving}
+          onMove={(id) => void moveImages(Array.from(picked), id)}
+          onCreateFolder={createFolderForMove}
+        />
       )}
 
       {selected && (
