@@ -140,7 +140,15 @@ Refresh inventory button) saves Point B per part into `pointb_inventory`.
 (same unit as Fishbowl) and synced < 6 h ago, else the Fishbowl snapshot.
 Parts that leave Synapse are zeroed, never deleted (deleting would fall back to
 Fishbowl's stale count and show a sold-out product as in stock). Migration
-`20261026000000_pointb_inventory.sql`. Faire still gets Fishbowl `on_hand`.
+`20261026000000_pointb_inventory.sql`.
+
+**Faire** (`faire-inventory-sync`, `lib/faireInventory.ts`) reads Point B live
+(`loadPointBStock`) and sends `on_hand_quantity` = Point B available + Faire's
+own `committed_quantity` — Faire subtracts its committed, and Point B's
+available already took out Faire orders that reached the warehouse, so the add-back
+makes Faire's available equal Point B's sellable count. Fishbowl `on_hand` per
+part where Point B can't count it; the whole run falls back to Fishbowl if the
+Point B read fails. Kits with no row in either are still never sent.
 
 **Current state.** The Fishbowl ↔ Synapse bridge today is a **third-party
 connector, "LilyPad" (Sharpe Concepts)** — *not* FMG code. It runs as a Fishbowl

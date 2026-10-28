@@ -29,6 +29,9 @@
  * double-deduct: Faire subtracts its own committed units again. We send
  * `on_hand` and let Faire do its own arithmetic.
  *
+ * (2026-10-26: the source is now Point B AVAILABLE + Faire's own committed — see
+ * levelsForSkus. The Fishbowl note below applies only to the per-part fallback.)
+ *
  * Known imprecision, deliberately accepted: Fishbowl's `allocated` covers ALL
  * channels (storefront, wholesale, MarketTime), while Faire's committed only
  * covers Faire. Sending raw on_hand therefore slightly overstates what is truly
@@ -55,6 +58,8 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { synapseConfigured, getSynapseInventoryRows, rollUpSynapseInventory } from "@/lib/pointb";
+import { buildVarianceRows, type FishbowlStock } from "@/lib/inventoryVariance";
 
 const BASE = "https://www.faire.com/external-api/v2";
 
@@ -98,30 +103,88 @@ export type LevelsResult = {
   levels: InventoryLevel[];
   /** SKUs with no availability row — deliberately NOT pushed. See header. */
   missing: string[];
+  /** How many levels came from each source. */
+  sources: { pointb: number; fishbowl: number };
 };
+
+/** Point B's sellable count per part (upper-cased), for parts it counts in the
+ *  same unit as Fishbowl. Parts absent here fall back to Fishbowl. */
+export type PointBStock = Map<string, number>;
+
+/**
+ * Point B's live AVAILABLE per part — physical minus Suspense / QC Hold, stock
+ * committed to orders, and stock already picked (lib/pointb.ts rollup) — the
+ * same number the Inventory page, Dashboard and storefronts use.
+ *
+ * Fishbowl's snapshot is read only to judge units: a part Point B counts in
+ * cases while Fishbowl counts eaches is left out (it falls back to Fishbowl),
+ * because 24 CS sent as 24 units would delist a well-stocked product.
+ *
+ * Returns null when Point B isn't configured. Throws when the read fails, so
+ * the caller decides whether a Fishbowl-only run is acceptable.
+ */
+export async function loadPointBStock(admin: SupabaseClient): Promise<PointBStock | null> {
+  if (!synapseConfigured()) return null;
+  const synapse = rollUpSynapseInventory(await getSynapseInventoryRows());
+  if (synapse.size === 0) throw new Error("Synapse returned 0 items.");
+
+  const fishbowl: FishbowlStock[] = [];
+  const { data: uploads } = await admin
+    .from("inventory_uploads")
+    .select("id")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const uploadId = uploads?.[0]?.id;
+  if (uploadId) {
+    // .range() needs a stable .order() or PostgREST silently drops rows.
+    for (let from = 0; from < 20_000; from += 1000) {
+      const { data, error } = await admin
+        .from("inventory_snapshot_items")
+        .select("part, description, uom, on_hand, available, allocated")
+        .eq("upload_id", uploadId)
+        .order("part", { ascending: true })
+        .range(from, from + 999);
+      if (error) throw new Error(`Couldn't read inventory_snapshot_items: ${error.message}`);
+      fishbowl.push(...((data ?? []) as FishbowlStock[]));
+      if ((data ?? []).length < 1000) break;
+    }
+  }
+
+  const out: PointBStock = new Map();
+  for (const r of buildVarianceRows(fishbowl, synapse)) {
+    if (r.synapse === null) continue;
+    if (r.flags.includes("uom-mismatch") || r.flags.includes("mixed-uom")) continue;
+    out.set(r.part, r.synapseAvailable ?? 0);
+  }
+  return out;
+}
 
 /**
  * On-hand quantities for the given SKUs.
  *
- * SOURCE, and its known limitation: this reads the snapshot that
- * fishbowl-inventory-sync writes — FISHBOWL's view of the Point B location
- * group. Point B / Synapse (Zethcon) is the real source of truth and the two
- * drift (docs/integrations.md says so outright). Fishbowl is a deliberate
- * interim choice (Blake, 2026-08-21) so the sync can ship now; the drift is
- * accepted, not overlooked.
+ * SOURCE: Point B first. When `opts.pointb` has the part, the level is Point B
+ * AVAILABLE plus the units Faire itself already holds as committed
+ * (`opts.faireCommitted`). Faire computes available = on_hand − committed, and
+ * Point B's available has ALREADY taken out the Faire orders that reached the
+ * warehouse — so sending it raw would deduct those orders twice. Adding Faire's
+ * committed back makes Faire's available land exactly on Point B's sellable
+ * count. (Only gap: a Faire order accepted but not yet at Point B is briefly
+ * not reserved there either, so Faire overstates by that order until it lands.)
  *
- * Moving to Synapse is the follow-up. Its inventory endpoint is not yet known —
- * /inventory/* and /items/* on the WMS API and /api/inventory* on the
- * Integration API all 404 (probed 2026-08-21) — so it has to come from Point B
- * (Keith Olsen). Only the body of this function should need to change; callers
- * pass SKUs and get levels back.
+ * Otherwise — no Point B (unconfigured, read failed, part not in Synapse, or a
+ * unit mismatch) — it falls back to the Fishbowl snapshot's on_hand, the
+ * original behaviour (Fishbowl's on_hand includes every channel's allocations,
+ * so Faire nets only its own; a slight overstatement, accepted 2026-08-21).
+ *
+ * A SKU found in neither is returned in `missing` and never sent.
  */
 export async function levelsForSkus(
   admin: SupabaseClient,
   skus: string[],
+  opts: { pointb?: PointBStock | null; faireCommitted?: Map<string, number> } = {},
 ): Promise<LevelsResult> {
   const wanted = [...new Set(skus.map((s) => (s ?? "").trim()).filter(Boolean))];
-  if (wanted.length === 0) return { levels: [], missing: [] };
+  if (wanted.length === 0) return { levels: [], missing: [], sources: { pointb: 0, fishbowl: 0 } };
 
   const { data: uploads, error: upErr } = await admin
     .from("inventory_uploads")
@@ -149,12 +212,23 @@ export async function levelsForSkus(
     if (part && Number.isFinite(qty)) found.set(part, Math.max(0, Math.trunc(qty)));
   }
 
-  return {
-    levels: wanted
-      .filter((s) => found.has(s))
-      .map((s) => ({ sku: s, on_hand_quantity: found.get(s) as number })),
-    missing: wanted.filter((s) => !found.has(s)),
-  };
+  const levels: InventoryLevel[] = [];
+  const missing: string[] = [];
+  const sources = { pointb: 0, fishbowl: 0 };
+  for (const s of wanted) {
+    const pb = opts.pointb?.get(s.toUpperCase());
+    if (pb !== undefined) {
+      const committed = Math.max(0, Math.trunc(opts.faireCommitted?.get(s) ?? 0));
+      levels.push({ sku: s, on_hand_quantity: Math.max(0, Math.trunc(pb)) + committed });
+      sources.pointb++;
+    } else if (found.has(s)) {
+      levels.push({ sku: s, on_hand_quantity: found.get(s) as number });
+      sources.fishbowl++;
+    } else {
+      missing.push(s);
+    }
+  }
+  return { levels, missing, sources };
 }
 
 /** What Faire holds for a SKU. `null` quantity means UNTRACKED (sells freely). */

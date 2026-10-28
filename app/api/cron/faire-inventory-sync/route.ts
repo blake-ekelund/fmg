@@ -5,6 +5,10 @@ import {
   faireInventoryConfigured,
   faireSkuUniverse,
   levelsForSkus,
+  loadPointBStock,
+  readFaireInventory,
+  readFaireInventoryByVariantIds,
+  type PointBStock,
   pushInventoryByVariantIds,
   pushInventoryLevels,
   snapshotAgeHours,
@@ -18,8 +22,9 @@ export const maxDuration = 300;
  * GET /api/cron/faire-inventory-sync
  *
  * Publishes on-hand stock to Faire so listings go out of stock instead of
- * taking orders we can't fill. Reads the newest inventory snapshot (what
- * fishbowl-inventory-sync writes) and PATCHes Faire.
+ * taking orders we can't fill. Source is Point B's live AVAILABLE count (plus
+ * Faire's own committed units), falling back per part to the newest Fishbowl
+ * snapshot, and it PATCHes Faire.
  *
  * Two push paths, because Faire rejects SKU-keyed calls for a SKU that sits on
  * more than one listing:
@@ -102,13 +107,44 @@ export async function GET(request: Request) {
     const resolved = universe.duplicates.filter((d) => d.targetVariantId);
     const unresolved = universe.duplicates.filter((d) => !d.targetVariantId);
 
-    const { levels, missing } = await levelsForSkus(admin, universe.skus);
+    /* Point B is the source (lib/faireInventory.ts levelsForSkus explains the
+       "+ Faire committed" arithmetic). A failed Point B read degrades to the
+       Fishbowl snapshot — the pre-Point B behaviour — and the response says so,
+       rather than skipping the run and leaving Faire on older numbers. */
+    let pointb: PointBStock | null = null;
+    let pointbNote: string | null = null;
+    try {
+      pointb = await loadPointBStock(admin);
+      if (!pointb) pointbNote = "Point B isn't connected — used the Fishbowl snapshot.";
+    } catch (e) {
+      pointbNote = `Point B read failed (${e instanceof Error ? e.message : String(e)}) — used the Fishbowl snapshot.`;
+    }
 
-    // Duplicated SKUs: same snapshot lookup, addressed by the base listing's
-    // variant id. Refill listings are simply never sent, so they stay untracked.
+    // Faire's own committed units, so they can be added back (see above). Only
+    // needed when Point B is the source.
+    const faireCommitted = new Map<string, number>();
+    if (pointb) {
+      const current = await readFaireInventory(universe.skus);
+      for (const [sku, inv] of current) faireCommitted.set(sku, inv.committed ?? 0);
+      const byVariant = await readFaireInventoryByVariantIds(
+        resolved.map((d) => d.targetVariantId as string),
+      );
+      for (const d of resolved) {
+        faireCommitted.set(d.sku, byVariant.get(d.targetVariantId as string)?.committed ?? 0);
+      }
+    }
+
+    const { levels, missing, sources } = await levelsForSkus(admin, universe.skus, {
+      pointb,
+      faireCommitted,
+    });
+
+    // Duplicated SKUs: same lookup, addressed by the base listing's variant id.
+    // Refill listings are simply never sent, so they stay untracked.
     const dupLevels = await levelsForSkus(
       admin,
       resolved.map((d) => d.sku),
+      { pointb, faireCommitted },
     );
     const qtyBySku = new Map(dupLevels.levels.map((l) => [l.sku, l.on_hand_quantity]));
     const variantLevels: VariantLevel[] = resolved
@@ -135,6 +171,11 @@ export async function GET(request: Request) {
       dry,
       enabled,
       snapshotAgeHours: Number(ageHours.toFixed(1)),
+      source: pointbNote ?? "Point B available + Faire committed (Fishbowl only where Point B can't count the part)",
+      sources: {
+        pointb: sources.pointb + dupLevels.sources.pointb,
+        fishbowl: sources.fishbowl + dupLevels.sources.fishbowl,
+      },
       pushed: bySku.sent + byVariant.sent,
       bySku: { count: levels.length, detail: bySku.detail },
       byVariantId: {

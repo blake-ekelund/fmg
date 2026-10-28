@@ -40,6 +40,7 @@ async function main() {
 
   const {
     levelsForSkus,
+    loadPointBStock,
     pushInventoryLevels,
     pushInventoryByVariantIds,
     readFaireInventory,
@@ -59,9 +60,24 @@ async function main() {
   const resolved = duplicates.filter((d) => d.targetVariantId);
   const unresolved = duplicates.filter((d) => !d.targetVariantId);
 
-  // Quantities for both paths come from the same snapshot lookup.
-  const { levels, missing } = await levelsForSkus(admin, targets);
-  const dupQuantities = await levelsForSkus(admin, resolved.map((d) => d.sku));
+  // Same source as the cron: Point B available + Faire's own committed, falling
+  // back to the Fishbowl snapshot per part (see levelsForSkus).
+  const pointb = await loadPointBStock(admin).catch((e: unknown) => {
+    console.log(`Point B read failed (${e instanceof Error ? e.message : String(e)}) — using Fishbowl.\n`);
+    return null;
+  });
+  const before = await readFaireInventory(targets);
+  const faireCommitted = new Map<string, number>();
+  for (const [sku, inv] of before) faireCommitted.set(sku, inv.committed ?? 0);
+  if (resolved.length) {
+    const byVariant = await readFaireInventoryByVariantIds(resolved.map((d) => d.targetVariantId as string));
+    for (const d of resolved) faireCommitted.set(d.sku, byVariant.get(d.targetVariantId as string)?.committed ?? 0);
+  }
+
+  // Quantities for both paths come from the same lookup.
+  const { levels, missing, sources } = await levelsForSkus(admin, targets, { pointb, faireCommitted });
+  console.log(`source: ${sources.pointb} from Point B, ${sources.fishbowl} from Fishbowl`);
+  const dupQuantities = await levelsForSkus(admin, resolved.map((d) => d.sku), { pointb, faireCommitted });
   const qtyBySku = new Map(dupQuantities.levels.map((l) => [l.sku, l.on_hand_quantity]));
   const variantLevels = resolved
     .filter((d) => qtyBySku.has(d.sku))
@@ -70,7 +86,6 @@ async function main() {
       on_hand_quantity: qtyBySku.get(d.sku) as number,
     }));
 
-  const before = await readFaireInventory(targets);
   console.log(
     `targets: ${targets.length}   sendable by sku: ${levels.length}   no-snapshot-row: ${missing.length}   by variant id: ${variantLevels.length}\n`,
   );
