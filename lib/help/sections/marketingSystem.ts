@@ -292,6 +292,9 @@ Open it and set **Who can use it** to **Our team + reps** (or **Our team** for i
 ### Delete an image
 Open it, click **Delete**, then confirm "Delete this image for good?". This cannot be undone.
 
+### Delete many images at once
+Click **Select**, tap the images (or **Select all**), click **Delete** in the dark bar, then **Delete N** to confirm. This cannot be undone, and any email or blog post using those images will show a broken image. Product photos can't be selected or deleted here — remove them on the product page.
+
 ## Good to know
 Moving an image to another folder never changes its link, so emails already using it keep working.`,
   },

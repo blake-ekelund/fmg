@@ -560,7 +560,46 @@ export async function DELETE(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const body = (await request.json().catch(() => null)) as { path?: string; folder?: string } | null;
+  const body = (await request.json().catch(() => null)) as
+    | { path?: string; paths?: unknown; folder?: string }
+    | null;
+
+  // Bulk delete — several library images at once (the selection bar). Product
+  // photos and anything that isn't a plain object path are refused outright,
+  // so a bad entry can't widen what gets removed.
+  if (Array.isArray(body?.paths)) {
+    const paths = Array.from(
+      new Set(
+        body.paths
+          .filter((p): p is string => typeof p === "string")
+          .map((p) => p.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (paths.length === 0) return NextResponse.json({ error: "No images given" }, { status: 400 });
+    if (paths.length > 500) return NextResponse.json({ error: "Delete at most 500 images at a time." }, { status: 400 });
+    const bad = paths.find(
+      (p) => p.startsWith(`${PRODUCT_BUCKET}:`) || p.includes("..") || p.startsWith("/") || p.endsWith(PLACEHOLDER),
+    );
+    if (bad) {
+      return NextResponse.json(
+        { error: bad.startsWith(`${PRODUCT_BUCKET}:`) ? "Product photos are removed on the product page." : `Invalid image path: ${bad}` },
+        { status: 400 },
+      );
+    }
+
+    let deleted = 0;
+    for (let i = 0; i < paths.length; i += 100) {
+      const chunk = paths.slice(i, i + 100);
+      const { data, error: rmErr } = await supabaseServer.storage.from(BUCKET).remove(chunk);
+      if (rmErr) {
+        return NextResponse.json({ error: rmErr.message, deleted }, { status: 500 });
+      }
+      deleted += data?.length ?? 0;
+      await supabaseServer.from("email_asset_meta").delete().in("path", chunk);
+    }
+    return NextResponse.json({ ok: true, deleted });
+  }
 
   // Folder delete — only when nothing is filed in it or any subfolder. It only
   // ever removes the placeholder; images physically under the prefix but

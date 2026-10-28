@@ -81,3 +81,15 @@ export async function deleteImage(path: string): Promise<void> {
     throw new Error(json.error ?? "Couldn't delete image.");
   }
 }
+
+/** Delete several library images at once. Returns how many were removed. */
+export async function deleteImages(paths: string[]): Promise<number> {
+  const res = await fetch("/api/email/images", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...(await authHeader()) },
+    body: JSON.stringify({ paths }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error ?? "Couldn't delete images.");
+  return typeof json.deleted === "number" ? json.deleted : paths.length;
+}

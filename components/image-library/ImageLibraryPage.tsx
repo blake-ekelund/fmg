@@ -19,7 +19,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
-import { listImages, createFolder, deleteFolder, refileImages } from "./api";
+import { listImages, createFolder, deleteFolder, deleteImages, refileImages } from "./api";
 import ImageDetailModal from "./ImageDetailModal";
 import PageMeta from "@/components/PageMeta";
 import { displayName, fileName } from "./format";
@@ -130,6 +130,8 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [moveTo, setMoveTo] = useState("");
   const [moving, setMoving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   /** Folder currently under the cursor during a drag. */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   /** Paths being dragged (null when no image drag is in progress). */
@@ -332,6 +334,29 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
     setSelecting(false);
     setPicked(new Set());
     setMoveTo("");
+    setConfirmDelete(false);
+  }
+
+  /** Permanently delete the selected library images (storage + metadata). */
+  async function deleteSelected() {
+    const paths = Array.from(picked).filter((p) => images.some((i) => i.path === p && i.source === "library"));
+    if (paths.length === 0) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const n = await deleteImages(paths);
+      const gone = new Set(paths);
+      setImages((prev) => prev.filter((i) => !gone.has(i.path)));
+      setNotice(`Deleted ${n} photo${n === 1 ? "" : "s"}.`);
+      stopSelecting();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't delete images.");
+      // Something may have been removed before the failure — re-read the truth.
+      await load();
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
   }
 
   /** Re-file images under a folder. A label change only — URLs never move. */
@@ -781,7 +806,37 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
             >
               {pickable.every((i) => picked.has(i.path)) ? "Clear" : "Select all"}
             </button>
+            {confirmDelete ? (
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <span className="text-sm text-gray-200">
+                  Delete {picked.size} photo{picked.size === 1 ? "" : "s"} for good? Emails or blog posts using {picked.size === 1 ? "it" : "them"} will show a broken image.
+                </span>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleting}
+                  className="rounded-lg px-3 py-1.5 font-medium text-gray-200 hover:bg-white/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void deleteSelected()}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting && <Loader2 size={16} className="animate-spin" />}
+                  Delete {picked.size}
+                </button>
+              </div>
+            ) : (
             <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setConfirmDelete(true)}
+                disabled={picked.size === 0 || moving}
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium text-red-300 hover:bg-white/10 hover:text-red-200 disabled:opacity-40"
+              >
+                <Trash2 size={16} />
+                Delete
+              </button>
               <select
                 value={moveTo}
                 onChange={(e) => setMoveTo(e.target.value)}
@@ -810,6 +865,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
                 <X size={18} />
               </button>
             </div>
+            )}
           </div>
         )}
 
