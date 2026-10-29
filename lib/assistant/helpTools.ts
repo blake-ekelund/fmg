@@ -713,6 +713,102 @@ const importAmazonSettlement: HelpTool = {
 /* Purchasing                                                         */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Accounting — Inventory journal                                     */
+/* ------------------------------------------------------------------ */
+
+const inventoryJournal: HelpTool = {
+  page: "/accounting/inventory-journal",
+  status: "Reading the inventory journal…",
+  def: {
+    name: "inventory_journal",
+    description:
+      "The monthly Inventory journal entry for QuickBooks Online since Jan 1 2026, from Fishbowl (same numbers as the Inventory Journal page). Inventory bills go to Inventory Asset, so each month: Dr Cost of Goods Sold / Cr Inventory Asset = beginning inventory + purchases (PO receipts at PO price) − ending inventory (Fishbowl's nightly average-cost snapshot). A negative month flips the entry (Dr Inventory Asset / Cr COGS) — usually finished goods made that month valued above their parts, or upward adjustments. Without `month`: every month's beginning, purchases, ending, to-COGS, entry direction and units (made, used, shipped, adjusted), plus totals; the current month is marked in_progress (not final). With `month` and `item_detail: true`: that month's biggest items by to-COGS value (takes ~40 seconds — say so before calling).",
+    input_schema: {
+      type: "object",
+      properties: {
+        month: { type: "string", description: "YYYY-MM, e.g. 2026-09. Omit for all months." },
+        item_detail: { type: "boolean", description: "With month: include the item-by-item breakdown (slow, ~40s)." },
+      },
+    },
+  },
+  async run(input, ctx) {
+    const month = str(input.month, 7);
+    type Month = {
+      month: string;
+      label: string;
+      inProgress: boolean;
+      begValue: number;
+      purchases: number;
+      endValue: number;
+      toCogs: number;
+      units: Record<string, number>;
+    };
+    const all = await callApi<{ months: Month[]; accounts: { cogs: string; inventory: string } }>(
+      ctx,
+      "GET",
+      "/api/accounting/inventory-journal",
+    );
+    const shape = (m: Month) => ({
+      month: m.month,
+      label: m.label,
+      in_progress: m.inProgress,
+      beginning: m.begValue,
+      purchases: m.purchases,
+      ending: m.endValue,
+      to_cogs: m.toCogs,
+      entry:
+        m.toCogs >= 0
+          ? `Dr ${all.accounts.cogs} / Cr ${all.accounts.inventory} ${Math.abs(m.toCogs).toFixed(2)}`
+          : `Dr ${all.accounts.inventory} / Cr ${all.accounts.cogs} ${Math.abs(m.toCogs).toFixed(2)}`,
+      units: m.units,
+    });
+
+    if (!month) {
+      const finished = all.months.filter((m) => !m.inProgress);
+      return {
+        result: {
+          months: all.months.map(shape),
+          totals_finished_months: {
+            purchases: Math.round(finished.reduce((s, m) => s + m.purchases, 0) * 100) / 100,
+            to_cogs: Math.round(finished.reduce((s, m) => s + m.toCogs, 0) * 100) / 100,
+          },
+          inventory_now: all.months[all.months.length - 1]?.endValue ?? null,
+        },
+        action: { label: "Open Inventory Journal", href: "/accounting/inventory-journal" },
+      };
+    }
+
+    const m = all.months.find((x) => x.month === month);
+    if (!m) return { result: { error: `No month ${month}. Available: ${all.months.map((x) => x.month).join(", ")}` } };
+    const out: Record<string, unknown> = { ...shape(m) };
+    if (input.item_detail === true) {
+      const det = await callApi<{ items: Record<string, unknown>[] }>(
+        ctx,
+        "GET",
+        `/api/accounting/inventory-journal?month=${encodeURIComponent(month)}`,
+      );
+      const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+      const items = [...det.items].sort((a, b) => Math.abs(n(b.other_value_out)) - Math.abs(n(a.other_value_out)));
+      out.item_count = items.length;
+      out.items_sum_to_cogs = Math.round(items.reduce((s, i) => s + n(i.other_value_out), 0) * 100) / 100;
+      out.top_items = items.slice(0, 25).map((i) => ({
+        part: i.part,
+        description: i.description,
+        beginning: n(i.beg_value),
+        purchases: n(i.purchased_value),
+        ending: n(i.end_value),
+        to_cogs: n(i.other_value_out),
+        made: n(i.produced_qty),
+        used: n(i.consumed_qty),
+        shipped: n(i.shipped_qty),
+        adjusted: n(i.adjusted_qty),
+      }));
+    }
+    return { result: out, action: { label: `Open ${m.label}`, href: "/accounting/inventory-journal" } };
+  },
+};
+
 const purchasingPlan: HelpTool = {
   page: "/inventory/purchasing",
   status: "Working out what to order…",
@@ -825,6 +921,7 @@ const setOrderingRule: HelpTool = {
 };
 
 const STATIC_TOOLS: HelpTool[] = [
+  inventoryJournal,
   purchasingPlan,
   recipeLookup,
   setOrderingRule,

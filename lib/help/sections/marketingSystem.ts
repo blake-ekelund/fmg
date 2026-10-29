@@ -377,6 +377,7 @@ Inventory bills are entered in QuickBooks Online to **Inventory Asset**, so once
 - A month can come out negative (shown in amber) when inventory grew by more than was bought — e.g. finished goods made that month were valued above their parts. The entry then runs the other way: Dr Inventory Asset / Cr COGS.
 - If a vendor bill differs from its PO (freight, a price change), that difference stays in Inventory Asset until someone adjusts it.
 - Don't book this if Fishbowl is also sending shipment COGS to QuickBooks Online — COGS would be counted twice.
+- **Ask Sage**: "What's the inventory entry for October?", "Why was September negative?", "Which items drove March?" — it reads the same numbers and can pull a month's item detail.
 - The item-by-item SQL behind it is also on the Fishbowl sandbox ("Acct: inventory valuation").`,
   },
 
