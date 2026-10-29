@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Database, Play, Boxes, AlertTriangle } from "lucide-react";
+import { Loader2, Database, Play, Boxes, AlertTriangle, Download } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import PageMeta from "@/components/PageMeta";
 import {
@@ -11,6 +11,7 @@ import {
   SHIP_PROBE_HEADER,
   SHIP_PROBE_CARTON,
   SHIP_PROBE_CARRIER,
+  inventoryValuationSql,
 } from "@/lib/fishbowlQueries";
 
 /**
@@ -29,7 +30,21 @@ async function authHeader(): Promise<Record<string, string>> {
 }
 
 // SO / line-item SQL is shared with the server sync — see lib/fishbowlQueries.ts.
+/** Year to date: Jan 1 of this year through yesterday (today's snapshot lands tomorrow). */
+function ytdPeriod(): [string, string] {
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  const ymd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return [`${y.getFullYear()}-01-01`, ymd(y)];
+}
+
 const EXAMPLES: { label: string; sql: string }[] = [
+  /* Inventory valuation roll-forward by item (beginning, purchases, produced,
+     shipped, consumed, adjusted, ending — qty and value). Loads year-to-date;
+     to change the period, edit the dates (each appears a few times) or ask
+     for a new preset. Takes ~40s. See inventoryValuationSql() for the rules. */
+  { label: "▸ Acct: inventory valuation (YTD)", sql: inventoryValuationSql(...ytdPeriod()) },
   { label: "Sales orders", sql: SALES_ORDERS_SQL },
   { label: "Line items", sql: LINE_ITEMS_SQL },
   { label: "Open sales orders", sql: "SELECT id, num FROM so WHERE statusId = 1" },
@@ -281,6 +296,23 @@ function ResultArea({
 const fmtCell = (v: unknown) =>
   v == null ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v);
 
+/** Every row (not just the 1,000 shown) as a CSV, for Excel. */
+function downloadCsv(rows: Rows) {
+  if (rows.length === 0) return;
+  const cols = Object.keys(rows[0]);
+  const cell = (v: unknown) => {
+    const s = v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fishbowl_query_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function ResultsTable({ rows }: { rows: Rows }) {
   if (rows.length === 0) {
     return <div className="py-8 text-center text-sm text-gray-400">No rows returned.</div>;
@@ -289,6 +321,14 @@ function ResultsTable({ rows }: { rows: Rows }) {
   const shown = rows.slice(0, 1000);
   return (
     <div className="space-y-1.5">
+      <div className="flex justify-end">
+        <button
+          onClick={() => downloadCsv(rows)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+        >
+          <Download size={13} /> Download CSV ({rows.length.toLocaleString()} rows)
+        </button>
+      </div>
       <div className="overflow-auto rounded-lg border border-gray-200 max-h-[480px]">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 text-gray-500 text-[11px] uppercase tracking-wider sticky top-0">

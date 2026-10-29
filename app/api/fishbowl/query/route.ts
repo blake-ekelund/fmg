@@ -3,7 +3,7 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 import { fishbowlConfigured, runDataQuery } from "@/lib/fishbowl";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120; // the inventory valuation report takes ~40s
 
 /**
  * POST /api/fishbowl/query  { sql }
