@@ -1,5 +1,10 @@
 -- Inventory valuation roll-forward, by item (Fishbowl, read-only).
 --
+-- !! FISHBOWL ONLY (MySQL / MariaDB). This does NOT run in Supabase's SQL editor (Postgres) —
+-- !! the tables (inventorylog, partcosthistory, part…) live in Fishbowl, not Supabase, and
+-- !! Postgres rejects the MySQL syntax (e.g. "syntax error at or near 12" on DATE_ADD … INTERVAL).
+-- !! Run it from the portal's Fishbowl sandbox (/fishbowl-sandbox) or inside Fishbowl itself.
+--
 -- beginning + purchased + produced + returned - consumed - shipped +/- adjusted +/- transferred = ending
 --
 -- HOW TO USE: change the two dates below. The period here is 2026-01-01 to 2026-10-28;
