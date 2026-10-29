@@ -221,10 +221,12 @@ export function inventoryValuationSql(start: string, end: string): string {
     JOIN (
       SELECT partId, MAX(id) AS mid
       FROM partcosthistory
-      WHERE DATE(dateCaptured) = (
-        SELECT DATE(MAX(dateCaptured)) FROM partcosthistory
+      JOIN (
+        SELECT DATE(MAX(dateCaptured)) AS nd FROM partcosthistory
         WHERE dateCaptured < DATE_ADD(${day}, INTERVAL 12 HOUR)
-      )
+      ) pick
+      -- A range (not DATE(dateCaptured) = …) so the date index can be used.
+      WHERE dateCaptured >= pick.nd AND dateCaptured < DATE_ADD(pick.nd, INTERVAL 1 DAY)
       GROUP BY partId
     ) night ON night.mid = h.id`;
 

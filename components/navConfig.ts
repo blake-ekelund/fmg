@@ -36,6 +36,7 @@ import {
   PanelsTopLeft,
   Calculator,
   Landmark,
+  Warehouse,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -354,6 +355,13 @@ export const navSections: readonly NavSection[] = [
         label: "Stripe Payouts",
         href: "/accounting/stripe-payouts",
         icon: Landmark,
+        roles: ["owner", "admin"],
+      },
+      {
+        // Monthly Inventory → COGS journal entry for QuickBooks Online, from Fishbowl.
+        label: "Inventory Journal",
+        href: "/accounting/inventory-journal",
+        icon: Warehouse,
         roles: ["owner", "admin"],
       },
     ],
