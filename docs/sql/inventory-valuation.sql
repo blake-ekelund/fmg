@@ -6,6 +6,8 @@
 -- !! Run it from the portal's Fishbowl sandbox (/fishbowl-sandbox) or inside Fishbowl itself.
 --
 -- beginning + purchased + produced + returned - consumed - shipped +/- adjusted +/- transferred = ending
+-- (value: to COGS = beginning + purchased_value + produced_value + consumed_value - ending; produced/consumed
+--  are the work orders' own values, so production_added = mostly Kapra fill & filling)
 --
 -- HOW TO USE: change the two dates below. The period here is 2026-01-01 to 2026-10-28;
 -- each date appears several times — use Find & Replace on '2026-01-01' (start) and '2026-10-28' (end).
@@ -28,8 +30,11 @@ SELECT
   ROUND(COALESCE(m.purchased, 0), 2) AS purchased_qty,
   ROUND(COALESCE(pv.purchased_value, 0), 2) AS purchased_value,
   ROUND(COALESCE(m.produced, 0), 2) AS produced_qty,
+  ROUND(COALESCE(m.produced_value, 0), 2) AS produced_value,
   ROUND(COALESCE(m.returned, 0), 2) AS returned_qty,
   ROUND(COALESCE(m.consumed, 0), 2) AS consumed_qty,
+  ROUND(COALESCE(m.consumed_value, 0), 2) AS consumed_value,
+  ROUND(COALESCE(m.produced_value, 0) + COALESCE(m.consumed_value, 0), 2) AS production_added,
   ROUND(COALESCE(m.shipped, 0), 2) AS shipped_qty,
   ROUND(COALESCE(m.adjusted, 0), 2) AS adjusted_qty,
   ROUND(COALESCE(m.transferred, 0), 2) AS transferred_qty,
@@ -39,7 +44,8 @@ SELECT
   ROUND(COALESCE(b.quantity, 0) + COALESCE(m.purchased, 0) + COALESCE(m.produced, 0) + COALESCE(m.returned, 0)
         + COALESCE(m.consumed, 0) + COALESCE(m.shipped, 0) + COALESCE(m.adjusted, 0) + COALESCE(m.transferred, 0)
         - COALESCE(e.quantity, 0), 2) AS check_qty,
-  ROUND(COALESCE(b.totalCost, 0) + COALESCE(pv.purchased_value, 0) - COALESCE(e.totalCost, 0), 2) AS other_value_out
+  ROUND(COALESCE(b.totalCost, 0) + COALESCE(pv.purchased_value, 0) + COALESCE(m.produced_value, 0)
+        + COALESCE(m.consumed_value, 0) - COALESCE(e.totalCost, 0), 2) AS other_value_out
 FROM part p
 LEFT JOIN uom u ON u.id = p.uomId
 LEFT JOIN (
@@ -48,10 +54,12 @@ LEFT JOIN (
     JOIN (
       SELECT partId, MAX(id) AS mid
       FROM partcosthistory
-      WHERE DATE(dateCaptured) = (
-        SELECT DATE(MAX(dateCaptured)) FROM partcosthistory
+      JOIN (
+        SELECT DATE(MAX(dateCaptured)) AS nd FROM partcosthistory
         WHERE dateCaptured < DATE_ADD('2026-01-01', INTERVAL 12 HOUR)
-      )
+      ) pick
+      -- A range (not DATE(dateCaptured) = …) so the date index can be used.
+      WHERE dateCaptured >= pick.nd AND dateCaptured < DATE_ADD(pick.nd, INTERVAL 1 DAY)
       GROUP BY partId
     ) night ON night.mid = h.id
 ) b ON b.partId = p.id
@@ -61,10 +69,12 @@ LEFT JOIN (
     JOIN (
       SELECT partId, MAX(id) AS mid
       FROM partcosthistory
-      WHERE DATE(dateCaptured) = (
-        SELECT DATE(MAX(dateCaptured)) FROM partcosthistory
+      JOIN (
+        SELECT DATE(MAX(dateCaptured)) AS nd FROM partcosthistory
         WHERE dateCaptured < DATE_ADD(DATE_ADD('2026-10-28', INTERVAL 1 DAY), INTERVAL 12 HOUR)
-      )
+      ) pick
+      -- A range (not DATE(dateCaptured) = …) so the date index can be used.
+      WHERE dateCaptured >= pick.nd AND dateCaptured < DATE_ADD(pick.nd, INTERVAL 1 DAY)
       GROUP BY partId
     ) night ON night.mid = h.id
 ) e ON e.partId = p.id
@@ -76,7 +86,9 @@ LEFT JOIN (
     SUM(CASE WHEN il.typeId = 50 THEN il.changeQty ELSE 0 END) AS consumed,
     SUM(CASE WHEN il.typeId IN (20, 90) THEN il.changeQty ELSE 0 END) AS shipped,
     SUM(CASE WHEN il.typeId IN (15, 60, 64, 65, 67, 73, 74) THEN il.changeQty ELSE 0 END) AS adjusted,
-    SUM(CASE WHEN il.typeId = 40 AND il.tableId = 1259138490 THEN il.changeQty ELSE 0 END) AS transferred
+    SUM(CASE WHEN il.typeId = 40 AND il.tableId = 1259138490 THEN il.changeQty ELSE 0 END) AS transferred,
+    SUM(CASE WHEN il.typeId = 10 AND il.tableId = -355941248 THEN il.changeQty * il.cost ELSE 0 END) AS produced_value,
+    SUM(CASE WHEN il.typeId = 50 THEN il.changeQty * il.cost ELSE 0 END) AS consumed_value
   FROM inventorylog il
   WHERE il.dateCreated >= '2026-01-01 00:00:00' AND il.dateCreated < DATE_ADD('2026-10-28', INTERVAL 1 DAY)
   GROUP BY il.partId

@@ -723,7 +723,7 @@ const inventoryJournal: HelpTool = {
   def: {
     name: "inventory_journal",
     description:
-      "The monthly Inventory journal entry for QuickBooks Online since Jan 1 2026, from Fishbowl (same numbers as the Inventory Journal page). Inventory bills go to Inventory Asset, so each month: Dr Cost of Goods Sold / Cr Inventory Asset = beginning inventory + purchases (PO receipts at PO price) − ending inventory (Fishbowl's nightly average-cost snapshot). A negative month flips the entry (Dr Inventory Asset / Cr COGS) — usually finished goods made that month valued above their parts, or upward adjustments. Without `month`: every month's beginning, purchases, ending, to-COGS, entry direction and units (made, used, shipped, adjusted), plus totals; the current month is marked in_progress (not final). With `month` and `item_detail: true`: that month's biggest items by to-COGS value (takes ~40 seconds — say so before calling).",
+      "The monthly Inventory journal entry for QuickBooks Online since Jan 1 2026, from Fishbowl (same numbers as the Inventory Journal page). Inventory bills go to Inventory Asset, so each month: Dr Cost of Goods Sold / Cr Inventory Asset = beginning inventory + purchases (PO receipts at PO price) + added in production (finished goods made minus the parts they used — mainly Kapra fill & filling, billed to Inventory Asset but never received into Fishbowl as a part) − ending inventory (Fishbowl's nightly average-cost snapshot). A negative month flips the entry (Dr Inventory Asset / Cr COGS) — usually a big upward count adjustment. Without `month`: every month's beginning, purchases, ending, to-COGS, entry direction and units (made, used, shipped, adjusted), plus totals; the current month is marked in_progress (not final). With `month` and `item_detail: true`: that month's biggest items by to-COGS value (takes ~40 seconds — say so before calling).",
     input_schema: {
       type: "object",
       properties: {
@@ -740,6 +740,9 @@ const inventoryJournal: HelpTool = {
       inProgress: boolean;
       begValue: number;
       purchases: number;
+      productionAdded: number;
+      madeValue: number;
+      usedValue: number;
       endValue: number;
       toCogs: number;
       units: Record<string, number>;
@@ -755,6 +758,9 @@ const inventoryJournal: HelpTool = {
       in_progress: m.inProgress,
       beginning: m.begValue,
       purchases: m.purchases,
+      added_in_production: m.productionAdded,
+      finished_goods_made_value: m.madeValue,
+      parts_used_value: m.usedValue,
       ending: m.endValue,
       to_cogs: m.toCogs,
       entry:
@@ -771,6 +777,7 @@ const inventoryJournal: HelpTool = {
           months: all.months.map(shape),
           totals_finished_months: {
             purchases: Math.round(finished.reduce((s, m) => s + m.purchases, 0) * 100) / 100,
+            added_in_production: Math.round(finished.reduce((s, m) => s + m.productionAdded, 0) * 100) / 100,
             to_cogs: Math.round(finished.reduce((s, m) => s + m.toCogs, 0) * 100) / 100,
           },
           inventory_now: all.months[all.months.length - 1]?.endValue ?? null,
@@ -797,6 +804,7 @@ const inventoryJournal: HelpTool = {
         description: i.description,
         beginning: n(i.beg_value),
         purchases: n(i.purchased_value),
+        added_in_production: n(i.production_added),
         ending: n(i.end_value),
         to_cogs: n(i.other_value_out),
         made: n(i.produced_qty),

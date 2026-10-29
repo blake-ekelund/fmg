@@ -361,20 +361,21 @@ Sage can answer questions about saved entries — e.g. "what was our Amazon depo
     title: "Inventory Journal",
     section: "Accounting",
     summary:
-      "The monthly Inventory journal entry for QuickBooks Online since Jan 1 2026: beginning inventory + purchases − ending inventory moves to Cost of Goods Sold, with the item detail behind each month.",
+      "The monthly Inventory journal entry for QuickBooks Online since Jan 1 2026: beginning inventory + purchases + value added in production − ending inventory moves to Cost of Goods Sold, with the item detail behind each month.",
     body: `## What it's for
 Inventory bills are entered in QuickBooks Online to **Inventory Asset**, so once a month the value that left inventory — sold, used in production, scrapped or adjusted — has to move to **Cost of Goods Sold**. This page works that out from Fishbowl for every month since January 1, 2026. Owner and admin only. Read-only.
 
 ## What's on the page
 - Four totals: inventory on Jan 1, purchases since, inventory now, and total to COGS since Jan 1.
-- One row per month: **Beginning**, **+ Purchases**, **− Ending**, **= To COGS**, and the entry (Dr Cost of Goods Sold / Cr Inventory Asset). The current month says "So far — not final until the month ends".
+- One row per month: **Beginning**, **+ Purchases**, **+ Added in production**, **− Ending**, **= To COGS**, and the entry (Dr Cost of Goods Sold / Cr Inventory Asset). The current month says "So far — not final until the month ends".
 - Click a month for the **journal entry** (date = last day of the month, memo, the two lines), **Copy entry**, **QBO import file**, and **How it adds up** (the values and units: made, used in production, shipped, adjusted, returns).
 - **Show item detail** (about 40 seconds) lists every item with its beginning, purchases, ending and to-COGS value, biggest first, and **Download item detail** saves it. The items add up to the month's entry.
 - **All months for QBO import** downloads every finished month in QuickBooks Online's journal-entry import layout (Settings → Import data → Journal entries).
 
 ## Good to know
 - Values are Fishbowl's average cost from its nightly snapshot of every item (all locations). Purchases are PO receipts at the PO price.
-- A month can come out negative (shown in amber) when inventory grew by more than was bought — e.g. finished goods made that month were valued above their parts. The entry then runs the other way: Dr Inventory Asset / Cr COGS.
+- **Added in production** is value that comes in through Fishbowl work orders rather than as stock: finished goods made minus the parts they used. It's mostly Kapra's fill and filling, which is billed to Inventory Asset but never received into Fishbowl as a part. Without it, busy production months would understate COGS.
+- A month can come out negative (shown in amber) when inventory grew by more than came in — usually an upward count adjustment. The entry then runs the other way: Dr Inventory Asset / Cr COGS.
 - If a vendor bill differs from its PO (freight, a price change), that difference stays in Inventory Asset until someone adjusts it.
 - Don't book this if Fishbowl is also sending shipment COGS to QuickBooks Online — COGS would be counted twice.
 - **Ask Sage**: "What's the inventory entry for October?", "Why was September negative?", "Which items drove March?" — it reads the same numbers and can pull a month's item detail.

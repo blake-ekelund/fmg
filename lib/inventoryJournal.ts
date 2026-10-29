@@ -1,21 +1,29 @@
 /**
  * The monthly Inventory journal entry for QuickBooks Online, from Fishbowl.
  *
- * FMG books vendor bills for inventory to Inventory Asset (Blake, 2026-10-29),
- * so each month the entry moves what LEFT inventory — sold, used in
- * production, scrapped or adjusted — into Cost of Goods Sold:
+ * FMG books vendor bills for inventory — including Kapra's fill — to Inventory
+ * Asset (Blake, 2026-10-29), so each month the entry moves what LEFT inventory
+ * (sold, scrapped or adjusted away) into Cost of Goods Sold:
  *
  *   Dr Cost of Goods Sold / Cr Inventory Asset
- *     = beginning inventory + purchases − ending inventory
+ *     = beginning + purchases + added in production − ending inventory
  *
- * (If that comes out negative — inventory grew by more than was bought, e.g.
- * a big upward adjustment — the entry flips: Dr Inventory Asset / Cr COGS.)
+ * "Added in production" is value that came in through Fishbowl work orders
+ * rather than as stock: finished goods made minus the parts they used. It's
+ * mostly Kapra fill & filling, which is billed (to Inventory Asset) but never
+ * received into Fishbowl as a part — without it, heavy production months
+ * understated COGS (Sep 2026 read −$3,768; with it, $10,661).
+ *
+ * (If it still comes out negative — e.g. a big upward count adjustment — the
+ * entry flips: Dr Inventory Asset / Cr COGS.)
  *
  * Same sources and rules as the item report (lib/fishbowlQueries.ts
  * inventoryValuationSql), so a month here equals the sum of its item detail:
  *  - beginning / ending value = Fishbowl's nightly cost snapshot
  *    (partcosthistory) on the morning of the 1st / the 1st of next month;
  *  - purchases = PO receipts at the actual PO price;
+ *  - added in production = work-order finished goods − parts used, at the
+ *    work orders' own cost;
  *  - the unit roll-forward splits movements from inventorylog (location moves
  *    excluded). Read-only.
  */
@@ -36,8 +44,15 @@ export type JournalMonth = {
   endSnapshot: string | null;
   begValue: number;
   purchases: number;
+  /** Value that arrived through work orders rather than stock: finished goods
+   *  made minus the parts they used — mainly Kapra fill & filling, which is
+   *  billed to Inventory Asset but never received into Fishbowl as a part. */
+  productionAdded: number;
+  /** Finished goods made, and parts used, at the work orders' own cost. */
+  madeValue: number;
+  usedValue: number;
   endValue: number;
-  /** begValue + purchases − endValue. Positive = Dr COGS / Cr Inventory Asset. */
+  /** begValue + purchases + productionAdded − endValue. Positive = Dr COGS / Cr Inventory Asset. */
   toCogs: number;
   units: {
     beginning: number;
@@ -110,7 +125,9 @@ export async function loadInventoryJournal(opts: { fresh?: boolean } = {}): Prom
         SUM(CASE WHEN il.typeId = 50 THEN il.changeQty ELSE 0 END) AS consumed,
         SUM(CASE WHEN il.typeId IN (20, 90) THEN il.changeQty ELSE 0 END) AS shipped,
         SUM(CASE WHEN il.typeId IN (15, 60, 64, 65, 67, 73, 74) THEN il.changeQty ELSE 0 END) AS adjusted,
-        SUM(CASE WHEN il.typeId = 40 AND il.tableId = 1259138490 THEN il.changeQty ELSE 0 END) AS transferred
+        SUM(CASE WHEN il.typeId = 40 AND il.tableId = 1259138490 THEN il.changeQty ELSE 0 END) AS transferred,
+        SUM(CASE WHEN il.typeId = 10 AND il.tableId = -355941248 THEN il.changeQty * il.cost ELSE 0 END) AS made_value,
+        SUM(CASE WHEN il.typeId = 50 THEN il.changeQty * il.cost ELSE 0 END) AS used_value
       FROM inventorylog il
       WHERE il.dateCreated >= '${JOURNAL_START}'
       GROUP BY m`);
@@ -136,6 +153,9 @@ export async function loadInventoryJournal(opts: { fresh?: boolean } = {}): Prom
       const endValue = end?.v ?? 0;
       const purch = purchOf.get(m) ?? 0;
       const mv = movesOf.get(m) ?? {};
+      const made = num(mv.made_value);
+      const used = num(mv.used_value);
+      const added = made + used;
       const [y, mo] = m.split("-").map(Number);
       return {
         month: m,
@@ -145,8 +165,11 @@ export async function loadInventoryJournal(opts: { fresh?: boolean } = {}): Prom
         endSnapshot: end?.d ?? null,
         begValue: r2(begValue),
         purchases: r2(purch),
+        productionAdded: r2(added),
+        madeValue: r2(made),
+        usedValue: r2(-used),
         endValue: r2(endValue),
-        toCogs: r2(begValue + purch - endValue),
+        toCogs: r2(begValue + purch + added - endValue),
         units: {
           beginning: Math.round(beg?.qty ?? 0),
           purchased: Math.round(num(mv.purchased)),

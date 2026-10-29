@@ -186,17 +186,23 @@ ORDER BY p.num`;
  *    locations (e.g. to the ship dock) — not in or out of inventory — so it's
  *    left out. With that rule the log sums to today's on-hand company-wide
  *    (544,912 vs 544,110 units; 10 parts off, from old UOM changes).
- *  - PURCHASED VALUE is the actual PO price × quantity received (the log's own
- *    cost column does not add up to Fishbowl's valuation, so it isn't used).
- *    PRODUCED value is not shown: a finished good's value is moved from its
- *    components, and Fishbowl's average cost already reflects it in ENDING.
+ *  - PURCHASED VALUE is the actual PO price × quantity received (the log's
+ *    cost column doesn't add up to Fishbowl's valuation across ALL movements,
+ *    so it isn't used for purchases).
+ *  - PRODUCED VALUE / CONSUMED VALUE are what Fishbowl's work orders put in
+ *    and took out: finished goods at the cost the work order gave them, raw
+ *    goods at their cost when used (inventorylog cost on the WO rows — these
+ *    are reliable). PRODUCTION_ADDED = produced − consumed is the value that
+ *    arrived through production rather than through stock: mainly Kapra's
+ *    fill and filling, which isn't received into Fishbowl as a part (Sep 2026:
+ *    $28,198 made from $13,769 of parts used → $14,429 added).
  *  - CHECK_QTY = beginning + movements − ending. Near zero means the period
  *    reconciles; a non-zero line is a part to look at (UOM change, a snapshot
  *    taken mid-activity, etc.).
- *  - OTHER_VALUE_OUT = beginning value + purchased value − ending value: the
- *    value that left (sold, used in production, adjusted) net of value that
- *    came in from production. For raw goods it's roughly cost used; for
- *    finished goods it's cost of goods shipped less cost of goods produced.
+ *  - OTHER_VALUE_OUT (to COGS) = beginning + purchased + produced − consumed
+ *    − ending value: what left inventory as sold, scrapped or adjusted. Raw
+ *    goods used in production are NOT in it (they became the finished good);
+ *    the items sum to the month's Inventory journal entry.
  *
  * Dates are YYYY-MM-DD, inclusive. Fishbowl's data-query endpoint takes one
  * SELECT (no variables), so the dates are written into each part of the query.
@@ -240,8 +246,11 @@ export function inventoryValuationSql(start: string, end: string): string {
   ROUND(COALESCE(m.purchased, 0), 2) AS purchased_qty,
   ROUND(COALESCE(pv.purchased_value, 0), 2) AS purchased_value,
   ROUND(COALESCE(m.produced, 0), 2) AS produced_qty,
+  ROUND(COALESCE(m.produced_value, 0), 2) AS produced_value,
   ROUND(COALESCE(m.returned, 0), 2) AS returned_qty,
   ROUND(COALESCE(m.consumed, 0), 2) AS consumed_qty,
+  ROUND(COALESCE(m.consumed_value, 0), 2) AS consumed_value,
+  ROUND(COALESCE(m.produced_value, 0) + COALESCE(m.consumed_value, 0), 2) AS production_added,
   ROUND(COALESCE(m.shipped, 0), 2) AS shipped_qty,
   ROUND(COALESCE(m.adjusted, 0), 2) AS adjusted_qty,
   ROUND(COALESCE(m.transferred, 0), 2) AS transferred_qty,
@@ -251,7 +260,8 @@ export function inventoryValuationSql(start: string, end: string): string {
   ROUND(COALESCE(b.quantity, 0) + COALESCE(m.purchased, 0) + COALESCE(m.produced, 0) + COALESCE(m.returned, 0)
         + COALESCE(m.consumed, 0) + COALESCE(m.shipped, 0) + COALESCE(m.adjusted, 0) + COALESCE(m.transferred, 0)
         - COALESCE(e.quantity, 0), 2) AS check_qty,
-  ROUND(COALESCE(b.totalCost, 0) + COALESCE(pv.purchased_value, 0) - COALESCE(e.totalCost, 0), 2) AS other_value_out
+  ROUND(COALESCE(b.totalCost, 0) + COALESCE(pv.purchased_value, 0) + COALESCE(m.produced_value, 0)
+        + COALESCE(m.consumed_value, 0) - COALESCE(e.totalCost, 0), 2) AS other_value_out
 FROM part p
 LEFT JOIN uom u ON u.id = p.uomId
 LEFT JOIN (${snapshot(`'${d0}'`)}
@@ -266,7 +276,9 @@ LEFT JOIN (
     SUM(CASE WHEN il.typeId = 50 THEN il.changeQty ELSE 0 END) AS consumed,
     SUM(CASE WHEN il.typeId IN (20, 90) THEN il.changeQty ELSE 0 END) AS shipped,
     SUM(CASE WHEN il.typeId IN (15, 60, 64, 65, 67, 73, 74) THEN il.changeQty ELSE 0 END) AS adjusted,
-    SUM(CASE WHEN il.typeId = 40 AND il.tableId = 1259138490 THEN il.changeQty ELSE 0 END) AS transferred
+    SUM(CASE WHEN il.typeId = 40 AND il.tableId = 1259138490 THEN il.changeQty ELSE 0 END) AS transferred,
+    SUM(CASE WHEN il.typeId = 10 AND il.tableId = -355941248 THEN il.changeQty * il.cost ELSE 0 END) AS produced_value,
+    SUM(CASE WHEN il.typeId = 50 THEN il.changeQty * il.cost ELSE 0 END) AS consumed_value
   FROM inventorylog il
   WHERE il.dateCreated >= ${from} AND il.dateCreated < ${to}
   GROUP BY il.partId

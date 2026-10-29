@@ -53,7 +53,7 @@ function lines(m: JournalMonth, a: Accounts) {
 }
 
 const memo = (m: JournalMonth) =>
-  `Inventory relief — ${m.label}${m.inProgress ? " (so far)" : ""}: beginning ${dollars(m.begValue)} + purchases ${dollars(m.purchases)} − ending ${dollars(m.endValue)}`;
+  `Inventory relief — ${m.label}${m.inProgress ? " (so far)" : ""}: beginning ${dollars(m.begValue)} + purchases ${dollars(m.purchases)} + added in production ${dollars(m.productionAdded)} − ending ${dollars(m.endValue)}`;
 
 const csvCell = (v: unknown) => {
   const s = v == null ? "" : String(v);
@@ -141,6 +141,7 @@ export default function InventoryJournalPage() {
     return {
       toCogs: months.reduce((s, m) => s + m.toCogs, 0),
       purchases: months.reduce((s, m) => s + m.purchases, 0),
+      added: months.reduce((s, m) => s + m.productionAdded, 0),
       begin: months[0].begValue,
       now: months[months.length - 1].endValue,
     };
@@ -159,7 +160,7 @@ export default function InventoryJournalPage() {
           <p className="mt-1 max-w-3xl text-sm text-gray-600">
             One entry a month for QuickBooks Online. Inventory bills already go to <b>{accounts.inventory}</b>, so this moves what left
             inventory — sold, used in production, scrapped or adjusted — to <b>{accounts.cogs}</b>:{" "}
-            <span className="whitespace-nowrap">beginning + purchases − ending</span>. From Fishbowl, since January 1, 2026.
+            <span className="whitespace-nowrap">beginning + purchases + added in production − ending</span>. From Fishbowl, since January 1, 2026.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -191,7 +192,7 @@ export default function InventoryJournalPage() {
       {totals && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Stat label="Inventory Jan 1" value={dollars(totals.begin)} />
-          <Stat label="Purchases since" value={dollars(totals.purchases)} />
+          <Stat label="Purchases + production since" value={dollars(totals.purchases + totals.added)} />
           <Stat label="Inventory now" value={dollars(totals.now)} />
           <Stat label="To COGS since Jan 1" value={dollars(totals.toCogs)} />
         </div>
@@ -209,6 +210,7 @@ export default function InventoryJournalPage() {
                 <th className="px-4 py-3 font-medium">Month</th>
                 <th className="px-4 py-3 text-right font-medium">Beginning</th>
                 <th className="px-4 py-3 text-right font-medium">+ Purchases</th>
+                <th className="px-4 py-3 text-right font-medium" title="Finished goods made minus the parts they used — mainly Kapra fill &amp; filling">+ Added in production</th>
                 <th className="px-4 py-3 text-right font-medium">− Ending</th>
                 <th className="px-4 py-3 text-right font-medium">= To COGS</th>
                 <th className="px-4 py-3 font-medium">Entry</th>
@@ -232,6 +234,7 @@ export default function InventoryJournalPage() {
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums">{money(m.begValue)}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{money(m.purchases)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{money(m.productionAdded)}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{money(m.endValue)}</td>
                       <td className={clsx("px-4 py-3 text-right font-semibold tabular-nums", m.toCogs < 0 ? "text-amber-700" : "text-gray-900")}>
                         {money(m.toCogs)}
@@ -245,7 +248,7 @@ export default function InventoryJournalPage() {
                     </tr>
                     {isOpen && (
                       <tr className="border-b border-gray-200 bg-gray-50/60">
-                        <td colSpan={7} className="px-4 py-5">
+                        <td colSpan={8} className="px-4 py-5">
                           <div className="grid gap-5 lg:grid-cols-2">
                             {/* The entry */}
                             <div className="rounded-xl border border-gray-200 bg-white">
@@ -273,8 +276,8 @@ export default function InventoryJournalPage() {
                               </table>
                               {m.toCogs < 0 && (
                                 <p className="border-t border-gray-100 px-4 py-2 text-xs text-amber-800">
-                                  Inventory grew by more than was bought this month (finished goods valued above their parts, or
-                                  upward adjustments), so the entry runs the other way.
+                                  Inventory grew by more than came in this month — usually an upward count adjustment — so the entry
+                                  runs the other way.
                                 </p>
                               )}
                               <div className="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3">
@@ -300,6 +303,11 @@ export default function InventoryJournalPage() {
                               <div className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-400">How it adds up</div>
                               <Row label={`Inventory on ${m.begSnapshot ?? "—"}`} value={dollars(m.begValue)} sub={`${units(m.units.beginning)} units`} />
                               <Row label="+ Purchases (PO receipts at PO price)" value={dollars(m.purchases)} sub={`${units(m.units.purchased)} units`} />
+                              <Row
+                                label="+ Added in production (Kapra fill & filling)"
+                                value={dollars(m.productionAdded)}
+                                sub={`made ${dollars(m.madeValue)} − parts ${dollars(m.usedValue)}`}
+                              />
                               <Row label={`− Inventory on ${m.endSnapshot ?? "—"}${m.inProgress ? " (latest)" : ""}`} value={dollars(m.endValue)} sub={`${units(m.units.ending)} units`} />
                               <Row label="= To Cost of Goods Sold" value={dollars(m.toCogs)} strong />
                               <div className="mt-3 border-t border-gray-100 pt-2 text-xs text-gray-500">
@@ -342,7 +350,7 @@ export default function InventoryJournalPage() {
       <p className="text-xs text-gray-500">
         Values are Fishbowl&rsquo;s average cost, from its nightly snapshot of every item (all locations). Purchases are what was received
         on POs, at the PO price — if a bill differs from its PO (freight, price changes), that difference stays in Inventory Asset until
-        adjusted. If Fishbowl is also sending shipment COGS to QuickBooks Online, don&rsquo;t book this too — it would count COGS twice.
+        adjusted. Added in production is what Fishbowl's work orders valued finished goods at, minus the parts they used — mostly Kapra fill &amp; filling, which is billed to Inventory Asset but never received as a part. If Fishbowl is also sending shipment COGS to QuickBooks Online, don&rsquo;t book this too — it would count COGS twice.
       </p>
     </div>
   );
@@ -376,6 +384,7 @@ function ItemDetail({ month, items }: { month: JournalMonth; items: Item[] }) {
     ["description", "Description"],
     ["beg_value", "Beginning $"],
     ["purchased_value", "Purchases $"],
+    ["production_added", "Added in production $"],
     ["end_value", "Ending $"],
     ["other_value_out", "To COGS $"],
     ["beg_qty", "Beg units"],
