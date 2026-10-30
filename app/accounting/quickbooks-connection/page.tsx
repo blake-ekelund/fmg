@@ -78,6 +78,10 @@ export default function QuickBooksConnectionPage() {
             transaction looks like when it lands. Read live from Fishbowl. Moving to QuickBooks Online? See the{" "}
             <Link href="/accounting/qbo-transition" className="font-medium text-teal-700 hover:underline">
               QBO Transition plan
+            </Link>{" "}
+            and the{" "}
+            <Link href="/accounting/chart-of-accounts" className="font-medium text-teal-700 hover:underline">
+              Chart of Accounts
             </Link>
             .
           </p>

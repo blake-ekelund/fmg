@@ -39,6 +39,7 @@ import {
   Warehouse,
   Link2,
   CalendarCheck,
+  ListTree,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -378,6 +379,13 @@ export const navSections: readonly NavSection[] = [
         label: "QBO Transition",
         href: "/accounting/qbo-transition",
         icon: CalendarCheck,
+        roles: ["owner", "admin"],
+      },
+      {
+        // Current QBD chart of accounts + the proposed clean QBO chart (editable).
+        label: "Chart of Accounts",
+        href: "/accounting/chart-of-accounts",
+        icon: ListTree,
         roles: ["owner", "admin"],
       },
     ],

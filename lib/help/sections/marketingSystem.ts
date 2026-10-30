@@ -399,6 +399,32 @@ The written plan (prepared Oct 30, 2026) for moving FMG's books from QuickBooks 
 - Once Fishbowl posts to QBO, don't also book the Inventory Journal entry for the same months.`,
   },
 
+  /* ─────────────────────────── Chart of Accounts ─────────────────────────── */
+  {
+    path: "/accounting/chart-of-accounts",
+    title: "Chart of Accounts",
+    section: "Accounting",
+    summary:
+      "The current QuickBooks Desktop chart of accounts and the proposed clean chart for QuickBooks Online, side by side, with every change mapped and downloads of both.",
+    body: `## What it's for
+Cleaning up the chart of accounts before the move to QuickBooks Online. Everyone internal can view and download; owners and admins (Julie and Blake) can import and edit.
+
+## How business units are tracked
+One chart for the whole company. Business unit (FMG core/shared, Natural Inspirations, Sassy and Co) is a QBO class on each transaction, so a P&L by class shows each one's profit. Only Sales and COGS get per-brand sub-accounts (40010/40020/40030 and 50010/50020/50030), because Fishbowl posts those itself from the product's income account and the part's COGS account.
+
+## How to use it
+1. In QuickBooks Desktop: Reports → List → Account Listing → Excel → Create New Worksheet. Click **Import current chart** and pick the file.
+2. The first import drafts a proposed chart: every current account kept, renamed, merged (duplicates like the uncategorized and "Ask Julie" accounts) or retired (Fishbowl mapping-issue suspense accounts), plus the six brand Sales/COGS accounts.
+3. Edit the **Proposed** tab in place: number, name, parent, QBO type, business unit, change and notes save when you leave the cell. **Add account** adds a new one. **Start over from current** throws the edits away and redrafts.
+4. **Changes** shows where every current account lands.
+5. Downloads: Current, Proposed, a **QBO import file** (QBO → Settings → Import data → Chart of accounts; leaves out merged/retired accounts) and **Everything (.xlsx)** with all four sheets.
+
+## Good to know
+- Re-importing replaces the current chart but keeps the proposed edits.
+- Accounts marked "Fishbowl default" are the ones Fishbowl posts to; when they change, re-map them in Fishbowl's accounting wizard.
+- Needs migration 20261030000000; until it's applied an import is a preview only (download works, nothing saves).`,
+  },
+
   /* ─────────────────────────── Inventory Journal ─────────────────────────── */
   {
     path: "/accounting/inventory-journal",

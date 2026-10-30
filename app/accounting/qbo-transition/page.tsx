@@ -249,7 +249,11 @@ export default function QboTransitionPage() {
           <Link href="/accounting/quickbooks-connection" className="font-medium text-teal-700 hover:underline">
             QuickBooks Connection
           </Link>{" "}
-          for what Fishbowl sends today.
+          for what Fishbowl sends today, and{" "}
+          <Link href="/accounting/chart-of-accounts" className="font-medium text-teal-700 hover:underline">
+            Chart of Accounts
+          </Link>{" "}
+          for the current and proposed charts.
         </p>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-500">
           <span>Decisions <b className="text-gray-800">Julie Ekelund</b></span>
