@@ -37,6 +37,7 @@ import {
   Calculator,
   Landmark,
   Warehouse,
+  Link2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -362,6 +363,13 @@ export const navSections: readonly NavSection[] = [
         label: "Inventory Journal",
         href: "/accounting/inventory-journal",
         icon: Warehouse,
+        roles: ["owner", "admin"],
+      },
+      {
+        // Which QuickBooks Desktop accounts Fishbowl posts to + example postings.
+        label: "QuickBooks Connection",
+        href: "/accounting/quickbooks-connection",
+        icon: Link2,
         roles: ["owner", "admin"],
       },
     ],

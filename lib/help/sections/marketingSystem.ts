@@ -355,6 +355,30 @@ Uploading the same settlement again replaces its row; it never duplicates.
 Sage can answer questions about saved entries — e.g. "what was our Amazon deposit on Oct 10?", "which period had the highest ad spend?", "total Amazon fees in Q3". Each entry covers a settlement period (start → end date) and was deposited a couple of days after it ends.`,
   },
 
+  /* ─────────────────────────── QuickBooks Connection ─────────────────────────── */
+  {
+    path: "/accounting/quickbooks-connection",
+    title: "QuickBooks Connection",
+    section: "Accounting",
+    summary:
+      "Which QuickBooks Desktop accounts Fishbowl posts to (defaults and items with their own accounts), and a real example of each kind of posting — invoice, cost of goods, payment, inventory adjustment, customer/vendor updates.",
+    body: `## What it's for
+Shows how Fishbowl talks to QuickBooks Desktop, read live from Fishbowl. Owner and admin only. Read-only.
+
+## What's on the page
+- **Status**: last nightly export (6 PM) and whether it had errors; whether QuickBooks Online is connected (it isn't — Fishbowl only posts to Desktop).
+- **Alerts**: e.g. a single shipment that posted an unusually large cost of goods, or parts that post inventory to a liability account.
+- **What each transaction looks like in QuickBooks**: the latest real example of each posting type with its debit/credit lines — a shipment's **invoice** (Accounts Receivable vs Gross Sales / Tester Sales / Freight Revenue), its **cost of goods** entry (COGS vs Inventory Asset), a **payment** (Undeposited Funds vs Accounts Receivable), an **inventory adjustment** (Inventory Adj/Cycle Count vs Inventory Asset), and customer/vendor updates (no money).
+- **Default accounts**: the account Fishbowl uses for each purpose unless an item says otherwise.
+- **Items with their own accounts**: testers, displays and fills that post somewhere other than the default.
+- **Discount & adjustment reasons**: which expense and income accounts each discount reason posts to.
+- **What's been posted in 2026**: counts per month and type.
+
+## Good to know
+- Purchase orders, receipts and vendor bills are not sent by Fishbowl — they're entered in QuickBooks by hand.
+- Every payment goes to Undeposited Funds; no payment method has its own deposit account.`,
+  },
+
   /* ─────────────────────────── Inventory Journal ─────────────────────────── */
   {
     path: "/accounting/inventory-journal",
