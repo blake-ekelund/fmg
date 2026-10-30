@@ -38,6 +38,7 @@ import {
   Landmark,
   Warehouse,
   Link2,
+  CalendarCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -370,6 +371,13 @@ export const navSections: readonly NavSection[] = [
         label: "QuickBooks Connection",
         href: "/accounting/quickbooks-connection",
         icon: Link2,
+        roles: ["owner", "admin"],
+      },
+      {
+        // QuickBooks Desktop → Online move: plan, checklists, calendar to 1/1/2027.
+        label: "QBO Transition",
+        href: "/accounting/qbo-transition",
+        icon: CalendarCheck,
         roles: ["owner", "admin"],
       },
     ],

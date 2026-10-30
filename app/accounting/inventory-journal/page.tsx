@@ -350,7 +350,7 @@ export default function InventoryJournalPage() {
       <p className="text-xs text-gray-500">
         Values are Fishbowl&rsquo;s average cost, from its nightly snapshot of every item (all locations). Purchases are what was received
         on POs, at the PO price — if a bill differs from its PO (freight, price changes), that difference stays in Inventory Asset until
-        adjusted. Added in production is what Fishbowl's work orders valued finished goods at, minus the parts they used — mostly Kapra fill &amp; filling, which is billed to Inventory Asset but never received as a part. If Fishbowl is also sending shipment COGS to QuickBooks Online, don&rsquo;t book this too — it would count COGS twice.
+        adjusted. Added in production is what Fishbowl&rsquo;s work orders valued finished goods at, minus the parts they used — mostly Kapra fill &amp; filling, which is billed to Inventory Asset but never received as a part. If Fishbowl is also sending shipment COGS to QuickBooks Online, don&rsquo;t book this too — it would count COGS twice.
       </p>
     </div>
   );

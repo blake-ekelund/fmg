@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, XCircle, ChevronDown } from "lucide-react";
+import Link from "next/link";
 import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { QbConnection, Snippet } from "@/lib/fishbowlQbMap";
@@ -74,7 +75,11 @@ export default function QuickBooksConnectionPage() {
           <h1 className="text-xl font-semibold text-gray-900">QuickBooks connection</h1>
           <p className="mt-1 max-w-3xl text-sm text-gray-600">
             How Fishbowl posts to QuickBooks Desktop{data?.company ? ` (${data.company})` : ""}: which accounts it uses, and what each kind of
-            transaction looks like when it lands. Read live from Fishbowl.
+            transaction looks like when it lands. Read live from Fishbowl. Moving to QuickBooks Online? See the{" "}
+            <Link href="/accounting/qbo-transition" className="font-medium text-teal-700 hover:underline">
+              QBO Transition plan
+            </Link>
+            .
           </p>
         </div>
         <button
