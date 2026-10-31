@@ -3,7 +3,7 @@
 import Link from "next/link";
 import clsx from "clsx";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Download, Flag, Loader2, Plus, Search, Star, Trash2 } from "lucide-react";
+import { AlertTriangle, Download, Flag, Loader2, Plus, Search, Star, Trash2, X } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
@@ -15,15 +15,14 @@ import {
   TASK_TYPES,
   daysUntil,
   type QboTask,
-  type System,
   type TaskStatus,
 } from "@/lib/qboTransition";
 
 /* The QuickBooks Desktop → QuickBooks Online transition plan (Oct 30, 2026):
    an editable checklist (type, owner, systems, dates, status, our
    recommendation) in qbo_transition_tasks via /api/accounting/qbo-transition,
-   our recommendations pulled up top, and the static reference below — where
-   we are today, pricing, migration approach, after go-live, risks. Facts were
+   each task edited in a modal, and the static reference below — where we are
+   today, pricing, migration approach, after go-live, risks. Facts were
    read from Fishbowl on Oct 30 (see the QuickBooks Connection page for the
    live view) and pricing is from Fishbowl/Intuit's Oct 29 email. */
 
@@ -136,7 +135,6 @@ const CONTACTS: { who: string; for: string }[] = [
 ];
 
 const SECTIONS = [
-  ["recommendations", "Our recommendations"],
   ["checklist", "Checklist"],
   ["today", "Where we are"],
   ["plans", "Plans & pricing"],
@@ -222,7 +220,7 @@ export default function QboTransitionPage() {
   const [ready, setReady] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>("phase");
   const [owner, setOwner] = useState<string>("all");
   const [type, setType] = useState<string>("all");
@@ -285,24 +283,12 @@ export default function QboTransitionPage() {
       const res = await api<{ task: QboTask }>("POST", { task: { name: "New task", owner: owner !== "all" ? owner : null } });
       const key = keyOf(res.task);
       setTasks((ts) => [...ts, { ...res.task, key }]);
-      setOpen((s) => new Set(s).add(key));
-      setGroupBy("phase");
-      setTimeout(() => document.getElementById(`task-${key}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+      setEditing(key);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setAdding(false);
     }
-  };
-
-  const jumpTo = (key: string) => {
-    setOwner("all");
-    setType("all");
-    setStatus("all");
-    setOnlyRecs(false);
-    setQ("");
-    setOpen((s) => new Set(s).add(key));
-    setTimeout(() => document.getElementById(`task-${key}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
   };
 
   const ownerList = useMemo(() => {
@@ -352,7 +338,7 @@ export default function QboTransitionPage() {
     return { done, total: tasks.length, overdue, week, blocked, byOwner };
   }, [tasks, ownerList]);
 
-  const recs = useMemo(() => tasks.filter((t) => t.recommendation).sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999")), [tasks]);
+  const editingTask = editing ? tasks.find((t) => t.key === editing) : undefined;
   const pct = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
 
   return (
@@ -379,14 +365,7 @@ export default function QboTransitionPage() {
         </p>
         <nav className="flex flex-wrap gap-1.5 pt-1" aria-label="Sections">
           {SECTIONS.map(([id, label]) => (
-            <a
-              key={id}
-              href={`#${id}`}
-              className={clsx(
-                "rounded-full border px-3 py-1 text-xs font-medium hover:border-teal-600",
-                id === "recommendations" ? "border-teal-300 bg-teal-50 text-teal-800" : "border-gray-200 bg-white text-gray-700",
-              )}
-            >
+            <a key={id} href={`#${id}`} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:border-teal-600">
               {label}
             </a>
           ))}
@@ -402,40 +381,6 @@ export default function QboTransitionPage() {
           </div>
         ))}
       </div>
-
-      {/* ── Our recommendations ── */}
-      <section id="recommendations" className="scroll-mt-20 space-y-4 rounded-2xl border-2 border-teal-600 bg-teal-50/60 p-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900">
-            <Star size={18} className="fill-teal-600 text-teal-600" /> Our recommendations
-          </h2>
-          <span className="text-xs text-gray-600">Every task with a recommendation, by due date. Accounting treatments to be confirmed with the CPA.</span>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <Headline label="Plan" value="QBO Plus · 1 year" detail="$1,355 — cheapest per year and no lock-in. Our 13 classes and ~180 accounts fit." />
-          <Headline label="Migration" value="A · Full conversion" detail="$1,000 with a test migration in mid-November. Fall back to a fresh start (B) only if the test doesn't tie." />
-          <Headline label="Total first-year cost" value="$2,355" detail="Plus 1-year subscription + one-time data conversion. Keep one QBD license for history." />
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-          {recs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => jumpTo(t.key)}
-              className="group space-y-1.5 rounded-xl border border-teal-200 bg-white p-3 text-left hover:border-teal-500 hover:shadow-sm"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-sm font-semibold text-gray-900 group-hover:text-teal-800">{t.name}</span>
-                <StatusPill status={t.status} />
-              </div>
-              <p className="text-sm text-teal-900">{t.recommendation}</p>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                <OwnerChip owner={t.owner} />
-                <span>Due {fmtDate(t.dueDate)}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
 
       {/* ── Checklist ── */}
       <section id="checklist" className="scroll-mt-20 space-y-4">
@@ -565,7 +510,6 @@ export default function QboTransitionPage() {
                 <span>Start</span>
                 <span>Due</span>
                 <span>Status</span>
-                <span />
               </div>
               {groups.length === 0 && <div className="px-4 py-8 text-center text-sm text-gray-500">No tasks match these filters.</div>}
               {groups.map((g) => {
@@ -584,19 +528,9 @@ export default function QboTransitionPage() {
                       <TaskRow
                         key={t.key}
                         task={t}
-                        owners={ownerList}
                         canEdit={canEdit}
-                        expanded={open.has(t.key)}
-                        onToggle={() =>
-                          setOpen((s) => {
-                            const n = new Set(s);
-                            if (n.has(t.key)) n.delete(t.key);
-                            else n.add(t.key);
-                            return n;
-                          })
-                        }
+                        onOpen={() => setEditing(t.key)}
                         onSave={(patch) => save(t.key, patch)}
-                        onDelete={() => remove(t.key)}
                       />
                     ))}
                   </Fragment>
@@ -715,30 +649,43 @@ export default function QboTransitionPage() {
         Account names, counts and the $3.8M posting were read from Fishbowl on Oct 30, 2026. Pricing and timelines are from Fishbowl&rsquo;s Oct 29,
         2026 email. Confirm accounting treatments (fills, discounts, year-end entries) with the CPA.
       </p>
+
+      {editingTask && (
+        <TaskModal
+          key={editingTask.key}
+          task={editingTask}
+          owners={ownerList}
+          canEdit={canEdit}
+          onClose={() => setEditing(null)}
+          onSave={(patch) => {
+            save(editingTask.key, patch);
+            setEditing(null);
+          }}
+          onDelete={() => {
+            setEditing(null);
+            remove(editingTask.key);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 /* ─── Checklist pieces ────────────────────────────────────────────────────── */
 
-const ROW = "grid grid-cols-[32px_110px_minmax(0,1fr)_190px_150px_118px_118px_120px_28px] items-start gap-2 px-3";
+const ROW = "grid grid-cols-[32px_110px_minmax(0,1fr)_190px_150px_100px_110px_110px] items-start gap-2 px-3";
 
+/** A read-only row; clicking it opens the task in the edit modal. */
 function TaskRow({
   task: t,
-  owners,
   canEdit,
-  expanded,
-  onToggle,
+  onOpen,
   onSave,
-  onDelete,
 }: {
   task: Task;
-  owners: string[];
   canEdit: boolean;
-  expanded: boolean;
-  onToggle: () => void;
+  onOpen: () => void;
   onSave: (patch: Partial<QboTask>) => void;
-  onDelete: () => void;
 }) {
   const done = t.status === "done";
   const due = t.dueDate ? daysUntil(t.dueDate) : null;
@@ -749,194 +696,313 @@ function TaskRow({
   return (
     <div
       id={`task-${t.key}`}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
       className={clsx(
-        "scroll-mt-24 border-b border-gray-100 last:border-b-0",
+        ROW,
+        "cursor-pointer border-b border-gray-100 py-2.5 last:border-b-0 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none",
         t.recommendation && "border-l-4 border-l-teal-600",
         milestone && "bg-teal-50/40",
         done && "bg-gray-50/60",
       )}
     >
-      <div className={clsx(ROW, "py-2")}>
-        <input
-          type="checkbox"
-          checked={done}
-          disabled={!canEdit}
-          onChange={(e) => onSave({ status: e.target.checked ? "done" : "todo" })}
-          aria-label={`Mark "${t.name}" done`}
-          className="mt-2 h-4 w-4 cursor-pointer accent-teal-700 disabled:cursor-default"
-        />
-        <MiniSelect value={t.type} disabled={!canEdit} onChange={(v) => onSave({ type: v as QboTask["type"] })} options={TASK_TYPES.map((x) => [x, x])} bold={milestone} />
-        <div className="min-w-0">
-          <div className="flex items-start gap-1">
-            <button onClick={onToggle} className="mt-1.5 shrink-0 text-gray-400 hover:text-gray-700" aria-label={expanded ? "Collapse" : "Expand"}>
-              {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-            </button>
-            <div className="min-w-0 flex-1">
-              <TextCell
-                value={t.name}
-                disabled={!canEdit}
-                onCommit={(v) => onSave({ name: v })}
-                className={clsx("font-semibold", done ? "text-gray-500 line-through" : "text-gray-900")}
-              />
-              {!expanded && (t.description || t.mustFix || t.recommendation) && (
-                <div className="space-y-1 px-1.5 pb-0.5">
-                  {t.mustFix && <span className="mr-1.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-700">Must fix</span>}
-                  {t.description && <span className="text-[13px] text-gray-600">{t.description}</span>}
-                  {t.recommendation && (
-                    <div className="flex gap-1.5 rounded-md bg-teal-50 px-2 py-1 text-[13px] text-teal-900">
-                      <Star size={13} className="mt-0.5 shrink-0 fill-teal-600 text-teal-600" />
-                      <span>
-                        <b>Recommend:</b> {t.recommendation}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-              {t.helpers && !expanded && <div className="px-1.5 text-xs text-gray-500">With {t.helpers}</div>}
-            </div>
+      <input
+        type="checkbox"
+        checked={done}
+        disabled={!canEdit}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => onSave({ status: e.target.checked ? "done" : "todo" })}
+        aria-label={`Mark "${t.name}" done`}
+        className="mt-0.5 h-4 w-4 cursor-pointer accent-teal-700 disabled:cursor-default"
+      />
+      <span className={clsx("pt-0.5 text-xs", milestone ? "font-bold text-teal-800" : "text-gray-600")}>{t.type}</span>
+      <div className="min-w-0 space-y-1">
+        <div className={clsx("text-sm font-semibold", done ? "text-gray-500 line-through" : "text-gray-900")}>
+          {t.name}
+          {t.mustFix && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase text-red-700">Must fix</span>}
+        </div>
+        {t.description && <div className="line-clamp-2 text-[13px] text-gray-600">{t.description}</div>}
+        {t.recommendation && (
+          <div className="flex gap-1.5 rounded-md bg-teal-50 px-2 py-1 text-[13px] text-teal-900">
+            <Star size={13} className="mt-0.5 shrink-0 fill-teal-600 text-teal-600" />
+            <span className="line-clamp-2">
+              <b>Recommend:</b> {t.recommendation}
+            </span>
           </div>
-        </div>
-        <Systems value={t.systems} disabled={!canEdit} onChange={(systems) => onSave({ systems })} />
-        <div className="pt-1">
-          <OwnerSelect value={t.owner} owners={owners} disabled={!canEdit} onChange={(owner) => onSave({ owner })} />
-        </div>
-        <DateCell value={t.startDate} disabled={!canEdit} onChange={(startDate) => onSave({ startDate })} />
-        <div>
-          <DateCell value={t.dueDate} disabled={!canEdit} onChange={(dueDate) => onSave({ dueDate })} tone={overdue ? "over" : soon ? "soon" : undefined} />
-          {overdue && <div className="px-1.5 text-[11px] font-semibold text-red-700">{-due!} day{due === -1 ? "" : "s"} late</div>}
-          {soon && <div className="px-1.5 text-[11px] font-medium text-amber-700">{due === 0 ? "Today" : `In ${due} day${due === 1 ? "" : "s"}`}</div>}
-        </div>
-        <div className="pt-1">
-          <select
-            value={t.status}
-            disabled={!canEdit}
-            onChange={(e) => onSave({ status: e.target.value as TaskStatus })}
-            className={clsx("w-full rounded-md border px-1.5 py-1 text-xs font-semibold focus:outline-none disabled:opacity-100", STATUS_STYLE[t.status])}
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <span />
+        )}
+        {t.helpers && <div className="text-xs text-gray-500">With {t.helpers}</div>}
       </div>
-
-      {expanded && (
-        <div className="grid gap-3 border-t border-dashed border-gray-200 bg-gray-50/60 px-3 py-3 pl-[52px] lg:grid-cols-2">
-          <Field label="Description">
-            <TextArea value={t.description ?? ""} disabled={!canEdit} onCommit={(v) => onSave({ description: v || null })} placeholder="What needs doing and why" />
-          </Field>
-          <Field label={<span className="inline-flex items-center gap-1 text-teal-800"><Star size={12} className="fill-teal-600 text-teal-600" /> Our recommendation</span>}>
-            <TextArea
-              value={t.recommendation ?? ""}
-              disabled={!canEdit}
-              onCommit={(v) => onSave({ recommendation: v || null })}
-              placeholder="Leave blank if there's no call to make"
-              tone="rec"
-            />
-          </Field>
-          <Field label="Also involved">
-            <TextCell value={t.helpers ?? ""} disabled={!canEdit} onCommit={(v) => onSave({ helpers: v || null })} placeholder="e.g. CPA, Blake" boxed />
-          </Field>
-          <Field label="Notes">
-            <TextArea value={t.notes ?? ""} disabled={!canEdit} onCommit={(v) => onSave({ notes: v || null })} placeholder="Progress, links, what's blocking" />
-          </Field>
-          <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500 lg:col-span-2">
-            <label className="inline-flex items-center gap-1.5 font-medium text-gray-700">
-              <input type="checkbox" checked={t.mustFix} disabled={!canEdit} onChange={(e) => onSave({ mustFix: e.target.checked })} className="accent-red-600" />
-              <Flag size={12} className="text-red-600" /> Must fix
-            </label>
-            {t.updatedBy && t.updatedAt && t.updatedBy !== "seed" && (
-              <span>
-                Last edited by {t.updatedBy} · {new Date(t.updatedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-              </span>
-            )}
-            {canEdit && (
-              <button onClick={onDelete} className="ml-auto inline-flex items-center gap-1 font-medium text-red-700 hover:underline">
-                <Trash2 size={12} /> Delete task
-              </button>
-            )}
-          </div>
+      <div className="flex flex-wrap gap-1">
+        {t.systems.length === 0 && <span className="text-xs text-gray-400">—</span>}
+        {t.systems.map((s) => (
+          <span key={s} className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
+            {s}
+          </span>
+        ))}
+      </div>
+      <div>
+        <OwnerChip owner={t.owner} />
+      </div>
+      <span className="pt-0.5 font-mono text-xs tabular-nums text-gray-700">{fmtDate(t.startDate)}</span>
+      <div className="pt-0.5">
+        <div className={clsx("font-mono text-xs tabular-nums", overdue ? "font-semibold text-red-700" : soon ? "font-semibold text-amber-700" : "text-gray-700")}>
+          {fmtDate(t.dueDate)}
         </div>
-      )}
+        {overdue && <div className="text-[11px] font-semibold text-red-700">{-due!} day{due === -1 ? "" : "s"} late</div>}
+        {soon && <div className="text-[11px] font-medium text-amber-700">{due === 0 ? "Today" : `In ${due} day${due === 1 ? "" : "s"}`}</div>}
+      </div>
+      <div>
+        <StatusPill status={t.status} />
+      </div>
     </div>
   );
 }
 
-function Systems({ value, disabled, onChange }: { value: System[]; disabled: boolean; onChange: (v: System[]) => void }) {
-  const [editing, setEditing] = useState(false);
-  if (editing && !disabled) {
-    return (
-      <div className="flex flex-wrap gap-1 pt-1" onMouseLeave={() => setEditing(false)}>
-        {SYSTEMS.map((s) => {
-          const on = value.includes(s);
-          return (
-            <button
-              key={s}
-              onClick={() => onChange(on ? value.filter((x) => x !== s) : SYSTEMS.filter((x) => x === s || value.includes(x)))}
-              className={clsx(
-                "rounded border px-1.5 py-0.5 text-[11px] font-medium",
-                on ? "border-gray-800 bg-gray-800 text-white" : "border-dashed border-gray-300 text-gray-500 hover:border-gray-500",
-              )}
-            >
-              {s}
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
-  return (
-    <button
-      onClick={() => setEditing(true)}
-      disabled={disabled}
-      title={disabled ? undefined : "Edit systems"}
-      className="flex min-h-[28px] w-full flex-wrap items-start gap-1 rounded-md border border-transparent p-0.5 pt-1 text-left hover:border-gray-200 disabled:hover:border-transparent"
-    >
-      {value.length === 0 && <span className="px-1 text-xs text-gray-400">—</span>}
-      {value.map((s) => (
-        <span key={s} className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700">
-          {s}
-        </span>
-      ))}
-    </button>
-  );
-}
+type Draft = Omit<QboTask, "id" | "sort" | "updatedBy" | "updatedAt">;
+const DRAFT_KEYS: (keyof Draft)[] = ["type", "name", "description", "systems", "owner", "helpers", "startDate", "dueDate", "status", "recommendation", "mustFix", "notes"];
 
-function OwnerSelect({ value, owners, disabled, onChange }: { value: string | null; owners: string[]; disabled: boolean; onChange: (v: string | null) => void }) {
+const blank = (v: string | null) => (v && v.trim() ? v.trim() : null);
+
+/** Edits one task. Same size for every task; the body scrolls. */
+function TaskModal({
+  task,
+  owners,
+  canEdit,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  task: Task;
+  owners: string[];
+  canEdit: boolean;
+  onClose: () => void;
+  onSave: (patch: Partial<QboTask>) => void;
+  onDelete: () => void;
+}) {
+  const [d, setD] = useState<Draft>(() => Object.fromEntries(DRAFT_KEYS.map((k) => [k, task[k]])) as Draft);
+  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
+
+  const patch = useMemo(() => {
+    const clean: Draft = {
+      ...d,
+      name: d.name.trim() || "Untitled task",
+      description: blank(d.description),
+      helpers: blank(d.helpers),
+      recommendation: blank(d.recommendation),
+      notes: blank(d.notes),
+    };
+    const out: Record<string, unknown> = {};
+    for (const k of DRAFT_KEYS) if (JSON.stringify(clean[k]) !== JSON.stringify(task[k])) out[k] = clean[k];
+    return out as Partial<QboTask>;
+  }, [d, task]);
+  const dirty = Object.keys(patch).length > 0;
+
+  const close = useCallback(() => {
+    if (dirty && !confirm("Discard your changes to this task?")) return;
+    onClose();
+  }, [dirty, onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+
+  const input = "w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-teal-600 focus:outline-none disabled:bg-gray-50";
+
   return (
-    <select
-      value={value ?? ""}
-      disabled={disabled}
-      onChange={(e) => {
-        if (e.target.value === "__other") {
-          const name = prompt("Owner's name")?.trim();
-          if (name) onChange(name);
-          return;
-        }
-        onChange(e.target.value || null);
-      }}
-      className={clsx(
-        "w-full rounded-md border-0 px-1.5 py-1 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-gray-300 disabled:opacity-100",
-        value ? (OWNER_STYLE[value] ?? "bg-gray-100 text-gray-800") : "bg-red-50 text-red-700",
-      )}
-    >
-      <option value="">No owner</option>
-      {owners.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-      <option value="__other">Someone else…</option>
-    </select>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div role="dialog" aria-modal="true" aria-label="Edit task" className="flex h-[min(720px,calc(100vh-2rem))] w-[min(760px,100%)] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-3 border-b border-gray-200 px-5 py-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+              {phaseOf(d.dueDate)} · {d.type}
+            </div>
+            <div className="truncate text-base font-bold text-gray-900">{d.name || "Untitled task"}</div>
+          </div>
+          <button onClick={close} aria-label="Close" className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <Field label="Task">
+            <input value={d.name} disabled={!canEdit} onChange={(e) => set("name", e.target.value)} className={clsx(input, "font-semibold")} />
+          </Field>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Type">
+              <select value={d.type} disabled={!canEdit} onChange={(e) => set("type", e.target.value as Draft["type"])} className={input}>
+                {TASK_TYPES.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Status">
+              <select value={d.status} disabled={!canEdit} onChange={(e) => set("status", e.target.value as TaskStatus)} className={input}>
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Owner">
+              <select
+                value={d.owner ?? ""}
+                disabled={!canEdit}
+                onChange={(e) => {
+                  if (e.target.value === "__other") {
+                    const name = prompt("Owner's name")?.trim();
+                    if (name) set("owner", name);
+                    return;
+                  }
+                  set("owner", e.target.value || null);
+                }}
+                className={input}
+              >
+                <option value="">No owner</option>
+                {[...owners, ...(d.owner && !owners.includes(d.owner) ? [d.owner] : [])].map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+                <option value="__other">Someone else…</option>
+              </select>
+            </Field>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Start">
+              <input type="date" value={d.startDate ?? ""} disabled={!canEdit} onChange={(e) => set("startDate", e.target.value || null)} className={input} />
+            </Field>
+            <Field label="Due">
+              <input type="date" value={d.dueDate ?? ""} disabled={!canEdit} onChange={(e) => set("dueDate", e.target.value || null)} className={input} />
+            </Field>
+            <Field label="Also involved">
+              <input value={d.helpers ?? ""} disabled={!canEdit} onChange={(e) => set("helpers", e.target.value)} placeholder="e.g. CPA, Blake" className={input} />
+            </Field>
+          </div>
+
+          <Field label="Systems involved">
+            <div className="flex flex-wrap gap-1.5">
+              {SYSTEMS.map((s) => {
+                const on = d.systems.includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    disabled={!canEdit}
+                    onClick={() => set("systems", on ? d.systems.filter((x) => x !== s) : SYSTEMS.filter((x) => x === s || d.systems.includes(x)))}
+                    className={clsx(
+                      "rounded-md border px-2.5 py-1 text-xs font-medium",
+                      on ? "border-gray-800 bg-gray-800 text-white" : "border-dashed border-gray-300 text-gray-600 hover:border-gray-500",
+                    )}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+
+          <Field label="Description">
+            <textarea
+              value={d.description ?? ""}
+              disabled={!canEdit}
+              onChange={(e) => set("description", e.target.value)}
+              rows={3}
+              placeholder="What needs doing and why"
+              className={clsx(input, "resize-none")}
+            />
+          </Field>
+
+          <Field
+            label={
+              <span className="inline-flex items-center gap-1 text-teal-800">
+                <Star size={12} className="fill-teal-600 text-teal-600" /> Our recommendation
+              </span>
+            }
+          >
+            <textarea
+              value={d.recommendation ?? ""}
+              disabled={!canEdit}
+              onChange={(e) => set("recommendation", e.target.value)}
+              rows={3}
+              placeholder="Leave blank if there's no call to make"
+              className={clsx(input, "resize-none border-teal-300 bg-teal-50 text-teal-900")}
+            />
+          </Field>
+
+          <Field label="Notes">
+            <textarea
+              value={d.notes ?? ""}
+              disabled={!canEdit}
+              onChange={(e) => set("notes", e.target.value)}
+              rows={3}
+              placeholder="Progress, links, what's blocking"
+              className={clsx(input, "resize-none")}
+            />
+          </Field>
+
+          <label className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700">
+            <input type="checkbox" checked={d.mustFix} disabled={!canEdit} onChange={(e) => set("mustFix", e.target.checked)} className="accent-red-600" />
+            <Flag size={13} className="text-red-600" /> Must fix
+          </label>
+        </div>
+
+        <div className="flex items-center gap-3 border-t border-gray-200 px-5 py-3">
+          {canEdit && (
+            <button
+              onClick={() => {
+                if (confirm(`Delete "${task.name}"?`)) onDelete();
+              }}
+              className="inline-flex items-center gap-1 text-xs font-medium text-red-700 hover:underline"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          )}
+          {task.updatedBy && task.updatedAt && task.updatedBy !== "seed" && (
+            <span className="truncate text-xs text-gray-500">
+              Edited by {task.updatedBy} · {new Date(task.updatedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            </span>
+          )}
+          <div className="ml-auto flex gap-2">
+            <button onClick={close} className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              {canEdit ? "Cancel" : "Close"}
+            </button>
+            {canEdit && (
+              <button
+                onClick={() => (dirty ? onSave(patch) : onClose())}
+                className="rounded-lg bg-teal-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-teal-800"
+              >
+                Save
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function OwnerChip({ owner }: { owner: string | null }) {
   return (
-    <span className={clsx("rounded px-1.5 py-0.5 text-[11px] font-semibold", owner ? (OWNER_STYLE[owner] ?? "bg-gray-100 text-gray-800") : "bg-red-50 text-red-700")}>
+    <span
+      className={clsx(
+        "inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold",
+        owner ? (OWNER_STYLE[owner] ?? "bg-gray-100 text-gray-800") : "bg-red-50 text-red-700",
+      )}
+    >
       {owner ?? "No owner"}
     </span>
   );
@@ -960,7 +1026,9 @@ function OwnerFilter({ label, active, onClick, open, total }: { label: string; a
 }
 
 function StatusPill({ status }: { status: TaskStatus }) {
-  return <span className={clsx("shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase", STATUS_STYLE[status])}>{STATUS_LABEL[status]}</span>;
+  return (
+    <span className={clsx("inline-block shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase", STATUS_STYLE[status])}>{STATUS_LABEL[status]}</span>
+  );
 }
 
 function RecBadge() {
@@ -971,38 +1039,12 @@ function RecBadge() {
   );
 }
 
-function Headline({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="space-y-1 rounded-xl bg-teal-700 p-4 text-white">
-      <div className="text-[11px] font-bold uppercase tracking-wider text-teal-100">{label}</div>
-      <div className="text-lg font-bold">{value}</div>
-      <div className="text-sm text-teal-50">{detail}</div>
-    </div>
-  );
-}
-
 function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm focus:border-teal-600 focus:outline-none">
-      {options.map(([v, l]) => (
-        <option key={v} value={v}>
-          {l}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function MiniSelect({ value, onChange, options, disabled, bold }: { value: string; onChange: (v: string) => void; options: string[][]; disabled: boolean; bold?: boolean }) {
   return (
     <select
       value={value}
-      disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
-      className={clsx(
-        "mt-0.5 w-full rounded-md border border-transparent bg-transparent px-1 py-1 text-xs hover:border-gray-200 focus:border-gray-300 focus:outline-none disabled:opacity-100 disabled:hover:border-transparent",
-        bold ? "font-bold text-teal-800" : "text-gray-600",
-      )}
+      className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm focus:border-teal-600 focus:outline-none"
     >
       {options.map(([v, l]) => (
         <option key={v} value={v}>
@@ -1013,89 +1055,12 @@ function MiniSelect({ value, onChange, options, disabled, bold }: { value: strin
   );
 }
 
-function DateCell({ value, onChange, disabled, tone }: { value: string | null; onChange: (v: string | null) => void; disabled: boolean; tone?: "over" | "soon" }) {
-  return (
-    <input
-      type="date"
-      value={value ?? ""}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value || null)}
-      className={clsx(
-        "mt-0.5 w-full rounded-md border border-transparent bg-transparent px-1 py-1 font-mono text-xs tabular-nums hover:border-gray-200 focus:border-gray-300 focus:outline-none disabled:opacity-100 disabled:hover:border-transparent",
-        tone === "over" ? "font-semibold text-red-700" : tone === "soon" ? "font-semibold text-amber-700" : "text-gray-700",
-      )}
-    />
-  );
-}
-
-/** A text input that saves when you leave it (or press Enter). */
-function TextCell({
-  value,
-  onCommit,
-  disabled,
-  placeholder,
-  className,
-  boxed,
-}: {
-  value: string;
-  onCommit: (v: string) => void;
-  disabled?: boolean;
-  placeholder?: string;
-  className?: string;
-  boxed?: boolean;
-}) {
-  const [text, setText] = useState(value);
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(value);
-  }
-  return (
-    <input
-      value={text}
-      disabled={disabled}
-      placeholder={placeholder}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => text.trim() !== value && onCommit(text.trim())}
-      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      className={clsx(
-        "w-full rounded-md border px-1.5 py-1 text-sm focus:border-gray-300 focus:bg-white focus:outline-none disabled:bg-transparent",
-        boxed ? "border-gray-200 bg-white" : "border-transparent bg-transparent hover:border-gray-200 disabled:hover:border-transparent",
-        className,
-      )}
-    />
-  );
-}
-
-function TextArea({ value, onCommit, disabled, placeholder, tone }: { value: string; onCommit: (v: string) => void; disabled?: boolean; placeholder?: string; tone?: "rec" }) {
-  const [text, setText] = useState(value);
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(value);
-  }
-  return (
-    <textarea
-      value={text}
-      disabled={disabled}
-      placeholder={placeholder}
-      rows={3}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => text.trim() !== value && onCommit(text.trim())}
-      className={clsx(
-        "w-full resize-y rounded-md border px-2 py-1.5 text-sm focus:outline-none disabled:opacity-100",
-        tone === "rec" ? "border-teal-300 bg-teal-50 text-teal-900 focus:border-teal-600" : "border-gray-200 bg-white text-gray-800 focus:border-gray-400",
-      )}
-    />
-  );
-}
-
 function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
-    <label className="block space-y-1">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{label}</span>
+    <div className="space-y-1">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{label}</div>
       {children}
-    </label>
+    </div>
   );
 }
 
