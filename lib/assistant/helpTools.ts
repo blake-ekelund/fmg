@@ -9,7 +9,19 @@ import { exportFilename, probeExport, readExportSpec, type ExportSpec } from "./
 import { JE_COLUMNS, JE_COLUMN_LABELS, type SavedSettlement } from "@/lib/amazonSettlement";
 import { normalizeWidgets, runReport } from "@/lib/reports/run";
 import { describeSchedule } from "@/lib/reports/schedule";
-import { canEdit, createReport, getReport, listReports, resolveRecipients, updateReport, type ReportInput } from "@/lib/reports/store";
+import {
+  addTeamRule,
+  canEdit,
+  createReport,
+  getReport,
+  listReports,
+  listTeamRules,
+  removeTeamRule,
+  resolveRecipients,
+  updateReport,
+  type ReportInput,
+} from "@/lib/reports/store";
+import { houseRulesText, lintWidgets } from "@/lib/reports/rules";
 import { CHART_KINDS, FORMATS, FREQUENCIES, WIDGET_TYPES, type Widget } from "@/lib/reports/types";
 
 /**
@@ -572,6 +584,24 @@ async function probeWidgets(widgets: Widget[], role: UserRole) {
   });
 }
 
+/**
+ * Probe + the report rules (lib/reports/rules.ts). Rule errors and failing
+ * widgets block the save; rule warnings go back to Sage to fix or justify.
+ */
+async function checkWidgets(widgets: Widget[], role: UserRole) {
+  const lint = lintWidgets(widgets);
+  const probe = await probeWidgets(widgets, role);
+  const problems = [
+    ...probe.filter((p) => "error" in p),
+    ...lint.filter((l) => l.level === "error").map((l) => ({ title: l.widget, error: `[${l.rule}] ${l.message}` })),
+  ];
+  const warnings = lint.filter((l) => l.level === "warning").map((l) => `${l.widget}: ${l.message}`);
+  return { probe, problems, warnings };
+}
+
+const WARNING_HINT =
+  "Saved, but these break the report rules. Fix them with update_report unless the user asked for it this way — don't mention rules the user didn't ask about.";
+
 async function scheduleInput(input: Record<string, unknown>, ctx: ToolContext) {
   if (input.schedule === undefined) return {};
   if (input.schedule === null) return { schedule: null };
@@ -591,7 +621,10 @@ function customReportTools(datasets: string[]): HelpTool[] {
       status: "Building the report…",
       def: {
         name: "create_report",
-        description: `Create a saved custom report on the Reports page — a live dashboard of KPI tiles, charts, pivot tables and tables that re-runs on every view — optionally emailed on a schedule (daily, weekdays, weekly, monthly at a set time) to FMG team members. Use when the user wants a report/dashboard they'll come back to or receive regularly (a one-off spreadsheet is export_report). Every widget is run first; if any errors or returns nothing, nothing is saved and you get the problems back to fix. Use relative dates (@start_of_month…) so it stays current. Typical shape: 2-4 KPIs on top (with compare_query vs the prior period), a trend chart (group_by "<date>:month" or ":week"), a breakdown (pivot or bar chart by brand / channel / product), then a detail table.`,
+        description: `Create a saved custom report on the Reports page — a live dashboard of KPI tiles, charts, pivot tables and tables that re-runs on every view — optionally emailed on a schedule (daily, weekdays, weekly, monthly at a set time) to FMG team members. Use when the user wants a report/dashboard they'll come back to or receive regularly (a one-off spreadsheet is export_report). Every widget is run first; if any errors or returns nothing, nothing is saved and you get the problems back to fix. Use relative dates (@start_of_month…) so it stays current. Typical shape: 2-4 KPIs on top (with compare_query vs the prior period), a trend chart (group_by "<date>:month" or ":week"), a breakdown (pivot or bar chart by brand / channel / product), then a detail table.
+
+REPORT RULES — follow every one (some are checked: breaking a checked rule blocks the save or comes back as a warning). Team rules, when there are any, arrive with the user's message and win over these.
+${houseRulesText()}`,
         input_schema: {
           type: "object",
           properties: {
@@ -605,9 +638,8 @@ function customReportTools(datasets: string[]): HelpTool[] {
       },
       async run(input, ctx) {
         const widgets = normalizeWidgets(input.widgets);
-        const probe = await probeWidgets(widgets, ctx.role);
-        const bad = probe.filter((p) => "error" in p);
-        if (bad.length) return { result: { saved: false, problems: bad, hint: "Fix these widgets and call create_report again." } };
+        const { probe, problems, warnings } = await checkWidgets(widgets, ctx.role);
+        if (problems.length) return { result: { saved: false, problems, hint: "Fix these widgets and call create_report again." } };
         const report = await createReport(ctx.userId, {
           title: input.title,
           description: input.description,
@@ -622,6 +654,7 @@ function customReportTools(datasets: string[]): HelpTool[] {
             widgets: probe,
             schedule: report.schedule ? `${describeSchedule(report.schedule)} to ${report.schedule.recipients.join(", ")}` : "none",
             next_send: report.next_run_at,
+            ...(warnings.length ? { rule_warnings: warnings, hint: WARNING_HINT } : {}),
           },
           action: reportAction(report.id, report.title),
         };
@@ -658,11 +691,15 @@ function customReportTools(datasets: string[]): HelpTool[] {
         if (input.description !== undefined) patch.description = input.description;
         if (typeof input.schedule_enabled === "boolean") patch.schedule_enabled = input.schedule_enabled;
         let probe: Awaited<ReturnType<typeof probeWidgets>> | undefined;
+        let warnings: string[] = [];
         if (input.widgets !== undefined) {
           const widgets = normalizeWidgets(input.widgets);
-          probe = await probeWidgets(widgets, ctx.role);
-          const bad = probe.filter((p) => "error" in p);
-          if (bad.length) return { result: { updated: false, problems: bad, hint: "Fix these widgets and call update_report again." } };
+          const checked = await checkWidgets(widgets, ctx.role);
+          if (checked.problems.length) {
+            return { result: { updated: false, problems: checked.problems, hint: "Fix these widgets and call update_report again." } };
+          }
+          probe = checked.probe;
+          warnings = checked.warnings;
           patch.widgets = widgets;
         }
         const report = await updateReport(existing, patch);
@@ -676,8 +713,40 @@ function customReportTools(datasets: string[]): HelpTool[] {
               ? `${describeSchedule(report.schedule)} to ${report.schedule.recipients.join(", ")}${report.schedule_enabled ? "" : " (paused)"}`
               : "none",
             next_send: report.next_run_at,
+            ...(warnings.length ? { rule_warnings: warnings, hint: WARNING_HINT } : {}),
           },
           action: reportAction(report.id, report.title),
+        };
+      },
+    },
+    {
+      page: "/reports",
+      status: "Updating the report rules…",
+      def: {
+        name: "report_rules",
+        description:
+          "List, add or remove the TEAM's report rules — standing instructions you follow whenever you build or change reports (shown on the Reports page). Add one when the user states a lasting preference for reports, e.g. \"always show NI before Sassy\", \"don't use pie charts\", \"wholesale reports exclude Faire\", \"money without cents\". Say what you saved. Remove only when they ask (by id from the list). With no add/remove it just lists them.",
+        input_schema: {
+          type: "object",
+          properties: {
+            add: { type: "string", description: "The rule in one plain sentence, as the user meant it." },
+            remove: { type: "string", description: "Id of a rule to remove." },
+          },
+        },
+      },
+      async run(input, ctx) {
+        const add = str(input.add, 400);
+        const remove = str(input.remove, 60);
+        let saved: string | undefined;
+        if (add) saved = (await addTeamRule(add, ctx.userId)).text;
+        if (remove && !(await removeTeamRule(remove, { id: ctx.userId, access: ctx.role }))) {
+          return { result: { error: "Only the rule's author or an admin can remove it." } };
+        }
+        const { ready, rules } = await listTeamRules();
+        if (!ready) return { result: { error: "Report rules aren't switched on yet (database migration pending) — ask Blake." } };
+        return {
+          result: { ...(saved ? { saved } : {}), ...(remove ? { removed: remove } : {}), rules: rules.map((r) => ({ id: r.id, rule: r.text, by: r.author })) },
+          ...(saved || remove ? { action: { label: "See report rules", href: "/reports#rules" } } : {}),
         };
       },
     },

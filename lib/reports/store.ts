@@ -167,6 +167,44 @@ export async function updateReport(existing: Report, input: ReportInput): Promis
   return { ...(data as Report), owner_name: existing.owner_name };
 }
 
+/* ---- Team rules (report_rules) — see lib/reports/rules.ts ---- */
+
+export type TeamRule = { id: string; text: string; created_by: string | null; author: string | null; created_at: string };
+
+export async function listTeamRules(): Promise<{ ready: boolean; rules: TeamRule[] }> {
+  const { data, error } = await supabaseServer.from("report_rules").select("id, rule, created_by, created_at").order("created_at");
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205" || /report_rules/.test(error.message)) return { ready: false, rules: [] };
+    throw new Error(error.message);
+  }
+  const rows = (data ?? []) as { id: string; rule: string; created_by: string | null; created_at: string }[];
+  const names = await ownerNames([...new Set(rows.map((r) => r.created_by).filter((x): x is string => !!x))]);
+  return {
+    ready: true,
+    rules: rows.map((r) => ({ id: r.id, text: r.rule, created_by: r.created_by, author: r.created_by ? names.get(r.created_by) ?? null : null, created_at: r.created_at })),
+  };
+}
+
+export async function addTeamRule(text: string, userId: string): Promise<TeamRule> {
+  const rule = text.trim().replace(/\s+/g, " ").slice(0, 400);
+  if (rule.length < 3) throw new Error("Write the rule out (at least a few words).");
+  const { data, error } = await supabaseServer.from("report_rules").insert({ rule, created_by: userId }).select("id, rule, created_by, created_at").single();
+  if (error) throw new Error(/report_rules/.test(error.message) ? "Report rules aren't set up yet (database migration pending)." : error.message);
+  const r = data as { id: string; rule: string; created_by: string | null; created_at: string };
+  return { id: r.id, text: r.rule, created_by: r.created_by, author: null, created_at: r.created_at };
+}
+
+/** Delete a rule — its author or an owner/admin. Returns false when not allowed. */
+export async function removeTeamRule(id: string, user: { id: string; access: string | null }): Promise<boolean> {
+  const { data } = await supabaseServer.from("report_rules").select("created_by").eq("id", id).maybeSingle();
+  if (!data) return true;
+  const by = (data as { created_by: string | null }).created_by;
+  if (by !== user.id && user.access !== "owner" && user.access !== "admin") return false;
+  const { error } = await supabaseServer.from("report_rules").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  return true;
+}
+
 export async function deleteReport(id: string): Promise<void> {
   const { error } = await supabaseServer.from("custom_reports").delete().eq("id", id);
   if (error) throw new Error(error.message);

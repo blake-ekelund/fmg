@@ -9,6 +9,7 @@ import { useUser } from "@/components/UserContext";
 import { getAllowedPaths } from "@/components/navConfig";
 import { reportsApi } from "@/lib/reports/client";
 import { REPORT_TEMPLATES, SAGE_REPORT_PROMPTS } from "@/lib/reports/templates";
+import ReportRules from "./ReportRules";
 import SavedReportsTable, { type ReportRow } from "./SavedReportsTable";
 
 /* The Reports page: every saved custom report in one table (open, rename,
@@ -100,6 +101,8 @@ export default function ReportsHome() {
           ))}
         </div>
       </section>
+
+      <ReportRules />
 
       {templates.length > 0 && (
         <section>

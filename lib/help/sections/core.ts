@@ -122,6 +122,9 @@ Your own reports on anything in the portal (sales, orders, customers, inventory,
 ## The reports table
 **Saved reports** lists every report with its owner, email schedule (and next send), when it last went out, and when it was last changed. **Search reports** filters it. Each row's buttons: **Open**, **Download Excel**, and — on reports you made (or any, for owners/admins) — **Rename**, **Change email schedule** (or **+ Add schedule**), **Pause / Resume emails**, and **Delete**.
 
+## Report rules
+The **Report rules** box on the Reports page lists what Sage follows when it builds, changes or recommends report widgets. **Team rules** are your own ("No pie charts", "Always show NI before Sassy") — type one and click **Add rule**, or just tell Sage "from now on…" and it saves it. Anyone can add; the author or an owner/admin removes. **Built-in rules** (click to expand) are the defaults, e.g. revenue counts only sales (not discounts or shipping), order totals only paid orders, saved reports use rolling dates, at most 4 KPI tiles each with a comparison, pies only for shares with 6 slices or fewer, tables as a top-N. Team rules win over the built-in ones. Rules guide Sage only — you can still change any widget by hand.
+
 ## Making a report
 1. On **Reports**, describe it in **Build a report with Sage** (or click one of the example asks), e.g. "Monthly NI wholesale revenue by rep with a pivot by month, emailed to me the 1st at 7am". Sage builds it, opens it, and recommends what else to add.
 2. Or open a **Start from a report** card to preview a starter report with live numbers, then **Save as my report**.

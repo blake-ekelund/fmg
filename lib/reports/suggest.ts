@@ -3,6 +3,8 @@ import type { UserRole } from "@/components/UserContext";
 import { datasetsForRole, describeDatasets } from "@/lib/assistant/dataCatalog";
 import { widgetSchema } from "@/lib/assistant/helpTools";
 import { normalizeWidgets, runReport } from "./run";
+import { houseRulesText, lintWidgets, teamRulesText } from "./rules";
+import { listTeamRules } from "./store";
 import type { Widget } from "./types";
 
 /* "Sage recommends" on a report page: Claude looks at what the report already
@@ -25,6 +27,7 @@ export async function suggestWidgets(report: { title: string; description: strin
   const datasets = datasetsForRole(role);
   if (!datasets.length) return [];
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Chicago" });
+  const teamRules = teamRulesText((await listTeamRules().catch(() => ({ rules: [] }))).rules);
   const client = new Anthropic();
   const res = await client.messages.create({
     model: MODEL,
@@ -34,6 +37,9 @@ export async function suggestWidgets(report: { title: string; description: strin
 
 Recommend 3 or 4 widgets that would make THIS report more useful for running the business — the gaps a sharp analyst would notice: a missing comparison to the prior period, a trend behind a headline number, a breakdown that explains it (brand, channel, product, customer, state), a top/bottom list to act on, an exception list (e.g. orders not yet in Fishbowl, low stock). Fit the report's topic; don't repeat what's there. Use relative dates (@start_of_month, @today-30d …), never fixed dates. Fishbowl revenue = sales_by_product_month with typename "Sale". Each "why" is one plain sentence for a busy owner (≤ 20 words).
 
+Every suggestion must follow these report rules:
+${houseRulesText()}
+${teamRules ? `\n${teamRules}\n` : ""}
 Data you can use:
 ${describeDatasets(datasets)}`,
     tools: [
@@ -71,6 +77,8 @@ ${describeDatasets(datasets)}`,
   for (const s of raw.slice(0, 5)) {
     try {
       const [widget] = normalizeWidgets([s.widget]);
+      // A suggestion that breaks a checked rule is dropped, never offered.
+      if (lintWidgets([widget]).some((l) => l.level === "error")) continue;
       candidates.push({ why: String(s.why ?? "").slice(0, 200), widget });
     } catch {
       // A malformed suggestion is just skipped.

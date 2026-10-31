@@ -143,7 +143,7 @@ export type ChartData = {
 };
 
 /** group_by [x] (one series per metric) or [x, series] (one series per value, first metric). */
-export function chartData(w: Widget, r: Extract<WidgetResult, { ok: true }>, maxSeries = 8): ChartData {
+export function chartData(w: Widget, r: Extract<WidgetResult, { ok: true }>, maxSeries = 6): ChartData {
   const [xKey, seriesKey] = w.query.group_by ?? [];
   const metrics = metricKeys(w);
   if (!seriesKey) {

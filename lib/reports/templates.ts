@@ -34,7 +34,7 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
         title: "Revenue this month",
         query: rev([{ column: "month", op: "gte", value: "@start_of_month" }]),
         compare_query: rev([{ column: "month", op: "eq", value: "@start_of_month-1y" }]),
-        compare_label: "vs same month last year",
+        compare_label: "vs all of this month last year",
       },
       {
         type: "kpi",
@@ -60,7 +60,7 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
           filters: [SALE, { column: "month", op: "eq", value: "@start_of_month-1y" }],
           metrics: [{ fn: "sum", column: "units_fulfilled" }],
         },
-        compare_label: "vs same month last year",
+        compare_label: "vs all of this month last year",
       },
       {
         type: "chart",
@@ -205,7 +205,7 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
         type: "chart",
         chart: "pie",
         title: "Sales this year by rep",
-        query: { dataset: "wholesale_customers", group_by: ["rep_name"], metrics: [{ fn: "sum", column: "sales_2026" }], limit: 8 },
+        query: { dataset: "wholesale_customers", group_by: ["rep_name"], metrics: [{ fn: "sum", column: "sales_2026" }], limit: 6 },
         labels: { sum_sales_2026: "Sales this year" },
       },
       {
