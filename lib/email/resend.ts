@@ -21,6 +21,8 @@ export type ResendSendInput = {
   replyTo?: string;
   /** Extra Internet headers, e.g. List-Unsubscribe (Resend honours these — Graph often doesn't). */
   headers?: Record<string, string>;
+  /** Files to attach (base64 content), e.g. a scheduled report's Excel file. */
+  attachments?: { filename: string; content: string }[];
 };
 
 export function resendApiConfigured(): boolean {
@@ -47,6 +49,7 @@ export async function sendResendEmail(input: ResendSendInput): Promise<{ id: str
       html: rewriteEmailImageUrls(input.html),
       reply_to: input.replyTo || undefined,
       headers: input.headers && Object.keys(input.headers).length > 0 ? input.headers : undefined,
+      attachments: input.attachments?.length ? input.attachments : undefined,
     }),
   });
 

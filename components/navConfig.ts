@@ -40,6 +40,7 @@ import {
   Link2,
   CalendarCheck,
   ListTree,
+  BarChart3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { UserRole } from "./UserContext";
@@ -86,6 +87,15 @@ export const navSections: readonly NavSection[] = [
         label: "Task List",
         href: "/task-list",
         icon: KanbanSquare,
+        roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
+      },
+      {
+        // Custom dashboards (KPIs, charts, pivots, tables) built with Sage and
+        // optionally emailed on a schedule. Every view re-runs the queries
+        // under the viewer's role, so the page is safe for every staff role.
+        label: "Reports",
+        href: "/reports",
+        icon: BarChart3,
         roles: [...FULL_ACCESS, "sales", "marketing", "operations"],
       },
     ],

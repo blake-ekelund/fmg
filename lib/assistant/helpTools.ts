@@ -7,6 +7,10 @@ import { FILTER_OPS, METRIC_FNS, datasetsForRole, describeDatasets, runQuery, ty
 import { searchConversations } from "./sageMemory";
 import { exportFilename, probeExport, readExportSpec, type ExportSpec } from "./reportExport";
 import { JE_COLUMNS, JE_COLUMN_LABELS, type SavedSettlement } from "@/lib/amazonSettlement";
+import { normalizeWidgets, runReport } from "@/lib/reports/run";
+import { describeSchedule } from "@/lib/reports/schedule";
+import { canEdit, createReport, getReport, listReports, resolveRecipients, updateReport, type ReportInput } from "@/lib/reports/store";
+import { CHART_KINDS, FORMATS, FREQUENCIES, WIDGET_TYPES, type Widget } from "@/lib/reports/types";
 
 /**
  * What Sage (the in-app assistant) can DO, beyond explaining the site.
@@ -364,12 +368,20 @@ function querySchema(datasets: string[], extra: Record<string, unknown> = {}): A
           properties: {
             column: { type: "string" },
             op: { type: "string", enum: [...FILTER_OPS], description: "contains = case-insensitive text match; in takes an array" },
-            value: { description: "Dates as YYYY-MM-DD. Omit for is_null / not_null." },
+            value: {
+              description:
+                "Dates as YYYY-MM-DD, or a relative date that resolves at run time: @today, @yesterday, @start_of_week (Monday), @start_of_month, @start_of_quarter, @start_of_year, each with an optional offset like -7d, -1m, -1y (e.g. @start_of_month-1m = first of last month; last month = gte @start_of_month-1m AND lt @start_of_month). Use relative dates in saved reports so they stay current. Omit for is_null / not_null.",
+            },
           },
           required: ["column", "op"],
         },
       },
-      group_by: { type: "array", items: { type: "string" }, description: "Group rows by these columns (e.g. month, brand) to build a summary." },
+      group_by: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Group rows by these columns (e.g. month, brand) to build a summary. A date/timestamp column can be bucketed with a suffix: \"created_at:day|week|month|quarter|year\" (the value is the period's first day; that string is also the output column name).",
+      },
       metrics: {
         type: "array",
         items: {
@@ -492,6 +504,222 @@ ${describeDatasets(datasets)}`,
           ...(empty.length === spec.sheets.length
             ? {}
             : { action: { label: `Download “${spec.title}” (${kind})`, download: { spec, filename: exportFilename(spec) } } }),
+        };
+      },
+    },
+    ...customReportTools(datasets),
+  ];
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom reports (the Reports page — lib/reports)                    */
+/* ------------------------------------------------------------------ */
+
+export function widgetSchema(datasets: string[]): Anthropic.Tool.InputSchema {
+  return {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Keep an existing widget's id when editing a report; omit for new widgets." },
+      type: {
+        type: "string",
+        enum: [...WIDGET_TYPES],
+        description:
+          "kpi = one big number (query with metrics, NO group_by); chart = group_by [x] or [x, series] + ≥1 metric; pivot = group_by [row, column] + exactly one metric (a cross-tab with totals); table = rows or a grouped summary.",
+      },
+      title: { type: "string", description: "Short, plain title, e.g. 'Revenue this month'." },
+      note: { type: "string", description: "Optional one line under the title (what's included)." },
+      query: querySchema(datasets),
+      compare_query: { ...querySchema(datasets), description: "KPI only: same metric over the comparison period (e.g. last month) — shows ▲/▼ %." },
+      compare_label: { type: "string", description: "KPI only, e.g. 'vs last month'." },
+      chart: { type: "string", enum: [...CHART_KINDS], description: "Chart only. line/area for trends over time, bar for comparing categories, stacked_bar for a total split by series, pie for share of a whole (≤8 slices)." },
+      format: { type: "string", enum: [...FORMATS], description: "Value format; defaults to money for revenue-like metrics." },
+      size: { type: "string", enum: ["full", "half"], description: "Charts default half (two per row), tables/pivots full." },
+      labels: { type: "object", description: "Optional column → display label, e.g. {\"sum_revenue\":\"Revenue\"}." },
+    },
+    required: ["type", "title", "query"],
+  };
+}
+
+const SCHEDULE_SCHEMA = {
+  type: ["object", "null"],
+  description: "Email delivery. null removes the schedule. Times are Central and snap to the quarter hour.",
+  properties: {
+    frequency: { type: "string", enum: [...FREQUENCIES] },
+    time: { type: "string", description: "HH:MM 24-hour Central, e.g. 07:30." },
+    weekday: { type: "integer", description: "weekly: 0 Sunday … 6 Saturday (1 = Monday)." },
+    monthday: { description: "monthly: 1-28 or \"last\"." },
+    recipients: {
+      type: "array",
+      items: { type: "string" },
+      description: "FMG team members only: emails, first names, or \"me\" for the person you're talking to.",
+    },
+    attach_excel: { type: "boolean", description: "Attach the full numbers as Excel (default true)." },
+  },
+  required: ["frequency", "time", "recipients"],
+} as const;
+
+/** Run each widget once so a bad filter or empty result surfaces in the chat, not on the page. */
+async function probeWidgets(widgets: Widget[], role: UserRole) {
+  const results = await runReport(widgets, role, 5);
+  return widgets.map((w, i) => {
+    const r = results[i];
+    if (!r.ok) return { id: w.id, title: w.title, error: r.error };
+    return {
+      id: w.id,
+      title: w.title,
+      ...(w.type === "kpi" ? { value: r.value, compare: r.compare } : { rows: r.rows.length, matching_rows: r.total }),
+    };
+  });
+}
+
+async function scheduleInput(input: Record<string, unknown>, ctx: ToolContext) {
+  if (input.schedule === undefined) return {};
+  if (input.schedule === null) return { schedule: null };
+  const s = input.schedule as Record<string, unknown>;
+  return { schedule: { ...s, recipients: await resolveRecipients(s.recipients, ctx.userId) }, schedule_enabled: true };
+}
+
+function customReportTools(datasets: string[]): HelpTool[] {
+  const reportAction = (id: string, title: string): ToolAction => ({
+    label: `Open report “${title}”`,
+    // A fresh query string so the page reloads when Sage edits the report you're on.
+    href: `/reports/${id}?v=${Date.now().toString(36)}`,
+  });
+  return [
+    {
+      page: "/reports",
+      status: "Building the report…",
+      def: {
+        name: "create_report",
+        description: `Create a saved custom report on the Reports page — a live dashboard of KPI tiles, charts, pivot tables and tables that re-runs on every view — optionally emailed on a schedule (daily, weekdays, weekly, monthly at a set time) to FMG team members. Use when the user wants a report/dashboard they'll come back to or receive regularly (a one-off spreadsheet is export_report). Every widget is run first; if any errors or returns nothing, nothing is saved and you get the problems back to fix. Use relative dates (@start_of_month…) so it stays current. Typical shape: 2-4 KPIs on top (with compare_query vs the prior period), a trend chart (group_by "<date>:month" or ":week"), a breakdown (pivot or bar chart by brand / channel / product), then a detail table.`,
+        input_schema: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            description: { type: "string", description: "One sentence: what it's for." },
+            widgets: { type: "array", items: widgetSchema(datasets) },
+            schedule: SCHEDULE_SCHEMA as unknown as Record<string, unknown>,
+          },
+          required: ["title", "widgets"],
+        },
+      },
+      async run(input, ctx) {
+        const widgets = normalizeWidgets(input.widgets);
+        const probe = await probeWidgets(widgets, ctx.role);
+        const bad = probe.filter((p) => "error" in p);
+        if (bad.length) return { result: { saved: false, problems: bad, hint: "Fix these widgets and call create_report again." } };
+        const report = await createReport(ctx.userId, {
+          title: input.title,
+          description: input.description,
+          widgets,
+          ...(await scheduleInput(input, ctx)),
+        });
+        return {
+          result: {
+            saved: true,
+            id: report.id,
+            title: report.title,
+            widgets: probe,
+            schedule: report.schedule ? `${describeSchedule(report.schedule)} to ${report.schedule.recipients.join(", ")}` : "none",
+            next_send: report.next_run_at,
+          },
+          action: reportAction(report.id, report.title),
+        };
+      },
+    },
+    {
+      page: "/reports",
+      status: "Updating the report…",
+      def: {
+        name: "update_report",
+        description:
+          "Change a saved report: rename it, replace its widget list (send the FULL list — keep existing widgets' ids and definitions, add/remove/reorder/edit as asked; get them first with find_reports), or set / change / remove (null) its email schedule, or pause/resume it (schedule_enabled). Widgets are re-checked before saving.",
+        input_schema: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            title: { type: "string" },
+            description: { type: "string" },
+            widgets: { type: "array", items: widgetSchema(datasets) },
+            schedule: SCHEDULE_SCHEMA as unknown as Record<string, unknown>,
+            schedule_enabled: { type: "boolean", description: "false pauses the emails, true resumes them." },
+          },
+          required: ["id"],
+        },
+      },
+      async run(input, ctx) {
+        const existing = await getReport(str(input.id, 60));
+        if (!existing) return { result: { updated: false, error: "No report with that id — use find_reports." } };
+        if (!canEdit(existing, { id: ctx.userId, access: ctx.role })) {
+          return { result: { updated: false, error: "Only the report's creator or an admin can change it." } };
+        }
+        const patch: ReportInput = { ...(await scheduleInput(input, ctx)) };
+        if (input.title !== undefined) patch.title = input.title;
+        if (input.description !== undefined) patch.description = input.description;
+        if (typeof input.schedule_enabled === "boolean") patch.schedule_enabled = input.schedule_enabled;
+        let probe: Awaited<ReturnType<typeof probeWidgets>> | undefined;
+        if (input.widgets !== undefined) {
+          const widgets = normalizeWidgets(input.widgets);
+          probe = await probeWidgets(widgets, ctx.role);
+          const bad = probe.filter((p) => "error" in p);
+          if (bad.length) return { result: { updated: false, problems: bad, hint: "Fix these widgets and call update_report again." } };
+          patch.widgets = widgets;
+        }
+        const report = await updateReport(existing, patch);
+        return {
+          result: {
+            updated: true,
+            id: report.id,
+            title: report.title,
+            widgets: probe ?? report.widgets.map((w) => ({ id: w.id, title: w.title, type: w.type })),
+            schedule: report.schedule
+              ? `${describeSchedule(report.schedule)} to ${report.schedule.recipients.join(", ")}${report.schedule_enabled ? "" : " (paused)"}`
+              : "none",
+            next_send: report.next_run_at,
+          },
+          action: reportAction(report.id, report.title),
+        };
+      },
+    },
+    {
+      page: "/reports",
+      status: "Looking at your reports…",
+      def: {
+        name: "find_reports",
+        description:
+          "List saved custom reports (title, owner, schedule, widget titles), or with an id return one report's full definition (every widget's query) — do this before update_report. Also use when the user refers to 'my report' / 'the weekly sales report'.",
+        input_schema: {
+          type: "object",
+          properties: { id: { type: "string" }, search: { type: "string", description: "Words in the title." } },
+        },
+      },
+      async run(input) {
+        const id = str(input.id, 60);
+        if (id) {
+          const r = await getReport(id);
+          if (!r) return { result: { error: "No report with that id." } };
+          return {
+            result: {
+              ...r,
+              schedule_text: r.schedule ? describeSchedule(r.schedule) : null,
+            },
+          };
+        }
+        const { ready, items } = await listReports();
+        if (!ready) return { result: { error: "Reports aren't switched on yet (database migration pending) — ask Blake." } };
+        const words = str(input.search, 80).toLowerCase().split(/\s+/).filter(Boolean);
+        return {
+          result: items
+            .filter((r) => words.every((w) => r.title.toLowerCase().includes(w)))
+            .slice(0, 30)
+            .map((r) => ({
+              id: r.id,
+              title: r.title,
+              owner: r.owner_name,
+              widgets: r.widgets.map((w) => `${w.title} (${w.type})`),
+              schedule: r.schedule ? `${describeSchedule(r.schedule)}${r.schedule_enabled ? "" : " — paused"}` : null,
+              updated_at: r.updated_at,
+            })),
         };
       },
     },
@@ -948,7 +1176,7 @@ const STATIC_TOOLS: HelpTool[] = [
 export function toolsForRole(role: UserRole): HelpTool[] {
   const allowed = getAllowedPaths(role);
   const ok = (t: HelpTool) => t.page === "*" || allowed.some((p) => t.page === p || t.page.startsWith(p + "/"));
-  return [...reportTools(role), ...STATIC_TOOLS.filter(ok)];
+  return [...reportTools(role).filter(ok), ...STATIC_TOOLS.filter(ok)];
 }
 
 /** Run a tool; errors come back as a result Claude can explain, never a throw. */

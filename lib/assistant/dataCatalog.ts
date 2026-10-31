@@ -1,6 +1,7 @@
 import type { UserRole } from "@/components/UserContext";
 import { getAllowedPaths } from "@/components/navConfig";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { bucketDate, parseGroupKey, resolveRelativeDate } from "@/lib/reports/dates";
 
 /**
  * The data Sage can read and report on — one entry per table/view the portal's
@@ -597,7 +598,8 @@ function check(spec: QuerySpec, role: UserRole): Dataset {
     if (!FILTER_OPS.includes(f.op)) throw new Error(`Unknown filter op "${f.op}".`);
   });
   if (spec.order_by && !spec.group_by?.length) known(spec.order_by);
-  spec.group_by?.forEach(known);
+  // "created_at:month" groups a date column by period (see lib/reports/dates).
+  spec.group_by?.forEach((g) => known(parseGroupKey(g).column));
   spec.metrics?.forEach((m) => {
     if (!METRIC_FNS.includes(m.fn)) throw new Error(`Unknown metric "${m.fn}".`);
     if (m.column) known(m.column);
@@ -621,7 +623,8 @@ async function latestSnapshotId(): Promise<string | null> {
 function applyFilters(q: any, spec: QuerySpec, snapshotId: string | null) {
   if (snapshotId) q = q.eq("upload_id", snapshotId);
   for (const f of spec.filters ?? []) {
-    const v = f.value as string | number | boolean;
+    // "@start_of_month", "@today-30d"… resolve to a date at run time.
+    const v = resolveRelativeDate(f.value) as string | number | boolean;
     switch (f.op) {
       case "eq": q = q.eq(f.column, v); break;
       case "neq": q = q.neq(f.column, v); break;
@@ -630,7 +633,7 @@ function applyFilters(q: any, spec: QuerySpec, snapshotId: string | null) {
       case "lt": q = q.lt(f.column, v); break;
       case "lte": q = q.lte(f.column, v); break;
       case "contains": q = q.ilike(f.column, `%${String(v ?? "").replace(/[%_]/g, "")}%`); break;
-      case "in": q = q.in(f.column, Array.isArray(f.value) ? f.value : [v]); break;
+      case "in": q = q.in(f.column, Array.isArray(f.value) ? f.value.map((x) => resolveRelativeDate(x)) : [v]); break;
       case "is_null": q = q.is(f.column, null); break;
       case "not_null": q = q.not(f.column, "is", null); break;
     }
@@ -678,8 +681,13 @@ export async function runQuery(
 
   // Aggregate: fetch only the columns involved, then group in memory.
   const groupBy = spec.group_by ?? [];
+  const groupKeys = groupBy.map(parseGroupKey);
+  const groupValue = (r: Record<string, unknown>, i: number) => {
+    const { column, bucket } = groupKeys[i];
+    return bucket ? bucketDate(r[column], bucket) : r[column] ?? null;
+  };
   const metrics = spec.metrics?.length ? spec.metrics : [{ fn: "count" as const }];
-  const needed = [...new Set([...groupBy, ...metrics.flatMap((m) => (m.column ? [m.column] : []))])];
+  const needed = [...new Set([...groupKeys.map((g) => g.column), ...metrics.flatMap((m) => (m.column ? [m.column] : []))])];
   const select = needed.length ? needed : [Object.keys(d.columns)[0]];
   const scanLimit = opts.scanLimit ?? 100_000;
   const raw: Record<string, unknown>[] = [];
@@ -701,10 +709,11 @@ export async function runQuery(
   const label = (m: { fn: string; column?: string }) => (m.column ? `${m.fn}_${m.column}` : m.fn);
   const groups = new Map<string, { key: Record<string, unknown>; vals: number[][]; n: number }>();
   for (const r of raw) {
-    const k = JSON.stringify(groupBy.map((g) => r[g] ?? null));
+    const key = groupBy.map((_, i) => groupValue(r, i));
+    const k = JSON.stringify(key);
     let g = groups.get(k);
     if (!g) {
-      g = { key: Object.fromEntries(groupBy.map((c) => [c, r[c] ?? null])), vals: metrics.map(() => []), n: 0 };
+      g = { key: Object.fromEntries(groupBy.map((c, i) => [c, key[i]])), vals: metrics.map(() => []), n: 0 };
       groups.set(k, g);
     }
     g.n += 1;

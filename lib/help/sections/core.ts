@@ -109,6 +109,34 @@ The Daily Sales Log shows every day of a month — orders, sales and average ord
 `,
   },
 
+  /* ───────────────────────────── Reports ───────────────────────────── */
+  {
+    path: "/reports",
+    title: "Reports",
+    section: "",
+    summary:
+      "Custom dashboards — KPI tiles, charts, pivot tables and tables over the portal's data — built by asking Sage, kept live, and optionally emailed on a schedule.",
+    body: `## What it's for
+Your own reports on anything in the portal (sales, orders, customers, inventory, email, tasks…). Every time you open one it re-runs on today's data — "this month", "last 30 days" and the like always mean now, not when it was built. Reports are shared with the team, but each person only sees the numbers their role can see.
+
+## Making a report
+1. On **Reports**, describe it in **Build a report with Sage** (or click one of the example asks), e.g. "Monthly NI wholesale revenue by rep with a pivot by month, emailed to me the 1st at 7am". Sage builds it, opens it, and recommends what else to add.
+2. Or open a **Start from a report** card to preview a starter report with live numbers, then **Save as my report**.
+
+## On a report
+- **Refresh** re-runs it; **Excel** downloads every widget as its own tab (KPIs on a Summary tab).
+- **Email me a copy** sends you the report email now — a good test before scheduling.
+- **Schedule email**: every day, weekdays, weekly or monthly at a time (Central, on the quarter hour), to any team members, with the Excel attached if you like. Untick "Sending is on" to pause; **Remove schedule** stops it.
+- **Ask Sage to change it**: say "add a pivot of revenue by customer and month" or "make the trend a line chart" while you're on the report.
+- **Sage recommends** → **Get recommendations**: Sage suggests 3–4 additions, each tested on live data; **Add** puts it on the report.
+- Each widget's **⋯** menu: move up/down, half or full width, chart type (bar, stacked bar, line, area, pie), remove. Click the title to rename.
+
+## Good to know
+- Only the report's creator or an owner/admin can change, schedule or delete it.
+- Scheduled emails only go to FMG team members and use the creator's access.
+- Needs migration 20261031000000; until it's applied, starter reports preview but nothing saves.`,
+  },
+
   /* ───────────────────────────── Task List ───────────────────────────── */
   {
     path: "/task-list",
