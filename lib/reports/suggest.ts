@@ -3,8 +3,7 @@ import type { UserRole } from "@/components/UserContext";
 import { datasetsForRole, describeDatasets } from "@/lib/assistant/dataCatalog";
 import { widgetSchema } from "@/lib/assistant/helpTools";
 import { normalizeWidgets, runReport } from "./run";
-import { houseRulesText, lintWidgets, teamRulesText } from "./rules";
-import { listTeamRules } from "./store";
+import { houseRulesText, lintWidgets } from "./rules";
 import type { Widget } from "./types";
 
 /* "Sage recommends" on a report page: Claude looks at what the report already
@@ -27,7 +26,6 @@ export async function suggestWidgets(report: { title: string; description: strin
   const datasets = datasetsForRole(role);
   if (!datasets.length) return [];
   const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "America/Chicago" });
-  const teamRules = teamRulesText((await listTeamRules().catch(() => ({ rules: [] }))).rules);
   const client = new Anthropic();
   const res = await client.messages.create({
     model: MODEL,
@@ -39,7 +37,7 @@ Recommend 3 or 4 widgets that would make THIS report more useful for running the
 
 Every suggestion must follow these report rules:
 ${houseRulesText()}
-${teamRules ? `\n${teamRules}\n` : ""}
+
 Data you can use:
 ${describeDatasets(datasets)}`,
     tools: [

@@ -24,15 +24,15 @@ import PageMeta from "@/components/PageMeta";
 import { openHelpAssistant } from "@/components/HelpAssistant";
 import { downloadReport, reportsApi } from "@/lib/reports/client";
 import { describeSchedule } from "@/lib/reports/schedule";
-import { REPORT_TEMPLATES } from "@/lib/reports/templates";
+import ChartWidget from "./ChartWidget";
 import { CHART_KINDS, type ChartKind, type Report, type Schedule, type Widget, type WidgetResult } from "@/lib/reports/types";
 import ScheduleEditor from "./ScheduleEditor";
 import { KpiTile, WidgetBody } from "./WidgetView";
 
 /* One custom report: live KPI tiles, charts, pivots and tables (re-run on every
    view under the viewer's role), plus — for its creator or an admin — layout
-   tweaks, the email schedule, and Sage's recommended additions. With
-   ?template=<key> it previews a starter report before it's saved. */
+   tweaks, the email schedule, and Sage's recommended additions. Charts carry
+   their own period switcher and click-to-drill drawer (ChartWidget). */
 
 type Loaded = {
   report: Report;
@@ -52,7 +52,7 @@ function timeAgo(iso: string | null): string {
   return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" });
 }
 
-export default function ReportDetail({ id, templateKey }: { id?: string; templateKey?: string }) {
+export default function ReportDetail({ id }: { id: string }) {
   const router = useRouter();
   const v = useSearchParams().get("v");
   const [data, setData] = useState<Loaded | null>(null);
@@ -63,48 +63,14 @@ export default function ReportDetail({ id, templateKey }: { id?: string; templat
   const [menu, setMenu] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
-  const preview = !id;
-
   const load = useCallback(async () => {
     setError(null);
     try {
-      if (id) {
-        setData(await reportsApi<Loaded>(`/api/reports/${id}`));
-        return;
-      }
-      const t = REPORT_TEMPLATES.find((x) => x.key === templateKey);
-      if (!t) throw new Error("That starter report doesn't exist.");
-      const out = await reportsApi<{ widgets: Widget[]; results: WidgetResult[] }>("/api/reports/preview", {
-        method: "POST",
-        body: { widgets: t.widgets },
-      });
-      const now = new Date().toISOString();
-      setData({
-        report: {
-          id: "",
-          owner_id: "",
-          title: t.title,
-          description: t.description,
-          widgets: out.widgets,
-          schedule: null,
-          schedule_enabled: false,
-          next_run_at: null,
-          last_run_at: null,
-          last_run_status: null,
-          last_run_error: null,
-          created_at: now,
-          updated_at: now,
-        },
-        results: out.results,
-        canEdit: false,
-        team: [],
-        myEmail: null,
-        ranAt: now,
-      });
+      setData(await reportsApi<Loaded>(`/api/reports/${id}`));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load the report.");
     }
-  }, [id, templateKey]);
+  }, [id]);
 
   // `v` changes when Sage edits this report (its "Open report" link), so reload.
   useEffect(() => {
@@ -217,16 +183,6 @@ export default function ReportDetail({ id, templateKey }: { id?: string; templat
       </div>
     );
 
-  async function saveTemplate() {
-    await run("save-template", async () => {
-      const out = await reportsApi<{ report: Report }>("/api/reports", {
-        method: "POST",
-        body: { title: report.title, description: report.description, widgets: report.widgets },
-      });
-      router.replace(`/reports/${out.report.id}`);
-    });
-  }
-
   async function getSuggestions() {
     setSuggestions(null);
     await run("suggest", async () => {
@@ -293,12 +249,7 @@ export default function ReportDetail({ id, templateKey }: { id?: string; templat
           </div>
         </div>
 
-        {preview ? (
-          <button onClick={saveTemplate} disabled={!!busy} className="flex items-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2 text-sm font-medium text-white hover:bg-brand-800 disabled:opacity-50">
-            {busy === "save-template" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Save as my report
-          </button>
-        ) : (
+        {(
           <div className="flex flex-wrap gap-2">
             <button className={btn} onClick={() => run("refresh", load)} disabled={!!busy}>
               <RefreshCw className={clsx("h-4 w-4", busy === "refresh" && "animate-spin")} /> Refresh
@@ -349,11 +300,6 @@ export default function ReportDetail({ id, templateKey }: { id?: string; templat
         )}
       </div>
 
-      {preview && (
-        <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
-          This is a preview of a starter report with live numbers. Save it to keep it, schedule it, and have Sage tailor it.
-        </div>
-      )}
       {notice && (
         <div className="flex items-center justify-between rounded-xl bg-surface-sunken px-4 py-2 text-sm text-ink-secondary">
           {notice}
@@ -387,20 +333,33 @@ export default function ReportDetail({ id, templateKey }: { id?: string; templat
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {blocks.map((w) => (
             <section key={w.id} className={clsx("min-w-0 rounded-2xl border border-line bg-surface p-5 shadow-card", w.size !== "half" && "lg:col-span-2")}>
-              <div className="mb-3 flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <h2 className="text-sm font-semibold text-ink">{w.title}</h2>
-                  {w.note && <p className="mt-0.5 text-xs text-ink-muted">{w.note}</p>}
-                </div>
-                {widgetMenu(w)}
-              </div>
-              <WidgetBody w={w} r={byId.get(w.id)} />
+              {w.type === "chart" ? (
+                <ChartWidget
+                  key={`${data.ranAt}:${JSON.stringify(w)}`}
+                  w={w}
+                  r={byId.get(w.id)}
+                  menu={widgetMenu(w)}
+                  canEdit={canEdit}
+                  onSaveDefault={(next) => void setWidgets(widgets.map((x) => (x.id === w.id ? next : x)), true)}
+                />
+              ) : (
+                <>
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-semibold text-ink">{w.title}</h2>
+                      {w.note && <p className="mt-0.5 text-xs text-ink-muted">{w.note}</p>}
+                    </div>
+                    {widgetMenu(w)}
+                  </div>
+                  <WidgetBody w={w} r={byId.get(w.id)} />
+                </>
+              )}
             </section>
           ))}
         </div>
       )}
 
-      {!preview && canEdit && (
+      {canEdit && (
         <section className="rounded-2xl border border-accent-200 bg-accent-50/40 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

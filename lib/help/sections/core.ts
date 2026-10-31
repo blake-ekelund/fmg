@@ -115,32 +115,30 @@ The Daily Sales Log shows every day of a month — orders, sales and average ord
     title: "Reports",
     section: "",
     summary:
-      "Custom dashboards — KPI tiles, charts, pivot tables and tables over the portal's data — built by asking Sage, kept live, and optionally emailed on a schedule.",
+      "Custom dashboards — KPI tiles, charts, pivot tables and tables over the portal's data — built by Sage, kept live, and optionally emailed on a schedule.",
     body: `## What it's for
-Your own reports on anything in the portal (sales, orders, customers, inventory, email, tasks…). Every time you open one it re-runs on today's data — "this month", "last 30 days" and the like always mean now, not when it was built. Reports are shared with the team, but each person only sees the numbers their role can see.
+Your own reports on anything in the portal (sales, orders, customers, inventory, email, tasks…). Every time you open one it re-runs on today's data — "this month" or "last 30 days" always mean now. Reports are shared with the team, but each person only sees the numbers their role can see.
 
 ## The reports table
 **Saved reports** lists every report with its owner, email schedule (and next send), when it last went out, and when it was last changed. **Search reports** filters it. Each row's buttons: **Open**, **Download Excel**, and — on reports you made (or any, for owners/admins) — **Rename**, **Change email schedule** (or **+ Add schedule**), **Pause / Resume emails**, and **Delete**.
 
-## Report rules
-The **Report rules** box on the Reports page lists what Sage follows when it builds, changes or recommends report widgets. **Team rules** are your own ("No pie charts", "Always show NI before Sassy") — type one and click **Add rule**, or just tell Sage "from now on…" and it saves it. Anyone can add; the author or an owner/admin removes. **Built-in rules** (click to expand) are the defaults, e.g. revenue counts only sales (not discounts or shipping), order totals only paid orders, saved reports use rolling dates, at most 4 KPI tiles each with a comparison, pies only for shares with 6 slices or fewer, tables as a top-N. Team rules win over the built-in ones. Rules guide Sage only — you can still change any widget by hand.
-
 ## Making a report
-1. On **Reports**, describe it in **Build a report with Sage** (or click one of the example asks), e.g. "Monthly NI wholesale revenue by rep with a pivot by month, emailed to me the 1st at 7am". Sage builds it, opens it, and recommends what else to add.
-2. Or open a **Start from a report** card to preview a starter report with live numbers, then **Save as my report**.
+Click **Create new report** — it opens a chat with Sage. Say what you want to track and, if you like, when it should land in your inbox (e.g. "Monthly NI wholesale revenue by rep, emailed to me the 1st at 7am"). Sage builds it, opens it, and recommends what else to add.
 
 ## On a report
-- **Refresh** re-runs it; **Excel** downloads every widget as its own tab (KPIs on a Summary tab).
-- **Email me a copy** sends you the report email now — a good test before scheduling.
-- **Schedule email**: every day, weekdays, weekly or monthly at a time (Central, on the quarter hour), to any team members, with the Excel attached if you like. Untick "Sending is on" to pause; **Remove schedule** stops it.
-- **Ask Sage to change it**: say "add a pivot of revenue by customer and month" or "make the trend a line chart" while you're on the report.
-- **Sage recommends** → **Get recommendations**: Sage suggests 3–4 additions, each tested on live data; **Add** puts it on the report.
-- Each widget's **⋯** menu: move up/down, half or full width, chart type (bar, stacked bar, line, area, pie), remove. Click the title to rename.
+- **Charts over time** have a period picker: choose a range (last 30 days … last 24 months, year to date, last year), then Day / Week / Month / Quarter / Year. It changes only your view; the report's owner can click **Save as default**.
+- **Click any bar, point or slice** to open the detail drawer: the number, change vs the period before, its share of the chart, what made it up (e.g. which products or customers), the records behind it, and **Ask Sage to analyze this**.
+- **Refresh**, **Excel** (every widget as its own tab), **Email me a copy** (sends you the report email now).
+- **Schedule email**: every day, weekdays, weekly or monthly at a time (Central, on the quarter hour), to any team members, Excel attached if you like. Untick "Sending is on" to pause; **Remove schedule** stops it.
+- **Ask Sage to change it**, **Sage recommends** → **Get recommendations** → **Add**, and each widget's **⋯** menu (move, width, chart type, remove). Click the title to rename.
+
+## How reports look
+Set by the business, the same on every report: money is $x,xxx (whole dollars), months read Jan-26, quarters 2026 Q1, and charts use the brand colours (FMG navy and gold; Natural Inspirations green and Sassy raspberry when a series is a brand). Sage also follows the business's report rules (e.g. revenue counts only sales, orders only paid ones) — they aren't changed per request.
 
 ## Good to know
 - Only the report's creator or an owner/admin can change, schedule or delete it.
 - Scheduled emails only go to FMG team members and use the creator's access.
-- Needs migration 20261031000000; until it's applied, starter reports preview but nothing saves.`,
+- Needs migration 20261031000000; until it's applied nothing saves.`,
   },
 
   /* ───────────────────────────── Task List ───────────────────────────── */

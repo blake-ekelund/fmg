@@ -19,15 +19,14 @@ import {
   YAxis,
 } from "recharts";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight } from "lucide-react";
-import { chartData, formatCell, formatOf, formatValue, kpiDelta, labelFor, pivotize } from "@/lib/reports/shape";
+import { useRef } from "react";
+import { chartData, formatCell, formatOf, formatValue, kpiDelta, labelFor, pivotize, seriesColors } from "@/lib/reports/shape";
 import type { Widget, WidgetResult } from "@/lib/reports/types";
 
 /* One report widget, drawn from its query result. The shaping (labels, value
    formats, pivots, series) lives in lib/reports/shape so the page, the email
    and the Excel file agree. */
 
-// Brand navy first, then gold, then well-separated hues.
-export const SERIES_COLORS = ["#2E6690", "#EBB700", "#12805C", "#8FBAD6", "#C0342C", "#94710B", "#7C5CBF", "#3C4D5A", "#E08A4C"];
 
 type Ok = Extract<WidgetResult, { ok: true }>;
 
@@ -71,15 +70,32 @@ function WidgetError({ error }: { error: string }) {
 
 const axisTick = { fontSize: 11, fill: "#6b7b88" };
 
-function ChartBody({ w, r }: { w: Widget; r: Ok }) {
+/** What a click on a chart hit: the point (by index) and, on a bar/slice, which series. */
+export type ChartClick = { index: number; seriesKey: string | null };
+
+/**
+ * A chart, drawn with brand colours and $x,xxx money. `onPick` makes every
+ * bar, point and slice clickable (the report page opens a detail drawer).
+ */
+export function ChartBody({ w, r, onPick }: { w: Widget; r: Ok; onPick?: (c: ChartClick) => void }) {
   const c = chartData(w, r);
   const f = formatOf(w);
-  const fmt = (v: unknown) => formatValue(v, f, true);
+  const axisFmt = (v: unknown) => formatValue(v, f, true);
+  // A bar/slice click names its series first; the chart-level click then fires with the point.
+  const pickedSeries = useRef<string | null>(null);
+  const onChartClick = (state: unknown) => {
+    const s = state as { activeTooltipIndex?: number | string | null } | null;
+    const i = s?.activeTooltipIndex;
+    const seriesKey = pickedSeries.current;
+    pickedSeries.current = null;
+    if (onPick && i !== undefined && i !== null && Number.isFinite(Number(i))) onPick({ index: Number(i), seriesKey });
+  };
+  const yWidth = f === "money" ? Math.min(96, 16 + 7 * formatValue(Math.max(...c.points.flatMap((p) => c.series.map((s) => Number(p[s.key]) || 0)), 0), f).length) : 56;
   const tooltip = (
     <Tooltip
       formatter={(v) => formatValue(v, f)}
       contentStyle={{ borderRadius: 12, border: "1px solid #e3e9ef", fontSize: 12 }}
-      cursor={{ fill: "rgba(15,28,38,0.04)" }}
+      cursor={{ fill: "rgba(27,60,83,0.06)" }}
     />
   );
   const legend =
@@ -88,17 +104,29 @@ function ChartBody({ w, r }: { w: Widget; r: Ok }) {
     ) : null;
   const grid = <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={false} />;
   const xAxis = <XAxis dataKey="x" tick={axisTick} tickLine={false} axisLine={{ stroke: "#e3e9ef" }} interval="preserveStartEnd" minTickGap={12} />;
-  const yAxis = <YAxis tickFormatter={fmt} tick={axisTick} tickLine={false} axisLine={false} width={56} />;
+  const yAxis = <YAxis tickFormatter={axisFmt} tick={axisTick} tickLine={false} axisLine={false} width={yWidth} />;
+  const clickable = onPick ? { cursor: "pointer" } : undefined;
 
   if (w.chart === "pie") {
     const s = c.series[0];
     const data = c.points.map((p) => ({ name: String(p.x), value: Number(p[s.key]) || 0 }));
+    // Slices are categories, so a brand slice gets its brand colour.
+    const colors = seriesColors(data.map((d) => d.name));
     return (
       <ResponsiveContainer width="100%" height={260}>
-        <PieChart>
-          <Pie data={data} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="80%" paddingAngle={1} stroke="#fff">
+        <PieChart style={clickable}>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            innerRadius="45%"
+            outerRadius="80%"
+            paddingAngle={1}
+            stroke="#fff"
+            onClick={(_, index) => onPick?.({ index, seriesKey: null })}
+          >
             {data.map((_, i) => (
-              <Cell key={i} fill={SERIES_COLORS[i % SERIES_COLORS.length]} />
+              <Cell key={i} fill={colors[i]} />
             ))}
           </Pie>
           {tooltip}
@@ -119,15 +147,15 @@ function ChartBody({ w, r }: { w: Widget; r: Ok }) {
     const Chart = w.chart === "line" ? LineChart : AreaChart;
     return (
       <ResponsiveContainer width="100%" height={260}>
-        <Chart data={c.points}>
+        <Chart data={c.points} onClick={onChartClick} style={clickable}>
           {grid}
           {xAxis}
           {yAxis}
           {tooltip}
           {legend}
-          {c.series.map((s, i) =>
+          {c.series.map((s) =>
             w.chart === "line" ? (
-              <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} strokeWidth={2} dot={false} />
+              <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
             ) : (
               <Area
                 key={s.key}
@@ -135,9 +163,10 @@ function ChartBody({ w, r }: { w: Widget; r: Ok }) {
                 dataKey={s.key}
                 name={s.label}
                 stackId={c.series.length > 1 ? "a" : undefined}
-                stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-                fill={SERIES_COLORS[i % SERIES_COLORS.length]}
+                stroke={s.color}
+                fill={s.color}
                 fillOpacity={0.18}
+                activeDot={{ r: 5 }}
               />
             ),
           )}
@@ -150,11 +179,11 @@ function ChartBody({ w, r }: { w: Widget; r: Ok }) {
   const stacked = w.chart === "stacked_bar";
   return (
     <ResponsiveContainer width="100%" height={horizontal ? Math.max(200, c.points.length * 26 + 30) : 260}>
-      <BarChart data={c.points} layout={horizontal ? "vertical" : "horizontal"} barCategoryGap="18%">
+      <BarChart data={c.points} layout={horizontal ? "vertical" : "horizontal"} barCategoryGap="18%" onClick={onChartClick} style={clickable}>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={horizontal} horizontal={!horizontal} />
         {horizontal ? (
           <>
-            <XAxis type="number" tickFormatter={fmt} tick={axisTick} tickLine={false} axisLine={false} />
+            <XAxis type="number" tickFormatter={axisFmt} tick={axisTick} tickLine={false} axisLine={false} />
             <YAxis type="category" dataKey="x" tick={axisTick} tickLine={false} axisLine={false} width={140} />
           </>
         ) : (
@@ -165,15 +194,16 @@ function ChartBody({ w, r }: { w: Widget; r: Ok }) {
         )}
         {tooltip}
         {legend}
-        {c.series.map((s, i) => (
+        {c.series.map((s) => (
           <Bar
             key={s.key}
             dataKey={s.key}
             name={s.label}
             stackId={stacked ? "a" : undefined}
-            fill={SERIES_COLORS[i % SERIES_COLORS.length]}
+            fill={s.color}
             radius={stacked ? 0 : horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
             maxBarSize={36}
+            onClick={() => (pickedSeries.current = s.key)}
           />
         ))}
       </BarChart>

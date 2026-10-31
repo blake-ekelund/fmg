@@ -32,40 +32,56 @@ export function metricKeys(w: Widget): string[] {
   return (w.query.metrics ?? []).map((m) => (m.column ? `${m.fn}_${m.column}` : m.fn));
 }
 
+/** Business rule: ALL currency is $x,xxx — whole dollars, thousands commas, never cents or "$12k". */
+export function formatMoney(n: number): string {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+/** `compact` shortens plain counts on chart axes (12k units); currency is never abbreviated. */
 export function formatValue(v: unknown, f: ValueFormat, compact = false): string {
   if (v === null || v === undefined || v === "") return "—";
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return String(v);
   if (f === "percent") return `${(n * (Math.abs(n) <= 1 ? 100 : 1)).toFixed(1)}%`;
-  if (compact && Math.abs(n) >= 1000) {
-    const s = Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${(n / 1e3).toFixed(Math.abs(n) >= 1e4 ? 0 : 1)}k`;
-    return f === "money" ? `$${s}` : s;
-  }
-  return f === "money"
-    ? n.toLocaleString("en-US", {
-        style: "currency",
-        currency: "USD",
-        ...(Math.abs(n) >= 1000 || compact || Number.isInteger(n)
-          ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
-          : { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      })
-    : n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (f === "money") return formatMoney(n);
+  if (compact && Math.abs(n) >= 10_000) return Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`;
+  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** Display a cell: bucketed dates read as "Oct 2026", "Q3 2026", "Week of Oct 5". */
+/** Business rule for period labels: months "Jan-26", quarters "2026 Q1", years "2026". */
+export function periodLabel(v: string, bucket: string): string {
+  const y = v.slice(0, 4), m = Number(v.slice(5, 7)), d = Number(v.slice(8, 10));
+  if (bucket === "year") return y;
+  if (bucket === "quarter") return `${y} Q${Math.floor((m - 1) / 3) + 1}`;
+  if (bucket === "month") return `${MONTHS[m - 1]}-${y.slice(2)}`;
+  if (bucket === "week") return `Wk of ${MONTHS[m - 1]} ${d}`;
+  return `${MONTHS[m - 1]} ${d}`;
+}
+
+/* Brand colours (business rule). A series that IS a brand always gets that
+   brand's colour; everything else draws from the FMG navy/gold family. */
+const BRAND_SERIES: [RegExp, string][] = [
+  [/^(ni|natural inspirations)$/i, "#1F3D35"],
+  [/^sassy( (and|&) co\.?)?$/i, "#B3295C"],
+];
+export const FMG_PALETTE = ["#1B3C53", "#EBB700", "#4A87B3", "#C29500", "#8FBAD6", "#94710B", "#2E6690", "#F7D75F"];
+
+/** Colours for a list of series labels, brand-matched where possible. */
+export function seriesColors(labels: string[]): string[] {
+  let next = 0;
+  return labels.map((l) => {
+    const brand = BRAND_SERIES.find(([re]) => re.test(l.trim()));
+    return brand ? brand[1] : FMG_PALETTE[next++ % FMG_PALETTE.length];
+  });
+}
+
+/** Display a cell: bucketed dates read as "Jan-26", "2026 Q1", "2026". */
 export function formatCell(v: unknown, key: string, w: Widget): string {
   if (v === null || v === undefined || v === "") return "—";
   const { bucket } = parseGroupKey(key);
-  if (bucket && typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) {
-    const y = v.slice(0, 4), m = Number(v.slice(5, 7)), d = Number(v.slice(8, 10));
-    if (bucket === "year") return y;
-    if (bucket === "quarter") return `Q${Math.floor((m - 1) / 3) + 1} ${y}`;
-    if (bucket === "month") return `${MONTHS[m - 1]} ${y}`;
-    if (bucket === "week") return `Wk of ${MONTHS[m - 1]} ${d}`;
-    return `${MONTHS[m - 1]} ${d}, ${y}`;
-  }
+  if (bucket && typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return periodLabel(v, bucket);
   if (metricKeys(w).includes(key)) return formatValue(v, formatOf(w, key));
   // Identifiers (order / SO numbers, ids, zips) read as-is, without thousands commas.
   if (/^(number|num|id|soid|customerid)$|_id$|_num$|zip/i.test(key)) return String(v);
@@ -135,12 +151,23 @@ export function pivotize(
   return { rowKey, colKey, valueKey, rowLabels, colLabels, cells, rowTotals, colTotals, grand: sum(rowTotals) };
 }
 
+export type ChartSeries = {
+  key: string;
+  label: string;
+  color: string;
+  /** The raw group value(s) this series stands for (for drill-down); null = a metric series. */
+  raw: string[] | null;
+};
+
 export type ChartData = {
   xKey: string;
-  /** One entry per series: data key + display label. */
-  series: { key: string; label: string }[];
+  seriesKey: string | null;
+  series: ChartSeries[];
+  /** `x` = display label, `_x` = raw value (null for blanks), plus one numeric field per series. */
   points: Record<string, string | number | null>[];
 };
+
+const rawOf = (k: string) => (k === "—" ? null : k);
 
 /** group_by [x] (one series per metric) or [x, series] (one series per value, first metric). */
 export function chartData(w: Widget, r: Extract<WidgetResult, { ok: true }>, maxSeries = 6): ChartData {
@@ -149,13 +176,17 @@ export function chartData(w: Widget, r: Extract<WidgetResult, { ok: true }>, max
   if (!seriesKey) {
     const points = r.rows.map((row) => ({
       x: formatCell(row[xKey], xKey, w),
+      _x: rawOf(keyOf(row[xKey])),
       _sort: keyOf(row[xKey]),
       ...Object.fromEntries(metrics.map((m) => [m, Number(row[m]) || 0])),
     }));
     if (parseGroupKey(xKey).bucket || points.every((p) => /^\d{4}-\d{2}/.test(p._sort))) points.sort((a, b) => a._sort.localeCompare(b._sort));
+    const labels = metrics.map((m) => labelFor(m, w));
+    const colors = seriesColors(labels);
     return {
       xKey,
-      series: metrics.map((m) => ({ key: m, label: labelFor(m, w) })),
+      seriesKey: null,
+      series: metrics.map((m, i) => ({ key: m, label: labels[i], color: colors[i], raw: null })),
       points: points.map(({ _sort, ...p }) => (void _sort, p)),
     };
   }
@@ -163,15 +194,17 @@ export function chartData(w: Widget, r: Extract<WidgetResult, { ok: true }>, max
   // The series are the pivot's rows (biggest first); the rest fold into "Other".
   const keep = p.rowLabels.slice(0, maxSeries);
   const other = p.rowLabels.length > maxSeries ? p.rowLabels.slice(maxSeries) : [];
-  const series = keep.map((s, i) => ({ key: `s${i}`, label: formatCell(s === "—" ? null : s, seriesKey, w) }));
-  if (other.length) series.push({ key: "other", label: "Other" });
+  const labels = keep.map((s) => formatCell(rawOf(s), seriesKey, w));
+  const colors = seriesColors(labels);
+  const series: ChartSeries[] = keep.map((s, i) => ({ key: `s${i}`, label: labels[i], color: colors[i], raw: [s] }));
+  if (other.length) series.push({ key: "other", label: "Other", color: "#94A2AD", raw: other });
   const points = p.colLabels.map((c, ci) => {
-    const pt: Record<string, string | number | null> = { x: formatCell(c === "—" ? null : c, xKey, w) };
+    const pt: Record<string, string | number | null> = { x: formatCell(rawOf(c), xKey, w), _x: rawOf(c) };
     keep.forEach((_, si) => (pt[`s${si}`] = p.cells[si][ci] ?? 0));
     if (other.length) pt.other = other.reduce((a, rk) => a + (p.cells[p.rowLabels.indexOf(rk)][ci] ?? 0), 0);
     return pt;
   });
-  return { xKey, series, points };
+  return { xKey, seriesKey, series, points };
 }
 
 /** KPI change vs the comparison, as a fraction (0.12 = +12%), or null. */

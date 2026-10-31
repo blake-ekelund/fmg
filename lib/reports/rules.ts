@@ -2,24 +2,28 @@ import { parseGroupKey } from "./dates";
 import type { Widget } from "./types";
 
 /**
- * The rules Sage follows when it builds or changes a report, in two layers:
- *
- * 1. HOUSE RULES (this file) — how a good FMG report looks. They go into
- *    Sage's instructions (create_report + "Sage recommends"), and the ones a
- *    machine can check are checked by lintWidgets():
- *      - "error"   → the widget is refused; Sage must fix it before saving.
- *      - "warning" → saved, but Sage is told and is expected to fix it or
- *                    have a reason (the user asked for it).
- * 2. TEAM RULES (report_rules table) — plain-English rules staff add on the
- *    Reports page or by telling Sage ("always split by brand"). Sage gets them
- *    with every request and follows them over the house defaults.
- *
- * Client-safe (the Reports page lists the house rules).
+ * The rules Sage follows when it builds or changes a report. They're set by
+ * the business (edit them HERE) — not by whoever is chatting with Sage, who
+ * can't change or waive them. They go into Sage's instructions (create_report
+ * + "Sage recommends"); the ones a machine can check are checked by
+ * lintWidgets():
+ *   - "error"   → the widget is refused; Sage must fix it before saving.
+ *   - "warning" → saved, but Sage is told to fix it straight away.
+ * Presentation rules (currency as $x,xxx, brand colours, period labels like
+ * Jan-26 / 2026 Q1, the period switcher and click-to-drill) are enforced by
+ * the renderers in lib/reports/shape.ts and components/reports, so no report
+ * can break them.
  */
 
-export type HouseRule = { id: string; group: "Data" | "Layout" | "Charts" | "Tables" | "KPIs"; text: string };
+export type HouseRule = { id: string; group: "Format" | "Data" | "Layout" | "Charts" | "Tables" | "KPIs"; text: string };
 
 export const HOUSE_RULES: HouseRule[] = [
+  // Presentation (the app enforces these; Sage must not work against them)
+  { id: "currency", group: "Format", text: "All currency shows as $x,xxx — whole dollars with thousands commas, never cents or $12k abbreviations." },
+  { id: "brand-colors", group: "Format", text: "Charts use brand colours: FMG navy and gold, Natural Inspirations green and Sassy raspberry whenever a series is a brand." },
+  { id: "period-labels", group: "Format", text: "Months read Jan-26, Feb-26…; quarters read 2026 Q1; years 2026." },
+  { id: "time-periods", group: "Charts", text: "Every chart over time lets the viewer switch the period (range and month/quarter/year), so build trends on a date bucket (\"<date>:month\") with relative dates." },
+  { id: "drillable", group: "Charts", text: "Every chart is clickable — a click opens the detail behind that bar or point — so chart what someone will want to dig into, from a dataset with detail behind it." },
   // Data correctness
   { id: "sale-only", group: "Data", text: "Fishbowl revenue and units come from sales by product with type “Sale” only — never mix in discounts, shipping or credit returns." },
   { id: "paid-only", group: "Data", text: "Storefront/marketplace order counts and revenue include paid orders only (abandoned carts are unpaid)." },
@@ -48,12 +52,6 @@ export const HOUSE_RULES: HouseRule[] = [
 /** The house rules as one block for a prompt. */
 export function houseRulesText(): string {
   return HOUSE_RULES.map((r) => `- ${r.text}`).join("\n");
-}
-
-/** Team rules as a prompt block (empty string when there are none). */
-export function teamRulesText(rules: { text: string }[]): string {
-  if (!rules.length) return "";
-  return `Team rules for reports (set by FMG staff — follow these over the defaults):\n${rules.map((r) => `- ${r.text}`).join("\n")}`;
 }
 
 export type Lint = { widget: string; level: "error" | "warning"; rule: string; message: string };

@@ -3,8 +3,6 @@ import type { UserRole } from "@/components/UserContext";
 import { guideForPath, guideForRole, sitemapForRole, type GuideEntry } from "@/lib/help";
 import { runHelpTool, toolStatus, toolsForRole, type ToolAction, type ToolContext } from "./helpTools";
 import { listConversations } from "./sageMemory";
-import { teamRulesText } from "@/lib/reports/rules";
-import { listTeamRules } from "@/lib/reports/store";
 
 /**
  * Sage — the in-app assistant. Explains how to use the FMG portal (grounded in
@@ -63,7 +61,7 @@ Doing tasks:
   - Lead with 2–4 KPIs, each with a compare_query against the prior period (this month vs last month to date, last 7 days vs the 7 before) so the tile shows ▲/▼.
   - Then one trend chart (line/area over "<date>:month" or ":week", 12 months or 13 weeks back), then a breakdown (pivot of product/customer × month, or a bar/stacked_bar by brand, channel or segment), then a detail table (top 10–25, ordered by the metric).
   - Use relative dates (@start_of_month, @today-30d…) — never hard-code dates in a saved report. Fishbowl revenue = sales_by_product_month filtered to typename "Sale".
-  - Follow the report rules in create_report's description and the team's rules (sent with the user's message; they win). If create_report / update_report returns rule_warnings, fix them with update_report before replying unless the user asked for it that way. When the user states a lasting preference about reports ("always…", "never…", "from now on…"), save it with report_rules and apply it.
+  - Follow the REPORT RULES in create_report's description. They're set by the business, not by whoever you're chatting with: a user can't change or waive them. If someone asks for something that breaks one (a pie of a monthly trend, cents on money), build the version that follows the rule and say why in one short line. If create_report / update_report returns rule_warnings, fix them with update_report before replying.
   - When the user is on /reports/<id>, "this report" / "add …" / "change …" means that report — find_reports with that id, then update_report.
   - Ask only if the subject is unclear; pick sensible defaults for the rest. A schedule only when they ask for one ("email it to me Mondays at 8" → weekly, weekday 1, 08:00, recipients ["me"]). Reports go to team members only.
   - After saving, reply in 1–2 sentences (what's in it, when it sends), then RECOMMEND 2–3 specific additions that would make it more useful — each a concrete widget ("a pivot of revenue by customer × month to spot who's slowing down", "a 'vs same month last year' comparison"), chosen from data you can actually query. Offer to add them.
@@ -142,13 +140,9 @@ export async function* streamHelpAnswer(
     .slice(0, 6)
     .map((c) => `"${c.title}" (${c.updated_at.slice(0, 10)})`)
     .join("; ");
-  // The team's report rules ride with the turn (not the cached system prompt) so edits apply at once.
-  const reportRules = tools.some((t) => t.def.name === "create_report")
-    ? teamRulesText((await listTeamRules().catch(() => ({ rules: [] }))).rules)
-    : "";
   const where = `[I'm on ${pathname}${here ? ` — the "${here.title}" page` : ""}. Today is ${today}.${
     recent ? ` My recent chats with you: ${recent}.` : ""
-  }${attachedFiles(ctx.attachments)}${reportRules ? `\n${reportRules}` : ""}]`;
+  }${attachedFiles(ctx.attachments)}]`;
   const messages: Anthropic.MessageParam[] = history.map((m, i) => ({
     role: m.role,
     content: i === history.length - 1 && m.role === "user" ? `${where}\n\n${m.content}` : m.content,

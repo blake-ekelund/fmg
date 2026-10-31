@@ -59,13 +59,13 @@ function table(head: string[], body: string[][], boldLast = false): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>${th}</tr>${tr}</table>`;
 }
 
-function barList(items: { label: string; value: number; shown: string }[]): string {
+function barList(items: { label: string; value: number; shown: string }[], color: string): string {
   const max = Math.max(...items.map((i) => Math.abs(i.value)), 1);
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${items
     .map((i) => {
       const pct = Math.max(1, Math.round((Math.abs(i.value) / max) * 100));
       return `<tr><td width="32%" style="padding:4px 8px 4px 0;font-size:12px;color:#3C4D5A">${esc(i.label)}</td>
-<td style="padding:4px 0"><table role="presentation" width="${pct}%" cellpadding="0" cellspacing="0"><tr><td style="background:#2E6690;height:12px;border-radius:3px;font-size:1px;line-height:12px">&nbsp;</td></tr></table></td>
+<td style="padding:4px 0"><table role="presentation" width="${pct}%" cellpadding="0" cellspacing="0"><tr><td style="background:${color};height:12px;border-radius:3px;font-size:1px;line-height:12px">&nbsp;</td></tr></table></td>
 <td width="18%" align="right" style="padding:4px 0 4px 8px;font-size:12px;font-weight:600;color:${NAVY}">${esc(i.shown)}</td></tr>`;
     })
     .join("")}</table>`;
@@ -84,7 +84,7 @@ function widgetBlock(w: Widget, r: WidgetResult | undefined): string {
     if (c.series.length === 1) {
       const f = formatOf(w, c.series[0].key);
       const pts = c.points.slice(-ROWS * 2);
-      body = barList(pts.map((p) => ({ label: String(p.x), value: Number(p[c.series[0].key]) || 0, shown: formatValue(p[c.series[0].key], f, true) })));
+      body = barList(pts.map((p) => ({ label: String(p.x), value: Number(p[c.series[0].key]) || 0, shown: formatValue(p[c.series[0].key], f, true) })), c.series[0].color);
     } else {
       const f = formatOf(w);
       const series = c.series.slice(0, 5);

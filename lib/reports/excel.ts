@@ -1,12 +1,13 @@
 import ExcelJS from "exceljs";
-import { formatOf, kpiDelta, labelFor, metricKeys, pivotize } from "./shape";
+import { parseGroupKey } from "./dates";
+import { formatCell, formatOf, kpiDelta, labelFor, metricKeys, pivotize } from "./shape";
 import type { Report, ValueFormat, WidgetResult } from "./types";
 
 /* A report as an Excel workbook: a Summary tab with the KPI tiles, then one tab
    per table / pivot / chart (its underlying numbers). Same styling as Sage's
    exports (navy header, frozen, autofilter). */
 
-const NUM_FMT: Record<ValueFormat, string> = { money: '"$"#,##0.00', number: "#,##0.##", percent: "0.0%" };
+const NUM_FMT: Record<ValueFormat, string> = { money: '"$"#,##0', number: "#,##0.##", percent: "0.0%" };
 
 function tabName(raw: string, used: Set<string>): string {
   const base = (raw.replace(/[:\\/?*[\]]/g, " ").trim() || "Sheet").slice(0, 31);
@@ -71,7 +72,7 @@ export async function buildReportWorkbook(report: Pick<Report, "title" | "widget
     }
     if (w.type === "pivot") {
       const p = pivotize(w, r, 200);
-      ws.addRow([labelFor(p.rowKey, w), ...p.colLabels.map((c) => c), "Total"]);
+      ws.addRow([labelFor(p.rowKey, w), ...p.colLabels.map((c) => formatCell(c === "—" ? null : c, p.colKey, w)), "Total"]);
       p.rowLabels.forEach((rk, i) => ws.addRow([rk, ...p.cells[i], p.rowTotals[i]]));
       const total = ws.addRow(["Total", ...p.colTotals, p.grand]);
       total.font = { bold: true };
@@ -87,7 +88,7 @@ export async function buildReportWorkbook(report: Pick<Report, "title" | "widget
       key: c,
       width: Math.min(Math.max(labelFor(c, w).length + 2, ...r.rows.slice(0, 100).map((x) => String(x[c] ?? "").length + 2), 10), 45),
     }));
-    for (const row of r.rows) ws.addRow(Object.fromEntries(r.columns.map((c) => [c, plain(row[c])])));
+    for (const row of r.rows) ws.addRow(Object.fromEntries(r.columns.map((c) => [c, parseGroupKey(c).bucket && typeof row[c] === "string" ? formatCell(row[c], c, w) : plain(row[c])])));
     r.columns.forEach((c, i) => {
       if (metrics.has(c)) ws.getColumn(i + 1).numFmt = NUM_FMT[formatOf(w, c)];
       else if (/revenue|sales_\d{4}|price|amount|aov|subtotal|cost|msrp|^total$/i.test(c)) ws.getColumn(i + 1).numFmt = NUM_FMT.money;
