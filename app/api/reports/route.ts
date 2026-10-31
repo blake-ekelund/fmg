@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createReport, listReports, requireReportsUser } from "@/lib/reports/store";
+import { canEdit, createReport, listReports, requireReportsUser, teamMembers } from "@/lib/reports/store";
 
 export const runtime = "nodejs";
 
@@ -10,8 +10,13 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const auth = await requireReportsUser(request);
   if ("res" in auth) return auth.res;
-  const { ready, items } = await listReports();
-  return NextResponse.json({ ready, items, me: auth.user.id, myEmail: auth.user.email, role: auth.user.role });
+  const [{ ready, items }, team] = await Promise.all([listReports(), teamMembers()]);
+  return NextResponse.json({
+    ready,
+    items: items.map((r) => ({ ...r, canEdit: canEdit(r, auth.user) })),
+    team,
+    myEmail: auth.user.email,
+  });
 }
 
 export async function POST(request: Request) {

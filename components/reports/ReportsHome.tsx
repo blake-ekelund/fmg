@@ -1,34 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import clsx from "clsx";
 import { useEffect, useState } from "react";
-import { BarChart3, CalendarClock, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { BarChart3, Loader2, Sparkles } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
 import { openHelpAssistant } from "@/components/HelpAssistant";
 import { useUser } from "@/components/UserContext";
 import { getAllowedPaths } from "@/components/navConfig";
 import { reportsApi } from "@/lib/reports/client";
-import { describeSchedule } from "@/lib/reports/schedule";
 import { REPORT_TEMPLATES, SAGE_REPORT_PROMPTS } from "@/lib/reports/templates";
-import type { Report } from "@/lib/reports/types";
+import SavedReportsTable, { type ReportRow } from "./SavedReportsTable";
 
-/* The Reports page: saved custom reports (shared with the team), a Sage box to
-   build a new one by describing it, and starter reports to preview and save. */
+/* The Reports page: every saved custom report in one table (open, rename,
+   download, schedule, pause, delete), a Sage box to build a new one by
+   describing it, and starter reports to preview and save. */
+
+type ListResponse = { ready: boolean; items: ReportRow[]; team: { name: string; email: string }[]; myEmail: string | null };
 
 export default function ReportsHome() {
   const role = useUser().profile?.access ?? null;
-  const [items, setItems] = useState<Report[] | null>(null);
-  const [ready, setReady] = useState(true);
+  const [data, setData] = useState<ListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ask, setAsk] = useState("");
 
   useEffect(() => {
-    reportsApi<{ ready: boolean; items: Report[] }>("/api/reports")
-      .then((r) => {
-        setReady(r.ready);
-        setItems(r.items);
-      })
+    reportsApi<ListResponse>("/api/reports")
+      .then(setData)
       .catch((e) => setError(e instanceof Error ? e.message : "Couldn't load reports."));
   }, []);
 
@@ -42,8 +39,34 @@ export default function ReportsHome() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
       <PageMeta title="Reports" description="Custom dashboards built with Sage — live numbers, emailed on your schedule." />
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-ink">Saved reports</h2>
+        {error ? (
+          <div className="rounded-2xl border border-line bg-surface p-5 text-sm text-critical">{error}</div>
+        ) : !data ? (
+          <div className="flex items-center gap-2 p-6 text-sm text-ink-muted">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          </div>
+        ) : !data.ready ? (
+          <div className="rounded-2xl border border-warning/30 bg-warning-soft p-5 text-sm text-warning">
+            Saving reports needs a database update (migration 20261031000000). You can still preview the starter reports below.
+          </div>
+        ) : !data.items.length ? (
+          <div className="rounded-2xl border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-muted">
+            No reports yet. Ask Sage below, or start from one of the starter reports.
+          </div>
+        ) : (
+          <SavedReportsTable
+            rows={data.items}
+            setRows={(fn) => setData((d) => (d ? { ...d, items: fn(d.items) } : d))}
+            team={data.team}
+            myEmail={data.myEmail}
+          />
+        )}
+      </section>
 
       <section className="rounded-2xl border border-line bg-surface p-5 shadow-card">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
@@ -76,49 +99,6 @@ export default function ReportsHome() {
             </button>
           ))}
         </div>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-ink">Saved reports</h2>
-        {error ? (
-          <div className="rounded-2xl border border-line bg-surface p-5 text-sm text-critical">{error}</div>
-        ) : !items ? (
-          <div className="flex items-center gap-2 p-6 text-sm text-ink-muted">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-          </div>
-        ) : !ready ? (
-          <div className="rounded-2xl border border-warning/30 bg-warning-soft p-5 text-sm text-warning">
-            Saving reports needs a database update (migration 20261031000000). You can still preview the starter reports below.
-          </div>
-        ) : !items.length ? (
-          <div className="rounded-2xl border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-muted">
-            No reports yet. Ask Sage above, or start from one of the reports below.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {items.map((r) => (
-              <Link key={r.id} href={`/reports/${r.id}`} className="group flex items-start justify-between gap-3 rounded-2xl border border-line bg-surface p-4 shadow-card hover:border-brand-300">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-ink group-hover:text-brand-700">{r.title}</div>
-                  {r.description && <div className="mt-0.5 line-clamp-2 text-xs text-ink-muted">{r.description}</div>}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-subtle">
-                    <span>{r.widgets.length} {r.widgets.length === 1 ? "widget" : "widgets"}</span>
-                    {r.owner_name && <span>By {r.owner_name}</span>}
-                    {r.schedule && (
-                      <span className={clsx("flex items-center gap-1", r.schedule_enabled ? "text-positive" : "")}>
-                        <CalendarClock className="h-3 w-3" />
-                        {describeSchedule(r.schedule)}
-                        {r.schedule_enabled ? "" : " (paused)"}
-                      </span>
-                    )}
-                    {r.last_run_status === "failed" && <span className="text-critical">Last email failed</span>}
-                  </div>
-                </div>
-                <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-ink-subtle group-hover:text-brand-700" />
-              </Link>
-            ))}
-          </div>
-        )}
       </section>
 
       {templates.length > 0 && (

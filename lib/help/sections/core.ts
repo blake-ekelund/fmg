@@ -119,6 +119,9 @@ The Daily Sales Log shows every day of a month — orders, sales and average ord
     body: `## What it's for
 Your own reports on anything in the portal (sales, orders, customers, inventory, email, tasks…). Every time you open one it re-runs on today's data — "this month", "last 30 days" and the like always mean now, not when it was built. Reports are shared with the team, but each person only sees the numbers their role can see.
 
+## The reports table
+**Saved reports** lists every report with its owner, email schedule (and next send), when it last went out, and when it was last changed. **Search reports** filters it. Each row's buttons: **Open**, **Download Excel**, and — on reports you made (or any, for owners/admins) — **Rename**, **Change email schedule** (or **+ Add schedule**), **Pause / Resume emails**, and **Delete**.
+
 ## Making a report
 1. On **Reports**, describe it in **Build a report with Sage** (or click one of the example asks), e.g. "Monthly NI wholesale revenue by rep with a pivot by month, emailed to me the 1st at 7am". Sage builds it, opens it, and recommends what else to add.
 2. Or open a **Start from a report** card to preview a starter report with live numbers, then **Save as my report**.
