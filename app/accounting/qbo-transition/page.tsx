@@ -38,32 +38,33 @@ const KEY_DATES: { date: string; what: string; note: string; big?: boolean }[] =
 ];
 
 /** Calendar phases; a task falls in the first phase whose end is on/after its due date. */
-const PHASES: { name: string; dates: string; end: string }[] = [
-  { name: "Decide", dates: "Nov 2 – 6", end: "2026-11-06" },
-  { name: "Clean up", dates: "Nov 9 – 13", end: "2026-11-13" },
-  { name: "Test", dates: "Nov 16 – 20", end: "2026-11-20" },
-  { name: "Review", dates: "Nov 23 – 25", end: "2026-11-25" },
-  { name: "Prepare", dates: "Nov 30 – Dec 11", end: "2026-12-11" },
-  { name: "Confirm", dates: "Dec 14 – 18", end: "2026-12-18" },
-  { name: "Ready", dates: "Dec 21 – 24", end: "2026-12-24" },
-  { name: "Cutover", dates: "Dec 28 – 31", end: "2026-12-31" },
-  { name: "Go live", dates: "Jan 1 – 6", end: "2027-01-06" },
-  { name: "Settle", dates: "Jan 7 – 15", end: "2027-01-15" },
-  { name: "Close 2026", dates: "Jan 18 – 29", end: "2027-01-29" },
+const PHASES: { name: string; dates: string; start: string; end: string; goal: string }[] = [
+  { name: "Decide", dates: "Nov 2 – 6", start: "2026-11-02", end: "2026-11-06", goal: "Decisions made with the CPA; QBO bought." },
+  { name: "Clean up", dates: "Nov 9 – 13", start: "2026-11-09", end: "2026-11-13", goal: "QBD cleaned, $3.8M posting fixed, test migration booked." },
+  { name: "Test", dates: "Nov 16 – 20", start: "2026-11-16", end: "2026-11-20", goal: "Test migration done; Fishbowl server work retested." },
+  { name: "Review", dates: "Nov 23 – 25", start: "2026-11-23", end: "2026-11-25", goal: "CPA reviews the test; go / no-go on approach A." },
+  { name: "Prepare", dates: "Nov 30 – Dec 11", start: "2026-11-30", end: "2026-12-11", goal: "November closed, mapping final, training done." },
+  { name: "Confirm", dates: "Dec 14 – 18", start: "2026-12-14", end: "2026-12-18", goal: "Go-live slot confirmed; year-end plan set." },
+  { name: "Ready", dates: "Dec 21 – 24", start: "2026-12-21", end: "2026-12-24", goal: "Books reconciled through Nov; runbook walked through." },
+  { name: "Cutover", dates: "Dec 28 – 31", start: "2026-12-28", end: "2026-12-31", goal: "Last export Dec 31 at 6 PM; QBD backed up and frozen." },
+  { name: "Go live", dates: "Jan 1 – 6", start: "2027-01-01", end: "2027-01-06", goal: "QBO is the book of record; Fishbowl posting to QBO." },
+  { name: "Settle", dates: "Jan 7 – 15", start: "2027-01-07", end: "2027-01-15", goal: "Opening balances tie; first week reconciled." },
+  { name: "Close 2026", dates: "Jan 18 – 29", start: "2027-01-18", end: "2027-01-29", goal: "2026 closed and filed; QBD archived." },
 ];
 const phaseOf = (due: string | null) => (due ? (PHASES.find((p) => due <= p.end)?.name ?? "After Jan 29") : "No date");
 
-const TODAY: [string, string, string][] = [
-  ["Connection", "Fishbowl → QuickBooks Desktop, nightly at 6 PM. Fishbowl's QuickBooks Online link is empty.", "Fishbowl must be disconnected from QBD and connected to QBO at cutover."],
-  ["What Fishbowl sends", "Shipments (invoice + cost of goods entry), payments, inventory adjustments, customer and vendor updates.", "The same five keep flowing, now to QBO."],
-  ["What it doesn't send", "Purchase orders, receipts and vendor bills — keyed into QuickBooks by hand.", "Stays manual in QBO unless we choose otherwise."],
-  ["Default accounts", "40000 Gross Sales · 40300 Freight Revenue · 40400 Deductions · Accounts Receivable · 12000 Undeposited Funds · 12101 Inventory Asset · 50000 COGS · 50250 Inventory Adj/Cycle Count · 50500 Scrap/Damages · 20010 Cost Variance · 20000 Accounts Payable", "Each must be re-mapped to a QBO account in Fishbowl's integration wizard."],
-  ["Items with their own accounts", "Testers → 40200 Tester Sales / 50050 Tester COGS. Displays → 40201 Display Sales / 50040 Display Costs. 177 fill parts → \"FB Fill Costs Accrual\" (a liability) for inventory and COGS.", "Re-check every override after reconnecting. In QBO, the item's own accounts can override Fishbowl's."],
-  ["Discount reasons", "47 reasons; 22 post to their own Deductions sub-accounts (PPP, Display Offset, Free Shipping, Shopify, Faire promos…).", "QBO can't do per-reason discount accounts — all discounts go to one Discount Income / Discount Expense pair."],
-  ["Classes", "13 QuickBooks classes in use (GIFT, HOSPITAL, PHARMACY, SALON/SPA, DISTRIBUTOR, WEB, CASINOS…).", "Needs QBO Plus or Advanced (Essentials has no classes)."],
-  ["Chart of accounts", "About 180 accounts (about 170 active).", "Fits QBO Plus's 250-account limit."],
-  ["Payments", "Every payment lands in Undeposited Funds (no method has its own bank account).", "In QBO this becomes \"Payments to deposit\" — same workflow."],
-];
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+/** Where a phase sits relative to today; "next" is the first phase still ahead when none is current. */
+function phaseWhen(p: (typeof PHASES)[number]): "past" | "now" | "next" | "later" {
+  const today = todayIso();
+  if (today > p.end) return "past";
+  if (today >= p.start) return "now";
+  const upcoming = PHASES.find((x) => today <= x.end);
+  return upcoming?.name === p.name ? "next" : "later";
+}
 
 const PRICING: { plan: string; term: string; msrp: string; disc: string; price: string; perYear: string; rec?: boolean }[] = [
   { plan: "QBO Plus", term: "1 year", msrp: "$1,680.00", disc: "$325.00", price: "$1,355.00", perYear: "$1,355", rec: true },
@@ -107,16 +108,6 @@ const APPROACHES: { label: string; title: string; points: string[]; chosen?: boo
   },
 ];
 
-const AFTER: [string, string, string][] = [
-  ["Customer invoices", "Fishbowl sends them nightly", "Same, to QBO. Invoice number = Fishbowl SO number (with custom numbers on)."],
-  ["Cost of goods", "Fishbowl entry per shipment", "Same. The portal's Inventory Journal becomes a check, not an entry to book."],
-  ["Customer payments", "Undeposited Funds, then a deposit", "\"Payments to deposit\", then a bank deposit."],
-  ["Vendor bills and POs", "Keyed by hand", "Keyed by hand in QBO (unchanged)."],
-  ["Discounts", "22 reasons have their own Deductions accounts", "One Discount Income / Expense pair; report by reason from Fishbowl or the portal."],
-  ["Fishbowl connection", "Stays connected", "Re-authorize about every 90 days."],
-  ["Changing items or accounts", "Fishbowl mapping wins", "Change in Fishbowl first — the item's own settings in QBO can override Fishbowl."],
-];
-
 const RISKS: [string, string, string][] = [
   ["Holiday timeline slips", "Go-live moves past Jan 1", "Decide by Nov 6, test in mid-November, book the go-live slot by Dec 18. QBO still starts Jan 1 even if the migration runs Jan 4–6."],
   ["Converted balances don't tie", "Messy opening balances", "Clean QBD first, test-migrate, CPA review; fall back to a fresh start (B)."],
@@ -136,10 +127,8 @@ const CONTACTS: { who: string; for: string }[] = [
 
 const SECTIONS = [
   ["checklist", "Checklist"],
-  ["today", "Where we are"],
   ["plans", "Plans & pricing"],
   ["approach", "Migration approach"],
-  ["after", "After go-live"],
   ["risks", "Risks"],
   ["contacts", "Contacts"],
 ] as const;
@@ -494,6 +483,8 @@ export default function QboTransitionPage() {
           </div>
         </div>
 
+        {groupBy === "phase" && !loading && <WeekStrip tasks={tasks} />}
+
         {loading ? (
           <div className="flex items-center gap-2 py-10 text-sm text-gray-500">
             <Loader2 size={16} className="animate-spin" /> Loading the checklist…
@@ -515,13 +506,30 @@ export default function QboTransitionPage() {
               {groups.map((g) => {
                 const phase = groupBy === "phase" ? PHASES.find((p) => p.name === g.name) : undefined;
                 const doneN = g.tasks.filter((t) => t.status === "done").length;
+                const lateN = g.tasks.filter((t) => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0).length;
+                const when = phase ? phaseWhen(phase) : null;
                 return (
                   <Fragment key={g.name}>
-                    <div className="flex items-baseline gap-3 border-b border-gray-200 bg-gray-100/70 px-3 py-1.5">
-                      <span className="text-xs font-bold uppercase tracking-wider text-gray-800">{g.name}</span>
-                      {phase && <span className="font-mono text-xs text-gray-500">{phase.dates}</span>}
-                      <span className="ml-auto text-xs text-gray-500">
-                        {doneN}/{g.tasks.length} done
+                    <div
+                      id={`week-${g.name}`}
+                      className={clsx(
+                        "flex scroll-mt-20 flex-wrap items-center gap-x-3 gap-y-1 border-b border-gray-200 px-3 py-2",
+                        when === "now" ? "bg-gray-900 text-white" : "bg-gray-100",
+                      )}
+                    >
+                      <span className="text-xs font-bold uppercase tracking-wider">{g.name}</span>
+                      {phase && <span className={clsx("font-mono text-xs", when === "now" ? "text-gray-300" : "text-gray-500")}>{phase.dates}</span>}
+                      {when === "now" && <span className="rounded bg-teal-500 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">This week</span>}
+                      {when === "next" && <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-teal-800">Up next</span>}
+                      {phase && <span className={clsx("text-xs", when === "now" ? "text-gray-200" : "text-gray-600")}>{phase.goal}</span>}
+                      <span className="ml-auto flex items-center gap-2 text-xs">
+                        {lateN > 0 && <span className="font-semibold text-red-500">{lateN} late</span>}
+                        <span className={when === "now" ? "text-gray-300" : "text-gray-500"}>
+                          {doneN}/{g.tasks.length} done
+                        </span>
+                        <span className={clsx("h-1.5 w-20 overflow-hidden rounded-full", when === "now" ? "bg-gray-700" : "bg-gray-200")}>
+                          <span className="block h-full rounded-full bg-teal-500" style={{ width: `${g.tasks.length ? (doneN / g.tasks.length) * 100 : 0}%` }} />
+                        </span>
                       </span>
                     </div>
                     {g.tasks.map((t) => (
@@ -549,12 +557,7 @@ export default function QboTransitionPage() {
       </section>
 
       {/* ── Reference ── */}
-      <div className="grid gap-10 2xl:grid-cols-2">
-        <Section id="today" title="Where we are today" intro="Read from Fishbowl on Oct 30, 2026.">
-          <Table head={["Area", "Today", "What it means for the move"]} rows={TODAY} />
-        </Section>
-
-        <Section
+      <Section
           id="plans"
           title="Plans & pricing"
           intro="Quoted by Fishbowl's Intuit solution specialist on Oct 29, 2026. Subject to managed-account terms; MSRP applies after the initial period; no refunds on cancellation."
@@ -605,8 +608,7 @@ export default function QboTransitionPage() {
               points={["More than 5 people need their own login", "We want custom user roles and workflow automation", "Premium support, backup and restore, higher usage limits", "We expect to outgrow Plus's limits in 1–2 years"]}
             />
           </div>
-        </Section>
-      </div>
+      </Section>
 
       <Section id="approach" title="Migration approach">
         <div className="grid gap-3 md:grid-cols-3">
@@ -621,14 +623,9 @@ export default function QboTransitionPage() {
         </Callout>
       </Section>
 
-      <div className="grid gap-10 2xl:grid-cols-2">
-        <Section id="after" title="After go-live: what changes day to day">
-          <Table head={["Task", "In QBD today", "In QBO"]} rows={AFTER} />
-        </Section>
-        <Section id="risks" title="Risks and how we handle them">
-          <Table head={["Risk", "Impact", "Mitigation"]} rows={RISKS} />
-        </Section>
-      </div>
+      <Section id="risks" title="Risks and how we handle them">
+        <Table head={["Risk", "Impact", "Mitigation"]} rows={RISKS} />
+      </Section>
 
       <Section id="contacts" title="Contacts">
         <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white text-sm">
@@ -991,6 +988,60 @@ function TaskModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The 11 weeks of the plan side by side: progress, late tasks and milestones per week; click to jump. */
+function WeekStrip({ tasks }: { tasks: Task[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <ol className="grid min-w-[1080px] grid-cols-11 gap-1.5">
+        {PHASES.map((p) => {
+          const ts = tasks.filter((t) => phaseOf(t.dueDate) === p.name);
+          const done = ts.filter((t) => t.status === "done").length;
+          const late = ts.filter((t) => t.status !== "done" && t.dueDate && daysUntil(t.dueDate) < 0).length;
+          const milestone = ts.find((t) => t.type === "Milestone");
+          const when = phaseWhen(p);
+          const complete = ts.length > 0 && done === ts.length;
+          return (
+            <li key={p.name}>
+              <button
+                onClick={() => document.getElementById(`week-${p.name}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className={clsx(
+                  "flex h-full w-full flex-col gap-1 rounded-lg border p-2 text-left transition hover:shadow-sm",
+                  when === "now"
+                    ? "border-gray-900 bg-gray-900 text-white"
+                    : late
+                      ? "border-red-200 bg-red-50"
+                      : complete
+                        ? "border-teal-200 bg-teal-50"
+                        : when === "next"
+                          ? "border-teal-500 bg-white"
+                          : "border-gray-200 bg-white",
+                )}
+              >
+                <span className="flex items-center justify-between gap-1">
+                  <span className="truncate text-[11px] font-bold uppercase tracking-wider">{p.name}</span>
+                  {when === "now" && <span className="rounded bg-teal-500 px-1 text-[9px] font-bold uppercase text-white">Now</span>}
+                  {when === "next" && <span className="rounded bg-teal-100 px-1 text-[9px] font-bold uppercase text-teal-800">Next</span>}
+                  {complete && when !== "now" && <span className="text-[11px] font-bold text-teal-700">✓</span>}
+                </span>
+                <span className={clsx("font-mono text-[11px]", when === "now" ? "text-gray-300" : "text-gray-500")}>{p.dates}</span>
+                <span className={clsx("h-1 overflow-hidden rounded-full", when === "now" ? "bg-gray-700" : "bg-gray-200")}>
+                  <span className="block h-full rounded-full bg-teal-500" style={{ width: `${ts.length ? (done / ts.length) * 100 : 0}%` }} />
+                </span>
+                <span className={clsx("text-[11px]", when === "now" ? "text-gray-300" : "text-gray-600")}>
+                  {done}/{ts.length} done{late > 0 && <b className="text-red-600"> · {late} late</b>}
+                </span>
+                {milestone && (
+                  <span className={clsx("line-clamp-2 text-[11px] font-medium", when === "now" ? "text-teal-300" : "text-teal-800")}>◆ {milestone.name}</span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

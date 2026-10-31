@@ -385,14 +385,14 @@ Shows how Fishbowl talks to QuickBooks Desktop, read live from Fishbowl. Owner a
     title: "QBO Transition",
     section: "Accounting",
     summary:
-      "The plan for moving from QuickBooks Desktop to QuickBooks Online by January 1, 2027: decisions, pricing, migration approach, clean-up and Fishbowl switch-over checklists, and a week-by-week calendar.",
+      "The plan for moving from QuickBooks Desktop to QuickBooks Online by January 1, 2027: an editable week-by-week checklist with owners, dates and our recommendations, plus pricing, migration approach, risks and contacts.",
     body: `## What it's for
-The written plan (prepared Oct 30, 2026) for moving FMG's books from QuickBooks Desktop to QuickBooks Online so all 2027 activity is in QBO from January 1. Owner and admin only. Read-only.
+The plan (prepared Oct 30, 2026) for moving FMG's books from QuickBooks Desktop to QuickBooks Online so all 2027 activity is in QBO from January 1. Any internal user can edit the checklist.
 
 ## What's on the page
 - **Key dates**: decisions and purchase Nov 6, test migration Nov 16, go/no-go Nov 25, go-live slot confirmed Dec 18, last Fishbowl → QBD export Dec 31 at 6 PM, QBO is the book of record Jan 1, go-live migration and Fishbowl → QBO Jan 4–6, 2026 closed and QBD archived Jan 29.
-- **Where we are today**, **Decisions** (plan, term, approach, discounts, fills, payroll/sales tax/1099s, users, QBD license), **Plans & pricing** (recommended: QBO Plus, 1 year, $1,355; conversion $1,000), **Migration approach** (A full conversion — recommended; B fresh start — fallback; C do-it-yourself).
-- **Clean-up** checklist (including the $3.8M COGS posting on SO 23786), **Fishbowl switch-over** checklist, week-by-week **Calendar** with owners and milestones, **After go-live**, **Risks**, **Contacts** (who at Fishbowl handles what).
+- **Checklist**: every task (decisions, clean-up incl. the $3.8M COGS posting on SO 23786, Fishbowl switch-over, QBO setup, migration, training, year-end, milestones) with type, systems, owner, start/due dates, status and — where we have one — our recommendation, highlighted in teal. Click a task to edit it in a pop-up; tick the box to mark it done. Group by week (with a week-by-week strip showing progress, late tasks and milestones), by type or by owner; filter by owner, type, status or recommendations; download as CSV.
+- **Plans & pricing** (recommended: QBO Plus, 1 year, $1,355; conversion $1,000), **Migration approach** (A full conversion — recommended; B fresh start — fallback; C do-it-yourself), **Risks**, **Contacts** (who at Fishbowl handles what).
 
 ## Good to know
 - Dates are a proposal; confirm them with Fishbowl and the CPA.
