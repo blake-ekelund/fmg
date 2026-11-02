@@ -243,6 +243,7 @@ const SHOP: PageBlock[] = [
     wholesaleEyebrow: "wholesale line sheet",
     wholesaleTitle: "line sheet",
     wholesaleLede: "Every product, every case price. MOQ is 1 case per item. Minimum opening order $300, reorders $300.",
+    image: "",
   },
   { id: "catalog", type: "catalog" },
   { ...(HOME[4] as PageBlock), id: "newsletter" },
@@ -258,6 +259,7 @@ const BLOG: PageBlock[] = [
     wholesaleEyebrow: "",
     wholesaleTitle: "",
     wholesaleLede: "",
+    image: "",
   },
   { id: "catalog", type: "catalog" },
 ];
@@ -377,6 +379,7 @@ const CONTACT: PageBlock[] = [
     wholesaleEyebrow: "",
     wholesaleTitle: "",
     wholesaleLede: "",
+    image: "",
   },
   { id: "form", type: "contact_form", heading: "tell us what’s up", subheading: "The more detail, the better the reply." },
   {

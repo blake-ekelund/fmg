@@ -48,8 +48,8 @@ const NEWSLETTER: PageBlock = {
   footnote: "",
 };
 
-function header(eyebrow: string, title: string, lede: string, id = "header"): PageBlock {
-  return { id, type: "page_header", eyebrow, title, lede, wholesaleEyebrow: "", wholesaleTitle: "", wholesaleLede: "" };
+function header(eyebrow: string, title: string, lede: string, id = "header", image = ""): PageBlock {
+  return { id, type: "page_header", eyebrow, title, lede, wholesaleEyebrow: "", wholesaleTitle: "", wholesaleLede: "", image };
 }
 
 function cta(heading: string, primary: [string, string], secondary: [string, string], id = "cta"): PageBlock {
@@ -194,6 +194,7 @@ const SHOP: PageBlock[] = [
     wholesaleEyebrow: "Wholesale line sheet",
     wholesaleTitle: "Line sheet",
     wholesaleLede: "Every product, every case price, in one place. MOQ is 1 case per item. Minimum opening order $300, reorders $300.",
+    image: "",
   },
   { id: "catalog", type: "catalog" },
   NEWSLETTER,
@@ -282,18 +283,24 @@ const STORY: PageBlock[] = [
   NEWSLETTER,
 ];
 
+/** The ExSeed photography (FMG storage, email-assets/exseed-imagery). */
+const EXSEED_IMG =
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/email-assets/exseed-imagery/";
+
 const EXSEED: PageBlock[] = [
   header(
     "From seed to skin",
-    "The ExSeed® Deep Moisturizing Complex",
+    "ExSeed® Deep Moisturizing Complex",
     "ExSeed® begins in the garden: five sustainably sourced seeds — black cumin, pomegranate, grape, carrot, and cranberry — gently cold-pressed so everything good about them stays whole. Together they help replenish, moisturize, and protect skin, in every body care formula we make.",
+    "header",
+    `${EXSEED_IMG}1793371645504-ExSeed-Header-Image_3x-100.jpg`,
   ),
   {
     id: "press",
     type: "statement",
     eyebrow: "The gentle press",
     heading: "Nearly four times the antioxidants",
-    body: "A patented cold-press keeps each seed's goodness intact. Blended together, the five oils carry nearly four times the antioxidants of the seed oils on their own — to nourish and soften skin, naturally.",
+    body: "A patented cold-press keeps each seed's goodness intact. Blended together, the five oils carry nearly 4X the antioxidants of the seed oils on their own — to nourish and soften skin, naturally.",
   },
   {
     id: "seeds",
@@ -304,37 +311,53 @@ const EXSEED: PageBlock[] = [
       {
         id: "black-cumin",
         name: "Black Cumin",
-        origin: "From the nigella flower — a pale blue bloom with tiny black seeds.",
+        latin: "Nigella sativa",
+        origin: "From the delicate nigella flower",
         body: "One of the richest antioxidant oils in the plant world, and a gentle, calming one — a comforting touch for dry, easily stressed skin.",
+        benefits: "It can help soothe inflammation and improve the speed at which skin heals + can help skin problems like eczema and psoriasis.",
+        image: `${EXSEED_IMG}1793371644072-ExSeed-_Black_Cumin_3x-100.jpg`,
       },
       {
         id: "pomegranate",
         name: "Pomegranate",
-        origin: "From the jewel-bright seeds of the ripe fruit.",
+        latin: "Punica granatum",
+        origin: "Jewel-bright seeds of the ripe fruit",
         body: "Naturally rich in antioxidants, it nourishes deeply and leaves skin feeling soft, supple, and renewed — a favorite for dry and maturing skin.",
+        benefits: "The oil's remarkable ability to nourish, moisturize and improve skin elasticity makes it effective in treating dry skin, maturing skin, eczema, psoriasis + sunburns.",
+        image: `${EXSEED_IMG}1793371643018-ExSeed-_Pomegranate_3x-100.jpg`,
       },
       {
         id: "grape",
         name: "Grape",
-        origin: "Pressed from the seeds of the vine after harvest.",
-        body: "Light and silky, it sinks in quickly, carrying vitamin E and natural moisture that leave skin smooth and never greasy.",
+        latin: "Vitis vinifera",
+        origin: "Pressed from the seeds of the vine",
+        body: "Grape seed oil is rich in antioxidants, vitamins, minerals, protein, + Vitamin E. Easily absorbed by the skin, it is a nourishing addition to lotion or crème intended for dry, damaged or aging skin.",
+        benefits: "Grape seed oil is noted for its excellent skin moisturizing properties.",
+        image: `${EXSEED_IMG}1793371644484-ExSeed-_Grape_3x-100.jpg`,
       },
       {
         id: "carrot",
         name: "Carrot",
+        latin: "Daucus carota",
         origin: "From the lacy white flower heads of the wild carrot.",
         body: "A golden, deeply nourishing oil long loved for dry and mature skin — helping it look smoother, softer, and more radiant.",
+        benefits: "It is considered to be one of the best essential oils for dry + mature skin.",
+        image: `${EXSEED_IMG}1793371645067-ExSeed-Carrot_3x-100.jpg`,
       },
       {
         id: "cranberry",
         name: "Cranberry",
+        latin: "Vaccinium macrocarpon",
         origin: "From the tiny seeds of the tart wild berry.",
         body: "Balanced and replenishing, it conditions skin with natural omegas and antioxidants — light, fast-absorbing, and quietly restorative.",
+        benefits: "Cranberry seed oil is known to support skin barrier repair and deeply moisturize without clogging pores.",
+        image: `${EXSEED_IMG}1793371643749-ExSeed-Cranberry_3x-100.jpg`,
       },
     ],
     closingHeading: "In every body care formula.",
     closingBody: "The same five seeds are at the heart of every lotion, crème, butter, and wash we make.",
-    ctaLabel: "Shop the collection →",
+    closingImage: `${EXSEED_IMG}1793371643366-In-every-body-care-formula_3x-100.jpg`,
+    ctaLabel: "Shop all products",
     ctaHref: "/shop",
   },
   {
@@ -350,8 +373,6 @@ const EXSEED: PageBlock[] = [
       "All of our liquid products are biodegradable.",
       "Raw materials are renewable whenever possible — often coconut-, olive-, corn-, or soy-based.",
       "Preservatives are used at the minimum needed for freshness, safety, and utility.",
-      "Every ingredient is assessed for health and safety — on its own, and again in the finished formula.",
-      "All products are made in the USA at a cosmetic-grade (CGMP) facility.",
     ],
     marker: "leaf",
   },

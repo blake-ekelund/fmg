@@ -366,6 +366,11 @@ export default function BlockInspector({
             lede={block.lede}
             onChange={(p) => onChange({ ...block, ...p })}
           />
+          {slug === "exseed" ? (
+            <Field label="Background photo" hint="Sits behind the headline, full width. Dark photos keep the white type legible.">
+              <ImageInput value={block.image} onChange={(image) => onChange({ ...block, image })} optional="A plain dark band without one." />
+            </Field>
+          ) : null}
           {slug === "shop" ? (
             <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
               <p className="text-xs font-medium text-gray-700">Signed-in wholesale buyers see instead</p>
@@ -765,7 +770,7 @@ export default function BlockInspector({
             items={block.items}
             max={LIMITS.seeds}
             onChange={(items) => onChange({ ...block, items })}
-            make={(id) => ({ id, name: "Black Cumin", origin: "", body: "" })}
+            make={(id) => ({ id, name: "Black Cumin", latin: "", origin: "", body: "", benefits: "", image: "" })}
             title={(x) => x.name}
             subtitle={(x) => x.origin}
             render={(x, set) => (
@@ -773,17 +778,33 @@ export default function BlockInspector({
                 <Field label="Seed" hint={SEED_HINT}>
                   <TextInput value={x.name} maxLength={40} onChange={(name) => set({ name })} />
                 </Field>
+                <Field label="Botanical name" hint="Set in italics beside the seed's name.">
+                  <TextInput value={x.latin} maxLength={60} onChange={(latin) => set({ latin })} />
+                </Field>
+                <Field label="Photo">
+                  <ImageInput value={x.image} onChange={(image) => set({ image })} optional="Text only without one." />
+                </Field>
                 <Field label="Where it comes from">
                   <TextInput value={x.origin} maxLength={200} onChange={(origin) => set({ origin })} />
                 </Field>
                 <Field label="What it does">
                   <TextArea value={x.body} rows={3} maxLength={600} onChange={(body) => set({ body })} />
                 </Field>
+                <Field label="Benefits" hint="Shown under a small “Benefits” label.">
+                  <TextArea value={x.benefits} rows={2} maxLength={400} onChange={(benefits) => set({ benefits })} />
+                </Field>
               </>
             )}
           />
           <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
             <p className="text-xs font-medium text-gray-700">Closing card</p>
+            <Field label="Photo">
+              <ImageInput
+                value={block.closingImage}
+                onChange={(closingImage) => onChange({ ...block, closingImage })}
+                optional="Text only without one."
+              />
+            </Field>
             <Field label="Heading">
               <TextInput value={block.closingHeading} maxLength={100} onChange={(closingHeading) => onChange({ ...block, closingHeading })} />
             </Field>

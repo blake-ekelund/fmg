@@ -76,7 +76,18 @@ export type InfoCard = {
 };
 export type FaqItem = { id: string; q: string; a: string };
 export type SeedItem = { id: string; name: string; note: string };
-export type SeedCard = { id: string; name: string; origin: string; body: string };
+export type SeedCard = {
+  id: string;
+  name: string;
+  /** Botanical name, set in italics beside the seed's name. */
+  latin: string;
+  origin: string;
+  body: string;
+  /** The "Benefits" note under the body. */
+  benefits: string;
+  /** Photo across the top of the card. */
+  image: string;
+};
 export type Pillar = { id: string; title: string; body: string };
 export type LinkCard = { id: string; eyebrow: string; title: string; body: string; href: string };
 export type StoryFrame = { id: string; name: string; image: string; href: string };
@@ -243,6 +254,8 @@ export type PageHeaderBlock = Base & {
   wholesaleEyebrow: string;
   wholesaleTitle: string;
   wholesaleLede: string;
+  /** ExSeed page only: the full-bleed photo behind the header. */
+  image: string;
 };
 export type CatalogBlock = Base & { type: "catalog" };
 export type ArticleHeaderBlock = Base & {
@@ -336,6 +349,8 @@ export type SeedCardsBlock = Base & {
   items: SeedCard[];
   closingHeading: string;
   closingBody: string;
+  /** Photo across the top of the closing card. */
+  closingImage: string;
   ctaLabel: string;
   ctaHref: string;
 };
@@ -988,6 +1003,7 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
         wholesaleEyebrow: str(r.wholesaleEyebrow, 60),
         wholesaleTitle: str(r.wholesaleTitle, 80),
         wholesaleLede: text(r.wholesaleLede, 500),
+        image: safeImage(r.image),
       };
     case "catalog":
       return { type: "catalog" };
@@ -1134,11 +1150,20 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
         items: list(r.items, LIMITS.seeds)
           .map((x, i): SeedCard => {
             const o = obj(x);
-            return { id: itemId(o, "seed", i), name: str(o.name, 40), origin: str(o.origin, 200), body: text(o.body, 600) };
+            return {
+              id: itemId(o, "seed", i),
+              name: str(o.name, 40),
+              latin: str(o.latin, 60),
+              origin: str(o.origin, 200),
+              body: text(o.body, 600),
+              benefits: text(o.benefits, 400),
+              image: safeImage(o.image),
+            };
           })
           .filter((x) => x.name),
         closingHeading: str(r.closingHeading, 100),
         closingBody: text(r.closingBody, 400),
+        closingImage: safeImage(r.closingImage),
         ctaLabel: str(r.ctaLabel, 40),
         ctaHref: safeHref(r.ctaHref),
       };
