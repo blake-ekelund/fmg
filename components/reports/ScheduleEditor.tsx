@@ -1,13 +1,16 @@
 "use client";
 
 import clsx from "clsx";
-import { useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Loader2, X } from "lucide-react";
 import { WEEKDAYS, describeSchedule } from "@/lib/reports/schedule";
 import type { Frequency, Schedule } from "@/lib/reports/types";
 
 /* The "Schedule" dialog on a report: how often, what time (Central), which
-   team members, Excel attached or not. Saving computes the next send. */
+   email addresses (team members only — suggested as you type), Excel attached
+   or not. Saving computes the next send. */
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const TIMES = Array.from({ length: 96 }, (_, i) => {
   const h = Math.floor(i / 4);
@@ -67,7 +70,31 @@ export default function ScheduleEditor({
     }
   }
 
-  const toggle = (email: string) => setRecipients((r) => (r.includes(email) ? r.filter((x) => x !== email) : [...r, email]));
+  const [query, setQuery] = useState("");
+  const [inputError, setInputError] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const teamEmails = new Set(team.map((m) => m.email.toLowerCase()));
+  const nameOf = (email: string) => team.find((m) => m.email.toLowerCase() === email)?.name;
+
+  const q = query.trim().toLowerCase();
+  const suggestions = team.filter(
+    (m) => !recipients.includes(m.email.toLowerCase()) && (!q || m.email.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)),
+  );
+
+  /** Add a typed address (or the only matching suggestion). Team addresses only. */
+  function add(raw: string) {
+    const v = raw.trim().replace(/[,;]+$/, "").toLowerCase();
+    if (!v) return;
+    const email = EMAIL.test(v) ? v : suggestions.length === 1 ? suggestions[0].email.toLowerCase() : null;
+    if (!email) return setInputError(`“${raw.trim()}” isn't an email address.`);
+    if (!teamEmails.has(email)) return setInputError(`${email} isn't on the FMG team — scheduled reports only go to team addresses.`);
+    setRecipients((r) => (r.includes(email) ? r : [...r, email]));
+    setQuery("");
+    setInputError(null);
+  }
+  const removeRecipient = (email: string) => setRecipients((r) => r.filter((x) => x !== email));
+
   const field = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-brand-400 focus:outline-none";
 
   return (
@@ -76,7 +103,7 @@ export default function ScheduleEditor({
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-lg font-semibold text-ink">Email this report</h2>
-            <p className="mt-0.5 text-sm text-ink-muted">Sent with live numbers each time. Team members only.</p>
+            <p className="mt-0.5 text-sm text-ink-muted">Sent with live numbers each time. FMG team addresses only.</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 text-ink-muted hover:bg-surface-muted" aria-label="Close">
             <X className="h-5 w-5" />
@@ -135,27 +162,77 @@ export default function ScheduleEditor({
           )}
         </div>
 
-        <div className="mt-4 text-xs font-medium text-ink-secondary">Send to</div>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {team.map((m) => {
-            const picked = recipients.includes(m.email);
-            return (
-              <button
-                key={m.email}
-                type="button"
-                onClick={() => toggle(m.email)}
-                title={m.email}
-                className={clsx(
-                  "flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition",
-                  picked ? "border-brand-500 bg-brand-50 text-brand-700" : "border-line text-ink-secondary hover:border-line-strong",
-                )}
-              >
-                {picked && <Check className="h-3 w-3" />}
-                {m.name}
-              </button>
-            );
-          })}
+        <label htmlFor="report-recipients" className="mt-4 block text-xs font-medium text-ink-secondary">
+          Send to
+        </label>
+        <div className="relative mt-1">
+          <div
+            className="flex min-h-[42px] flex-wrap items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1.5 focus-within:border-brand-400"
+            onClick={() => inputRef.current?.focus()}
+          >
+            {recipients.map((email) => (
+              <span key={email} className="flex items-center gap-1 rounded-full bg-brand-50 py-0.5 pl-2.5 pr-1 text-xs text-brand-700" title={nameOf(email)}>
+                {email}
+                <button
+                  type="button"
+                  onClick={() => removeRecipient(email)}
+                  className="rounded-full p-0.5 hover:bg-brand-100"
+                  aria-label={`Remove ${email}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            <input
+              id="report-recipients"
+              ref={inputRef}
+              type="email"
+              autoComplete="off"
+              value={query}
+              placeholder={recipients.length ? "Add another email…" : "Type an email address…"}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setInputError(null);
+              }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => {
+                setFocused(false);
+                if (query.trim()) add(query);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "," || e.key === ";" || e.key === "Tab") {
+                  if (!query.trim()) return;
+                  e.preventDefault();
+                  add(query);
+                } else if (e.key === "Backspace" && !query && recipients.length) {
+                  removeRecipient(recipients[recipients.length - 1]);
+                }
+              }}
+              className="min-w-[160px] flex-1 bg-transparent px-1 py-0.5 text-sm text-ink placeholder:text-ink-muted focus:outline-none"
+            />
+          </div>
+          {focused && suggestions.length > 0 && (
+            <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-overlay">
+              {suggestions.map((m) => (
+                <li key={m.email}>
+                  <button
+                    type="button"
+                    // mousedown, not click — the input's blur would close the list first
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      add(m.email);
+                    }}
+                    className="flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-sm hover:bg-surface-muted"
+                  >
+                    <span className="truncate text-ink">{m.email}</span>
+                    <span className="shrink-0 text-xs text-ink-muted">{m.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
+        {inputError && <p className="mt-1 text-xs text-critical">{inputError}</p>}
 
         <label className="mt-4 flex items-center gap-2 text-sm text-ink-secondary">
           <input type="checkbox" checked={attach} onChange={(e) => setAttach(e.target.checked)} className="h-4 w-4 accent-brand-600" />
@@ -169,7 +246,7 @@ export default function ScheduleEditor({
         )}
 
         <div className="mt-4 rounded-lg bg-surface-muted px-3 py-2 text-xs text-ink-secondary">
-          {recipients.length ? `${describeSchedule(draft)} to ${recipients.length} ${recipients.length === 1 ? "person" : "people"}.` : "Pick at least one person."}
+          {recipients.length ? `${describeSchedule(draft)} to ${recipients.length} ${recipients.length === 1 ? "person" : "people"}.` : "Add at least one email address."}
         </div>
         {error && <div className="mt-3 rounded-lg bg-critical-soft px-3 py-2 text-xs text-critical">{error}</div>}
 
