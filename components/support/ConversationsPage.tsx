@@ -8,8 +8,10 @@ import {
   ChevronLeft,
   Loader2,
   MessageSquare,
+  Receipt,
   Search,
   Send,
+  ShoppingBag,
   StickyNote,
   User,
   Wrench,
@@ -31,6 +33,26 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
  */
 
 type Status = "bot" | "needs_human" | "human" | "closed";
+
+/** /api/support/conversions — is the concierge selling? */
+type Conversions =
+  | { ready: false }
+  | {
+      ready: true;
+      days: number;
+      summary: {
+        chats: number;
+        chatsWithAdd: number;
+        addValue: number;
+        orders: number;
+        paidOrders: number;
+        paidRevenue: number;
+      };
+      byId: Record<string, { bagAdds: number; orderNumber: number | null; paid: boolean }>;
+    };
+
+const pct = (n: number, of: number) => (of ? `${((n / of) * 100).toFixed(1)}%` : "—");
+const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
 type Conversation = {
   id: string;
@@ -154,6 +176,7 @@ export default function ConversationsPage() {
   const [notReady, setNotReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [conversions, setConversions] = useState<Conversions | null>(null);
 
   const [tab, setTab] = useState<"all" | Status>("needs_human");
   const [storeFilter, setStoreFilter] = useState<"all" | "sassy" | "ni">("all");
@@ -189,6 +212,15 @@ export default function ConversationsPage() {
       setError("Couldn't load conversations.");
     } finally {
       setLoading(false);
+    }
+    // Conversions ride along, but never break the inbox if they fail.
+    try {
+      const res = await fetch(`/api/support/conversions?store=${storeFilter}&days=30`, {
+        headers: await authHeader(),
+      });
+      if (res.ok) setConversions(await res.json());
+    } catch {
+      // keep the last read
     }
   }, [tab, storeFilter]);
 
@@ -308,6 +340,42 @@ export default function ConversationsPage() {
         </div>
       ) : (
         <>
+          {/* Is the concierge selling? Chats in the last 30 days that led to
+              an add-to-bag tap on something it offered, and to an order in the
+              same visit. Follows the store filter. */}
+          {conversions?.ready ? (
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-gray-200 bg-gray-200 sm:grid-cols-4">
+              {[
+                { label: `Chats · last ${conversions.days} days`, value: conversions.summary.chats.toLocaleString(), sub: "conversations started" },
+                {
+                  label: "Added to bag",
+                  value: pct(conversions.summary.chatsWithAdd, conversions.summary.chats),
+                  sub: `${conversions.summary.chatsWithAdd} chats · ${usd(conversions.summary.addValue)} added`,
+                },
+                {
+                  label: "Ordered after chat",
+                  value: pct(conversions.summary.orders, conversions.summary.chats),
+                  sub: `${conversions.summary.orders} orders · ${conversions.summary.paidOrders} paid`,
+                },
+                { label: "Paid revenue", value: usd(conversions.summary.paidRevenue), sub: "from chat-assisted orders" },
+              ].map((k) => (
+                <div key={k.label} className="bg-white px-4 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-400">{k.label}</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900">{k.value}</p>
+                  <p className="text-[11px] text-gray-400">{k.sub}</p>
+                </div>
+              ))}
+            </div>
+          ) : conversions && !conversions.ready ? (
+            <p className="rounded-xl border border-dashed border-gray-200 px-4 py-2.5 text-xs text-gray-400">
+              Conversion tracking starts once{" "}
+              <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px]">
+                supabase/migrations/20261102010000_support_conversation_conversions.sql
+              </code>{" "}
+              has been run.
+            </p>
+          ) : null}
+
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-2">
             {STATUS_TABS.map((t) => (
@@ -394,6 +462,32 @@ export default function ConversationsPage() {
                           {c.store}
                           {c.channel === "wholesale" ? " · wholesale" : ""}
                         </span>
+                        {(() => {
+                          const cv = conversions?.ready ? conversions.byId[c.id] : undefined;
+                          if (!cv) return null;
+                          return (
+                            <>
+                              {cv.bagAdds > 0 ? (
+                                <span
+                                  title={`${cv.bagAdds} added to bag from chat`}
+                                  className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+                                >
+                                  <ShoppingBag size={10} /> {cv.bagAdds}
+                                </span>
+                              ) : null}
+                              {cv.orderNumber ? (
+                                <span
+                                  title={cv.paid ? "Paid order after this chat" : "Order placed after this chat (not paid)"}
+                                  className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                    cv.paid ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600"
+                                  }`}
+                                >
+                                  <Receipt size={10} /> #{cv.orderNumber}
+                                </span>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                         <span className="ml-auto text-[10px] text-gray-400">
                           {when(c.last_message_at)}
                         </span>
