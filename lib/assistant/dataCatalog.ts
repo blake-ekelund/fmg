@@ -224,6 +224,26 @@ const DATASETS: Record<string, Dataset> = {
     },
     defaultOrder: { column: "month", ascending: false },
   },
+  sales_by_product_day: {
+    title: "Sales by product, day and channel",
+    description:
+      "The same Fishbowl sales as sales_by_product_month, per completed DAY (day = the date the order completed; month = its month). Use it for periods that aren't whole months (month-to-date, last 7 days, Nov 1–2 vs last year). Reports switch to it automatically when their period needs days.",
+    source: "sales_by_product_day_channel",
+    page: "/sales",
+    columns: {
+      day: "YYYY-MM-DD",
+      month: "YYYY-MM-01",
+      segment: "Wholesale | D2C",
+      productnum: "part number",
+      display_name: "",
+      fragrance: "",
+      typename: "Sale, Discount Amount, …",
+      brand: "NI | Sassy",
+      units_fulfilled: "",
+      revenue: "",
+    },
+    defaultOrder: { column: "day", ascending: false },
+  },
   sales_orders: {
     title: "Fishbowl sales orders",
     description: "One row per Fishbowl sales order (all channels). datecompleted is when it was fulfilled. Line items are in sales_order_items.",
@@ -542,6 +562,26 @@ export function datasetsForRole(role: UserRole): string[] {
 }
 
 /** The catalog as text, for the query tool's description. */
+/** A dataset's catalog entry (title, what a row is, its source view and columns) — for the Excel Read Me. */
+export function datasetInfo(name: string): { title: string; description: string; source: string; columns: string[] } | null {
+  const d = DATASETS[name];
+  return d ? { title: d.title, description: d.description, source: d.source, columns: Object.keys(d.columns) } : null;
+}
+
+/* The date a report's period filters on. Datasets without one (stock, products,
+   customer lists) are snapshots — the period doesn't apply to them. */
+const DATE_COLUMNS: Record<string, string> = {
+  sales_by_product_month: "month",
+  sales_by_product_day: "day",
+  sales_orders: "datecompleted",
+};
+
+export function datasetDateColumn(name: string): string | null {
+  const d = DATASETS[name];
+  if (!d) return null;
+  return DATE_COLUMNS[name] ?? ("created_at" in d.columns ? "created_at" : null);
+}
+
 export function describeDatasets(names: string[]): string {
   return names
     .map((n) => {

@@ -4,7 +4,7 @@ import { resolveSender } from "@/lib/email/sender";
 import { sendResendEmail } from "@/lib/email/resend";
 import { bulkSendOrigin } from "@/lib/email/bulkSend";
 import { buildReportWorkbook, reportFilename } from "./excel";
-import { runReport } from "./run";
+import { runReportForPeriod, type PeriodRun } from "./run";
 import { describeSchedule, nextRunAt } from "./schedule";
 import { chartData, formatCell, formatOf, formatValue, kpiDelta, labelFor, pivotize } from "./shape";
 import { internalEmails } from "./store";
@@ -117,17 +117,22 @@ function widgetBlock(w: Widget, r: WidgetResult | undefined): string {
   return `<tr><td style="padding:22px 28px 0">${head}<div style="padding-top:10px">${body}</div></td></tr>`;
 }
 
-export function renderReportEmail(report: Report, results: WidgetResult[], origin: string): { subject: string; html: string } {
-  const byId = new Map(results.map((r) => [r.id, r]));
+export function renderReportEmail(report: Report, run: PeriodRun, origin: string): { subject: string; html: string } {
+  const byId = new Map(run.results.map((r) => [r.id, r]));
+  const p = run.period;
+  const periodLine = `${p.label}${p.compareLabel ? ` · compared with ${p.compareLabel}` : ""}`;
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "America/Chicago" });
-  const kpis = report.widgets.filter((w) => w.type === "kpi");
-  const rest = report.widgets.filter((w) => w.type !== "kpi");
+  // The widgets as they ran for the period (dates, grain and comparison labels set).
+  const kpis = run.widgets.filter((w) => w.type === "kpi");
+  const rest = run.widgets.filter((w) => w.type !== "kpi");
   const link = `${origin}/reports/${report.id}`;
   const html = `<!doctype html><html><body style="margin:0;background:#F7F9FB;font-family:Helvetica,Arial,sans-serif;color:#0F1C26">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F9FB"><tr><td align="center" style="padding:28px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#FFFFFF;border-radius:14px;border:1px solid ${LINE}">
 <tr><td style="padding:26px 28px 0"><div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:${MUTED}">FMG report · ${esc(today)}</div>
 <div style="font-size:22px;font-weight:700;color:${NAVY};padding-top:6px">${esc(report.title)}</div>
+<div style="font-size:13px;font-weight:600;color:#3C4D5A;padding-top:4px">${esc(periodLine)}</div>
+${run.note ? `<div style="font-size:12px;color:${MUTED};padding-top:2px">${esc(run.note)}</div>` : ""}
 ${report.description ? `<div style="font-size:13px;color:#3C4D5A;padding-top:4px">${esc(report.description)}</div>` : ""}</td></tr>
 ${kpis.length ? `<tr><td style="padding:16px 28px 0">${kpiTiles(kpis, byId)}</td></tr>` : ""}
 ${rest.map((w) => widgetBlock(w, byId.get(w.id))).join("\n")}
@@ -147,18 +152,19 @@ async function ownerRole(ownerId: string): Promise<UserRole | null> {
 }
 
 /** Build + send one report email. `to` overrides the schedule's recipients ("send me a copy now"). */
-export async function deliverReport(report: Report, opts: { to?: string[]; role?: UserRole } = {}): Promise<{ sent: number; to: string[] }> {
+export async function deliverReport(report: Report, opts: { to?: string[]; role?: UserRole; period?: unknown } = {}): Promise<{ sent: number; to: string[] }> {
   const role = opts.role ?? (await ownerRole(report.owner_id));
   if (!role) throw new Error("The report's owner no longer has staff access.");
   const staff = await internalEmails();
   const to = (opts.to ?? report.schedule?.recipients ?? []).map((e) => e.trim().toLowerCase()).filter((e) => staff.has(e));
   if (!to.length) throw new Error("No FMG team recipients to send to.");
 
-  const results = await runReport(report.widgets, role, 5000);
-  const { subject, html } = renderReportEmail(report, results, bulkSendOrigin());
+  // "Email me a copy" sends the period on screen; the schedule sends the report's default.
+  const run = await runReportForPeriod(report.widgets, opts.period ?? report.period, role, 5000);
+  const { subject, html } = renderReportEmail(report, run, bulkSendOrigin());
   const attach = report.schedule?.attach_excel !== false;
   const attachments = attach
-    ? [{ filename: reportFilename(report.title), content: Buffer.from(await buildReportWorkbook(report, results)).toString("base64") }]
+    ? [{ filename: reportFilename(report.title), content: Buffer.from(await buildReportWorkbook(report, run, role)).toString("base64") }]
     : undefined;
   const sender = resolveSender({ fromName: "FMG Reports" });
   await sendResendEmail({ from: sender.from, replyTo: sender.replyTo, to, subject, html, attachments });

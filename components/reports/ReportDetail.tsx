@@ -24,19 +24,25 @@ import PageMeta from "@/components/PageMeta";
 import { SAGE_REPORT_EVENT, openHelpAssistant } from "@/components/HelpAssistant";
 import { downloadReport, reportsApi } from "@/lib/reports/client";
 import { describeSchedule } from "@/lib/reports/schedule";
+import { DEFAULT_PERIOD, normalizePeriod, type ReportPeriod, type ResolvedPeriod } from "@/lib/reports/reportPeriod";
 import ChartWidget from "./ChartWidget";
+import PeriodBar from "./PeriodBar";
 import { CHART_KINDS, type ChartKind, type Report, type Schedule, type Widget, type WidgetResult } from "@/lib/reports/types";
 import ScheduleEditor from "./ScheduleEditor";
 import { KpiTile, WidgetBody } from "./WidgetView";
 
 /* One custom report: live KPI tiles, charts, pivots and tables (re-run on every
-   view under the viewer's role), plus — for its creator or an admin — layout
-   tweaks, the email schedule, and Sage's recommended additions. Charts carry
-   their own period switcher and click-to-drill drawer (ChartWidget). */
+   view under the viewer's role) for ONE period set in the period bar, plus —
+   for its creator or an admin — layout tweaks, the email schedule, and Sage's
+   recommended additions. Charts carry their click-to-drill drawer (ChartWidget). */
 
 type Loaded = {
   report: Report;
   results: WidgetResult[];
+  /** The widgets as they ran for the period (dates, grain, comparisons set). */
+  effective: Widget[];
+  period: ResolvedPeriod;
+  periodNote: string | null;
   canEdit: boolean;
   team: { name: string; email: string }[];
   myEmail: string | null;
@@ -63,14 +69,17 @@ export default function ReportDetail({ id }: { id: string }) {
   const [menu, setMenu] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+  // The viewer's own period; null = the report's saved default.
+  const [picked, setPicked] = useState<ReportPeriod | null>(null);
+  const periodQs = picked ? `?period=${encodeURIComponent(JSON.stringify(picked))}` : "";
   const load = useCallback(async () => {
     setError(null);
     try {
-      setData(await reportsApi<Loaded>(`/api/reports/${id}`));
+      setData(await reportsApi<Loaded>(`/api/reports/${id}${periodQs}`));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load the report.");
     }
-  }, [id]);
+  }, [id, periodQs]);
 
   // `v` changes when Sage edits this report (its "Open report" link), so reload.
   useEffect(() => {
@@ -126,6 +135,10 @@ export default function ReportDetail({ id }: { id: string }) {
 
   const { report, results, canEdit } = data;
   const byId = new Map(results.map((r) => [r.id, r]));
+  // Show each widget as it ran for the period; edits still save the stored definition.
+  const ran = new Map((data.effective ?? []).map((w) => [w.id, w]));
+  const shown = (w: Widget) => ran.get(w.id) ?? w;
+  const savedPeriod = normalizePeriod(report.period ?? DEFAULT_PERIOD);
   const kpis = report.widgets.filter((w) => w.type === "kpi");
   const blocks = report.widgets.filter((w) => w.type !== "kpi");
   const widgets = report.widgets;
@@ -261,7 +274,7 @@ export default function ReportDetail({ id }: { id: string }) {
             <button className={btn} onClick={() => run("refresh", load)} disabled={!!busy}>
               <RefreshCw className={clsx("h-4 w-4", busy === "refresh" && "animate-spin")} /> Refresh
             </button>
-            <button className={btn} onClick={() => run("download", () => downloadReport(`/api/reports/${id}/export`, "report.xlsx"))} disabled={!!busy}>
+            <button className={btn} onClick={() => run("download", () => downloadReport(`/api/reports/${id}/export${periodQs}`, "report.xlsx"))} disabled={!!busy}>
               {busy === "download" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Excel
             </button>
             <button
@@ -269,7 +282,7 @@ export default function ReportDetail({ id }: { id: string }) {
               disabled={!!busy}
               onClick={() =>
                 run("email", async () => {
-                  await reportsApi(`/api/reports/${id}/send`, { method: "POST" });
+                  await reportsApi(`/api/reports/${id}/send`, { method: "POST", body: { period: data.period.period } });
                   setNotice(`Sent to ${data.myEmail ?? "you"}.`);
                 })
               }
@@ -311,6 +324,25 @@ export default function ReportDetail({ id }: { id: string }) {
         )}
       </div>
 
+      {data.period && (
+        <PeriodBar
+          resolved={data.period}
+          picked={picked}
+          saved={savedPeriod}
+          canEdit={canEdit}
+          busy={!!busy}
+          onChange={setPicked}
+          onSaveDefault={(p) =>
+            void run("save", async () => {
+              await patch({ period: p });
+              setPicked(null);
+              setNotice("Saved as this report's default period — the scheduled email uses it too.");
+            })
+          }
+        />
+      )}
+      {data.periodNote && <div className="rounded-xl bg-warning-soft px-4 py-2 text-xs text-warning">{data.periodNote}</div>}
+
       {notice && (
         <div className="flex items-center justify-between rounded-xl bg-surface-sunken px-4 py-2 text-sm text-ink-secondary">
           {notice}
@@ -333,7 +365,7 @@ export default function ReportDetail({ id }: { id: string }) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {kpis.map((w) => (
             <div key={w.id} className="group relative">
-              <KpiTile w={w} r={byId.get(w.id)} />
+              <KpiTile w={shown(w)} r={byId.get(w.id)} />
               <div className="absolute right-2 top-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">{widgetMenu(w)}</div>
             </div>
           ))}
@@ -345,14 +377,7 @@ export default function ReportDetail({ id }: { id: string }) {
           {blocks.map((w) => (
             <section key={w.id} className={clsx("min-w-0 rounded-2xl border border-line bg-surface p-5 shadow-card", w.size !== "half" && "lg:col-span-2")}>
               {w.type === "chart" ? (
-                <ChartWidget
-                  key={`${data.ranAt}:${JSON.stringify(w)}`}
-                  w={w}
-                  r={byId.get(w.id)}
-                  menu={widgetMenu(w)}
-                  canEdit={canEdit}
-                  onSaveDefault={(next) => void setWidgets(widgets.map((x) => (x.id === w.id ? next : x)), true)}
-                />
+                <ChartWidget key={`${data.ranAt}:${JSON.stringify(shown(w))}`} w={shown(w)} r={byId.get(w.id)} menu={widgetMenu(w)} />
               ) : (
                 <>
                   <div className="mb-3 flex items-start justify-between gap-2">
@@ -362,7 +387,7 @@ export default function ReportDetail({ id }: { id: string }) {
                     </div>
                     {widgetMenu(w)}
                   </div>
-                  <WidgetBody w={w} r={byId.get(w.id)} />
+                  <WidgetBody w={shown(w)} r={byId.get(w.id)} />
                 </>
               )}
             </section>

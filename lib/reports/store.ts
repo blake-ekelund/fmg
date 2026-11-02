@@ -4,6 +4,7 @@ import { getAllowedPaths } from "@/components/navConfig";
 import { requireInternalUser, type AuthProfile } from "@/lib/email/server-auth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { normalizeWidgets } from "./run";
+import { normalizePeriod } from "./reportPeriod";
 import { nextRunAt, normalizeSchedule } from "./schedule";
 import type { Report, Schedule } from "./types";
 
@@ -11,8 +12,14 @@ import type { Report, Schedule } from "./types";
    internal staff — it's a small team — but every view re-runs the queries
    under the viewer's role. Only the creator or an owner/admin edits one. */
 
-const COLS =
+const BASE_COLS =
   "id, owner_id, title, description, widgets, schedule, schedule_enabled, next_run_at, last_run_at, last_run_status, last_run_error, created_at, updated_at";
+const COLS = `${BASE_COLS}, period`;
+
+/* custom_reports.period arrives with migration 20261102000000 — until then
+   reads fall back to the columns without it (reports run month to date). */
+const noPeriodColumn = (error: { message?: string; code?: string } | null) =>
+  !!error && (error.code === "42703" || /period/.test(error.message ?? "")) && !/custom_reports"? does not exist/.test(error.message ?? "");
 
 /** Route guard: internal staff whose role can open /reports. Returns the user or a 401/403 response. */
 export async function requireReportsUser(request: Request): Promise<{ user: AuthProfile & { role: UserRole } } | { res: NextResponse }> {
@@ -41,21 +48,25 @@ async function ownerNames(ids: string[]): Promise<Map<string, string>> {
 }
 
 export async function listReports(): Promise<{ ready: boolean; items: Report[] }> {
-  const { data, error } = await supabaseServer.from("custom_reports").select(COLS).order("updated_at", { ascending: false }).limit(200);
+  const list = (cols: string) => supabaseServer.from("custom_reports").select(cols).order("updated_at", { ascending: false }).limit(200);
+  let { data, error } = await list(COLS);
+  if (noPeriodColumn(error)) ({ data, error } = await list(BASE_COLS));
   if (error) {
     if (!reportsReady(error)) return { ready: false, items: [] };
     throw new Error(error.message);
   }
-  const rows = (data ?? []) as Report[];
+  const rows = (data ?? []) as unknown as Report[];
   const names = await ownerNames([...new Set(rows.map((r) => r.owner_id))]);
   return { ready: true, items: rows.map((r) => ({ ...r, owner_name: names.get(r.owner_id) ?? null })) };
 }
 
 export async function getReport(id: string): Promise<Report | null> {
-  const { data, error } = await supabaseServer.from("custom_reports").select(COLS).eq("id", id).maybeSingle();
+  const one = (cols: string) => supabaseServer.from("custom_reports").select(cols).eq("id", id).maybeSingle();
+  let { data, error } = await one(COLS);
+  if (noPeriodColumn(error)) ({ data, error } = await one(BASE_COLS));
   if (error) throw new Error(reportsReady(error) ? error.message : "Reports aren't set up yet (database migration pending).");
   if (!data) return null;
-  const r = data as Report;
+  const r = data as unknown as Report;
   const names = await ownerNames([r.owner_id]);
   return { ...r, owner_name: names.get(r.owner_id) ?? null };
 }
@@ -130,9 +141,12 @@ export type ReportInput = {
   title?: unknown;
   description?: unknown;
   widgets?: unknown;
+  period?: unknown;
   schedule?: unknown;
   schedule_enabled?: unknown;
 };
+
+const PERIOD_MIGRATION = "Saving a default period needs a database update (migration 20261102000000).";
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -143,10 +157,11 @@ export async function createReport(ownerId: string, input: ReportInput): Promise
     description: text(input.description, 500) || null,
     widgets: normalizeWidgets(input.widgets ?? []),
   };
+  if (input.period !== undefined) row.period = input.period === null ? null : normalizePeriod(input.period);
   if (input.schedule !== undefined) Object.assign(row, await scheduleColumns(input.schedule, input.schedule_enabled !== false));
-  const { data, error } = await supabaseServer.from("custom_reports").insert(row).select(COLS).single();
-  if (error) throw new Error(reportsReady(error) ? error.message : "Reports aren't set up yet (database migration pending).");
-  return data as Report;
+  const { data, error } = await supabaseServer.from("custom_reports").insert(row).select(row.period === undefined ? BASE_COLS : COLS).single();
+  if (error) throw new Error(noPeriodColumn(error) ? PERIOD_MIGRATION : reportsReady(error) ? error.message : "Reports aren't set up yet (database migration pending).");
+  return data as unknown as Report;
 }
 
 export async function updateReport(existing: Report, input: ReportInput): Promise<Report> {
@@ -154,6 +169,7 @@ export async function updateReport(existing: Report, input: ReportInput): Promis
   if (input.title !== undefined) patch.title = text(input.title, 120) || existing.title;
   if (input.description !== undefined) patch.description = text(input.description, 500) || null;
   if (input.widgets !== undefined) patch.widgets = normalizeWidgets(input.widgets);
+  if (input.period !== undefined) patch.period = input.period === null ? null : normalizePeriod(input.period);
   if (input.schedule !== undefined) {
     Object.assign(patch, await scheduleColumns(input.schedule, input.schedule_enabled !== undefined ? input.schedule_enabled === true : true));
   } else if (input.schedule_enabled !== undefined && existing.schedule) {
@@ -162,9 +178,9 @@ export async function updateReport(existing: Report, input: ReportInput): Promis
     patch.schedule_enabled = on;
     patch.next_run_at = on ? nextRunAt(existing.schedule).toISOString() : null;
   }
-  const { data, error } = await supabaseServer.from("custom_reports").update(patch).eq("id", existing.id).select(COLS).single();
-  if (error) throw new Error(error.message);
-  return { ...(data as Report), owner_name: existing.owner_name };
+  const { data, error } = await supabaseServer.from("custom_reports").update(patch).eq("id", existing.id).select(patch.period === undefined ? BASE_COLS : COLS).single();
+  if (error) throw new Error(noPeriodColumn(error) ? PERIOD_MIGRATION : error.message);
+  return { ...existing, ...(data as unknown as Report), owner_name: existing.owner_name };
 }
 
 export async function deleteReport(id: string): Promise<void> {

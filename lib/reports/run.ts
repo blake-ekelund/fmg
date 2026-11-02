@@ -1,5 +1,6 @@
 import type { UserRole } from "@/components/UserContext";
-import { runQuery, type QuerySpec } from "@/lib/assistant/dataCatalog";
+import { datasetDateColumn, runQuery, type QuerySpec } from "@/lib/assistant/dataCatalog";
+import { applyPeriod, resolvePeriod, type ResolvedPeriod } from "./reportPeriod";
 import { CHART_KINDS, FORMATS, SIZES, WIDGET_TYPES, type Widget, type WidgetResult } from "./types";
 
 /* Server side of custom reports: validate a widget list (from the page or
@@ -102,6 +103,40 @@ export async function runWidget(w: Widget, role: UserRole, maxTableRows = TABLE_
   } catch (e) {
     return { id: w.id, ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+export type PeriodRun = {
+  period: ResolvedPeriod;
+  /** The widgets as they ran — date filters, grain and comparisons set by the period. */
+  widgets: Widget[];
+  results: WidgetResult[];
+  /** Set when daily sales weren't available and whole months were shown instead. */
+  note: string | null;
+};
+
+const DAILY_MISSING = /sales_by_product_day_channel/;
+
+/**
+ * Run a report for one period (the report's saved default, or what the viewer
+ * picked). Until the daily sales view exists, sales widgets fall back to whole
+ * months and say so.
+ */
+export async function runReportForPeriod(widgets: Widget[], rawPeriod: unknown, role: UserRole, maxTableRows = TABLE_ROWS): Promise<PeriodRun> {
+  const period = resolvePeriod(rawPeriod);
+  const opts = { dateColumnOf: datasetDateColumn, dailyAvailable: true };
+  let effective = widgets.map((w) => applyPeriod(w, period, opts));
+  let results = await runReport(effective, role, maxTableRows);
+  let note: string | null = null;
+  if (results.some((r) => !r.ok && DAILY_MISSING.test(r.error))) {
+    const monthly = { ...opts, dailyAvailable: false };
+    effective = effective.map((w, i) => {
+      const r = results[i];
+      return !r.ok && DAILY_MISSING.test(r.error) ? applyPeriod(widgets[i], period, monthly) : w;
+    });
+    results = await runReport(effective, role, maxTableRows);
+    note = "Sales figures show whole months — single-day sales need a database update (migration 20261102000000).";
+  }
+  return { period, widgets: effective, results, note };
 }
 
 /** Run every widget (in parallel, a few at a time). */

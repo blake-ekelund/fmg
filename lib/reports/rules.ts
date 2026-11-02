@@ -22,7 +22,7 @@ export const HOUSE_RULES: HouseRule[] = [
   { id: "currency", group: "Format", text: "All currency shows as $x,xxx — whole dollars with thousands commas, never cents or $12k abbreviations." },
   { id: "brand-colors", group: "Format", text: "Charts use brand colours: FMG navy and gold, Natural Inspirations green and Sassy raspberry whenever a series is a brand." },
   { id: "period-labels", group: "Format", text: "Months read Jan-26, Feb-26…; quarters read 2026 Q1; years 2026." },
-  { id: "time-periods", group: "Charts", text: "Every chart over time lets the viewer switch the period (range and month/quarter/year), so build trends on a date bucket (\"<date>:month\") with relative dates." },
+  { id: "time-periods", group: "Charts", text: "The report's one period (set at the top) drives every widget and picks the day/week/month grain, so build trends on a date bucket (\"<date>:month\")." },
   { id: "drillable", group: "Charts", text: "Every chart is clickable — a click opens the detail behind that bar or point — so chart what someone will want to dig into, from a dataset with detail behind it." },
   // Data correctness
   { id: "sale-only", group: "Data", text: "Fishbowl revenue and units come from sales by product with type “Sale” only — never mix in discounts, shipping or credit returns." },
@@ -34,9 +34,9 @@ export const HOUSE_RULES: HouseRule[] = [
   { id: "story-order", group: "Layout", text: "Order: headline KPIs → one trend over time → a breakdown that explains it → a detail list to act on." },
   { id: "kpi-count", group: "Layout", text: "At most 4 KPI tiles — the numbers someone would act on, not every metric available." },
   { id: "widget-count", group: "Layout", text: "Keep a report to about 8 widgets; make a second report rather than an endless one." },
-  { id: "titles", group: "Layout", text: "Plain titles that say the period: “Revenue by month (last 12)”, not “Revenue chart”." },
+  { id: "titles", group: "Layout", text: "Plain titles that say what, not when — the period bar says when: “Revenue by channel”, not “Revenue chart” or “Revenue this month”." },
   // KPIs
-  { id: "kpi-compare", group: "KPIs", text: "Every KPI over a period (this month, last 7 days…) has a comparison — prior period or same period last year — with a label saying which. Right-now counts (stock, open orders) don't need one." },
+  { id: "kpi-compare", group: "KPIs", text: "Every KPI gets its comparison (same period last year, or the period before) from the report's period setting — no hand-built compare queries. Right-now counts (stock, open orders) have none." },
   // Charts
   { id: "time-line", group: "Charts", text: "Trends over time use line, area or bar charts on a month/week/day bucket — never pie." },
   { id: "category-bar", group: "Charts", text: "Comparing categories (products, states, reps) uses a bar chart sorted biggest first; line charts are only for time." },
@@ -111,11 +111,8 @@ export function lintWidgets(widgets: Widget[]): Lint[] {
     const groups = (w.query.group_by ?? []).map(parseGroupKey);
     const timeX = !!groups[0]?.bucket;
 
+    // KPI comparisons come from the report's period (lib/reports/reportPeriod), not per widget.
     if (w.type === "kpi") {
-      // Only period KPIs ("this month", "last 7 days") — a right-now snapshot (stock, open orders) has no prior period.
-      const period = (w.query.filters ?? []).some((f) => [f.value].flat().some((v) => typeof v === "string" && (v.startsWith("@") || DATE_LITERAL.test(v))));
-      const summed = (w.query.metrics ?? []).some((m) => m.fn === "sum" || m.fn === "count");
-      if (period && summed && !w.compare_query) add(w, "warning", "kpi-compare", "Add a compare_query (prior period or same period last year) with a compare_label.");
       if (partialVsFull(w)) {
         add(w, "error", "same-window", "This compares a period still in progress with a whole finished one, so it always looks like a big drop. Compare the same days (on a dataset with daily dates), or show the last full period vs the one before.");
       }

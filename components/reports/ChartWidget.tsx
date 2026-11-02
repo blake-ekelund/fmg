@@ -6,54 +6,20 @@ import { ArrowDownRight, ArrowUpRight, Loader2, Sparkles, X } from "lucide-react
 import { openHelpAssistant } from "@/components/HelpAssistant";
 import { reportsApi } from "@/lib/reports/client";
 import { drillWidgets } from "@/lib/reports/drill";
-import { GRAIN_LABEL, RANGES, applyPeriod, defaultGrain, grainsFor, timeAxis, type Period, type RangeKey } from "@/lib/reports/periods";
+import { timeAxis } from "@/lib/reports/periods";
 import { chartData, formatOf, formatValue } from "@/lib/reports/shape";
 import type { Widget, WidgetResult } from "@/lib/reports/types";
 import { ChartBody, WidgetBody, type ChartClick } from "./WidgetView";
 
-/* A chart card on a report. Business rules live here: charts over time get a
-   period switcher (range + day/week/month/quarter/year), and every bar, point
-   or slice opens a drawer with the detail behind it. The viewer's period
-   choice is theirs alone; an editor can save it as the chart's default. */
+/* A chart card on a report. The period comes from the report's period bar
+   (one setting for the whole report); every bar, point or slice opens a
+   drawer with the detail behind it. */
 
 type Ok = Extract<WidgetResult, { ok: true }>;
 
-export default function ChartWidget({
-  w,
-  r,
-  menu,
-  canEdit,
-  onSaveDefault,
-}: {
-  w: Widget;
-  r: WidgetResult | undefined;
-  menu?: React.ReactNode;
-  canEdit: boolean;
-  onSaveDefault: (w: Widget) => void;
-}) {
-  const axis = timeAxis(w);
-  // The page remounts this (via `key`) when the definition or results change, resetting the period.
-  const [period, setPeriod] = useState<Period | null>(null);
-  const [override, setView] = useState<{ w: Widget; r: WidgetResult | undefined } | null>(null);
-  const view = override ?? { w, r };
-  const [loading, setLoading] = useState(false);
+export default function ChartWidget({ w, r, menu }: { w: Widget; r: WidgetResult | undefined; menu?: React.ReactNode }) {
+  const view = { w, r };
   const [pick, setPick] = useState<ChartClick | null>(null);
-
-  async function choose(p: Period) {
-    setPeriod(p);
-    const next = applyPeriod(w, p);
-    setLoading(true);
-    try {
-      const out = await reportsApi<{ widgets: Widget[]; results: WidgetResult[] }>("/api/reports/preview", { method: "POST", body: { widgets: [next] } });
-      setView({ w: out.widgets[0], r: out.results[0] });
-    } catch (e) {
-      setView({ w: next, r: { id: next.id, ok: false, error: e instanceof Error ? e.message : "Couldn't load that period." } });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const select = "rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink-secondary focus:border-brand-400 focus:outline-none";
 
   return (
     <>
@@ -62,55 +28,10 @@ export default function ChartWidget({
           <h2 className="text-sm font-semibold text-ink">{w.title}</h2>
           {w.note && <p className="mt-0.5 text-xs text-ink-muted">{w.note}</p>}
         </div>
-        <div className="flex items-center gap-1.5">
-          {axis && (
-            <>
-              <select
-                aria-label="Time period"
-                className={select}
-                value={period?.range ?? ""}
-                onChange={(e) => {
-                  const range = e.target.value as RangeKey;
-                  if (range) void choose({ range, grain: defaultGrain(w, range) });
-                }}
-              >
-                <option value="">{period ? "Custom" : "As built"}</option>
-                {RANGES.map((x) => (
-                  <option key={x.key} value={x.key}>
-                    {x.label}
-                  </option>
-                ))}
-              </select>
-              {period && (
-                <div className="flex overflow-hidden rounded-md border border-line">
-                  {grainsFor(w, period.range).map((g) => (
-                    <button
-                      key={g}
-                      onClick={() => choose({ ...period, grain: g })}
-                      className={clsx("px-2 py-1 text-xs", period.grain === g ? "bg-brand-700 text-white" : "bg-surface text-ink-secondary hover:bg-surface-muted")}
-                    >
-                      {GRAIN_LABEL[g]}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {period && canEdit && (
-                <button onClick={() => onSaveDefault(view.w)} className="text-xs text-brand-700 hover:underline" title="Make this the period everyone sees first">
-                  Save as default
-                </button>
-              )}
-            </>
-          )}
-          {menu}
-        </div>
+        <div className="flex items-center gap-1.5">{menu}</div>
       </div>
 
       <div className="relative [&_*:focus]:outline-none">
-        {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/60">
-            <Loader2 className="h-5 w-5 animate-spin text-brand-500" />
-          </div>
-        )}
         {view.r?.ok && view.r.rows.length ? (
           <>
             <ChartBody w={view.w} r={view.r} onPick={setPick} />

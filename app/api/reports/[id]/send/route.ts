@@ -19,7 +19,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
   if (!auth.user.email) return NextResponse.json({ error: "Your account has no email address." }, { status: 400 });
   try {
-    return NextResponse.json(await deliverReport(report, { to: [auth.user.email], role: auth.user.role }));
+    const body = (await request.json().catch(() => ({}))) as { period?: unknown };
+    return NextResponse.json(await deliverReport(report, { to: [auth.user.email], role: auth.user.role, period: body.period }));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't send the report." }, { status: 500 });
   }

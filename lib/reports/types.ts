@@ -1,4 +1,5 @@
 import type { QuerySpec } from "@/lib/assistant/dataCatalog";
+import type { ReportPeriod } from "./reportPeriod";
 
 /**
  * A custom report = an ordered list of widgets, each a query over Sage's data
@@ -62,6 +63,8 @@ export type Report = {
   title: string;
   description: string | null;
   widgets: Widget[];
+  /** The default period every widget reads (null → month to date vs last year). */
+  period?: ReportPeriod | null;
   schedule: Schedule | null;
   schedule_enabled: boolean;
   next_run_at: string | null;

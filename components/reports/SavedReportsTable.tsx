@@ -3,13 +3,13 @@
 import Link from "next/link";
 import clsx from "clsx";
 import { useMemo, useState } from "react";
-import { CalendarClock, Download, ExternalLink, Loader2, Pause, Pencil, Play, Search, Trash2 } from "lucide-react";
+import { CalendarClock, Download, ExternalLink, Loader2, Pause, Play, Search, Trash2 } from "lucide-react";
 import { downloadReport, reportsApi } from "@/lib/reports/client";
 import { describeSchedule } from "@/lib/reports/schedule";
 import type { Report, Schedule } from "@/lib/reports/types";
 import ScheduleEditor from "./ScheduleEditor";
 
-/* Every saved report as one table: open, rename, download, change or pause the
+/* Every saved report as one table: open, download, change or pause the
    email schedule, delete. Rows the viewer can't edit (someone else's report,
    and they're not an owner/admin) only get Open and Download. */
 
@@ -32,7 +32,6 @@ export default function SavedReportsTable({
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState<ReportRow | null>(null);
 
   const shown = useMemo(() => {
@@ -93,26 +92,9 @@ export default function SavedReportsTable({
             {shown.map((r) => (
               <tr key={r.id} className="border-t border-line align-top hover:bg-surface-muted/50">
                 <td className="max-w-[340px] px-4 py-3">
-                  {renaming === r.id ? (
-                    <input
-                      autoFocus
-                      defaultValue={r.title}
-                      className="w-full rounded-md border border-line px-2 py-1 text-sm"
-                      onBlur={(e) => {
-                        setRenaming(null);
-                        const title = e.target.value.trim();
-                        if (title && title !== r.title) void act(`rename:${r.id}`, () => patch(r, { title }));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                        if (e.key === "Escape") setRenaming(null);
-                      }}
-                    />
-                  ) : (
-                    <Link href={`/reports/${r.id}`} className="font-medium text-ink hover:text-brand-700">
-                      {r.title}
-                    </Link>
-                  )}
+                  <Link href={`/reports/${r.id}`} className="font-medium text-ink hover:text-brand-700">
+                    {r.title}
+                  </Link>
                   {r.description && <div className="mt-0.5 line-clamp-1 text-xs text-ink-muted">{r.description}</div>}
                   <div className="mt-0.5 text-[11px] text-ink-subtle">
                     {r.widgets.length} {r.widgets.length === 1 ? "widget" : "widgets"}
@@ -165,9 +147,6 @@ export default function SavedReportsTable({
                     </button>
                     {r.canEdit && (
                       <>
-                        <button className={iconBtn} title="Rename" onClick={() => setRenaming(r.id)}>
-                          <Pencil className="h-4 w-4" />
-                        </button>
                         <button className={iconBtn} title={r.schedule ? "Change email schedule" : "Add email schedule"} onClick={() => setScheduling(r)}>
                           <CalendarClock className="h-4 w-4" />
                         </button>

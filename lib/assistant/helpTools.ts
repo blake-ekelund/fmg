@@ -11,6 +11,7 @@ import { normalizeWidgets, runReport } from "@/lib/reports/run";
 import { describeSchedule } from "@/lib/reports/schedule";
 import { canEdit, createReport, getReport, listReports, resolveRecipients, updateReport, type ReportInput } from "@/lib/reports/store";
 import { houseRulesText, lintWidgets } from "@/lib/reports/rules";
+import { COMPARE_MODES, PERIOD_PRESETS } from "@/lib/reports/reportPeriod";
 import { CHART_KINDS, FORMATS, FREQUENCIES, WIDGET_TYPES, type Widget } from "@/lib/reports/types";
 
 /**
@@ -541,6 +542,19 @@ export function widgetSchema(datasets: string[]): Anthropic.Tool.InputSchema {
   };
 }
 
+/* The report's one period (lib/reports/reportPeriod). */
+const PERIOD_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  description: "The date range every widget reads. Default: month to date vs the same days last year.",
+  properties: {
+    preset: { type: "string", enum: PERIOD_PRESETS.map((x) => x.key) },
+    from: { type: "string", description: "custom only: YYYY-MM-DD (inclusive)" },
+    to: { type: "string", description: "custom only: YYYY-MM-DD (inclusive)" },
+    compare: { type: "string", enum: COMPARE_MODES.map((x) => x.key), description: "last_year = same dates a year earlier; prior = the period just before" },
+  },
+  required: ["preset", "compare"],
+};
+
 const SCHEDULE_SCHEMA = {
   type: ["object", "null"],
   description: "Email delivery. null removes the schedule. Times are Central and snap to the quarter hour.",
@@ -610,7 +624,7 @@ function customReportTools(datasets: string[]): HelpTool[] {
       status: "Building the report…",
       def: {
         name: "create_report",
-        description: `Create a saved custom report on the Reports page — a live dashboard of KPI tiles, charts, pivot tables and tables that re-runs on every view — optionally emailed on a schedule (daily, weekdays, weekly, monthly at a set time) to FMG team members. Use when the user wants a report/dashboard they'll come back to or receive regularly (a one-off spreadsheet is export_report). Every widget is run first; if any errors or returns nothing, nothing is saved and you get the problems back to fix. Use relative dates (@start_of_month…) so it stays current. Typical shape: 2-4 KPIs on top (with compare_query vs the prior period), a trend chart (group_by "<date>:month" or ":week"), a breakdown (pivot or bar chart by brand / channel / product), then a detail table.
+        description: `Create a saved custom report on the Reports page — a live dashboard of KPI tiles, charts, pivot tables and tables that re-runs on every view — optionally emailed on a schedule (daily, weekdays, weekly, monthly at a set time) to FMG team members. Use when the user wants a report/dashboard they'll come back to or receive regularly (a one-off spreadsheet is export_report). Every widget is run first; if any errors or returns nothing, nothing is saved and you get the problems back to fix. ONE PERIOD: a report has one period (period param, default month to date vs the same days last year) that replaces every widget's own date filters, sets the chart grain and builds every KPI comparison — so don't name a period in titles, and don't hand-build compare queries unless asked. Typical shape: 2-4 KPIs on top, a trend chart (group_by "<date>:month" or ":week"), a breakdown (pivot or bar chart by brand / channel / product), then a detail table.
 
 REPORT RULES — set by the business; follow every one, even if the user asks otherwise (some are checked: breaking a checked rule blocks the save or comes back as a warning). The app formats every value and label and colours every chart itself, so never put formatting in titles or labels.
 ${houseRulesText()}`,
@@ -620,6 +634,7 @@ ${houseRulesText()}`,
             title: { type: "string" },
             description: { type: "string", description: "One sentence: what it's for." },
             widgets: { type: "array", items: widgetSchema(datasets) },
+            period: PERIOD_SCHEMA,
             schedule: SCHEDULE_SCHEMA as unknown as Record<string, unknown>,
           },
           required: ["title", "widgets"],
@@ -633,6 +648,7 @@ ${houseRulesText()}`,
           title: input.title,
           description: input.description,
           widgets,
+          ...(input.period !== undefined ? { period: input.period } : {}),
           ...(await scheduleInput(input, ctx)),
         });
         return {
@@ -655,7 +671,7 @@ ${houseRulesText()}`,
       def: {
         name: "update_report",
         description:
-          "Change a saved report: rename it, replace its widget list (send the FULL list — keep existing widgets' ids and definitions, add/remove/reorder/edit as asked; get them first with find_reports), or set / change / remove (null) its email schedule, or pause/resume it (schedule_enabled). Widgets are re-checked before saving.",
+          "Change a saved report: rename it, set its period (period — the one date range every widget reads, e.g. { preset: 'last_month', compare: 'last_year' }), replace its widget list (send the FULL list — keep existing widgets' ids and definitions, add/remove/reorder/edit as asked; get them first with find_reports), or set / change / remove (null) its email schedule, or pause/resume it (schedule_enabled). Widgets are re-checked before saving.",
         input_schema: {
           type: "object",
           properties: {
@@ -663,6 +679,7 @@ ${houseRulesText()}`,
             title: { type: "string" },
             description: { type: "string" },
             widgets: { type: "array", items: widgetSchema(datasets) },
+            period: PERIOD_SCHEMA,
             schedule: SCHEDULE_SCHEMA as unknown as Record<string, unknown>,
             schedule_enabled: { type: "boolean", description: "false pauses the emails, true resumes them." },
           },
@@ -678,6 +695,7 @@ ${houseRulesText()}`,
         const patch: ReportInput = { ...(await scheduleInput(input, ctx)) };
         if (input.title !== undefined) patch.title = input.title;
         if (input.description !== undefined) patch.description = input.description;
+        if (input.period !== undefined) patch.period = input.period;
         if (typeof input.schedule_enabled === "boolean") patch.schedule_enabled = input.schedule_enabled;
         let probe: Awaited<ReturnType<typeof probeWidgets>> | undefined;
         let warnings: string[] = [];

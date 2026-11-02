@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runReport } from "@/lib/reports/run";
+import { runReportForPeriod } from "@/lib/reports/run";
 import { canEdit, deleteReport, getReport, isUuid, requireReportsUser, teamMembers, updateReport } from "@/lib/reports/store";
 
 export const runtime = "nodejs";
@@ -8,9 +8,10 @@ export const maxDuration = 60;
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * GET    /api/reports/<id> — the report + every widget's data, run under the
- *                            VIEWER's role (widgets they can't see come back as errors).
- * PATCH  /api/reports/<id> — { title?, description?, widgets?, schedule? (null clears), schedule_enabled? }
+ * GET    /api/reports/<id>[?period=<json>] — the report + every widget's data for
+ *                            the period (the viewer's pick, else the report's default),
+ *                            run under the VIEWER's role (widgets they can't see come back as errors).
+ * PATCH  /api/reports/<id> — { title?, description?, widgets?, period?, schedule? (null clears), schedule_enabled? }
  * DELETE /api/reports/<id>
  * Editing is the creator's or an owner/admin's.
  */
@@ -22,10 +23,14 @@ export async function GET(request: Request, ctx: Ctx) {
   try {
     const report = await getReport(id);
     if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
-    const [results, team] = await Promise.all([runReport(report.widgets, auth.user.role), teamMembers()]);
+    const picked = new URL(request.url).searchParams.get("period");
+    const [run, team] = await Promise.all([runReportForPeriod(report.widgets, picked ? JSON.parse(picked) : report.period, auth.user.role), teamMembers()]);
     return NextResponse.json({
       report,
-      results,
+      results: run.results,
+      effective: run.widgets,
+      period: run.period,
+      periodNote: run.note,
       canEdit: canEdit(report, auth.user),
       team,
       myEmail: auth.user.email,
