@@ -10,6 +10,7 @@ import {
   Server,
   User,
   Bot,
+  CheckCircle2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
@@ -18,15 +19,18 @@ import PageMeta from "@/components/PageMeta";
  * Technical Roadmap — an internal, admin-only reference for the integration
  * work in flight. Right now it documents the Point B / Synapse (Zethcon) 3PL
  * connection: how orders and shipments flow today through LilyPad (Sharpe
- * Concepts), the reverse-engineered mechanism, and the plan to bring that
- * connector in-house. Static content — everything here was established from
- * read-only Fishbowl DB forensics + the Synapse API docs (2026-08-04).
+ * Concepts), the reverse-engineered mechanism, what we've built around it, and
+ * the plan to bring that connector in-house. Static content — established from
+ * read-only Fishbowl DB forensics + the Synapse API docs (2026-08-04); status
+ * last refreshed 2026-11-02. The build spec is docs/pointb-connector.md.
  */
 
-type Status = "in-progress" | "planned" | "investigate";
+type Status = "done" | "paused" | "in-progress" | "planned" | "investigate";
 
 const STATUS_STYLES: Record<Status, { label: string; className: string }> = {
-  "in-progress": { label: "In progress", className: "bg-amber-50 text-amber-700 ring-amber-200" },
+  done: { label: "Done", className: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  paused: { label: "Paused", className: "bg-amber-50 text-amber-700 ring-amber-200" },
+  "in-progress": { label: "In progress", className: "bg-sky-50 text-sky-700 ring-sky-200" },
   planned: { label: "Planned", className: "bg-gray-100 text-gray-600 ring-gray-200" },
   investigate: { label: "Investigate", className: "bg-violet-50 text-violet-700 ring-violet-200" },
 };
@@ -73,28 +77,30 @@ const STEPS: { n: number; title: string; status: Status; target: string; body: R
   {
     n: 1,
     title: "Replace LilyPad",
-    status: "in-progress",
-    target: "Target: end of week",
+    status: "paused",
+    target: "Blocked on: the Fishbowl write format",
     body: (
       <>
-        Bring the Fishbowl ↔ Synapse connector in-house and retire LilyPad (Sharpe Concepts).
-        Reverse-engineering is done: it&apos;s a <strong>Fishbowl REST poller</strong> (the same API the
-        portal already uses), so replacing it means reproducing <strong>phase&nbsp;1 only</strong> — write
-        the shipment record + tracking + marked-up freight line back onto the SO. Inventory relief and
-        QuickBooks stay a native Fishbowl step a human already does.
+        Bring the Fishbowl ↔ Synapse connector in-house and retire LilyPad (Sharpe Concepts). The
+        sending side is mapped and a test-only <Mono>create-order</Mono> probe works; the wholesale
+        freight formula is solved. What&apos;s left is the write-back: LilyPad writes to Fishbowl through
+        the <strong>legacy plugin API (port 28192)</strong>, not the REST API we use, and the exact
+        shipment-update message still has to be pinned down. Then: build it, shadow-run next to
+        LilyPad, cut over.
       </>
     ),
   },
   {
     n: 2,
-    title: "Sync Fishbowl inventory with Point B",
-    status: "planned",
-    target: "Next",
+    title: "Point B as the inventory source",
+    status: "done",
+    target: "Done Oct 26–28",
     body: (
       <>
-        Point B is the <strong>source of truth</strong> for inventory; Fishbowl and Zethcon have always
-        drifted. Pull Synapse&apos;s <Mono>inventory/by-customer</Mono> on a schedule and reconcile it into
-        Fishbowl / the storefront so availability stops lying.
+        Point B <strong>available</strong> stock (picked-for-order units excluded) now drives the
+        inventory forecast, the dashboard levers, storefront stock (synced every 15 min) and Faire.
+        The Variance Report flags where Fishbowl disagrees. Fishbowl&apos;s own counts are still
+        corrected by hand.
       </>
     ),
   },
@@ -102,7 +108,7 @@ const STEPS: { n: number; title: string; status: Status; target: string; body: R
     n: 3,
     title: "Evaluate the Shopify integration",
     status: "investigate",
-    target: "After #1–2",
+    target: "Not started",
     body: (
       <>
         Figure out exactly what the Shopify API integration does today, what it reads/writes, and
@@ -113,13 +119,58 @@ const STEPS: { n: number; title: string; status: Status; target: string; body: R
   },
 ];
 
+/* ── Built since August ────────────────────────────────────────── */
+
+const BUILT: { title: string; where: string; body: React.ReactNode }[] = [
+  {
+    title: "Order Check",
+    where: "System → Order Check",
+    body: <>Look up any SO# and see Fishbowl and Point B side by side, or run a batch check of recent orders.</>,
+  },
+  {
+    title: "Daily drift monitor",
+    where: "pointb-monitor cron",
+    body: (
+      <>
+        Emails only when something&apos;s off: an unknown Point B charge, a shipment missing in
+        Fishbowl, missing tracking, or a freight line that isn&apos;t fees × 1.25.
+      </>
+    ),
+  },
+  {
+    title: "Stock gate on order push",
+    where: "lib/orderStockCheck.ts",
+    body: <>Storefront and marketplace orders are held before going to Fishbowl if Point B doesn&apos;t have the stock.</>,
+  },
+  {
+    title: "Point B inventory sync",
+    where: "pointb-inventory-sync cron",
+    body: <>Saves Point B stock per part every 15 minutes, with a Refresh button on Inventory.</>,
+  },
+  {
+    title: "Variance Report",
+    where: "Catalog → Variance Report",
+    body: <>Fishbowl vs Point B by part, with unit fixes and archive, so drift is visible.</>,
+  },
+  {
+    title: "Create-order test probe",
+    where: "/api/pointb/create-order-test",
+    body: <>Sends one order to Synapse&apos;s test environment only; it refuses to run against production.</>,
+  },
+];
+
 /* ── Order → ship lifecycle ────────────────────────────────────── */
 
 const LIFECYCLE: { icon: LucideIcon; title: string; body: React.ReactNode; actor?: "auto" | "human" }[] = [
   {
     icon: ShoppingBag,
     title: "Store order → Fishbowl estimate",
-    body: <>A storefront order is auto-pushed into Fishbowl as an <strong>Estimate</strong>.</>,
+    body: (
+      <>
+        A storefront order is auto-pushed into Fishbowl as an <strong>Estimate</strong> — held first
+        if Point B doesn&apos;t have the stock.
+      </>
+    ),
     actor: "auto",
   },
   {
@@ -139,8 +190,9 @@ const LIFECYCLE: { icon: LucideIcon; title: string; body: React.ReactNode; actor
     title: "Ship data returns — phase 1",
     body: (
       <>
-        The poll pulls the shipment back and writes <strong>tracking + a freight line (Point B freight
-        ×1.25)</strong> onto the SO. <Mono>dateShipped</Mono> is still empty — no inventory moved yet.
+        The poll pulls the shipment back and writes <strong>tracking</strong> onto the SO. Wholesale
+        orders also get a <strong>Shipping line = Point B fees × 1.25</strong>; D2C orders get tracking
+        only. <Mono>dateShipped</Mono> is still empty — no inventory moved yet.
       </>
     ),
     actor: "auto",
@@ -178,7 +230,7 @@ export default function TechnicalRoadmapPage() {
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1100px] mx-auto space-y-8">
       <PageMeta
         title="Technical Roadmap"
-        description="Where the Point B / Synapse connection stands, and the plan to replace LilyPad with our own bridge."
+        description="Where the Point B / Synapse connection stands, what's built, and the plan to replace LilyPad with our own bridge."
       />
 
       {/* Roadmap */}
@@ -201,16 +253,30 @@ export default function TechnicalRoadmapPage() {
         </div>
       </section>
 
+      {/* Built since August */}
+      <section className="space-y-3">
+        <SectionHeader icon={CheckCircle2} title="Built since August" sub="Live around LilyPad while the replacement is paused." />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {BUILT.map((b) => (
+            <Card key={b.title} className="p-4">
+              <h3 className="text-sm font-semibold text-gray-900">{b.title}</h3>
+              <p className="text-xs text-gray-600 mt-1.5 leading-relaxed">{b.body}</p>
+              <div className="text-[11px] text-gray-400 mt-3 pt-3 border-t border-gray-100">{b.where}</div>
+            </Card>
+          ))}
+        </div>
+      </section>
+
       {/* At a glance */}
       <section className="space-y-3">
         <SectionHeader icon={Warehouse} title="Point B / Synapse at a glance" />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Fact label="3PL">Point B Solutions — runs Zethcon / Synapse WMS</Fact>
           <Fact label="Account">Facility <Mono>PB1</Mono> · Customer <Mono>1590</Mono></Fact>
-          <Fact label="Inventory truth">Point B — Fishbowl &amp; Zethcon drift, so Fishbowl isn&apos;t trusted for stock</Fact>
+          <Fact label="Inventory truth">Point B — forecast, storefronts &amp; Faire all read it; Fishbowl isn&apos;t trusted for stock</Fact>
           <Fact label="Current connector">LilyPad (Sharpe Concepts) — Fishbowl REST app <Mono>9818</Mono></Fact>
           <Fact label="Connects as">Fishbowl user <Mono>PointBSolutions</Mono> (#32)</Fact>
-          <Fact label="Protocol">Fishbowl REST API — the same one the portal uses</Fact>
+          <Fact label="Fishbowl protocol">Reads via REST (<Mono>:2456</Mono>) · LilyPad writes via the legacy plugin API (<Mono>:28192</Mono>)</Fact>
         </div>
       </section>
 
@@ -299,7 +365,7 @@ export default function TechnicalRoadmapPage() {
             <h3 className="text-sm font-semibold text-gray-900 mt-2">Label + freight import</h3>
             <ul className="text-xs text-gray-600 mt-2 space-y-1.5 leading-relaxed">
               <li>Creates the <Mono>ship</Mono> / <Mono>shipcarton</Mono> record with the tracking number.</li>
-              <li>Appends a Shipping line = <strong>Point B freight × 1.25</strong> (25% markup).</li>
+              <li>Wholesale only: appends a Shipping line = <strong>Point B fees × 1.25</strong> (25% markup).</li>
               <li><Mono>dateShipped</Mono> stays empty; nothing is fulfilled yet.</li>
               <li className="text-gray-500">This is the only piece we need to rebuild.</li>
             </ul>
@@ -321,10 +387,12 @@ export default function TechnicalRoadmapPage() {
         </div>
         <Card className="p-4 bg-gray-50/60">
           <div className="text-xs text-gray-600 leading-relaxed">
-            <strong className="text-gray-800">Freight rule.</strong> LilyPad always appends one freight
-            line at Point B cost × 1.25. <strong>D2C</strong> orders keep their original checkout-shipping
-            line and get the freight line added (two shipping lines); <strong>wholesale</strong> orders
-            get the freight line only (one). Our connector has to match this audience-aware behavior.
+            <strong className="text-gray-800">Freight rule (verified).</strong> On{" "}
+            <strong>wholesale</strong> orders LilyPad writes one Shipping line ={" "}
+            <Mono>order/fees.totalAmount</Mono> × 1.25 — Point B&apos;s freight plus pick and base-order
+            charges, with a 25% markup. Fees keep accruing after ship, so the amount is a snapshot taken
+            when the line is written (7 of 10 recent orders match to the penny; the rest drifted up
+            later). <strong>D2C</strong> orders get tracking only — no fee line, no markup.
           </div>
         </Card>
       </section>
@@ -339,6 +407,7 @@ export default function TechnicalRoadmapPage() {
             <ul className="text-xs text-gray-600 mt-2 space-y-1.5 leading-relaxed">
               <li>Low-level WMS. Session-cookie auth (<Mono>/login</Mono> → session + XSRF).</li>
               <li>Core: <Mono>orders/create-order</Mono>, <Mono>orders/shipped-orders</Mono>, <Mono>inventory/by-customer</Mono>.</li>
+              <li>Carries everything we need — orders, tracking, inventory. Used by the inventory sync, Order Check and the monitor.</li>
             </ul>
           </Card>
           <Card className="p-4">
@@ -346,16 +415,15 @@ export default function TechnicalRoadmapPage() {
             <p className="text-[11px] text-gray-400 font-mono mt-0.5">integrations.pointbsolutions.com</p>
             <ul className="text-xs text-gray-600 mt-2 space-y-1.5 leading-relaxed">
               <li>Cleaner wrapper. Bearer-token auth (<Mono>/api/token</Mono>).</li>
-              <li>Best for reads: <Mono>shipment-by-order</Mono> (tracking, freight), <Mono>order/fees</Mono> (handling + freight).</li>
-              <li>Endpoints are namespaced per client — confirm NI&apos;s namespace with Point B.</li>
+              <li>We use it for one thing: <Mono>order/fees</Mono> (freight + handling), the basis of the wholesale freight line.</li>
             </ul>
           </Card>
         </div>
       </section>
 
       <p className="text-[11px] text-gray-400 pt-2 border-t border-gray-100">
-        Established from read-only Fishbowl database forensics + the Synapse API docs, 2026-08-04. Nothing
-        built for Point B yet — this is the plan of record.
+        Last updated 2026-11-02. Mechanism established from read-only Fishbowl database forensics + the
+        Synapse API docs (Aug 2026). Build spec: <Mono>docs/pointb-connector.md</Mono>.
       </p>
     </div>
   );

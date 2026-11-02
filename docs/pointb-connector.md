@@ -1,8 +1,13 @@
 # Point B Connector — Design Spec
 
-> **Status:** Plan of record. Nothing built yet. This is the blueprint for
-> **Step 1 of the 3PL roadmap** (`/technical-roadmap`): replace the third-party
-> LilyPad connector with an in-house one.
+> **Status (2026-11-02):** Paused. The connector itself is not built; LilyPad
+> still runs. Done so far: egress mapping + a test-only create-order probe
+> (§8 step 2), the freight formula (Q3), and the read-side tools around it
+> (Order Check, the daily `pointb-monitor` drift email, Point B inventory sync,
+> the order-push stock gate). Blocker: the exact shipment-update message on the
+> legacy plugin API (Q4). This is the blueprint for **Step 1 of the 3PL
+> roadmap** (`/technical-roadmap`): replace the third-party LilyPad connector
+> with an in-house one.
 >
 > Everything here was reverse-engineered from read-only Fishbowl database
 > forensics + the Synapse API docs (Aug 2026). Sections marked **⚠ OPEN** are
