@@ -19,5 +19,5 @@ export function sitePagePreviewUrl(brand: BlogBrand, slug: string): string | nul
   const origin =
     process.env[`BLOG_PREVIEW_ORIGIN_${brand.toUpperCase()}`]?.replace(/\/$/, "") ||
     STORE_ORIGIN[brand];
-  return `${origin}/preview/${slug}?token=${token}`;
+  return `${origin}/preview/${encodeURIComponent(slug)}?token=${token}`;
 }

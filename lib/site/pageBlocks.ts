@@ -322,6 +322,17 @@ export type ReviewsNoteBlock = Base & {
   message: string;
 };
 
+// Collection page template
+/** The top of a collection page — name, tagline, story and colors all come
+ *  from the collection itself. */
+export type CollectionHeaderBlock = Base & { type: "collection_header" };
+/** NI: "Keep exploring" — tiles for the next three collections. */
+export type CollectionExploreBlock = Base & {
+  type: "collection_explore";
+  heading: string;
+  linkLabel: string;
+};
+
 // Natural Inspirations sections
 export type LivingHeroBlock = Base & { type: "living_hero" };
 export type CollectionShowcaseBlock = Base & {
@@ -469,6 +480,8 @@ export type PageBlock =
   | PhilosophyBlock
   | RelatedProductsBlock
   | ReviewsNoteBlock
+  | CollectionHeaderBlock
+  | CollectionExploreBlock
   | LivingHeroBlock
   | CollectionShowcaseBlock
   | SeedBandBlock
@@ -530,6 +543,13 @@ export const BLOCK_INFO: Record<
   philosophy: { label: "Brand story (two columns)", description: "Two columns of brand copy.", single: true },
   related_products: { label: "Pairs well with", description: "Four related products, picked automatically.", single: true },
   reviews_note: { label: "Reviews", description: "The reviews section (a placeholder until reviews go live).", single: true },
+  collection_header: {
+    label: "Collection header",
+    description: "The top of the page — the collection's name, tagline, story and colors, filled from the collection.",
+    locked: true,
+    pinned: true,
+  },
+  collection_explore: { label: "Keep exploring", description: "Tiles for three other collections, picked automatically.", locked: true },
   living_hero: {
     label: "Collection hero",
     description: "The living photo hero — one slide per fragrance collection, from the collection pages.",
@@ -1007,6 +1027,10 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
       };
     case "catalog":
       return { type: "catalog" };
+    case "collection_header":
+      return { type: "collection_header" };
+    case "collection_explore":
+      return { type: "collection_explore", heading: str(r.heading, 80), linkLabel: str(r.linkLabel, 40) };
     case "article_header":
       return {
         type: "article_header",
@@ -1382,6 +1406,29 @@ export function normalizeBlock(raw: unknown, ids: Set<string>): PageBlock | null
 }
 
 // ── pages ──────────────────────────────────────────────────────────────────
+
+/**
+ * One product's or one collection's OWN page. Its slug is the template's
+ * plus the item — `product~SKU123`, `collection~agave-pear` — and it follows
+ * the template's rules (same locked parts, same addable blocks). No published
+ * row for it = the page shows the template.
+ */
+export const OVERRIDE_BASES = ["product", "collection"] as const;
+export type OverrideBase = (typeof OVERRIDE_BASES)[number];
+
+export function overrideSlug(base: OverrideBase, key: string): string {
+  return `${base}~${key}`;
+}
+
+/** `product~SKU123` → { base: "product", key: "SKU123" }; null for any other slug. */
+export function parseOverrideSlug(slug: string): { base: OverrideBase; key: string } | null {
+  const at = slug.indexOf("~");
+  if (at < 0) return null;
+  const base = slug.slice(0, at) as OverrideBase;
+  const key = slug.slice(at + 1);
+  if (!OVERRIDE_BASES.includes(base) || !key || key.length > 100 || /[~/\\?#]/.test(key)) return null;
+  return { base, key };
+}
 
 export type SitePageDef = {
   slug: string;

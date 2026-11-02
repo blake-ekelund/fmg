@@ -422,7 +422,7 @@ export default function BlockInspector({
       return (
         <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
           Nothing to edit here — this part fills itself
-          {CATALOG_SOURCE[slug] ?? " from the products in Products."}{" "}
+          {CATALOG_SOURCE[slug.split("~")[0]] ?? " from the products in Products."}{" "}
           Move the blocks around it to change what comes before and after.
         </p>
       );
@@ -690,6 +690,32 @@ export default function BlockInspector({
           <Field label="Message">
             <TextArea value={block.message} rows={3} maxLength={400} onChange={(message) => onChange({ ...block, message })} />
           </Field>
+        </div>
+      );
+
+    case "collection_header":
+      return (
+        <div className="space-y-3">
+          <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+            The collection&apos;s name, tagline, story and colors fill this part from the collection itself. Move the
+            sections below it to change what follows.
+          </p>
+          {onOpenPage && brand === "NI" ? (
+            <OpenPage label="Edit each collection's words" onClick={() => onOpenPage("collection-copy")} />
+          ) : null}
+        </div>
+      );
+
+    case "collection_explore":
+      return (
+        <div className="space-y-4">
+          <Field label="Heading">
+            <TextInput value={block.heading} maxLength={80} onChange={(heading) => onChange({ ...block, heading })} />
+          </Field>
+          <Field label="Link label" hint="Links to all collections. Blank hides it.">
+            <TextInput value={block.linkLabel} maxLength={40} onChange={(linkLabel) => onChange({ ...block, linkLabel })} />
+          </Field>
+          <p className="text-[11px] text-gray-500">The three collection tiles are picked automatically — the next three after this one.</p>
         </div>
       );
 
@@ -1463,6 +1489,7 @@ const CATALOG_SOURCE: Record<string, string> = {
   collections: " with a tile per fragrance collection.",
   ingredients: " with the ingredient glossary — reference data kept in the store's code.",
   "ingredients-by-product": " from each product's ingredient label in Products.",
+  collection: " with the collection's products from Products.",
 };
 
 const SEED_HINT = "Black Cumin, Pomegranate, Cranberry, Carrot or Grape get their botanical drawing.";

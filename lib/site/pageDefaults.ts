@@ -22,6 +22,7 @@ export type SitePageSlug =
   | "home-wholesale"
   | "product"
   | "shop"
+  | "collection"
   | "story"
   | "blog"
   | "contact"
@@ -245,6 +246,14 @@ const SHOP: PageBlock[] = [
     wholesaleLede: "Every product, every case price. MOQ is 1 case per item. Minimum opening order $300, reorders $300.",
     image: "",
   },
+  { id: "catalog", type: "catalog" },
+  { ...(HOME[4] as PageBlock), id: "newsletter" },
+];
+
+/** Every /collections/<slug> page, as hand-coded: the themed header, the
+ *  lineup, the newsletter. */
+const COLLECTION: PageBlock[] = [
+  { id: "header", type: "collection_header" },
   { id: "catalog", type: "catalog" },
   { ...(HOME[4] as PageBlock), id: "newsletter" },
 ];
@@ -956,6 +965,15 @@ export const SITE_PAGES: SitePageDef[] = [
     note: "The full product grid with filters. The grid itself fills automatically.",
     addable: ["newsletter", "cta", ...ANYWHERE],
     defaults: SHOP,
+  },
+  {
+    slug: "collection",
+    label: "Collection page template",
+    path: "/collections/…",
+    group: "Shopping",
+    note: "One layout for every collection page. The header (name, tagline, colors) and the product grid fill from each collection; the sections around them are set here.",
+    addable: ["newsletter", "product_row", "value_strip", "cta", ...ANYWHERE],
+    defaults: COLLECTION,
   },
   {
     slug: "story",

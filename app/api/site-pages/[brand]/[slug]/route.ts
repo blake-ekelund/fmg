@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
-import { widgetIds, type PageBlock } from "@/lib/site/pageBlocks";
+import { parseOverrideSlug, widgetIds, type PageBlock } from "@/lib/site/pageBlocks";
 import { publishWidgets } from "@/lib/site/widgetsServer";
 import { isSiteBrand, normalizeSitePage, siteDefaults, sitePageFor, type SiteBrand } from "@/lib/site/registry";
 import { sitePagePreviewUrl } from "@/lib/site/preview";
@@ -18,6 +18,12 @@ export const runtime = "nodejs";
  *         { action: "discard" }     — draft reset to what's live.
  *         { action: "restore", versionId } — a past publish copied into the draft.
  *         { action: "reset" }       — draft reset to the original hand-coded page.
+ *
+ * A product's or collection's own page (`product~SKU`, `collection~slug`)
+ * starts as a copy of its template as it's live now, and `followsTemplate`
+ * says the item still shows the template. On one, "reset" (and "discard"
+ * before its first publish) deletes it — the item goes back to the template,
+ * live at once.
  *
  * GET /api/site-pages/<brand> (sibling route) lists every page with its state.
  *
@@ -60,12 +66,31 @@ async function loadRow(brand: string, slug: string) {
     .maybeSingle<PageRow>();
 }
 
+/** An own page's starting point: its template as it's live (published, else
+ *  the hand-coded default). Null for a regular page. */
+async function templateLive(brand: SiteBrand, slug: string): Promise<PageBlock[] | null> {
+  const own = parseOverrideSlug(slug);
+  if (!own) return null;
+  const { data } = await loadRow(brand, own.base);
+  return (
+    (data?.published_blocks ? normalizeSitePage(brand, own.base, data.published_blocks) : null) ??
+    siteDefaults(brand, own.base)
+  );
+}
+
+/** Delete an own page — the item shows its template again. */
+async function dropOwnPage(id: string) {
+  const { error } = await supabaseServer.from("site_pages").delete().eq("id", id);
+  return error ? NextResponse.json({ error: error.message }, { status: 500 }) : null;
+}
+
 async function respond(brand: SiteBrand, slug: string) {
   const { data: row, error } = await loadRow(brand, slug);
+  const template = await templateLive(brand, slug);
   if (error) {
     if (notReady(error.message)) {
       return NextResponse.json({
-        draft: siteDefaults(brand, slug),
+        draft: template ?? siteDefaults(brand, slug),
         published: null,
         publishedAt: null,
         updatedAt: null,
@@ -89,9 +114,12 @@ async function respond(brand: SiteBrand, slug: string) {
     versions = data ?? [];
   }
 
+  const published = row?.published_blocks ? normalizeSitePage(brand, slug, row.published_blocks) : null;
   return NextResponse.json({
-    draft: normalizeSitePage(brand, slug, row?.draft_blocks) ?? siteDefaults(brand, slug),
-    published: row?.published_blocks ? normalizeSitePage(brand, slug, row.published_blocks) : null,
+    draft: normalizeSitePage(brand, slug, row?.draft_blocks) ?? template ?? siteDefaults(brand, slug),
+    // An own page that isn't live yet: what's live is the template.
+    published: published ?? template,
+    ...(template ? { followsTemplate: !published, ownStarted: !!row } : {}),
     publishedAt: row?.published_at ?? null,
     updatedAt: row?.updated_at ?? null,
     versions,
@@ -171,6 +199,11 @@ export async function POST(request: Request, ctx: Ctx) {
       break;
     }
     case "discard": {
+      if (row && !row.published_blocks && parseOverrideSlug(r.slug)) {
+        const failed = await dropOwnPage(row.id);
+        if (failed) return failed;
+        break;
+      }
       if (!row?.published_blocks) {
         return NextResponse.json({ error: "Nothing is published yet." }, { status: 400 });
       }
@@ -204,6 +237,11 @@ export async function POST(request: Request, ctx: Ctx) {
       break;
     }
     case "reset": {
+      if (parseOverrideSlug(r.slug)) {
+        const failed = row ? await dropOwnPage(row.id) : null;
+        if (failed) return failed;
+        break;
+      }
       const failed = await saveDraft(r.brand, r.slug, siteDefaults(r.brand, r.slug), r.user.id);
       if (failed) return failed;
       break;

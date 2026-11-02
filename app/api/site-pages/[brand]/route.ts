@@ -3,6 +3,8 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { isSiteBrand, sitePagesFor } from "@/lib/site/registry";
 import { sitePagePreviewUrl } from "@/lib/site/preview";
+import { parseOverrideSlug } from "@/lib/site/pageBlocks";
+import { listSiteCollections } from "@/lib/social/collections";
 
 export const runtime = "nodejs";
 
@@ -11,6 +13,10 @@ export const runtime = "nodejs";
  * Website editor's page list: published (and when), and whether the draft
  * has unpublished changes. Pages with no row are "original". previewUrl
  * (the draft on the store) feeds the page thumbnails on the Website home.
+ *
+ * Products' and collections' own pages (`product~SKU`, `collection~slug`)
+ * are listed after the regular pages, one per saved row, with `base`/`key`;
+ * `collections` is the store's collection list for the editor's picker.
  */
 export async function GET(request: Request, ctx: { params: Promise<{ brand: string }> }) {
   const user = await requireInternalUser(request);
@@ -25,18 +31,21 @@ export async function GET(request: Request, ctx: { params: Promise<{ brand: stri
   // Tables not created yet → every page reads as original.
   const rows = error ? [] : (data ?? []);
 
+  const status = (slug: string, row: (typeof rows)[number] | undefined) => ({
+    slug,
+    publishedAt: row?.published_at ?? null,
+    updatedAt: row?.updated_at ?? null,
+    unpublished: row ? JSON.stringify(row.draft_blocks) !== JSON.stringify(row.published_blocks) : false,
+    previewUrl: sitePagePreviewUrl(brand, slug),
+  });
+  const own = rows.flatMap((r) => {
+    const o = parseOverrideSlug(r.slug);
+    return o ? [{ ...status(r.slug, r), base: o.base, key: o.key }] : [];
+  });
+  const collections = (await listSiteCollections(brand).catch(() => [])).map((c) => ({ slug: c.slug, name: c.name }));
+
   return NextResponse.json({
-    pages: sitePagesFor(brand).map((p) => {
-      const row = rows.find((r) => r.slug === p.slug);
-      return {
-        slug: p.slug,
-        publishedAt: row?.published_at ?? null,
-        updatedAt: row?.updated_at ?? null,
-        unpublished: row
-          ? JSON.stringify(row.draft_blocks) !== JSON.stringify(row.published_blocks)
-          : false,
-        previewUrl: sitePagePreviewUrl(brand, p.slug),
-      };
-    }),
+    pages: [...sitePagesFor(brand).map((p) => status(p.slug, rows.find((r) => r.slug === p.slug))), ...own],
+    collections,
   });
 }

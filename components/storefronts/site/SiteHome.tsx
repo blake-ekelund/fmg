@@ -30,6 +30,9 @@ export default function SiteHome({
 
 type Status = "live" | "changes" | "draft" | "original";
 
+/** The group for single products' / collections' own pages. */
+const OWN_GROUP = "Products & collections with their own page";
+
 function statusOf(st: PageStatus | undefined): Status {
   if (!st?.updatedAt) return "original";
   if (!st.publishedAt) return "draft";
@@ -67,7 +70,19 @@ function StoreSection({ brand, onOpen }: { brand: SiteBrand; onOpen: (slug: stri
   }, [brand, tick]);
 
   const byslug = new Map((statuses ?? []).map((s) => [s.slug, s]));
-  const pending = pages.filter((p) => byslug.get(p.slug)?.unpublished);
+  // Products' and collections' own pages (product~SKU), as cards of their own.
+  const ownPages = (statuses ?? []).flatMap((s) =>
+    s.base && s.key
+      ? [
+          {
+            slug: s.slug,
+            label: `${s.base === "product" ? "Product" : "Collection"} · ${s.key}`,
+            path: `/${s.base === "product" ? "products" : "collections"}/${s.key}`,
+          },
+        ]
+      : [],
+  );
+  const pending = [...pages, ...ownPages].filter((p) => byslug.get(p.slug)?.unpublished);
 
   async function publishAll() {
     if (!pending.length) return;
@@ -140,12 +155,11 @@ function StoreSection({ brand, onOpen }: { brand: SiteBrand; onOpen: (slug: stri
       ) : null}
 
       <div className="space-y-6">
-        {groups.map((g) => (
+        {[...groups, ...(ownPages.length ? [OWN_GROUP] : [])].map((g) => (
           <div key={g}>
             <h3 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500">{g}</h3>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-              {pages
-                .filter((p) => p.group === g)
+              {(g === OWN_GROUP ? ownPages : pages.filter((p) => p.group === g))
                 .map((p) => {
                   const st = byslug.get(p.slug);
                   const s = statusOf(st);

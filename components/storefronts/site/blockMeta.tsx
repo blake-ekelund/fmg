@@ -65,6 +65,8 @@ export const BLOCK_ICON: Record<PageBlockType, LucideIcon> = {
   philosophy: Columns2,
   related_products: Package,
   reviews_note: Star,
+  collection_header: PanelTop,
+  collection_explore: SquareStack,
   living_hero: GalleryHorizontal,
   collection_showcase: LayoutList,
   seed_band: Leaf,
@@ -135,7 +137,10 @@ export function summary(b: PageBlock): string {
       return b.heading;
     case "catalog":
     case "living_hero":
+    case "collection_header":
       return "Filled automatically";
+    case "collection_explore":
+      return `${b.heading} · tiles fill automatically`;
     case "story_cover":
       return `${b.frames.length} photos`;
     case "collection_showcase":

@@ -3,7 +3,14 @@
  * its API. Each store only ships its own list (Sassy: pageDefaults.ts, NI:
  * pageDefaultsNi.ts); FMG knows both.
  */
-import { newBlockFor, normalizePageFor, type PageBlock, type PageBlockType, type SitePageDef } from "./pageBlocks";
+import {
+  newBlockFor,
+  normalizePageFor,
+  parseOverrideSlug,
+  type PageBlock,
+  type PageBlockType,
+  type SitePageDef,
+} from "./pageBlocks";
 import { SITE_PAGES } from "./pageDefaults";
 import { NI_SITE_PAGES } from "./pageDefaultsNi";
 
@@ -22,8 +29,21 @@ export function sitePagesFor(brand: SiteBrand): SitePageDef[] {
   return brand === "NI" ? NI_SITE_PAGES : SITE_PAGES;
 }
 
+/**
+ * A page by slug — including one product's or collection's own page
+ * (`product~SKU123`), which takes its template's rules under its own slug.
+ */
 export function sitePageFor(brand: SiteBrand, slug: string): SitePageDef | undefined {
-  return sitePagesFor(brand).find((p) => p.slug === slug);
+  const own = parseOverrideSlug(slug);
+  if (!own) return sitePagesFor(brand).find((p) => p.slug === slug);
+  const template = sitePagesFor(brand).find((p) => p.slug === own.base);
+  if (!template) return undefined;
+  return {
+    ...template,
+    slug,
+    label: own.base === "product" ? "Product page (one product)" : "Collection page (one collection)",
+    path: own.base === "product" ? `/products/${own.key}` : `/collections/${own.key}`,
+  };
 }
 
 /** Normalized blocks for a brand's page; null for an unknown page or bad input. */

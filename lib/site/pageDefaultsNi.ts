@@ -20,6 +20,7 @@ export type NiPageSlug =
   | "product"
   | "shop"
   | "collections"
+  | "collection"
   | "story"
   | "exseed"
   | "ingredient-philosophy"
@@ -198,6 +199,14 @@ const SHOP: PageBlock[] = [
   },
   { id: "catalog", type: "catalog" },
   NEWSLETTER,
+];
+
+/** Every /collections/<slug> page, as hand-coded: the collection's own
+ *  header, its lineup, then three other collections. */
+const COLLECTION: PageBlock[] = [
+  { id: "header", type: "collection_header" },
+  { id: "catalog", type: "catalog" },
+  { id: "explore", type: "collection_explore", heading: "Keep exploring", linkLabel: "All collections →" },
 ];
 
 const COLLECTIONS: PageBlock[] = [
@@ -1056,6 +1065,15 @@ export const NI_SITE_PAGES: SitePageDef[] = [
     note: "The collection tiles fill themselves from the collections.",
     addable: ["newsletter", ...ANYWHERE],
     defaults: COLLECTIONS,
+  },
+  {
+    slug: "collection",
+    label: "Collection page template",
+    path: "/collections/…",
+    group: "Shopping",
+    note: "One layout for every fragrance collection page. The header and lineup fill from each collection (its words are in Fragrance collections (words)); the sections around them are set here.",
+    addable: ["seed_band", "philosophy", "newsletter", "checklist", "pillars", ...ANYWHERE],
+    defaults: COLLECTION,
   },
   { slug: "story", label: "Our story", path: "/story", group: "About", note: "The brand story page.", addable: INFO, defaults: STORY },
   { slug: "exseed", label: "ExSeed®", path: "/exseed", group: "About", note: "The ExSeed® complex page.", addable: ["seed_cards", ...INFO], defaults: EXSEED },

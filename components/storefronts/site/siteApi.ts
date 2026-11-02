@@ -9,7 +9,12 @@ export type PageStatus = {
   unpublished: boolean;
   /** The draft on the store (signed), for thumbnails. Null without the store key. */
   previewUrl?: string | null;
+  /** A product's / collection's own page: its template and the item. */
+  base?: "product" | "collection";
+  key?: string;
 };
+
+export type SiteCollectionOption = { slug: string; name: string };
 
 export async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabaseBrowser().auth.getSession();
@@ -18,7 +23,7 @@ export async function authHeader(): Promise<Record<string, string>> {
 }
 
 export async function call<T>(brand: SiteBrand, slug: string, method: string, body?: unknown): Promise<T> {
-  const res = await fetch(`/api/site-pages/${brand}/${slug}`, {
+  const res = await fetch(`/api/site-pages/${brand}/${encodeURIComponent(slug)}`, {
     method,
     headers: { "Content-Type": "application/json", ...(await authHeader()) },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -28,14 +33,23 @@ export async function call<T>(brand: SiteBrand, slug: string, method: string, bo
   return json;
 }
 
-/** Every page with its publish state (null on failure). */
-export async function fetchStatuses(brand: SiteBrand): Promise<PageStatus[] | null> {
+/** Every page with its publish state, plus the store's collections (null on failure). */
+export async function fetchSiteList(
+  brand: SiteBrand,
+): Promise<{ pages: PageStatus[]; collections: SiteCollectionOption[] } | null> {
   try {
     const res = await fetch(`/api/site-pages/${brand}`, { headers: await authHeader() });
-    return res.ok ? ((await res.json()) as { pages: PageStatus[] }).pages : null;
+    if (!res.ok) return null;
+    const json = (await res.json()) as { pages: PageStatus[]; collections?: SiteCollectionOption[] };
+    return { pages: json.pages, collections: json.collections ?? [] };
   } catch {
     return null;
   }
+}
+
+/** Every page with its publish state (null on failure). */
+export async function fetchStatuses(brand: SiteBrand): Promise<PageStatus[] | null> {
+  return (await fetchSiteList(brand))?.pages ?? null;
 }
 
 export function when(iso: string): string {

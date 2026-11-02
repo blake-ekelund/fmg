@@ -28,16 +28,20 @@ import {
   Redo2,
   Plus,
   ChevronLeft,
+  Info,
   X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useBrand } from "@/components/BrandContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { call, fetchStatuses, when, type PageStatus } from "./siteApi";
+import { call, fetchSiteList, when, type PageStatus, type SiteCollectionOption } from "./siteApi";
 import {
   BLOCK_INFO,
   LIMITS,
   canBeWidget,
+  overrideSlug,
+  parseOverrideSlug,
+  type OverrideBase,
   pageAddable,
   themePalette,
   type BlockColors,
@@ -76,7 +80,14 @@ type PageState = {
   previewUrl: string | null;
   notReady?: boolean;
   hint?: string;
+  /** One product's / collection's own page: whether the item still shows
+   *  the template on the live site, and whether its own page exists yet. */
+  followsTemplate?: boolean;
+  ownStarted?: boolean;
 };
+
+/** `product~SKU` → "product"; any other slug as is. */
+const templateOf = (slug: string) => parseOverrideSlug(slug)?.base ?? slug;
 
 /** Where the canvas toolbar sits: just above the selected block, pinned to
  *  the top of the canvas while the block's top is scrolled away; hidden once
@@ -149,6 +160,7 @@ export default function SiteEditorPage() {
   const slug = q && sitePageFor(brand, q) ? q : "home";
   const onHome = !q;
   const [statuses, setStatuses] = useState<PageStatus[]>([]);
+  const [collections, setCollections] = useState<SiteCollectionOption[]>([]);
   const [statusTick, setStatusTick] = useState(0);
 
   // A deep link to the other store (?brand=NI while the switch says Sassy)
@@ -166,14 +178,17 @@ export default function SiteEditorPage() {
     if (lastFilter.current === filter) return;
     lastFilter.current = filter;
     if (!onHome && filter !== "all" && filter !== brand) {
-      router.replace(`?brand=${filter}&page=${sitePageFor(filter, slug) ? slug : "home"}`, { scroll: false });
+      const base = templateOf(slug);
+      router.replace(`?brand=${filter}&page=${sitePageFor(filter, base) ? base : "home"}`, { scroll: false });
     }
   }, [filter, brand, slug, router, onHome]);
 
   useEffect(() => {
     let alive = true;
-    fetchStatuses(brand).then((pages) => {
-      if (alive) setStatuses(pages ?? []);
+    fetchSiteList(brand).then((list) => {
+      if (!alive) return;
+      setStatuses(list?.pages ?? []);
+      setCollections(list?.collections ?? []);
     });
     return () => {
       alive = false;
@@ -208,6 +223,7 @@ export default function SiteEditorPage() {
       brand={brand}
       slug={slug}
       statuses={statuses}
+      collections={collections}
       onNavigate={navigate}
       onHome={goHome}
       onChanged={refreshStatuses}
@@ -219,6 +235,7 @@ function PageEditor({
   brand,
   slug,
   statuses,
+  collections,
   onNavigate,
   onHome,
   onChanged,
@@ -226,6 +243,7 @@ function PageEditor({
   brand: SiteBrand;
   slug: string;
   statuses: PageStatus[];
+  collections: SiteCollectionOption[];
   onNavigate: (brand: SiteBrand, slug: string) => void;
   onHome: () => void;
   onChanged: () => void;
@@ -420,6 +438,20 @@ function PageEditor({
     };
   }, [brand]);
 
+  // Product and collection pages: the template, or one item's own page
+  // (`product~SKU`) — what can be picked, which items have their own page
+  // already, and this one's name.
+  const own = parseOverrideSlug(slug);
+  const templateSlug = own?.base ?? slug;
+  const perItem = templateSlug === "product" || templateSlug === "collection";
+  const noun = templateSlug === "collection" ? "collection" : "product";
+  const items =
+    templateSlug === "collection"
+      ? collections.map((c) => ({ key: c.slug, name: c.name }))
+      : catalog.map((c) => ({ key: c.part, name: c.name }));
+  const ownKeys = new Set(statuses.filter((s) => s.base === templateSlug && s.key).map((s) => s.key!));
+  const ownName = own ? (items.find((i) => i.key === own.key)?.name ?? own.key) : "";
+
   // ── autosave ───────────────────────────────────────────────────────────
   const save = useCallback(async () => {
     // Whatever was queued is being saved now.
@@ -568,7 +600,11 @@ function PageEditor({
     if (name === "discard" && !confirm("Throw away your unpublished changes and go back to what's live?")) return;
     if (
       name === "reset" &&
-      !confirm(`Replace the draft with the original ${def.label.toLowerCase()}? (Nothing goes live until you publish.)`)
+      !confirm(
+        own
+          ? `Put ${ownName} back on the ${noun} page template? Its own page is deleted and the live site shows the template right away.`
+          : `Replace the draft with the original ${def.label.toLowerCase()}? (Nothing goes live until you publish.)`,
+      )
     )
       return;
     setBusy(name);
@@ -909,7 +945,7 @@ function PageEditor({
     return diffPage(page.published ?? def.defaults, blocks, labelFor, savedEdits);
   }, [page, blocks, widgetById, def.defaults, slug]);
 
-  const partParam = slug === "product" && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
+  const partParam = !own && perItem && previewPart ? `&part=${encodeURIComponent(previewPart)}` : "";
   const previewSrc = page?.previewUrl ? `${page.previewUrl}&bare=1&edit=1${partParam}&v=${frameKey}` : null;
   // The frame on screen vs the one wanted now: already shown → settled; same
   // device but different → the wanted one loads behind ("updating"); nothing
@@ -982,7 +1018,7 @@ function PageEditor({
           aria-label="Website"
           onChange={(e) => {
             const next = e.target.value as SiteBrand;
-            onNavigate(next, sitePageFor(next, slug) ? slug : "home");
+            onNavigate(next, sitePageFor(next, templateSlug) ? templateSlug : "home");
           }}
           className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 outline-none focus:border-indigo-400"
         >
@@ -994,7 +1030,7 @@ function PageEditor({
         </select>
         ) : null}
         <select
-          value={slug}
+          value={templateSlug}
           aria-label="Page"
           onChange={(e) => onNavigate(brand, e.target.value)}
           className="min-w-[12rem] rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-900 outline-none focus:border-indigo-400"
@@ -1012,6 +1048,29 @@ function PageEditor({
             </optgroup>
           ))}
         </select>
+        {/* Product / collection pages: every item (the template) or one item's own page. */}
+        {perItem ? (
+          <select
+            value={own?.key ?? ""}
+            aria-label={`Which ${noun}`}
+            onChange={async (e) => {
+              await flush();
+              onNavigate(brand, e.target.value ? overrideSlug(templateSlug as OverrideBase, e.target.value) : templateSlug);
+            }}
+            className="max-w-[16rem] rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 outline-none focus:border-indigo-400"
+          >
+            <option value="">Every {noun} (template)</option>
+            <optgroup label={`Just one ${noun}`}>
+              {own && !items.some((i) => i.key === own.key) ? <option value={own.key}>{own.key}</option> : null}
+              {items.map((i) => (
+                <option key={i.key} value={i.key}>
+                  {i.name}
+                  {ownKeys.has(i.key) ? "  • own page" : ""}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        ) : null}
         <span className="hidden truncate text-xs text-gray-400 2xl:inline">
           {host}
           {def.path}
@@ -1028,17 +1087,17 @@ function PageEditor({
         <SaveBadge state={saveState} />
 
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          {slug === "product" ? (
+          {perItem && !own ? (
             <select
               value={previewPart}
               onChange={(e) => setPreviewPart(e.target.value)}
-              aria-label="Preview with product"
+              aria-label={`Preview with ${noun}`}
               className="max-w-[14rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none"
             >
-              <option value="">Preview: first product</option>
-              {catalog.map((c) => (
-                <option key={c.part} value={c.part}>
-                  {c.name}
+              <option value="">Preview: first {noun}</option>
+              {items.map((i) => (
+                <option key={i.key} value={i.key}>
+                  {i.name}
                 </option>
               ))}
             </select>
@@ -1108,7 +1167,7 @@ function PageEditor({
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live · {when(page.publishedAt)}
             </span>
           ) : (
-            <span className="text-[11px] text-gray-400">Showing the original page</span>
+            <span className="text-[11px] text-gray-400">{own ? "Showing the template" : "Showing the original page"}</span>
           )}
           <button
             type="button"
@@ -1121,6 +1180,67 @@ function PageEditor({
           </button>
         </div>
       </header>
+
+      {own && page ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-xs text-indigo-900">
+          <Info size={14} className="shrink-0" />
+          <span>
+            {!page.ownStarted ? (
+              <>
+                <strong>{ownName}</strong> shows the {noun} page template. Change anything here and it gets a page of
+                its own — every other {noun} keeps the template.
+              </>
+            ) : page.followsTemplate ? (
+              <>
+                <strong>{ownName}</strong>&apos;s own page is a draft — publish it to put it live. Until then the site
+                shows the template.
+              </>
+            ) : (
+              <>
+                <strong>{ownName}</strong> has its own page. Changes to the {noun} page template no longer reach it.
+              </>
+            )}
+          </span>
+          <span className="ml-auto flex items-center gap-3">
+            {noun === "product" ? (
+              <a
+                href={`/products/${encodeURIComponent(own.key)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-indigo-700 hover:text-indigo-900"
+              >
+                Edit name, photos &amp; price ↗
+              </a>
+            ) : null}
+            {page.ownStarted ? (
+              <button
+                type="button"
+                disabled={!!busy}
+                onClick={() => action("reset")}
+                className="font-medium text-indigo-700 hover:text-indigo-900 disabled:opacity-40"
+              >
+                Use the template again
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onNavigate(brand, templateSlug)}
+                className="font-medium text-indigo-700 hover:text-indigo-900"
+              >
+                Edit the template instead
+              </button>
+            )}
+          </span>
+        </div>
+      ) : perItem && ownKeys.size ? (
+        <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50 px-4 py-1.5 text-xs text-gray-600">
+          <Info size={13} className="shrink-0 text-gray-400" />
+          <span>
+            {ownKeys.size} {ownKeys.size === 1 ? `${noun} has its` : `${noun}s have their`} own page, so changes to this
+            template don&apos;t reach {ownKeys.size === 1 ? "it" : "them"} — pick one above to edit it.
+          </span>
+        </div>
+      ) : null}
 
       {page?.notReady || error ? (
         <div className="flex gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
@@ -1410,9 +1530,14 @@ function PageEditor({
           <div className="p-4">
             {tab === "page" ? (
               <PageSettings
-                label={def.label}
-                note={def.note}
+                label={own ? `${def.label} — ${ownName}` : def.label}
+                note={
+                  own
+                    ? `${ownName}'s own page. It starts as a copy of the ${noun} page template; once it's published, template changes no longer reach it.`
+                    : def.note
+                }
                 url={`${host}${def.path}`}
+                resetLabel={own ? "Go back to the template" : undefined}
                 page={page}
                 unpublished={unpublished}
                 busy={busy}
@@ -1560,10 +1685,13 @@ function PageSettings({
   widgets,
   onRenameWidget,
   onDeleteWidget,
+  resetLabel = "Start over from the original page",
 }: {
   label: string;
   note: string;
   url: string;
+  /** The reset button's words (an own page goes back to its template). */
+  resetLabel?: string;
   page: PageState | null;
   unpublished: boolean;
   busy: string | null;
@@ -1616,7 +1744,7 @@ function PageSettings({
           onClick={() => onAction("reset")}
           className="flex w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40"
         >
-          <RotateCcw size={13} /> Start over from the original page
+          <RotateCcw size={13} /> {resetLabel}
         </button>
       </div>
 

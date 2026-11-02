@@ -229,3 +229,28 @@ describe("on-page edit paths", () => {
     expect(getBlockPath(faq, "items.0.a")).toBe("Yes");
   });
 });
+
+describe("own product / collection pages", () => {
+  it("parses only product~ and collection~ slugs with a usable key", async () => {
+    const { overrideSlug, parseOverrideSlug } = await import("../site/pageBlocks");
+    expect(parseOverrideSlug(overrideSlug("product", "NI-BL-8OZ"))).toEqual({ base: "product", key: "NI-BL-8OZ" });
+    expect(parseOverrideSlug("collection~agave-pear")).toEqual({ base: "collection", key: "agave-pear" });
+    expect(parseOverrideSlug("product")).toBeNull();
+    expect(parseOverrideSlug("home~x")).toBeNull();
+    expect(parseOverrideSlug("product~")).toBeNull();
+    expect(parseOverrideSlug("product~a/b")).toBeNull();
+    expect(parseOverrideSlug("product~a~b")).toBeNull();
+  });
+
+  it("gives an own page its template's rules under its own slug", async () => {
+    const { sitePageFor, normalizeSitePage } = await import("../site/registry");
+    const def = sitePageFor("NI", "collection~agave-pear");
+    expect(def?.slug).toBe("collection~agave-pear");
+    expect(def?.path).toBe("/collections/agave-pear");
+    expect(def?.addable).toEqual(sitePageFor("NI", "collection")?.addable);
+    // Locked parts come back even when a saved page lost them.
+    const out = normalizeSitePage("Sassy", "product~SKU1", [{ id: "q", type: "quote", text: "hi" }]);
+    expect(out?.[0].type).toBe("product_details");
+    expect(sitePageFor("Sassy", "quiz~x")).toBeUndefined();
+  });
+});
