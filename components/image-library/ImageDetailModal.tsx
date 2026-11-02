@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { X, Loader2, Trash2, Copy, Check, ExternalLink, ChevronDown } from "lucide-react";
-import { updateImageMeta, deleteImage } from "./api";
+import { updateImageMeta, deleteImage, trackUnsplashUse } from "./api";
 import { displayName, fileName } from "./format";
 import type { LibraryImage, ShareScope } from "./types";
 
@@ -107,6 +107,7 @@ export default function ImageDetailModal({
   async function copyUrl() {
     try {
       await navigator.clipboard.writeText(image.url);
+      if (image.downloadLocation) void trackUnsplashUse(image.downloadLocation);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -115,6 +116,7 @@ export default function ImageDetailModal({
   }
 
   const isProduct = image.source === "product";
+  const isUnsplash = image.source === "unsplash";
 
   const dirty =
     title !== (image.title ?? "") ||
@@ -180,7 +182,45 @@ export default function ImageDetailModal({
             </div>
           </div>
 
-          {isProduct ? (
+          {isUnsplash ? (
+            // Unsplash photos live on Unsplash — read-only here.
+            <div className="space-y-5">
+              {image.description || image.altText ? (
+                <p className="text-[15px] leading-relaxed text-gray-700">{image.description || image.altText}</p>
+              ) : null}
+              {image.credit ? (
+                <p className="text-[15px] text-gray-600">
+                  Photo by{" "}
+                  <a href={image.credit.profileUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-gray-900 underline">
+                    {image.credit.name}
+                  </a>{" "}
+                  on{" "}
+                  <a href={image.credit.unsplashUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-gray-900 underline">
+                    Unsplash
+                  </a>
+                </p>
+              ) : null}
+              <div>
+                <div className={labelClass}>Folder</div>
+                <div className="text-[15px] text-gray-900">{currentFolderLabel}</div>
+              </div>
+              <p className="text-sm leading-relaxed text-gray-500">
+                This photo lives in your Unsplash collection — change or remove it on unsplash.com. Using it in an
+                email, blog post or page? Pick it from the image picker&apos;s Unsplash tab, which credits the
+                photographer automatically. If you paste the link somewhere else, credit them like the line above.
+              </p>
+              {image.credit ? (
+                <a
+                  href={image.credit.unsplashUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-5 py-2.5 text-[15px] font-medium text-white hover:bg-gray-700"
+                >
+                  View on Unsplash <ExternalLink size={16} />
+                </a>
+              ) : null}
+            </div>
+          ) : isProduct ? (
             // Product photos come from the catalog — edited on the product page.
             <div className="space-y-5">
               <p className="text-[15px] leading-relaxed text-gray-600">
@@ -295,7 +335,7 @@ export default function ImageDetailModal({
         )}
 
         {/* Footer */}
-        {!isProduct && (
+        {!isProduct && !isUnsplash && (
           <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-gray-100 px-6 py-4">
             {confirmDelete ? (
               <div className="flex flex-wrap items-center gap-2">

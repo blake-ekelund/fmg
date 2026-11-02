@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { BRAND_PRODUCT_NAMES, productName as productFolderName } from "@/lib/productImageNames";
+import { listPhotos, unsplashConfigured, unsplashSources } from "@/lib/unsplash";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,10 @@ export const runtime = "nodejs";
  * "<Brand> Products" → one subfolder per product. They're managed on the
  * product page, so here they're read-only: no re-filing, metadata, or delete.
  * Their folder ids start with "~", which no slugged library folder can.
+ *
+ * Unsplash photos (the brand collections + photographers in lib/unsplash.ts)
+ * show under a read-only "Unsplash" folder, one subfolder per source. They're
+ * hotlinked from Unsplash, never copied, and change only on unsplash.com.
  *
  * The bucket is the source of truth for which library images exist; the
  * metadata table is an optional sidecar keyed by path. Everything runs with the
@@ -180,10 +185,14 @@ type Img = FileEntry & {
   description: string | null;
   shareScope: ShareScope;
   folder: string;
-  source: "library" | "product";
+  source: "library" | "product" | "unsplash";
   productPart?: string;
   /** Product photos also show in these folders (their collection + category). */
   alsoIn?: string[];
+  /** Unsplash: small preview, credit, and the download ping a use must send. */
+  thumb?: string;
+  credit?: { name: string; profileUrl: string; unsplashUrl: string };
+  downloadLocation?: string;
 };
 
 type Folder = { id: string; name: string; readOnly: boolean; kind?: "inbox"; order?: number };
@@ -442,11 +451,65 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
   }
 }
 
+const UNSPLASH_PREFIX = "~unsplash";
+/** Pages read per source (30 each) — the API only serves free photos, so the
+ *  brand collections stay small. */
+const UNSPLASH_MAX_PAGES = 10;
+
+/** Every photo the Unsplash sources serve, in "Unsplash" → <source> folders.
+ *  A photo in two sources shows in both. Listings are cached for 10 minutes
+ *  (lib/unsplash.ts), so opening the library doesn't burn the rate limit. */
+async function unsplashSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> {
+  const sources = unsplashSources();
+  if (!unsplashConfigured() || sources.length === 0) return { images: [], folders: [] };
+  try {
+    const folders: Folder[] = [{ id: UNSPLASH_PREFIX, name: "Unsplash", readOnly: true }];
+    const byId = new Map<string, Img>();
+    await Promise.all(
+      sources.map(async (s, i) => {
+        const id = `${UNSPLASH_PREFIX}/${slugFolder(s.key.replace(/^@/, "")) || `source-${i}`}`;
+        folders.push({ id, name: s.kind === "user" ? `Photographer ${s.label}` : s.label, readOnly: true, order: i });
+        for (let page = 1; page <= UNSPLASH_MAX_PAGES; page++) {
+          const { photos, hasMore, errors } = await listPhotos(page, [s]);
+          if (errors.length) console.error("[image-library] unsplash", s.key, errors[0].message);
+          for (const p of photos) {
+            const seen = byId.get(p.id);
+            if (seen) {
+              seen.alsoIn = [...(seen.alsoIn ?? []), id];
+              continue;
+            }
+            byId.set(p.id, {
+              path: `unsplash:${p.id}`,
+              url: p.url,
+              thumb: p.thumb,
+              size: 0,
+              updatedAt: p.createdAt,
+              title: p.description || p.alt,
+              altText: p.alt,
+              description: p.description,
+              shareScope: "internal",
+              folder: id,
+              source: "unsplash",
+              credit: { name: p.photographer.name, profileUrl: p.photographer.profileUrl, unsplashUrl: p.unsplashUrl },
+              downloadLocation: p.downloadLocation,
+            });
+          }
+          if (!hasMore) break;
+        }
+      }),
+    );
+    return { images: Array.from(byId.values()), folders };
+  } catch (e) {
+    console.error("[image-library] unsplash failed:", e);
+    return { images: [], folders: [] };
+  }
+}
+
 export async function GET(request: Request) {
   const user = await requireInternalUser(request);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const [library, products] = await Promise.all([librarySnapshot(), productSnapshot()]);
+  const [library, products, unsplash] = await Promise.all([librarySnapshot(), productSnapshot(), unsplashSnapshot()]);
 
   const folders: Folder[] = [
     ...Array.from(library.folders)
@@ -457,9 +520,10 @@ export async function GET(request: Request) {
           : { id, name: prettySegment(id.split("/").pop() ?? id), readOnly: id === ROOT },
       ),
     ...products.folders.sort((a, b) => a.id.localeCompare(b.id)),
+    ...unsplash.folders,
   ];
 
-  return NextResponse.json({ images: [...library.images, ...products.images], folders });
+  return NextResponse.json({ images: [...library.images, ...products.images, ...unsplash.images], folders });
 }
 
 export async function POST(request: Request) {

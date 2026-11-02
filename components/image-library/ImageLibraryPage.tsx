@@ -20,7 +20,7 @@ import {
   FolderInput,
 } from "lucide-react";
 import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
-import { listImages, createFolder, deleteFolder, deleteImages, refileImages } from "./api";
+import { listImages, createFolder, deleteFolder, deleteImages, refileImages, trackUnsplashUse } from "./api";
 import ImageDetailModal from "./ImageDetailModal";
 import MoveToFolderDrawer, { type MoveTarget } from "./MoveToFolderDrawer";
 import PageMeta from "@/components/PageMeta";
@@ -34,6 +34,9 @@ const DEFAULT_FOLDER = "library-uploads";
 const ROOT = "root";
 /** Must match MAX_FOLDER_DEPTH in /api/email/images. */
 const MAX_FOLDER_DEPTH = 3;
+/** Read-only folders of photos from our Unsplash collections (see the API). */
+const UNSPLASH_FOLDER = "~unsplash";
+
 /** dataTransfer type for library images being dragged onto a folder. */
 const DRAG_TYPE = "application/x-fmg-library-images";
 /** Images rendered per batch — a brand folder holds hundreds of product photos. */
@@ -144,18 +147,21 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   const fileRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  const picking = !!pick;
   const load = useCallback(async () => {
     setError(null);
     try {
       const res = await listImages();
-      setImages(res.images);
-      setFolderList(res.folders);
+      // The pickers have their own Unsplash tab (it credits the photographer
+      // and records the use), so picking leaves the Unsplash folders out.
+      setImages(picking ? res.images.filter((i) => i.source !== "unsplash") : res.images);
+      setFolderList(picking ? res.folders.filter((f) => !f.id.startsWith(UNSPLASH_FOLDER)) : res.folders);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load images.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [picking]);
 
   useEffect(() => {
     void load();
@@ -307,6 +313,8 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
   async function copyUrl(url: string) {
     try {
       await navigator.clipboard.writeText(url);
+      const unsplash = images.find((i) => i.url === url && i.downloadLocation);
+      if (unsplash?.downloadLocation) void trackUnsplashUse(unsplash.downloadLocation);
       setCopied(url);
       setTimeout(() => setCopied((c) => (c === url ? null : c)), 1500);
     } catch {
@@ -568,7 +576,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
           {cover ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={cover.url}
+              src={cover.thumb ?? cover.url}
               alt=""
               draggable={false}
               loading="lazy"
@@ -715,11 +723,18 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
         />
       </header>
 
-      {current?.readOnly && current.id.startsWith("~") && (
+      {current?.readOnly && current.id.startsWith(UNSPLASH_FOLDER) ? (
+        <p className="mt-2 max-w-3xl text-sm text-gray-500">
+          Photos from your Unsplash collections, shown straight from Unsplash — add or remove them there and they
+          update here within about 10 minutes. Unsplash+ (paid) photos never come through Unsplash&apos;s API:
+          download those on unsplash.com and upload them to a library folder. To use one of these in an email,
+          blog post or page, pick it from the image picker&apos;s Unsplash tab so the photographer is credited.
+        </p>
+      ) : current?.readOnly && current.id.startsWith("~") ? (
         <p className="mt-2 text-sm text-gray-500">
           Product photos are edited on each product&apos;s page.
         </p>
-      )}
+      ) : null}
 
       {/* New folder */}
       {newFolderOpen && (
@@ -957,7 +972,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={img.url}
+                      src={img.thumb ?? img.url}
                       alt={img.altText ?? fileName(img.path)}
                       draggable={false}
                       loading="lazy"

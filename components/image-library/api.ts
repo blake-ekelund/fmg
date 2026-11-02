@@ -7,6 +7,15 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Tell Unsplash one of its photos was taken for use (their API guidelines). */
+export async function trackUnsplashUse(downloadLocation: string): Promise<void> {
+  await fetch("/api/images/unsplash", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeader()) },
+    body: JSON.stringify({ downloadLocation }),
+  }).catch(() => undefined);
+}
+
 export async function listImages(): Promise<{ images: LibraryImage[]; folders: LibraryFolder[] }> {
   const res = await fetch("/api/email/images", { headers: await authHeader() });
   const json = await res.json().catch(() => ({}));
