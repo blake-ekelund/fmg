@@ -272,6 +272,11 @@ export async function GET(request: Request) {
     const { error: rpcErr } = await supabaseServer.rpc("sync_withheld_commissions");
     if (rpcErr) throw rpcErr;
 
+    // Rebuild the stored sales rollups Reports read (migration 20261102010000).
+    // Not fatal: reports fall back to the live views if this fails or isn't set up.
+    const { error: rollErr } = await supabaseServer.rpc("refresh_sales_rollups");
+    if (rollErr) console.warn("[fishbowl-sales-sync] refresh_sales_rollups:", rollErr.message);
+
     // 8) Mark the audit row complete.
     await supabaseServer
       .from("sales_uploads")

@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { parseGroupKey } from "./dates";
 import type { DateRange } from "./reportPeriod";
 import type { PeriodRun } from "./run";
+import { buttonPng, fixInternalPictureLinks, type ButtonStyle } from "./excelButtons";
 import { chartData, formatCell, formatOf, labelFor, metricKeys, pivotize } from "./shape";
 import type { Report, ValueFormat, Widget, WidgetResult } from "./types";
 
@@ -24,7 +25,6 @@ import type { Report, ValueFormat, Widget, WidgetResult } from "./types";
  */
 
 const NAVY = "FF1B3C53";
-const GOLD = "FFEBB700";
 const NAV_FILL = "FFE8EEF3";
 const MUTED = "FF6B7B88";
 const NUM_FMT: Record<ValueFormat, string> = { money: '"$"#,##0', number: "#,##0.##", percent: "0.0%" };
@@ -106,11 +106,46 @@ function styleTotal(row: ExcelJS.Row, cols: number) {
 
 /* ── The shared header (rows 1–3, columns A–H) ─────────────────────────── */
 
-function writeHeaders(tabs: Tab[], reportTitle: string) {
-  // Up to 8 links fit A–H; past that the last cell points at the Read Me's full list.
-  const navTargets = tabs.length <= HEADER_COLS ? tabs : [...tabs.slice(0, HEADER_COLS - 1), { name: tabs[0].name, about: "", ws: tabs[0].ws, more: true }];
+const NAV_ROW_PX = 40; // row 2 (30pt)
+const BTN_H = 28;
+const BTN_GAP = 6;
+const BTN_MAX_W = 150;
+/** Excel column width (characters) → pixels, at the default 11pt Calibri. */
+const colPx = (ws: ExcelJS.Worksheet, c: number) => Math.round((ws.getColumn(c).width ?? 9.14) * 7 + 5);
+
+/** A pixel offset from the left edge → exceljs's fractional column position. */
+function colAt(ws: ExcelJS.Worksheet, x: number): number {
+  let left = 0;
+  for (let c = 1; c <= 200; c++) {
+    const w = colPx(ws, c);
+    if (x < left + w) return c - 1 + (x - left) / w;
+    left += w;
+  }
+  return 0;
+}
+
+async function writeHeaders(wb: ExcelJS.Workbook, tabs: Tab[], reportTitle: string) {
+  // Up to 8 buttons fit across A–H; past that the last one opens the Read Me's full list.
+  const targets: { name: string; label: string }[] =
+    tabs.length <= HEADER_COLS
+      ? tabs.map((t) => ({ name: t.name, label: t.name }))
+      : [...tabs.slice(0, HEADER_COLS - 1).map((t) => ({ name: t.name, label: t.name })), { name: tabs[0].name, label: "All tabs ▸" }];
+  const images = new Map<string, number>();
+  const image = async (label: string, w: number, style: ButtonStyle) => {
+    const key = `${style}|${w}|${label}`;
+    let id = images.get(key);
+    if (id === undefined) {
+      id = wb.addImage({ buffer: (await buttonPng(label, w, BTN_H, style)) as unknown as ExcelJS.Buffer, extension: "png" });
+      images.set(key, id);
+    }
+    return id;
+  };
+
   for (const tab of tabs) {
     const ws = tab.ws;
+    // Every tab is at least A–H wide so the header reads cleanly.
+    for (let c = 1; c <= HEADER_COLS; c++) if (!ws.getColumn(c).width) ws.getColumn(c).width = 14;
+
     ws.mergeCells(1, 1, 1, HEADER_COLS);
     const title = ws.getCell(1, 1);
     title.value = `FMG  ·  ${reportTitle}`;
@@ -119,20 +154,25 @@ function writeHeaders(tabs: Tab[], reportTitle: string) {
     title.alignment = { vertical: "middle", indent: 1 };
     ws.getRow(1).height = 26;
 
-    navTargets.forEach((t, i) => {
-      const cell = ws.getCell(2, i + 1);
-      const more = "more" in t;
-      const here = !more && t.name === tab.name;
-      cell.value = here ? t.name : { text: more ? "All tabs ▸" : t.name, hyperlink: `#${ref(t.name)}!A1` };
-      cell.font = here ? { bold: true, color: { argb: NAVY } } : { color: { argb: "FF2E6690" }, underline: true };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: here ? GOLD : NAV_FILL } };
-      cell.alignment = { horizontal: "center", vertical: "middle", shrinkToFit: true };
-      cell.border = { right: { style: "thin", color: { argb: "FFFFFFFF" } } };
-    });
-    for (let c = navTargets.length + 1; c <= HEADER_COLS; c++) {
-      ws.getCell(2, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAV_FILL } };
+    // Row 2: a light band with fixed-size buttons floating on it (A–H).
+    ws.getRow(2).height = (NAV_ROW_PX * 3) / 4;
+    for (let c = 1; c <= HEADER_COLS; c++) ws.getCell(2, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAV_FILL } };
+    let band = 0;
+    for (let c = 1; c <= HEADER_COLS; c++) band += colPx(ws, c);
+    const n = targets.length;
+    const w = Math.max(60, Math.min(BTN_MAX_W, Math.floor((band - BTN_GAP * (n + 1)) / n)));
+    for (let i = 0; i < n; i++) {
+      const t = targets[i];
+      const current = t.label === t.name && t.name === tab.name;
+      const id = await image(t.label, w, current ? "current" : "link");
+      const x = BTN_GAP + i * (w + BTN_GAP);
+      ws.addImage(id, {
+        tl: { col: colAt(ws, x), row: 1 + (NAV_ROW_PX - BTN_H) / 2 / NAV_ROW_PX },
+        ext: { width: w, height: BTN_H },
+        editAs: "absolute",
+        ...(current ? {} : { hyperlinks: { hyperlink: `#${ref(t.name)}!A1`, tooltip: t.label === t.name ? `Go to ${t.name}` : "All tabs" } }),
+      } as unknown as ExcelJS.ImageRange);
     }
-    ws.getRow(2).height = 20;
 
     ws.mergeCells(3, 1, 3, HEADER_COLS);
     const about = ws.getCell(3, 1);
@@ -140,8 +180,6 @@ function writeHeaders(tabs: Tab[], reportTitle: string) {
     about.font = { italic: true, color: { argb: MUTED } };
     about.alignment = { vertical: "middle", wrapText: true, indent: 1 };
     ws.getRow(3).height = 30;
-    // Every tab is at least A–H wide so the header reads cleanly.
-    for (let c = 1; c <= HEADER_COLS; c++) if (!ws.getColumn(c).width) ws.getColumn(c).width = 14;
   }
 }
 
@@ -650,11 +688,11 @@ export async function buildReportWorkbook(report: Report, run: PeriodRun, role: 
   order.forEach((t, i) => ((t.ws as unknown as { orderNo: number }).orderNo = i));
 
   readMeTab(readMe.ws, report, run, order, dataTabs, await ownerContact(report));
-  writeHeaders(order, report.title);
+  await writeHeaders(wb, order, report.title);
   wb.views = [{ x: 0, y: 0, width: 20000, height: 12000, firstSheet: 0, activeTab: 0, visibility: "visible" }];
 
   const buf = await wb.xlsx.writeBuffer();
-  return new Uint8Array(buf as ArrayBuffer);
+  return fixInternalPictureLinks(buf as ArrayBuffer);
 }
 
 /** "Weekly-Sales-Flash-2026-10-31.xlsx" */

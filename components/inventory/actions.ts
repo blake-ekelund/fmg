@@ -344,6 +344,13 @@ export async function uploadSalesData({
     if (syncErr) throw syncErr;
 
     /* --------------------------------------------------
+       Rebuild the stored sales rollups Reports read — not fatal
+       (reports fall back to the live views)
+    -------------------------------------------------- */
+    const { error: rollErr } = await supabase.rpc("refresh_sales_rollups");
+    if (rollErr) console.warn("refresh_sales_rollups:", rollErr.message);
+
+    /* --------------------------------------------------
        Mark upload complete
     -------------------------------------------------- */
     const { error: doneErr } = await supabase

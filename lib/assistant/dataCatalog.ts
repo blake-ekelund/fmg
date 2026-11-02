@@ -27,6 +27,9 @@ type Dataset = {
   defaultOrder: { column: string; ascending?: boolean };
   /** Restrict to the newest inventory snapshot (inventory_snapshot_items). */
   latestInventorySnapshot?: boolean;
+  /** A stored (materialized) copy to read instead of `source` when it exists,
+      with a unique column to page by. Falls back to `source` if it's missing. */
+  fast?: { source: string; orderKey: string };
 };
 
 const DATASETS: Record<string, Dataset> = {
@@ -210,6 +213,7 @@ const DATASETS: Record<string, Dataset> = {
     description:
       "Fishbowl sales rolled up per month × product × segment (the Sales Analysis pages). month is the first of the month (YYYY-MM-01). segment is 'Wholesale' or 'D2C'. typename 'Sale' is product revenue; other typenames are discounts/shipping/etc. Sum revenue/units with group_by for reports.",
     source: "sales_by_product_month_channel",
+    fast: { source: "sales_by_product_month_mat", orderKey: "id" },
     page: "/sales",
     columns: {
       month: "YYYY-MM-01",
@@ -229,6 +233,7 @@ const DATASETS: Record<string, Dataset> = {
     description:
       "The same Fishbowl sales as sales_by_product_month, per completed DAY (day = the date the order completed; month = its month). Use it for periods that aren't whole months (month-to-date, last 7 days, Nov 1–2 vs last year). Reports switch to it automatically when their period needs days.",
     source: "sales_by_product_day_channel",
+    fast: { source: "sales_by_product_day_mat", orderKey: "id" },
     page: "/sales",
     columns: {
       day: "YYYY-MM-DD",
@@ -623,6 +628,25 @@ export type QueryResult = {
 };
 
 const PAGE = 1000;
+/** Pages fetched at once after the first (which carries the row count). */
+const PARALLEL_PAGES = 6;
+
+/* Stored copies found missing (migration not run yet) — don't keep trying them. */
+const missingFast = new Set<string>();
+const isMissingRelation = (m: string) => /schema cache|does not exist|42P01/i.test(m);
+
+/** Run fn against the dataset's stored copy when there is one, else its view. */
+async function onSource<T>(d: Dataset, fn: (table: string, orderKey: string | null) => Promise<T>): Promise<T> {
+  if (d.fast && !missingFast.has(d.fast.source)) {
+    try {
+      return await fn(d.fast.source, d.fast.orderKey);
+    } catch (e) {
+      if (!(e instanceof Error && isMissingRelation(e.message))) throw e;
+      missingFast.add(d.fast.source);
+    }
+  }
+  return fn(d.source, null);
+}
 
 /** Validate a spec against the catalog and the role. Throws a readable error. */
 function check(spec: QuerySpec, role: UserRole): Dataset {
@@ -681,6 +705,33 @@ function applyFilters(q: any, spec: QuerySpec, snapshotId: string | null) {
   return q;
 }
 
+type PageResult = { data: unknown[] | null; error: { message: string } | null; count: number | null };
+
+/**
+ * Up to `want` rows, 1,000 per request: the first page (with the row count),
+ * then the rest a few at a time in parallel rather than one after another.
+ */
+async function fetchPages(
+  page: (from: number, to: number, withCount: boolean) => PromiseLike<PageResult>,
+  want: number,
+): Promise<{ rows: Record<string, unknown>[]; total: number }> {
+  const first = await page(0, Math.min(PAGE, want) - 1, true);
+  if (first.error) throw new Error(first.error.message);
+  const total = first.count ?? 0;
+  const rows = (first.data ?? []) as Record<string, unknown>[];
+  if (rows.length < PAGE) return { rows, total };
+  const offsets: number[] = [];
+  for (let from = PAGE; from < Math.min(total, want); from += PAGE) offsets.push(from);
+  for (let i = 0; i < offsets.length; i += PARALLEL_PAGES) {
+    const batch = await Promise.all(offsets.slice(i, i + PARALLEL_PAGES).map((from) => page(from, Math.min(from + PAGE, want) - 1, false)));
+    for (const b of batch) {
+      if (b.error) throw new Error(b.error.message);
+      rows.push(...((b.data ?? []) as Record<string, unknown>[]));
+    }
+  }
+  return { rows, total };
+}
+
 /**
  * Run a query. Plain queries return up to `maxRows` rows; with group_by/metrics
  * the matching rows (up to `scanLimit`) are aggregated here, one row per group.
@@ -699,23 +750,22 @@ export async function runQuery(
     const order = spec.order_by ?? d.defaultOrder.column;
     const ascending = spec.order_by ? !spec.descending : d.defaultOrder.ascending ?? false;
     const want = Math.max(1, Math.min(spec.limit ?? opts.maxRows, opts.maxRows));
-    const rows: Record<string, unknown>[] = [];
-    let total = 0;
     // PostgREST caps a request at 1000 rows — page through, ordered by the sort
     // column (plus a tiebreak) so pages don't skip rows.
-    for (let from = 0; rows.length < want; from += PAGE) {
-      let q = supabaseServer
-        .from(d.source)
-        .select(columns.join(","), { count: from === 0 ? "exact" : undefined })
-        .order(order, { ascending, nullsFirst: false });
-      if (order !== columns[0]) q = q.order(columns[0], { ascending: true });
-      q = applyFilters(q, spec, snapshotId).range(from, from + Math.min(PAGE, want - rows.length) - 1);
-      const { data, error, count } = await q;
-      if (error) throw new Error(error.message);
-      if (from === 0) total = count ?? 0;
-      rows.push(...((data ?? []) as unknown as Record<string, unknown>[]));
-      if (!data || data.length < PAGE) break;
-    }
+    const { rows, total } = await onSource(d, (table, orderKey) =>
+      fetchPages(
+        (from, to, withCount) => {
+          let q = supabaseServer
+            .from(table)
+            .select(columns.join(","), { count: withCount ? "exact" : undefined })
+            .order(order, { ascending, nullsFirst: false });
+          if (orderKey) q = q.order(orderKey, { ascending: true });
+          else if (order !== columns[0]) q = q.order(columns[0], { ascending: true });
+          return applyFilters(q, spec, snapshotId).range(from, to);
+        },
+        want,
+      ),
+    );
     return { dataset: spec.dataset, title: d.title, columns, rows, total, truncated: total > rows.length };
   }
 
@@ -730,21 +780,19 @@ export async function runQuery(
   const needed = [...new Set([...groupKeys.map((g) => g.column), ...metrics.flatMap((m) => (m.column ? [m.column] : []))])];
   const select = needed.length ? needed : [Object.keys(d.columns)[0]];
   const scanLimit = opts.scanLimit ?? 100_000;
-  const raw: Record<string, unknown>[] = [];
-  let total = 0;
-  for (let from = 0; from < scanLimit; from += PAGE) {
-    let q = supabaseServer
-      .from(d.source)
-      .select(select.join(","), { count: from === 0 ? "exact" : undefined })
-      .order(select[0], { ascending: true });
-    if (select[1]) q = q.order(select[1], { ascending: true });
-    q = applyFilters(q, spec, snapshotId).range(from, from + PAGE - 1);
-    const { data, error, count } = await q;
-    if (error) throw new Error(error.message);
-    if (from === 0) total = count ?? 0;
-    raw.push(...((data ?? []) as unknown as Record<string, unknown>[]));
-    if (!data || data.length < PAGE) break;
-  }
+  const { rows: raw, total } = await onSource(d, (table, orderKey) =>
+    fetchPages(
+      (from, to, withCount) => {
+        let q = supabaseServer
+          .from(table)
+          .select(select.join(","), { count: withCount ? "exact" : undefined })
+          .order(orderKey ?? select[0], { ascending: true });
+        if (!orderKey && select[1]) q = q.order(select[1], { ascending: true });
+        return applyFilters(q, spec, snapshotId).range(from, to);
+      },
+      scanLimit,
+    ),
+  );
 
   const label = (m: { fn: string; column?: string }) => (m.column ? `${m.fn}_${m.column}` : m.fn);
   const groups = new Map<string, { key: Record<string, unknown>; vals: number[][]; n: number }>();
