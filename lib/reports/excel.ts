@@ -59,6 +59,40 @@ function fit(s: string, max: number): string {
   return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,–(-]+$/, "")}…`;
 }
 
+const SMALL = new Set(["by", "of", "and", "the", "a", "an", "for", "in", "to", "vs", "per", "&"]);
+const TIME = /^(this|last|next|month|months|monthly|week|weeks|weekly|day|days|daily|year|years|yearly|quarter|quarters|date|today|ytd|mtd|qtd|\d+)$/i;
+const FILLER = /^(who|that|which|with|without|not|haven't|hasn't|didn't|in|on|at|from|over|under)$/i;
+const titleCase = (w: string) => (SMALL.has(w.toLowerCase()) ? w.toLowerCase() : /^[A-Z0-9]{2,}$/.test(w) ? w : w[0].toUpperCase() + w.slice(1));
+
+/**
+ * A tab name of three words at most (business rule — they're also the
+ * button labels): "Revenue by month and segment (last 12 months)" →
+ * "Revenue by Segment", "Top 15 products this month" → "Top 15 Products".
+ */
+export function shortLabel(title: string): string {
+  const words = title.replace(/\([^)]*\)/g, " ").replace(/[–—:,]/g, " ").split(/\s+/).filter(Boolean);
+  if (words.length <= 3) return words.map(titleCase).join(" ");
+  const content = (ws: string[]) => ws.filter((w) => !SMALL.has(w.toLowerCase()));
+  // "<thing> by <dimension>" → the thing's head noun + "by" + the dimension's last word.
+  const by = words.findIndex((w) => w.toLowerCase() === "by");
+  if (by > 0 && by < words.length - 1) {
+    const head = content(words.slice(0, by)).pop();
+    const after = content(words.slice(by + 1));
+    const dim = after.filter((w) => !TIME.test(w)).pop() ?? after.pop();
+    if (head && dim) return [head, "by", dim].map(titleCase).join(" ");
+  }
+  // Otherwise the opening words, up to a filler or time word ("Top 15 products this month").
+  const out: string[] = [];
+  for (let i = 0; i < words.length && out.length < 3; i++) {
+    const w = words[i];
+    const lead = i === 1 && /^top$/i.test(words[0]); // keep the N in "Top N"
+    if (out.length && (FILLER.test(w) || (TIME.test(w) && !lead))) break;
+    out.push(w);
+  }
+  while (out.length > 1 && SMALL.has(out[out.length - 1].toLowerCase())) out.pop();
+  return out.map(titleCase).join(" ");
+}
+
 function tabName(raw: string, used: Set<string>): string {
   const base = fit(raw.replace(/[:\\/?*[\]']/g, " ").replace(/\s+/g, " ").trim() || "Sheet", 31);
   let name = base;
@@ -107,8 +141,9 @@ function styleTotal(row: ExcelJS.Row, cols: number) {
 
 /* ── The shared header (rows 1–3, columns A–H) ─────────────────────────── */
 
-/* Every button is the same size on every tab; labels wrap to two lines. When a
-   tab's A–H band can't fit them all in one row, they wrap to a second row. */
+/* Every button is the same size on every tab, labels (tab names of three words
+   at most) wrap to two lines, and they always sit in ONE row — running past
+   column H when a report has many tabs. */
 const BTN_W = 120;
 const BTN_H = 40;
 const BTN_GAP = 6;
@@ -148,7 +183,11 @@ async function writeHeaders(wb: ExcelJS.Workbook, tabs: Tab[], reportTitle: stri
     // Every tab is at least A–H wide so the header reads cleanly.
     for (let c = 1; c <= HEADER_COLS; c++) if (!ws.getColumn(c).width) ws.getColumn(c).width = 14;
 
-    ws.mergeCells(1, 1, 1, HEADER_COLS);
+    // One row of buttons, always — past H when there are many tabs; the band follows them.
+    const endX = BTN_GAP + tabs.length * (BTN_W + BTN_GAP);
+    const span = Math.max(HEADER_COLS, nativeX(ws, endX).nativeCol + 1);
+
+    ws.mergeCells(1, 1, 1, span);
     const title = ws.getCell(1, 1);
     title.value = `FMG  ·  ${reportTitle}`;
     title.font = { bold: true, size: 14, color: { argb: "FFFFFFFF" } };
@@ -156,21 +195,16 @@ async function writeHeaders(wb: ExcelJS.Workbook, tabs: Tab[], reportTitle: stri
     title.alignment = { vertical: "middle", indent: 1 };
     ws.getRow(1).height = 26;
 
-    // Row 2: a light band across A–H holding a button for every tab.
-    let band = 0;
-    for (let c = 1; c <= HEADER_COLS; c++) band += colPx(ws, c);
-    const perRow = Math.max(1, Math.floor((band - BTN_GAP) / (BTN_W + BTN_GAP)));
-    const rows = Math.ceil(tabs.length / perRow);
-    const bandH = rows * (BTN_H + BTN_GAP) + BTN_GAP;
-    ws.getRow(2).height = (bandH * 3) / 4; // px → points
-    for (let c = 1; c <= HEADER_COLS; c++) ws.getCell(2, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAV_FILL } };
+    // Row 2: a light band holding a button for every tab, in one row.
+    ws.getRow(2).height = ((BTN_H + 2 * BTN_GAP) * 3) / 4; // px → points
+    for (let c = 1; c <= span; c++) ws.getCell(2, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAV_FILL } };
 
     for (let i = 0; i < tabs.length; i++) {
       const t = tabs[i];
       const current = t.name === tab.name;
       const id = await image(t.label ?? t.name, current ? "current" : "link");
-      const x = BTN_GAP + (i % perRow) * (BTN_W + BTN_GAP);
-      const y = BTN_GAP + Math.floor(i / perRow) * (BTN_H + BTN_GAP);
+      const x = BTN_GAP + i * (BTN_W + BTN_GAP);
+      const y = BTN_GAP;
       ws.addImage(id, {
         tl: { ...nativeX(ws, x), nativeRow: 1, nativeRowOff: y * EMU_PER_PX },
         ext: { width: BTN_W, height: BTN_H },
@@ -234,7 +268,7 @@ async function buildDataTab(
   const current = await pullRows(dataset, filters, date ? run.period.range : null, role);
   const compare = date && run.period.compare ? await pullRows(dataset, filters, run.period.compare, role) : null;
 
-  const name = tabName(`Data – ${DATA_TAB_NAMES[dataset] ?? info.title}`, used);
+  const name = tabName(`Data – ${DATA_TAB_NAMES[dataset] ?? shortLabel(info.title)}`, used);
   const ws = wb.addWorksheet(name, { views: [{ state: "frozen", ySplit: TABLE_TOP }] });
   const cols = current.columns;
   const keys = [...(date ? ["_period", "_month"] : []), ...cols];
@@ -634,7 +668,8 @@ export async function buildReportWorkbook(report: Report, run: PeriodRun, role: 
   const byId = new Map(run.results.map((r) => [r.id, r]));
   const widgets = run.widgets;
   const tabs: Tab[] = [];
-  const add = (name: string, about: string, freeze = true) => {
+  const add = (title: string, about: string, freeze = true) => {
+    const name = shortLabel(title);
     const n = tabName(name, used);
     const ws = wb.addWorksheet(n, freeze ? { views: [{ state: "frozen", ySplit: TABLE_TOP }] } : {});
     const t: Tab = { name: n, about, ws, label: name };
