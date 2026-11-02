@@ -36,19 +36,44 @@ function fitText(f: opentype.Font, text: string, size: number, max: number): str
   return `${t.trimEnd()}…`;
 }
 
+/** Word-wrap into at most `lines` lines; the last one ends in "…" if it still doesn't fit. */
+function wrapText(f: opentype.Font, text: string, size: number, max: number, lines = 2): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < words.length; i++) {
+    const next = cur ? `${cur} ${words[i]}` : words[i];
+    if (f.getAdvanceWidth(next, size) <= max || !cur) {
+      cur = next;
+      continue;
+    }
+    out.push(cur);
+    cur = words[i];
+    if (out.length === lines - 1) {
+      cur = words.slice(i).join(" ");
+      break;
+    }
+  }
+  if (cur) out.push(cur);
+  return out.map((l) => fitText(f, l, size, max));
+}
+
 export type ButtonStyle = "link" | "current";
 
-/** One button as a PNG: `width` × `height` px (drawn at 2×). */
+/** One button as a PNG: `width` × `height` px (drawn at 2×), label wrapped to two lines. */
 export async function buttonPng(label: string, width: number, height: number, style: ButtonStyle): Promise<Buffer> {
   const f = await font();
   const W = width * SCALE;
   const H = height * SCALE;
   const size = 11.5 * SCALE;
-  const text = fitText(f, label, size, W - 14 * SCALE);
-  const tw = f.getAdvanceWidth(text, size);
-  // Vertically centre on the cap height.
+  const lineH = size * 1.2;
+  const lines = wrapText(f, label, size, W - 14 * SCALE);
+  // Centre the block of lines on the cap height.
   const capH = ((f.tables.os2 as { sCapHeight?: number } | undefined)?.sCapHeight ?? f.ascender * 0.7) * (size / f.unitsPerEm);
-  const d = f.getPath(text, (W - tw) / 2, H / 2 + capH / 2, size).toPathData(2);
+  const firstBase = H / 2 - ((lines.length - 1) * lineH) / 2 + capH / 2;
+  const d = lines
+    .map((l, i) => f.getPath(l, (W - f.getAdvanceWidth(l, size)) / 2, firstBase + i * lineH, size).toPathData(2))
+    .join(" ");
   const fill = style === "current" ? GOLD : LIGHT;
   const ink = style === "current" ? NAVY : LINK;
   const border = style === "current" ? GOLD : "#C9D6E0";

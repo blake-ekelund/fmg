@@ -25,7 +25,9 @@ import { SAGE_REPORT_EVENT, openHelpAssistant } from "@/components/HelpAssistant
 import { downloadReport, reportsApi } from "@/lib/reports/client";
 import { describeSchedule } from "@/lib/reports/schedule";
 import { DEFAULT_PERIOD, normalizePeriod, type ReportPeriod, type ResolvedPeriod } from "@/lib/reports/reportPeriod";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import ChartWidget from "./ChartWidget";
+import DeleteReportDialog from "./DeleteReportDialog";
 import PeriodBar from "./PeriodBar";
 import { CHART_KINDS, type ChartKind, type Report, type Schedule, type Widget, type WidgetResult } from "@/lib/reports/types";
 import ScheduleEditor from "./ScheduleEditor";
@@ -69,6 +71,8 @@ export default function ReportDetail({ id }: { id: string }) {
   const [menu, setMenu] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [removing, setRemoving] = useState<Widget | null>(null);
   // The viewer's own period; null = the report's saved default.
   const [picked, setPicked] = useState<ReportPeriod | null>(null);
   const periodQs = picked ? `?period=${encodeURIComponent(JSON.stringify(picked))}` : "";
@@ -156,7 +160,8 @@ export default function ReportDetail({ id }: { id: string }) {
   };
   const change = (w: Widget, p: Partial<Widget>) => void setWidgets(widgets.map((x) => (x.id === w.id ? { ...x, ...p } : x)));
   const remove = (w: Widget) => {
-    if (confirm(`Remove “${w.title}” from this report?`)) void setWidgets(widgets.filter((x) => x.id !== w.id));
+    setMenu(null);
+    setRemoving(w);
   };
 
   const widgetMenu = (w: Widget) =>
@@ -308,14 +313,7 @@ export default function ReportDetail({ id }: { id: string }) {
                 className={clsx(btn, "hover:border-critical hover:text-critical")}
                 disabled={!!busy}
                 aria-label="Delete report"
-                onClick={() => {
-                  if (confirm(`Delete “${report.title}”? Its schedule stops too.`)) {
-                    void run("delete", async () => {
-                      await reportsApi(`/api/reports/${id}`, { method: "DELETE" });
-                      router.push("/reports");
-                    });
-                  }
-                }}
+                onClick={() => setDeleting(true)}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -436,6 +434,32 @@ export default function ReportDetail({ id }: { id: string }) {
           )}
         </section>
       )}
+
+      <DeleteReportDialog
+        report={deleting ? report : null}
+        busy={busy === "delete"}
+        onCancel={() => setDeleting(false)}
+        onConfirm={() =>
+          void run("delete", async () => {
+            await reportsApi(`/api/reports/${id}`, { method: "DELETE" });
+            router.push("/reports");
+          })
+        }
+      />
+      <ConfirmDialog
+        open={!!removing}
+        title="Remove this from the report?"
+        confirmLabel="Remove"
+        tone="danger"
+        onCancel={() => setRemoving(null)}
+        onConfirm={() => {
+          const w = removing!;
+          setRemoving(null);
+          void setWidgets(widgets.filter((x) => x.id !== w.id));
+        }}
+      >
+        <span className="font-semibold text-gray-900">“{removing?.title}”</span> comes off this report for everyone. You can ask Sage to add it back.
+      </ConfirmDialog>
 
       {scheduling && (
         <ScheduleEditor

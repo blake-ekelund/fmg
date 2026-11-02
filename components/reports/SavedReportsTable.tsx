@@ -7,6 +7,7 @@ import { CalendarClock, Download, ExternalLink, Loader2, Pause, Play, Search, Tr
 import { downloadReport, reportsApi } from "@/lib/reports/client";
 import { describeSchedule } from "@/lib/reports/schedule";
 import type { Report, Schedule } from "@/lib/reports/types";
+import DeleteReportDialog from "./DeleteReportDialog";
 import ScheduleEditor from "./ScheduleEditor";
 
 /* Every saved report as one table: open, download, change or pause the
@@ -33,6 +34,7 @@ export default function SavedReportsTable({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState<ReportRow | null>(null);
+  const [deleting, setDeleting] = useState<ReportRow | null>(null);
 
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -170,13 +172,7 @@ export default function SavedReportsTable({
                           className={clsx(iconBtn, "hover:text-critical")}
                           title="Delete"
                           disabled={!!busy}
-                          onClick={() => {
-                            if (!confirm(`Delete “${r.title}”?${r.schedule ? " Its scheduled emails stop too." : ""}`)) return;
-                            void act(`del:${r.id}`, async () => {
-                              await reportsApi(`/api/reports/${r.id}`, { method: "DELETE" });
-                              setRows((list) => list.filter((x) => x.id !== r.id));
-                            });
-                          }}
+                          onClick={() => setDeleting(r)}
                         >
                           {busy === `del:${r.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </button>
@@ -207,6 +203,19 @@ export default function SavedReportsTable({
           onSave={(schedule: Schedule | null, enabled: boolean) => patch(scheduling, { schedule, schedule_enabled: enabled })}
         />
       )}
+      <DeleteReportDialog
+        report={deleting}
+        busy={!!deleting && busy === `del:${deleting.id}`}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => {
+          const r = deleting!;
+          void act(`del:${r.id}`, async () => {
+            await reportsApi(`/api/reports/${r.id}`, { method: "DELETE" });
+            setRows((list) => list.filter((x) => x.id !== r.id));
+            setDeleting(null);
+          });
+        }}
+      />
     </div>
   );
 }

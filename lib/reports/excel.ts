@@ -35,7 +35,8 @@ const TABLE_TOP = 5; // first table row (the header row) on every tab
 const DATA_ROW_CAP = 60_000;
 const MONEY = /revenue|sales|price|amount|aov|subtotal|cost|msrp|^total$|shipping|tax|discount|fees|value/i;
 
-type Tab = { name: string; about: string; ws: ExcelJS.Worksheet };
+/** label = the full name for its button (tab names are cut to Excel's 31 characters). */
+type Tab = { name: string; about: string; ws: ExcelJS.Worksheet; label?: string };
 type DataTab = Tab & {
   dataset: string;
   /** column key → its column letter on the data tab */
@@ -106,36 +107,37 @@ function styleTotal(row: ExcelJS.Row, cols: number) {
 
 /* ── The shared header (rows 1–3, columns A–H) ─────────────────────────── */
 
-const NAV_ROW_PX = 40; // row 2 (30pt)
-const BTN_H = 28;
+/* Every button is the same size on every tab; labels wrap to two lines. When a
+   tab's A–H band can't fit them all in one row, they wrap to a second row. */
+const BTN_W = 120;
+const BTN_H = 40;
 const BTN_GAP = 6;
-const BTN_MAX_W = 150;
-/** Excel column width (characters) → pixels, at the default 11pt Calibri. */
-const colPx = (ws: ExcelJS.Worksheet, c: number) => Math.round((ws.getColumn(c).width ?? 9.14) * 7 + 5);
+const EMU_PER_PX = 9525;
+/** Excel column width (characters, as stored in the file) → pixels at 11pt Calibri. */
+const colPx = (ws: ExcelJS.Worksheet, c: number) => Math.trunc((ws.getColumn(c).width ?? 8.43) * 7 + 0.5);
 
-/** A pixel offset from the left edge → exceljs's fractional column position. */
-function colAt(ws: ExcelJS.Worksheet, x: number): number {
+/**
+ * A pixel offset from the left edge → the column it falls in and the offset
+ * inside it, in EMUs. (exceljs's own fractional-column conversion assumes the
+ * wrong width units, which is what scattered the buttons.)
+ */
+function nativeX(ws: ExcelJS.Worksheet, x: number): { nativeCol: number; nativeColOff: number } {
   let left = 0;
   for (let c = 1; c <= 200; c++) {
     const w = colPx(ws, c);
-    if (x < left + w) return c - 1 + (x - left) / w;
+    if (x < left + w) return { nativeCol: c - 1, nativeColOff: Math.round((x - left) * EMU_PER_PX) };
     left += w;
   }
-  return 0;
+  return { nativeCol: 0, nativeColOff: 0 };
 }
 
 async function writeHeaders(wb: ExcelJS.Workbook, tabs: Tab[], reportTitle: string) {
-  // Up to 8 buttons fit across A–H; past that the last one opens the Read Me's full list.
-  const targets: { name: string; label: string }[] =
-    tabs.length <= HEADER_COLS
-      ? tabs.map((t) => ({ name: t.name, label: t.name }))
-      : [...tabs.slice(0, HEADER_COLS - 1).map((t) => ({ name: t.name, label: t.name })), { name: tabs[0].name, label: "All tabs ▸" }];
   const images = new Map<string, number>();
-  const image = async (label: string, w: number, style: ButtonStyle) => {
-    const key = `${style}|${w}|${label}`;
+  const image = async (label: string, style: ButtonStyle) => {
+    const key = `${style}|${label}`;
     let id = images.get(key);
     if (id === undefined) {
-      id = wb.addImage({ buffer: (await buttonPng(label, w, BTN_H, style)) as unknown as ExcelJS.Buffer, extension: "png" });
+      id = wb.addImage({ buffer: (await buttonPng(label, BTN_W, BTN_H, style)) as unknown as ExcelJS.Buffer, extension: "png" });
       images.set(key, id);
     }
     return id;
@@ -154,23 +156,26 @@ async function writeHeaders(wb: ExcelJS.Workbook, tabs: Tab[], reportTitle: stri
     title.alignment = { vertical: "middle", indent: 1 };
     ws.getRow(1).height = 26;
 
-    // Row 2: a light band with fixed-size buttons floating on it (A–H).
-    ws.getRow(2).height = (NAV_ROW_PX * 3) / 4;
-    for (let c = 1; c <= HEADER_COLS; c++) ws.getCell(2, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAV_FILL } };
+    // Row 2: a light band across A–H holding a button for every tab.
     let band = 0;
     for (let c = 1; c <= HEADER_COLS; c++) band += colPx(ws, c);
-    const n = targets.length;
-    const w = Math.max(60, Math.min(BTN_MAX_W, Math.floor((band - BTN_GAP * (n + 1)) / n)));
-    for (let i = 0; i < n; i++) {
-      const t = targets[i];
-      const current = t.label === t.name && t.name === tab.name;
-      const id = await image(t.label, w, current ? "current" : "link");
-      const x = BTN_GAP + i * (w + BTN_GAP);
+    const perRow = Math.max(1, Math.floor((band - BTN_GAP) / (BTN_W + BTN_GAP)));
+    const rows = Math.ceil(tabs.length / perRow);
+    const bandH = rows * (BTN_H + BTN_GAP) + BTN_GAP;
+    ws.getRow(2).height = (bandH * 3) / 4; // px → points
+    for (let c = 1; c <= HEADER_COLS; c++) ws.getCell(2, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAV_FILL } };
+
+    for (let i = 0; i < tabs.length; i++) {
+      const t = tabs[i];
+      const current = t.name === tab.name;
+      const id = await image(t.label ?? t.name, current ? "current" : "link");
+      const x = BTN_GAP + (i % perRow) * (BTN_W + BTN_GAP);
+      const y = BTN_GAP + Math.floor(i / perRow) * (BTN_H + BTN_GAP);
       ws.addImage(id, {
-        tl: { col: colAt(ws, x), row: 1 + (NAV_ROW_PX - BTN_H) / 2 / NAV_ROW_PX },
-        ext: { width: w, height: BTN_H },
+        tl: { ...nativeX(ws, x), nativeRow: 1, nativeRowOff: y * EMU_PER_PX },
+        ext: { width: BTN_W, height: BTN_H },
         editAs: "absolute",
-        ...(current ? {} : { hyperlinks: { hyperlink: `#${ref(t.name)}!A1`, tooltip: t.label === t.name ? `Go to ${t.name}` : "All tabs" } }),
+        ...(current ? {} : { hyperlinks: { hyperlink: `#${ref(t.name)}!A1`, tooltip: `Go to ${t.label ?? t.name}` } }),
       } as unknown as ExcelJS.ImageRange);
     }
 
@@ -632,7 +637,7 @@ export async function buildReportWorkbook(report: Report, run: PeriodRun, role: 
   const add = (name: string, about: string, freeze = true) => {
     const n = tabName(name, used);
     const ws = wb.addWorksheet(n, freeze ? { views: [{ state: "frozen", ySplit: TABLE_TOP }] } : {});
-    const t = { name: n, about, ws };
+    const t: Tab = { name: n, about, ws, label: name };
     tabs.push(t);
     return t;
   };
