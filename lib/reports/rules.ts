@@ -58,6 +58,29 @@ export type Lint = { widget: string; level: "error" | "warning"; rule: string; m
 
 const DATE_LITERAL = /^\d{4}-\d{2}-\d{2}/;
 
+/* Columns that hold dates — grouping by one raw (no ":month" bucket) leaves the
+   chart without its period switcher or Jan-26 labels. */
+const DATE_COLUMN = /^(month|date.*|.*_date|.*_at)$/;
+
+/* "@start_of_month" etc. with no offset — the start of the current, still-open period. */
+const OPEN_PERIOD = /^@start_of_(week|month|quarter|year)$/;
+
+/** True when a KPI's current period is still running (from the start of this
+    month/quarter/… with no end) but its comparison is a whole closed period,
+    e.g. month-to-date vs all of last month — the gap reads as a collapse. */
+function partialVsFull(w: Widget): boolean {
+  if (!w.compare_query) return false;
+  const open = (w.query.filters ?? []).find((f) => f.op === "gte" && typeof f.value === "string" && OPEN_PERIOD.test(f.value));
+  if (!open) return false;
+  const ends = (w.query.filters ?? []).some((f) => f.column === open.column && (f.op === "lt" || f.op === "lte"));
+  if (ends) return false;
+  const unit = String(open.value).slice("@start_of_".length);
+  // The comparison ends where this period starts → it's the whole previous period.
+  return (w.compare_query.filters ?? []).some(
+    (f) => f.column === open.column && f.op === "lt" && f.value === `@start_of_${unit}`,
+  );
+}
+
 /** Machine-checkable house rules over a whole report. */
 export function lintWidgets(widgets: Widget[]): Lint[] {
   const out: Lint[] = [];
@@ -93,6 +116,14 @@ export function lintWidgets(widgets: Widget[]): Lint[] {
       const period = (w.query.filters ?? []).some((f) => [f.value].flat().some((v) => typeof v === "string" && (v.startsWith("@") || DATE_LITERAL.test(v))));
       const summed = (w.query.metrics ?? []).some((m) => m.fn === "sum" || m.fn === "count");
       if (period && summed && !w.compare_query) add(w, "warning", "kpi-compare", "Add a compare_query (prior period or same period last year) with a compare_label.");
+      if (partialVsFull(w)) {
+        add(w, "error", "same-window", "This compares a period still in progress with a whole finished one, so it always looks like a big drop. Compare the same days (on a dataset with daily dates), or show the last full period vs the one before.");
+      }
+    }
+
+    if (w.type === "chart" || w.type === "pivot") {
+      const raw = groups.find((g) => !g.bucket && DATE_COLUMN.test(g.column));
+      if (raw) add(w, "error", "time-periods", `Group dates by a bucket ("${raw.column}:month"), not the raw ${raw.column} column, so the period switcher and Jan-26 labels work.`);
     }
 
     if (w.type === "chart") {

@@ -21,7 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import { openHelpAssistant } from "@/components/HelpAssistant";
+import { SAGE_REPORT_EVENT, openHelpAssistant } from "@/components/HelpAssistant";
 import { downloadReport, reportsApi } from "@/lib/reports/client";
 import { describeSchedule } from "@/lib/reports/schedule";
 import ChartWidget from "./ChartWidget";
@@ -76,6 +76,13 @@ export default function ReportDetail({ id }: { id: string }) {
   useEffect(() => {
     void load();
   }, [load, v]);
+
+  // …and reload in place when Sage saves a change while this page is open.
+  useEffect(() => {
+    const onChange = () => void load();
+    window.addEventListener(SAGE_REPORT_EVENT, onChange);
+    return () => window.removeEventListener(SAGE_REPORT_EVENT, onChange);
+  }, [load]);
 
   async function run(label: string, fn: () => Promise<void>) {
     setBusy(label);
@@ -275,7 +282,11 @@ export default function ReportDetail({ id }: { id: string }) {
               </button>
             )}
             {canEdit && (
-              <button className={btn} onClick={() => openHelpAssistant()} title="Ask Sage to add, change or remove anything on this report">
+              <button
+                className={btn}
+                onClick={() => openHelpAssistant(`I'd like to change my report "${report.title}" (id ${report.id}).`, { fresh: true })}
+                title="Ask Sage to add, change or remove anything on this report"
+              >
                 <Sparkles className="h-4 w-4 text-accent-600" /> Ask Sage to change it
               </button>
             )}

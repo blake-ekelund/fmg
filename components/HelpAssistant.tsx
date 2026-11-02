@@ -119,11 +119,15 @@ const STORAGE_KEY = "fmg-help-chat";
 const OPEN_EVENT = "fmg:open-help";
 
 /** Open Sage from anywhere (e.g. the /help page), optionally asking a question. */
-export function openHelpAssistant(question?: string) {
-  window.dispatchEvent(new CustomEvent<OpenDetail>(OPEN_EVENT, { detail: question ?? null }));
+export function openHelpAssistant(question?: string, opts: { fresh?: boolean } = {}) {
+  const detail: OpenDetail = question && opts.fresh ? { question, fresh: true } : (question ?? null);
+  window.dispatchEvent(new CustomEvent<OpenDetail>(OPEN_EVENT, { detail }));
 }
 
-type OpenDetail = string | { conversationId: string } | null;
+type OpenDetail = string | { conversationId: string } | { question: string; fresh: true } | null;
+
+/** Fired when Sage creates or changes a saved report, so an open Reports page reloads. */
+export const SAGE_REPORT_EVENT = "fmg:sage-report";
 
 /** Open Sage on a saved conversation (the sidebar's Recent chats). */
 export function openSageConversation(conversationId: string) {
@@ -373,12 +377,20 @@ export default function HelpAssistant() {
   const sendRef = useRef<(q: string) => void>(() => {});
   const loadRef = useRef<(id: string) => void>(() => {});
   const removeRef = useRef<(id: string) => Promise<void>>(async () => {});
+  const resetRef = useRef<() => void>(() => {});
+  // A question to ask once a fresh chat has cleared (openHelpAssistant(q, { fresh: true })).
+  const pendingRef = useRef<string | null>(null);
+  const [freshTick, setFreshTick] = useState(0);
   useEffect(() => {
     const onOpen = (e: Event) => {
       setOpen(true);
       const d = (e as CustomEvent<OpenDetail>).detail;
       if (typeof d === "string") sendRef.current(d);
-      else if (d?.conversationId) loadRef.current(d.conversationId);
+      else if (d && "fresh" in d) {
+        resetRef.current();
+        pendingRef.current = d.question;
+        setFreshTick((t) => t + 1);
+      } else if (d?.conversationId) loadRef.current(d.conversationId);
     };
     // Deletes from the sidebar go through the same path as the History trash.
     const onDelete = (e: Event) => void removeRef.current((e as CustomEvent<string>).detail);
@@ -506,7 +518,14 @@ export default function HelpAssistant() {
           } else if (ev.t === "status") {
             setStatus(ev.v);
           } else if (ev.t === "action") {
-            if ("href" in ev && isAppPath(ev.href)) actions.push({ label: ev.label, href: ev.href });
+            if ("href" in ev && isAppPath(ev.href)) {
+              // Sage often saves a report then fixes it — one "Open report" button, the latest.
+              const path = ev.href.split("?")[0];
+              const dup = actions.findIndex((a) => "href" in a && a.href.split("?")[0] === path);
+              if (dup >= 0) actions.splice(dup, 1);
+              actions.push({ label: ev.label, href: ev.href });
+              if (path.startsWith("/reports/")) window.dispatchEvent(new Event(SAGE_REPORT_EVENT));
+            }
             else if ("download" in ev) actions.push({ label: ev.label, download: ev.download });
             else if ("confirm" in ev) actions.push({ label: ev.label, confirm: ev.confirm });
             setStatus(null);
@@ -553,6 +572,16 @@ export default function HelpAssistant() {
   sendRef.current = send;
   loadRef.current = loadConversation;
   removeRef.current = removeConversation;
+  resetRef.current = reset;
+
+  // Ask the pending question once the fresh chat has rendered empty.
+  useEffect(() => {
+    if (!pendingRef.current || busy || messages.length) return;
+    const q = pendingRef.current;
+    pendingRef.current = null;
+    void send(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- send is redeclared each render
+  }, [freshTick, messages, busy]);
 
   /* Confirmation cards (schedule / publish). Only the user's "Yes" runs it —
      the same API call the Social / Blog page makes, under their own token. */

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Plus } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import { openHelpAssistant } from "@/components/HelpAssistant";
+import { SAGE_REPORT_EVENT, openHelpAssistant } from "@/components/HelpAssistant";
 import { reportsApi } from "@/lib/reports/client";
 import SavedReportsTable, { type ReportRow } from "./SavedReportsTable";
 
@@ -13,16 +13,21 @@ import SavedReportsTable, { type ReportRow } from "./SavedReportsTable";
 
 type ListResponse = { ready: boolean; items: ReportRow[]; team: { name: string; email: string }[]; myEmail: string | null };
 
-export const startNewReport = () => openHelpAssistant("I'd like to create a new report.");
+export const startNewReport = () => openHelpAssistant("I'd like to create a new report.", { fresh: true });
 
 export default function ReportsHome() {
   const [data, setData] = useState<ListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    reportsApi<ListResponse>("/api/reports")
-      .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't load reports."));
+    const load = () =>
+      reportsApi<ListResponse>("/api/reports")
+        .then(setData)
+        .catch((e) => setError(e instanceof Error ? e.message : "Couldn't load reports."));
+    void load();
+    // A report Sage just saved shows up without a page reload.
+    window.addEventListener(SAGE_REPORT_EVENT, load);
+    return () => window.removeEventListener(SAGE_REPORT_EVENT, load);
   }, []);
 
   return (

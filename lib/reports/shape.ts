@@ -95,8 +95,21 @@ export function formatCell(v: unknown, key: string, w: Widget): string {
     if (!Number.isNaN(t.getTime())) return t.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Chicago" });
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return `${MONTHS[Number(s.slice(5, 7)) - 1]} ${Number(s.slice(8, 10))}, ${s.slice(0, 4)}`;
-  return s;
+  return KNOWN_NAMES[s.toLowerCase()] ?? s;
 }
+
+/* Stored codes (order source, brand, segment) → the names people use. */
+const KNOWN_NAMES: Record<string, string> = {
+  faire: "Faire",
+  markettime: "MarketTime",
+  storefront: "Storefront",
+  shopify: "Shopify",
+  amazon: "Amazon",
+  ni: "NI",
+  sassy: "Sassy",
+  d2c: "D2C",
+  wholesale: "Wholesale",
+};
 
 function sortKeys(keys: string[], key: string): string[] {
   const { bucket } = parseGroupKey(key);
