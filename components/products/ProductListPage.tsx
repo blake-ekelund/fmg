@@ -21,6 +21,7 @@ import { Product } from "@/components/inventory/types";
 import { type Trend, TREND_CONFIG, computeTrend } from "@/lib/trends";
 import { useBrandSettings, brandBadgeStyle } from "@/lib/brand-settings";
 import CreateProductModal from "./CreateProductModal";
+import { REQUIRED_PHOTO_TAGS } from "./photoTags";
 import type { Brand } from "@/types/brand";
 
 /* ─── Sales lookup type ─── */
@@ -54,8 +55,8 @@ type MediaKind =
   | "front"
   | "benefits"
   | "lifestyle"
-  | "ingredients"
   | "fragrance"
+  | "ingredients"
   | "other";
 
 const MEDIA_KINDS: { kind: MediaKind; label: string }[] = [
@@ -63,8 +64,8 @@ const MEDIA_KINDS: { kind: MediaKind; label: string }[] = [
   { kind: "front", label: "Front" },
   { kind: "benefits", label: "Benefits" },
   { kind: "lifestyle", label: "Lifestyle" },
-  { kind: "ingredients", label: "Ingredients / Back" },
   { kind: "fragrance", label: "Fragrance" },
+  { kind: "ingredients", label: "Ingredients / Back" },
   { kind: "other", label: "Other" },
 ];
 
@@ -985,12 +986,15 @@ function MediaBadge({ status }: { status?: MediaStatus }) {
     );
   }
 
+  // Name what's missing — copy, then each required photo ("Other" is
+  // optional) — rather than a bare "Photos".
   const missing: string[] = [];
   if (!status.hasCopy) missing.push("Copy");
   const missingPhotos = MEDIA_KINDS.filter(
-    (m) => m.kind !== "copy" && isMissing(status, m.kind),
+    (m) => (REQUIRED_PHOTO_TAGS as string[]).includes(m.kind) && isMissing(status, m.kind),
   );
-  if (missingPhotos.length) missing.push("Photos");
+  if (missingPhotos.length === REQUIRED_PHOTO_TAGS.length) missing.push("All photos");
+  else missing.push(...missingPhotos.map((m) => (m.kind === "ingredients" ? "Ingredients" : m.label)));
 
   if (missing.length === 0) {
     return (
@@ -1003,9 +1007,9 @@ function MediaBadge({ status }: { status?: MediaStatus }) {
   return (
     <span
       className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-600"
-      title={missingPhotos.length ? `Missing photos: ${missingPhotos.map((m) => m.label).join(", ")}` : undefined}
+      title={`Missing: ${missing.join(", ")}`}
     >
-      {missing.join(" + ")}
+      {missing.join(" · ")}
     </span>
   );
 }

@@ -53,7 +53,7 @@ const PLACEHOLDER = ".emptyFolderPlaceholder";
 const ROOT = "root";
 const PRODUCT_PREFIX = "~products";
 /** Storefront gallery type order — matches HERO_PRIORITY in each storefront's lib/fmg/products.ts. */
-const GALLERY_TYPE_ORDER = ["front", "lifestyle", "benefits", "ingredients", "fragrance", "other"];
+const GALLERY_TYPE_ORDER = ["front", "benefits", "lifestyle", "fragrance", "ingredients", "other"];
 
 /**
  * Landing ("inbox") folders: where uploads go when nobody picks a folder. Each
@@ -344,7 +344,7 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
 
     // Order the way staff and shoppers see them: grouped by product (A→Z),
     // and within a product the drag order from the product page — or, if
-    // nobody has reordered it, front → lifestyle → benefits → … like the
+    // nobody has reordered it, front → benefits → lifestyle → … like the
     // storefront gallery. Unordered photos follow ordered ones.
     const nameOf = (part: string) => {
       const p = byPart.get(part);

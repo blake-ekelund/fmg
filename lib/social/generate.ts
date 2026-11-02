@@ -41,7 +41,7 @@ type ProductRow = {
   assets: { asset_type?: string; storage_path?: string }[] | null;
 };
 
-const IMAGE_ORDER = ["front", "lifestyle", "benefits", "fragrance", "ingredients", "other"];
+const IMAGE_ORDER = ["front", "benefits", "lifestyle", "fragrance", "ingredients", "other"];
 
 /** The brand's sellable products (published, not testers), in-stock first. */
 export async function listBrandProducts(brand: SocialBrand): Promise<ProductOption[]> {
