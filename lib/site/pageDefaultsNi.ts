@@ -448,18 +448,16 @@ const INGREDIENT_PHILOSOPHY: PageBlock[] = [
   {
     id: "safety",
     type: "checklist",
-    eyebrow: "And we don't stop there",
-    heading: "Safety is our #1 concern.",
+    eyebrow: "Our commitment",
+    heading: "Thoughtful body care, from start to finish.",
     intro:
-      "We're continually researching ingredients and natural solutions for the most pampering, effective body care we can make — and holding every one of them to the same standard.",
+      "We're continually exploring ingredients and botanical solutions for the most pampering, effective body care we can make — and choosing every one with care and purpose.",
     items: [
-      "Lab-tested products, never tested on animals.",
-      "Biodegradable liquid formulations.",
-      "Plant-derived materials chosen selectively — for craft, consistency, and safety.",
-      "Sustainable, renewable raw materials whenever possible.",
-      "Minimal preservatives, used only for freshness and safety.",
-      "Every ingredient assessed on its own and again in the finished product.",
-      "Made in the USA at a cosmetic-grade (CGMP) facility.",
+      "Never tested on animals. We do not conduct animal testing on our finished products.",
+      "Quality you can trust. We work with experienced manufacturing partners and follow established quality and safety standards.",
+      "Mindful ingredient choices. We prioritize renewable, plant-derived raw materials whenever practical.",
+      "Preserved with care. We use effective preservative systems at appropriate levels to maintain product freshness, quality, and safety.",
+      "Made in the USA. Every formula is made here at home.",
     ],
     marker: "check",
   },
@@ -550,7 +548,7 @@ const FAQ: PageBlock[] = [
     ],
     [
       "How are your products made?",
-      "At a cosmetic-grade (CGMP) facility in the USA. Ingredients are lab-tested and assessed for safety on their own and again in the finished formula, and all of our liquid products are biodegradable.",
+      "Here in the USA, with experienced manufacturing partners who follow established quality and safety standards. We prioritize renewable, plant-derived raw materials whenever practical, and use effective preservative systems at appropriate levels to keep every formula fresh.",
     ],
   ]),
   faq("orders", "Orders & shipping", [
