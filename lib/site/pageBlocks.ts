@@ -232,6 +232,8 @@ export type LinkListBlock = Base & {
 export type CtaBlock = Base & {
   type: "cta";
   heading: string;
+  /** Optional supporting line under the heading. */
+  body?: string;
   primaryLabel: string;
   primaryHref: string;
   secondaryLabel: string;
@@ -1007,6 +1009,7 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
       return {
         type: "cta",
         heading: str(r.heading, 120),
+        body: text(r.body, 300),
         primaryLabel: str(r.primaryLabel, 40),
         primaryHref: safeHref(r.primaryHref),
         secondaryLabel: str(r.secondaryLabel, 40),

@@ -329,6 +329,9 @@ export default function BlockInspector({
           <Field label="Line">
             <TextInput value={block.heading} maxLength={120} onChange={(heading) => onChange({ ...block, heading })} />
           </Field>
+          <Field label="Supporting line (optional)">
+            <TextArea value={block.body ?? ""} rows={2} maxLength={300} onChange={(body) => onChange({ ...block, body })} />
+          </Field>
           <LinkFields
             title="Main button"
             label={block.primaryLabel}
