@@ -68,12 +68,12 @@ function cta(heading: string, primary: [string, string], secondary: [string, str
 const SEEDS_SHORT = [
   { id: "black-cumin", name: "Black Cumin", note: "from the delicate nigella flower" },
   { id: "pomegranate", name: "Pomegranate", note: "jewel-bright seeds of the ripe fruit" },
-  { id: "cranberry", name: "Cranberry", note: "tiny seeds of the tart wild berry" },
-  { id: "carrot", name: "Carrot", note: "gathered from the wild carrot's lacy bloom" },
   { id: "grape", name: "Grape", note: "pressed from the seeds of the vine" },
+  { id: "carrot", name: "Carrot", note: "from the lacy white flower heads of the wild carrot" },
+  { id: "cranberry", name: "Cranberry", note: "from the tiny seeds of the tart wild berry" },
 ];
 
-const SEED_BAND_BODY = `<p>Five sustainably sourced seeds, gently cold-pressed so nothing of their goodness is lost. Blended together, their oils carry nearly four times the antioxidants of the seed oils on their own — to nourish and soften skin in every formula we make.</p>`;
+const SEED_BAND_BODY = `<p>Five sustainably sourced seeds, gently cold-pressed so nothing of their goodness is lost. Blended together, their oils carry nearly four times the antioxidants of the seed oils on their own — to nourish and soften skin in every body care formula we make.</p>`;
 
 // ── pages ──────────────────────────────────────────────────────────────────
 
@@ -251,13 +251,13 @@ const STORY: PageBlock[] = [
     type: "seed_band",
     eyebrow: "The science of softness",
     heading: "ExSeed® Deep Moisturizing Complex",
-    html: `<p>At the heart of every Natural Inspirations body care formula is ExSeed® — our proprietary blend of five sustainably sourced, cold-pressed seed oils: black cumin, pomegranate, cranberry, carrot, and grape.</p><p>The oils are extracted with a patented cold-press process that preserves their antioxidant benefits. The resulting blend delivers antioxidant levels nearly <strong>4× higher</strong> than the seed oils alone — helping protect, nourish, and soften skin, naturally.</p>`,
+    html: `<p>At the heart of every Natural Inspirations body care formula is ExSeed® — our proprietary blend of five sustainably sourced, cold-pressed seed oils: black cumin, pomegranate, grape, carrot, and cranberry.</p><p>A patented cold-press keeps each seed's goodness intact. Blended together, the five oils carry nearly <strong>4X</strong> the antioxidants of the seed oils on their own — helping replenish, moisturize, and protect skin, naturally.</p>`,
     items: [
-      { id: "black-cumin", name: "Black Cumin", note: "Among the highest antioxidant levels of all plant oils — helps protect healthy cells." },
-      { id: "pomegranate", name: "Pomegranate", note: "High polyphenol content makes it a powerful antioxidant." },
-      { id: "cranberry", name: "Cranberry", note: "Extremely rich in antioxidants that help eliminate free radicals." },
-      { id: "carrot", name: "Carrot", note: "A nourishing seed oil that supports overall skin health." },
-      { id: "grape", name: "Grape", note: "Antioxidant-rich, light, and fast-absorbing." },
+      { id: "black-cumin", name: "Black Cumin", note: "One of the richest antioxidant oils in the plant world — a comforting touch for dry, easily stressed skin." },
+      { id: "pomegranate", name: "Pomegranate", note: "Naturally rich in antioxidants — a favorite for dry and maturing skin." },
+      { id: "grape", name: "Grape", note: "Rich in antioxidants and Vitamin E, and easily absorbed by the skin." },
+      { id: "carrot", name: "Carrot", note: "A golden, deeply nourishing oil long loved for dry and mature skin." },
+      { id: "cranberry", name: "Cranberry", note: "Balanced and replenishing — light, fast-absorbing, and quietly restorative." },
     ],
     ctaLabel: "",
     ctaHref: "",
