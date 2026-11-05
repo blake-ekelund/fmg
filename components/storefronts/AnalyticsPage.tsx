@@ -50,6 +50,20 @@ type Summary = {
   topButtons?: Ranked[];
   devices?: { key: string; count: number }[];
   topReferrers?: Ranked[];
+  journeys?: Journeys;
+};
+type JourneyGroup = {
+  sessions: number;
+  avgPages: number;
+  avgDurationMs: number;
+  reached: Record<string, number>;
+  topEntries: { key: string; count: number }[];
+  topPaths: { key: string; count: number }[];
+};
+type Journeys = {
+  funnel: { sessions: number; product: number; bag: number; checkout: number; bought: number };
+  buyers: JourneyGroup;
+  others: JourneyGroup;
 };
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -381,11 +395,128 @@ export default function AnalyticsPage() {
         />
       </div>
 
+      {data?.journeys ? <JourneysCard journeys={data.journeys} /> : null}
+
       <p className="text-[11px] text-gray-400">
         First-party &amp; cookieless — anonymous visitor ids, no PII, Do-Not-Track
-        respected. Currently live on Sassy; Natural Inspirations lights up here
-        once it adopts the same tracker.
+        and Global Privacy Control respected. Live on Sassy and Natural
+        Inspirations (NI from Nov 5, 2026).
       </p>
+    </div>
+  );
+}
+
+const PAGE_TYPES = ["Home", "Shop", "Product", "Journal", "Info", "Bag"] as const;
+
+/**
+ * How visits that bought moved through the site vs. visits that didn't: a
+ * funnel, side-by-side habits (pages, time, which page types they saw) and
+ * the most common paths for each.
+ */
+function JourneysCard({ journeys: j }: { journeys: Journeys }) {
+  const f = j.funnel;
+  const steps = [
+    { label: "Visits", n: f.sessions },
+    { label: "Viewed a product", n: f.product },
+    { label: "Opened the bag", n: f.bag },
+    { label: "Clicked checkout", n: f.checkout },
+    { label: "Bought", n: f.bought },
+  ];
+  const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : "—");
+  const groups = [
+    { title: "Visits that bought", g: j.buyers },
+    { title: "Visits that didn't", g: j.others },
+  ];
+
+  return (
+    <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-5">
+      <div>
+        <div className="text-sm font-medium text-gray-700">Paths to purchase</div>
+        <div className="text-[11px] text-gray-400">
+          A visit = one browser tab session. &ldquo;Bought&rdquo; = reached the order-confirmed page.
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {steps.map((s, i) => (
+          <div key={s.label} className="rounded-lg bg-gray-50 px-3 py-2">
+            <div className="text-[11px] text-gray-500">{s.label}</div>
+            <div className="text-lg font-semibold tabular-nums text-gray-900">{fmtNum(s.n)}</div>
+            <div className="text-[11px] text-gray-400">
+              {i === 0 ? " " : `${pct(s.n, steps[i - 1].n)} of previous`}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wider text-gray-400">
+              <th className="py-1.5 pr-3 font-medium" />
+              {groups.map((x) => (
+                <th key={x.title} className="py-1.5 pr-3 text-right font-medium">
+                  {x.title}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            <tr>
+              <td className="py-1.5 pr-3 text-gray-600">Visits</td>
+              {groups.map((x) => (
+                <td key={x.title} className="py-1.5 pr-3 text-right tabular-nums">{fmtNum(x.g.sessions)}</td>
+              ))}
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-3 text-gray-600">Pages per visit</td>
+              {groups.map((x) => (
+                <td key={x.title} className="py-1.5 pr-3 text-right tabular-nums">{x.g.avgPages}</td>
+              ))}
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-3 text-gray-600">Time on site</td>
+              {groups.map((x) => (
+                <td key={x.title} className="py-1.5 pr-3 text-right tabular-nums">
+                  {fmtDuration(x.g.avgDurationMs)}
+                </td>
+              ))}
+            </tr>
+            {PAGE_TYPES.map((t) => (
+              <tr key={t}>
+                <td className="py-1.5 pr-3 text-gray-600">Reached {t}</td>
+                {groups.map((x) => (
+                  <td key={x.title} className="py-1.5 pr-3 text-right tabular-nums">
+                    {x.g.sessions ? `${Math.round((x.g.reached[t] ?? 0) * 100)}%` : "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {groups.map((x) => (
+          <div key={x.title}>
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+              Common paths · {x.title.toLowerCase()}
+            </div>
+            {x.g.topPaths.length ? (
+              <div className="space-y-1.5">
+                {x.g.topPaths.map((p) => (
+                  <div key={p.key} className="flex items-baseline justify-between gap-3 text-sm">
+                    <span className="min-w-0 text-gray-700">{p.key}</span>
+                    <span className="shrink-0 tabular-nums text-gray-500">{fmtNum(p.count)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-4 text-sm text-gray-300">awaiting data</div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

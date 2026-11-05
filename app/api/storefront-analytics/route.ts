@@ -199,6 +199,8 @@ export async function GET(request: Request) {
     }
   }
 
+  const journeys = sessionJourneys(rows);
+
   const byDay = [...perDay.entries()].map(([date, v]) => ({
     date,
     pageviews: v.pageviews,
@@ -234,5 +236,113 @@ export async function GET(request: Request) {
       .map(([key, count]) => ({ key, count }))
       .sort((a, b) => b.count - a.count),
     topReferrers: topN(referrers, 8),
+    journeys,
   });
+}
+
+// ---- session journeys: buyers vs. everyone else ----------------------------
+// A session (one browser tab's visit, per the tracker's sessionStorage id)
+// "bought" when it reached /cart/confirmed — both stores land there from
+// Stripe, and Stripe's redirect keeps the tab, so the session id survives.
+
+/** Coarse page type, so paths compare across products/collections. */
+function pageType(path: string): string {
+  if (path === "/") return "Home";
+  if (path.startsWith("/cart/confirmed")) return "Order placed";
+  if (path.startsWith("/cart")) return "Bag";
+  if (path.startsWith("/products/")) return "Product";
+  if (/^\/(shop|collections|fragrances|gifts)(\/|$)/.test(path)) return "Shop";
+  if (/^\/(blog|journal)(\/|$)/.test(path)) return "Journal";
+  if (path.startsWith("/account")) return "Account";
+  if (path.startsWith("/wholesale")) return "Wholesale";
+  return "Info";
+}
+
+type SessionAgg = {
+  start: number;
+  end: number;
+  steps: { at: number; type: string }[];
+  checkoutClick: boolean;
+};
+
+function sessionJourneys(rows: EventRow[]) {
+  const byId = new Map<string, SessionAgg>();
+  for (const r of rows) {
+    const at = new Date(r.created_at).getTime();
+    let s = byId.get(r.session_id);
+    if (!s) {
+      s = { start: at, end: at, steps: [], checkoutClick: false };
+      byId.set(r.session_id, s);
+    }
+    s.start = Math.min(s.start, at);
+    s.end = Math.max(s.end, at);
+    if (r.event_type === "pageview" && r.path) s.steps.push({ at, type: pageType(r.path) });
+    if (r.event_type === "click" && r.button_id === "checkout") s.checkoutClick = true;
+  }
+
+  type Group = {
+    sessions: number;
+    pagesSum: number;
+    durationSum: number;
+    reached: Map<string, number>;
+    paths: Map<string, number>;
+    entries: Map<string, number>;
+  };
+  const blank = (): Group => ({
+    sessions: 0,
+    pagesSum: 0,
+    durationSum: 0,
+    reached: new Map(),
+    paths: new Map(),
+    entries: new Map(),
+  });
+  const buyers = blank();
+  const others = blank();
+  const funnel = { sessions: 0, product: 0, bag: 0, checkout: 0, bought: 0 };
+
+  for (const s of byId.values()) {
+    if (!s.steps.length) continue;
+    s.steps.sort((a, b) => a.at - b.at);
+    const types = new Set(s.steps.map((x) => x.type));
+    const bought = types.has("Order placed");
+    const g = bought ? buyers : others;
+    g.sessions++;
+    g.pagesSum += s.steps.length;
+    g.durationSum += s.end - s.start;
+    for (const t of types) g.reached.set(t, (g.reached.get(t) ?? 0) + 1);
+    const entry = s.steps[0].type;
+    g.entries.set(entry, (g.entries.get(entry) ?? 0) + 1);
+    // Collapse repeats (Product → Product → Product reads as one Product
+    // stretch) and keep the first six stretches so paths group together.
+    const path: string[] = [];
+    for (const x of s.steps) if (path[path.length - 1] !== x.type) path.push(x.type);
+    const key = path.length > 6 ? [...path.slice(0, 6), "…"].join(" → ") : path.join(" → ");
+    g.paths.set(key, (g.paths.get(key) ?? 0) + 1);
+
+    funnel.sessions++;
+    if (types.has("Product")) funnel.product++;
+    if (types.has("Bag") || bought) funnel.bag++;
+    if (s.checkoutClick || bought) funnel.checkout++;
+    if (bought) funnel.bought++;
+  }
+
+  const summarize = (g: Group) => ({
+    sessions: g.sessions,
+    avgPages: g.sessions ? Math.round((g.pagesSum / g.sessions) * 10) / 10 : 0,
+    avgDurationMs: g.sessions ? Math.round(g.durationSum / g.sessions) : 0,
+    /** Share of sessions that saw each page type at least once. */
+    reached: Object.fromEntries(
+      [...g.reached.entries()].map(([k, n]) => [k, g.sessions ? n / g.sessions : 0]),
+    ),
+    topEntries: [...g.entries.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5),
+    topPaths: [...g.paths.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8),
+  });
+
+  return { funnel, buyers: summarize(buyers), others: summarize(others) };
 }
