@@ -25,10 +25,26 @@ function escapeHtml(s: string): string {
 }
 
 /**
+ * Escape markup that is already HTML: tags become text, but entities that
+ * are already there (&amp; &#39; …) stay as they are. Escaping them again is
+ * what turned "don't" into "don&#39;t", then "don&amp;#39;t", one layer per
+ * save. Quotes need no escaping — no attributes survive.
+ */
+function escapeMarkup(s: string): string {
+  return s
+    .replace(/&(?!(?:[a-z][a-z0-9]*|#\d+|#x[0-9a-f]+);)/gi, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
  * Allowlist sanitizer: escape EVERYTHING, then re-enable only bare allowed
  * tags. Attributes, scripts, styles, links — anything else — stay escaped
  * text, so the result is safe for dangerouslySetInnerHTML. Browser-editor
  * output is normalized first (<b>/<i> → <strong>/<em>, <div> → <p>).
+ * Idempotent: sanitizing its own output changes nothing. Tagless input
+ * comes back wrapped in <p>, so its entities are never mistaken for
+ * legacy plain text.
  */
 export function sanitizeRichText(input: string): string {
   const normalized = input
@@ -38,7 +54,7 @@ export function sanitizeRichText(input: string): string {
     .replace(/<(\/?)div(\s[^>]*)?>/gi, "<$1p>")
     // Drop attributes from allowed tags (class=, style= from paste/editor).
     .replace(/<(\/?)(p|br|strong|em|ul|ol|li)\s[^>]*>/gi, "<$1$2>");
-  let out = escapeHtml(normalized);
+  let out = escapeMarkup(normalized);
   for (const tag of ALLOWED) {
     out = out
       .replace(new RegExp(`&lt;${tag}\\s*/?&gt;`, "gi"), tag === "br" ? "<br>" : `<${tag}>`)
@@ -46,12 +62,13 @@ export function sanitizeRichText(input: string): string {
   }
   // Editor leftovers: lists the browser nested inside a <p> (invalid HTML),
   // empty paragraphs, trailing breaks.
-  return out
+  out = out
     .replace(/<p>\s*(<(ul|ol)>)/g, "$1")
     .replace(/(<\/(ul|ol)>)\s*<\/p>/g, "$1")
     .replace(/<p>(\s|<br>)*<\/p>/g, "")
     .replace(/(<br>\s*)+(<\/(p|li)>)/g, "$2")
     .trim();
+  return out && !isRichText(out) ? `<p>${out}</p>` : out;
 }
 
 function decodeEntities(s: string): string {
@@ -61,6 +78,7 @@ function decodeEntities(s: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
     .replace(/&amp;/g, "&");
 }
 
