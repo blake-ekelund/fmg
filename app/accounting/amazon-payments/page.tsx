@@ -18,7 +18,14 @@ import {
 } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { JE_COLUMNS, JE_COLUMN_LABELS, type JeColumn, type SavedSettlement } from "@/lib/amazonSettlement";
+import {
+  JE_COLUMNS,
+  JE_COLUMN_LABELS,
+  groupsByType,
+  summarizeBySku,
+  type JeColumn,
+  type SavedSettlement,
+} from "@/lib/amazonSettlement";
 
 /* Saved journal entries, one per Amazon settlement period. Uploads (here or
    through Sage) go to /api/accounting/amazon-settlements, which parses and
@@ -38,6 +45,22 @@ const SORT_KEYS: SortKey[] = ["date", ...JE_COLUMNS, "total"];
 const rowValues = (je: SavedSettlement) => [je.label, ...JE_COLUMNS.map((c) => je.columns[c].toFixed(2)), je.total.toFixed(2)];
 const sortValue = (je: SavedSettlement, key: SortKey) =>
   key === "date" ? je.startDate : key === "total" ? je.total : je.columns[key];
+
+/* Amazon Data by SKU: the bookkeeping sheet's per-product columns. Advertising
+   and FBA Fees have no SKU, so they only appear if some SKU line lands there. */
+const SKU_SHEET_COLUMNS: JeColumn[] = ["sales", "shipping", "amazonFees", "promoRebates", "refundedSales", "other"];
+
+const csvCell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+
+function downloadFile(name: string, rows: string[][]) {
+  const csv = rows.map((r) => r.map(csvCell).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabaseBrowser().auth.getSession();
@@ -165,17 +188,7 @@ function AmazonPayments() {
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const downloadCsv = () => {
-    const csv = [HEADERS, ...sorted.map(rowValues)]
-      .map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "amazon-journal-entries.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const downloadCsv = () => downloadFile("amazon-journal-entries.csv", [HEADERS, ...sorted.map(rowValues)]);
 
   const toggleSort = (key: SortKey) => {
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "date" ? "desc" : "asc" }));
@@ -367,10 +380,12 @@ function Breakdown({ je, onDelete }: { je: SavedSettlement; onDelete: () => void
           <Trash2 size={13} /> Delete entry
         </button>
       </div>
+      <SkuTable je={je} />
+      <h3 className="pt-2 text-sm font-semibold text-gray-900">By line type</h3>
       <table className="text-xs tabular-nums">
         <tbody>
           {JE_COLUMNS.map((c) =>
-            je.groups
+            groupsByType(je.groups)
               .filter((g) => g.column === c)
               .map((g, i) => (
                 <tr key={`${c}-${i}`} className={i === 0 ? "border-t border-gray-200" : ""}>
@@ -385,6 +400,105 @@ function Breakdown({ je, onDelete }: { je: SavedSettlement; onDelete: () => void
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Amazon Data by SKU: one row per product, plus the lines with no SKU, tying back to the entry. */
+function SkuTable({ je }: { je: SavedSettlement }) {
+  const { hasSkus, rows, unassigned } = useMemo(() => summarizeBySku(je.groups), [je.groups]);
+
+  if (!hasSkus) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        This entry was saved before SKUs were kept. Upload its settlement file again to see Amazon Data by SKU.
+      </div>
+    );
+  }
+
+  const cols = JE_COLUMNS.filter((c) => SKU_SHEET_COLUMNS.includes(c) || rows.some((r) => r.columns[c] !== 0));
+  const sum = (c: JeColumn) => rows.reduce((s, r) => s + Math.round(r.columns[c] * 100), 0) / 100;
+  const skuTotal = rows.reduce((s, r) => s + Math.round(r.total * 100), 0) / 100;
+  // What the SKU table leaves out, by entry column (Advertising, FBA Fees…).
+  const unassignedParts = JE_COLUMNS.filter((c) => unassigned.columns[c] !== 0).map(
+    (c) => `${JE_COLUMN_LABELS[c]} ${money(unassigned.columns[c])}`,
+  );
+  const head = ["SKU", "Description", ...cols.map((c) => JE_COLUMN_LABELS[c]), "Total"];
+
+  const download = () =>
+    downloadFile(`amazon-by-sku-${je.startDate || je.settlementId}.csv`, [
+      head,
+      ...rows.map((r) => [r.sku, je.skuNames?.[r.sku] ?? "", ...cols.map((c) => r.columns[c].toFixed(2)), r.total.toFixed(2)]),
+      ["Total by SKU", "", ...cols.map((c) => sum(c).toFixed(2)), skuTotal.toFixed(2)],
+      ["No SKU", unassignedParts.join("; "), ...cols.map(() => ""), unassigned.total.toFixed(2)],
+      ["Journal entry total", je.label, ...cols.map(() => ""), je.total.toFixed(2)],
+    ]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-3 pt-2">
+        <h3 className="text-sm font-semibold text-gray-900">Amazon Data by SKU</h3>
+        <span className="text-xs text-gray-500">{rows.length} products</span>
+        <button onClick={download} className="ml-auto inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900">
+          <Download size={13} /> Download CSV
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-gray-300 bg-white">
+        <table className="w-full text-xs tabular-nums">
+          <thead>
+            <tr className="bg-[#0b2a4a] text-white">
+              {head.map((h, i) => (
+                <th key={h} className={`px-2.5 py-1.5 font-semibold whitespace-nowrap ${i < 2 ? "text-left" : "text-right"}`}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.sku} className={`border-t border-gray-100 ${i % 2 ? "bg-gray-50/60" : ""}`}>
+                <td className="px-2.5 py-1 whitespace-nowrap font-medium text-gray-900">{r.sku}</td>
+                <td className="px-2.5 py-1 text-gray-600">
+                  {je.skuNames?.[r.sku] ?? <span className="text-gray-400">Not in the catalog</span>}
+                </td>
+                {cols.map((c) => (
+                  <td key={c} className="px-2.5 py-1 text-right whitespace-nowrap text-gray-800">
+                    {r.columns[c] === 0 ? <span className="text-gray-300">–</span> : money(r.columns[c])}
+                  </td>
+                ))}
+                <td className="px-2.5 py-1 text-right whitespace-nowrap font-semibold text-gray-900">{money(r.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="border-t-2 border-gray-300">
+            <tr className="font-semibold text-gray-900">
+              <td className="px-2.5 py-1.5" colSpan={2}>
+                Total by SKU
+              </td>
+              {cols.map((c) => (
+                <td key={c} className="px-2.5 py-1.5 text-right whitespace-nowrap">
+                  {money(sum(c))}
+                </td>
+              ))}
+              <td className="px-2.5 py-1.5 text-right whitespace-nowrap">{money(skuTotal)}</td>
+            </tr>
+            {unassigned.total !== 0 && (
+              <tr className="text-gray-600">
+                <td className="px-2.5 py-1" colSpan={2 + cols.length}>
+                  No SKU (in the entry only){unassignedParts.length ? ` — ${unassignedParts.join(", ")}` : ""}
+                </td>
+                <td className="px-2.5 py-1 text-right whitespace-nowrap">{money(unassigned.total)}</td>
+              </tr>
+            )}
+            <tr className="font-semibold text-gray-900 bg-yellow-100">
+              <td className="px-2.5 py-1.5" colSpan={2 + cols.length}>
+                Journal entry total
+              </td>
+              <td className="px-2.5 py-1.5 text-right whitespace-nowrap">{money(je.total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }

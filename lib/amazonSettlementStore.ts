@@ -47,6 +47,38 @@ function fromRow(r: Row): SavedSettlement {
   };
 }
 
+const BRAND_NAMES: Record<string, string> = { NI: "Natural Inspirations", Sassy: "Sassy + Co" };
+
+/** "Natural Inspirations Eucalyptus Rosemary Mint Hand + Body Lotion 12oz" from the catalog row. */
+function describeProduct(p: Row): string {
+  const name = String(p.display_name ?? "").trim();
+  const brand = BRAND_NAMES[String(p.brand ?? "")] ?? String(p.brand ?? "");
+  // Sassy names already carry the brand ("… l Sassy + Co").
+  if (!name || /sassy|natural inspirations/i.test(name)) return name;
+  const collection = String(p.collection ?? "");
+  const scent =
+    collection && collection !== "everyday"
+      ? collection.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")
+      : /^[A-Z]{2,4}$/.test(String(p.fragrance ?? "")) ? "" : String(p.fragrance ?? "");
+  const size = /^(n\/a)?$/i.test(String(p.size ?? "").trim()) ? "" : String(p.size).trim();
+  return [brand, name.toLowerCase().includes(scent.toLowerCase()) ? "" : scent, name, size].filter(Boolean).join(" ");
+}
+
+/** Catalog descriptions for every SKU across these entries. */
+async function attachSkuNames(items: SavedSettlement[]): Promise<SavedSettlement[]> {
+  const skus = [...new Set(items.flatMap((e) => e.groups.map((g) => g.sku).filter((s): s is string => !!s)))];
+  if (!skus.length) return items;
+  const { data } = await supabaseServer
+    .from("inventory_products")
+    .select("part, brand, display_name, fragrance, collection, size")
+    .in("part", skus);
+  const names = Object.fromEntries(((data ?? []) as Row[]).map((p) => [String(p.part), describeProduct(p)]));
+  return items.map((e) => ({
+    ...e,
+    skuNames: Object.fromEntries(e.groups.flatMap((g) => (g.sku && names[g.sku] ? [[g.sku, names[g.sku]]] : []))),
+  }));
+}
+
 export async function listSettlements(): Promise<{ ready: boolean; items: SavedSettlement[] }> {
   const { data, error } = await supabaseServer
     .from("amazon_settlements")
@@ -57,7 +89,7 @@ export async function listSettlements(): Promise<{ ready: boolean; items: SavedS
     if (tableMissing(error.message)) return { ready: false, items: [] };
     throw new Error(error.message);
   }
-  return { ready: true, items: ((data ?? []) as Row[]).map(fromRow) };
+  return { ready: true, items: await attachSkuNames(((data ?? []) as Row[]).map(fromRow)) };
 }
 
 /** Parse a settlement file and save it (replacing any earlier upload of the same settlement). */
@@ -101,7 +133,8 @@ export async function importSettlement(
     .select("*")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Couldn't save the settlement.");
-  return { saved: true, replaced: !!existing, entry: fromRow(data as Row) };
+  const [entry] = await attachSkuNames([fromRow(data as Row)]);
+  return { saved: true, replaced: !!existing, entry };
 }
 
 export async function deleteSettlement(id: string): Promise<void> {

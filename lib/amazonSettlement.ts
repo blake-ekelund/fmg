@@ -43,9 +43,12 @@ export const JE_COLUMN_LABELS: Record<JeColumn, string> = {
   other: "Other",
 };
 
-/** One distinct (transaction type, amount type, description) and what it summed to. */
+/** One distinct (SKU, transaction type, amount type, description) and what it summed to. */
 export type SettlementLineGroup = {
   column: JeColumn;
+  /** The line's SKU; "" for settlement-level lines (advertising, storage, inbound…).
+   *  Absent on entries saved before SKUs were kept — re-upload to get them. */
+  sku?: string;
   transactionType: string;
   amountType: string;
   amountDescription: string;
@@ -78,6 +81,8 @@ export type SavedSettlement = SettlementJournalEntry & {
   id: string | null;
   fileName: string | null;
   createdAt: string | null;
+  /** SKU → catalog description, for the by-SKU table (missing = not in the catalog). */
+  skuNames?: Record<string, string>;
 };
 
 /** amazon_settlements column for each JE column. */
@@ -147,6 +152,7 @@ export function parseSettlementReport(text: string): SettlementJournalEntry {
   const iAt = col("amount-type");
   const iAd = col("amount-description");
   const iAmt = col("amount");
+  const iSku = col("sku");
   if ([iId, iTt, iAt, iAd, iAmt].some((i) => i < 0)) {
     throw new SettlementParseError(
       "This doesn't look like an Amazon settlement report — expected the tab-separated flat file with settlement-id, transaction-type, amount-type, amount-description and amount columns."
@@ -180,9 +186,11 @@ export function parseSettlementReport(text: string): SettlementJournalEntry {
     const tt = cell(iTt);
     const at = cell(iAt);
     const ad = cell(iAd);
-    const key = `${tt}\u0000${at}\u0000${ad}`;
+    const sku = cell(iSku);
+    const key = `${sku}\u0000${tt}\u0000${at}\u0000${ad}`;
     const g = groups.get(key) ?? {
       column: classifyLine(tt, at, ad),
+      sku,
       transactionType: tt,
       amountType: at,
       amountDescription: ad,
@@ -218,5 +226,60 @@ export function parseSettlementReport(text: string): SettlementJournalEntry {
       (a, b) => JE_COLUMNS.indexOf(a.column) - JE_COLUMNS.indexOf(b.column) || a.cents - b.cents
     ),
     lineCount,
+  };
+}
+
+/** The groups with SKUs merged away: the by-line-type breakdown. */
+export function groupsByType(groups: SettlementLineGroup[]): SettlementLineGroup[] {
+  const merged = new Map<string, SettlementLineGroup>();
+  for (const g of groups) {
+    const key = `${g.transactionType}\u0000${g.amountType}\u0000${g.amountDescription}`;
+    const m = merged.get(key) ?? { ...g, sku: undefined, count: 0, cents: 0 };
+    m.count += g.count;
+    m.cents += g.cents;
+    merged.set(key, m);
+  }
+  return [...merged.values()].sort(
+    (a, b) => JE_COLUMNS.indexOf(a.column) - JE_COLUMNS.indexOf(b.column) || a.cents - b.cents
+  );
+}
+
+/** One product's share of a settlement, in the journal-entry columns. */
+export type SkuSummary = {
+  sku: string;
+  columns: Record<JeColumn, number>;
+  total: number;
+};
+
+/**
+ * The entry by SKU (Amazon Data by SKU). Lines with no SKU — advertising,
+ * storage, inbound, subscription — land in `unassigned`, so the SKU rows plus
+ * it always add back to the entry. `hasSkus` is false for entries saved
+ * before SKUs were kept.
+ */
+export function summarizeBySku(groups: SettlementLineGroup[]): {
+  hasSkus: boolean;
+  rows: SkuSummary[];
+  unassigned: SkuSummary;
+} {
+  const cents = new Map<string, Record<JeColumn, number>>();
+  for (const g of groups) {
+    const sku = g.sku ?? "";
+    const c = cents.get(sku) ?? (Object.fromEntries(JE_COLUMNS.map((k) => [k, 0])) as Record<JeColumn, number>);
+    c[g.column] += g.cents;
+    cents.set(sku, c);
+  }
+  const toSummary = (sku: string, c: Record<JeColumn, number> | undefined): SkuSummary => {
+    const cols = Object.fromEntries(JE_COLUMNS.map((k) => [k, (c?.[k] ?? 0) / 100])) as Record<JeColumn, number>;
+    return { sku, columns: cols, total: JE_COLUMNS.reduce((s, k) => s + (c?.[k] ?? 0), 0) / 100 };
+  };
+  const rows = [...cents.entries()]
+    .filter(([sku]) => sku !== "")
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(([sku, c]) => toSummary(sku, c));
+  return {
+    hasSkus: groups.some((g) => g.sku !== undefined),
+    rows,
+    unassigned: toSummary("", cents.get("")),
   };
 }

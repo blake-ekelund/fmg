@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSettlementReport, SettlementParseError } from "../amazonSettlement";
+import { groupsByType, parseSettlementReport, SettlementParseError, summarizeBySku } from "../amazonSettlement";
 
 const HEADER =
   "settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tmerchant-order-id\tadjustment-id\tshipment-id\tmarketplace-name\tamount-type\tamount-description\tamount\tfulfillment-id\tposted-date\tposted-date-time\torder-item-code\tmerchant-order-item-id\tmerchant-adjustment-item-id\tsku\tquantity-purchased\tpromotion-id";
@@ -7,8 +7,8 @@ const HEADER =
 const SUMMARY =
   "27607417601\t2026-09-24 12:40:36 UTC\t2026-10-08 12:40:35 UTC\t2026-10-10 12:40:35 UTC\t1764.88\tUSD" + "\t".repeat(18);
 
-const line = (tt: string, at: string, ad: string, amount: string) =>
-  ["27607417601", "", "", "", "", "", tt, "113-1", "113-1", "", "S1", "Amazon.com", at, ad, amount, "AFN", "2026-09-24", "", "", "", "", "SKU", "1", ""].join("\t");
+const line = (tt: string, at: string, ad: string, amount: string, sku = "SKU") =>
+  ["27607417601", "", "", "", "", "", tt, "113-1", "113-1", "", "S1", "Amazon.com", at, ad, amount, "AFN", "2026-09-24", "", "", "", "", sku, "1", ""].join("\t");
 
 // The Sep 24 – Oct 8 2026 settlement, one line per (type, amount type, description) group.
 const REPORT = [
@@ -72,5 +72,47 @@ describe("parseSettlementReport", () => {
 
   it("rejects files that aren't settlement reports", () => {
     expect(() => parseSettlementReport("a,b,c\n1,2,3")).toThrow(SettlementParseError);
+  });
+});
+
+describe("by SKU", () => {
+  // Two products plus settlement-level lines, as in the real file.
+  const FILE = [
+    HEADER,
+    SUMMARY.replace("1764.88", "160.64"),
+    line("Order", "ItemPrice", "Principal", "264.00", "110-00-01"),
+    line("Order", "ItemPrice", "Shipping", "6.38", "110-00-01"),
+    line("Order", "ItemFees", "Commission", "-39.60", "110-00-01"),
+    line("Order", "ItemFees", "FBAPerUnitFulfillmentFee", "-52.36", "110-00-01"),
+    line("Order", "Promotion", "Shipping", "-6.38", "110-00-01"),
+    line("Order", "ItemPrice", "Principal", "44.00", "100-00-02"),
+    line("Order", "ItemFees", "Commission", "-6.60", "100-00-02"),
+    line("Refund", "ItemPrice", "Principal", "-17.60", "100-00-02"),
+    line("ServiceFee", "Cost of Advertising", "TransactionTotalAmount", "-30.00", ""),
+    line("FBAFees", "FBA Inventory Storage Fee", "Base fee", "-1.20", ""),
+  ].join("\n");
+
+  it("gives each product its journal-entry columns, and keeps no-SKU lines apart", () => {
+    const je = parseSettlementReport(FILE);
+    const { hasSkus, rows, unassigned } = summarizeBySku(je.groups);
+    expect(hasSkus).toBe(true);
+    expect(rows.map((r) => r.sku)).toEqual(["100-00-02", "110-00-01"]);
+    expect(rows[1].columns).toMatchObject({ sales: 264, shipping: 6.38, amazonFees: -91.96, promoRebates: -6.38 });
+    expect(rows[1].total).toBe(172.04);
+    expect(rows[0].columns.refundedSales).toBe(-17.6);
+    expect(unassigned.columns).toMatchObject({ advertising: -30, fbaFees: -1.2 });
+    // SKU rows + no-SKU lines tie to the entry.
+    expect(rows.reduce((s, r) => s + r.total, 0) + unassigned.total).toBeCloseTo(je.total, 2);
+    expect(je.reconciles).toBe(true);
+  });
+
+  it("merges SKUs back into one row per line type", () => {
+    const commission = groupsByType(parseSettlementReport(FILE).groups).find((g) => g.amountDescription === "Commission");
+    expect(commission).toMatchObject({ count: 2, cents: -4620 });
+  });
+
+  it("reports entries saved before SKUs were kept", () => {
+    const old = parseSettlementReport(FILE).groups.map((g) => ({ ...g, sku: undefined }));
+    expect(summarizeBySku(old).hasSkus).toBe(false);
   });
 });
