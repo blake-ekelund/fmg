@@ -40,8 +40,19 @@ const money = (n: number) => {
   return n < 0 ? `(${s})` : s;
 };
 
+/* Copy for Excel / CSV export every column; the on-screen list shows just the
+   entry and its status, and the full column breakdown lives in the expanded row. */
 const HEADERS = ["Journal Entry", ...JE_COLUMNS.map((c) => JE_COLUMN_LABELS[c]), "Total"];
-const SORT_KEYS: SortKey[] = ["date", ...JE_COLUMNS, "total"];
+const LIST_COLUMNS: { label: string; sort?: SortKey; right?: boolean }[] = [
+  { label: "Journal Entry", sort: "date" },
+  { label: "Deposit" },
+  { label: "Sales", sort: "sales", right: true },
+  { label: "Net Deposit", sort: "total", right: true },
+  { label: "Fishbowl" },
+  { label: "Uploaded" },
+];
+const shortDate = (ymd: string) =>
+  ymd ? new Date(`${ymd}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 const rowValues = (je: SavedSettlement) => [je.label, ...JE_COLUMNS.map((c) => je.columns[c].toFixed(2)), je.total.toFixed(2)];
 const sortValue = (je: SavedSettlement, key: SortKey) =>
   key === "date" ? je.startDate : key === "total" ? je.total : je.columns[key];
@@ -314,36 +325,37 @@ function AmazonPayments() {
         <table className="w-full text-sm tabular-nums">
           <thead>
             <tr className="bg-[#0b2a4a] text-white">
-              {HEADERS.map((h, i) => {
-                const key = SORT_KEYS[i];
-                const active = sort.key === key;
+              {LIST_COLUMNS.map(({ label, sort: key, right }) => {
+                const active = !!key && sort.key === key;
                 return (
-                  <th key={h} className={`px-3 py-2 font-semibold whitespace-nowrap align-bottom ${i === 0 ? "text-left" : "text-right"}`}>
-                    <button
-                      onClick={() => toggleSort(key)}
-                      className={`inline-flex items-center gap-1 hover:text-yellow-200 ${active ? "text-yellow-200" : ""}`}
-                      title={`Sort by ${i === 0 ? "date" : h}`}
-                    >
-                      {h}
-                      {active && (sort.dir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-                    </button>
+                  <th key={label} className={`px-3 py-2 font-semibold whitespace-nowrap ${right ? "text-right" : "text-left"}`}>
+                    {key ? (
+                      <button
+                        onClick={() => toggleSort(key)}
+                        className={`inline-flex items-center gap-1 hover:text-yellow-200 ${active ? "text-yellow-200" : ""}`}
+                        title={`Sort by ${key === "date" ? "date" : label}`}
+                      >
+                        {label}
+                        {active && (sort.dir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                      </button>
+                    ) : (
+                      label
+                    )}
                   </th>
                 );
               })}
-              <th className="px-3 py-2 font-semibold whitespace-nowrap align-bottom text-left">Fishbowl</th>
-              <th className="px-3 py-2 font-semibold whitespace-nowrap align-bottom text-left">Uploaded</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={HEADERS.length + 2} className="px-3 py-10 text-center text-gray-400">
+                <td colSpan={LIST_COLUMNS.length} className="px-3 py-10 text-center text-gray-400">
                   <Loader2 size={16} className="inline animate-spin" />
                 </td>
               </tr>
             ) : visible.length === 0 ? (
               <tr>
-                <td colSpan={HEADERS.length + 2} className="px-3 py-10 text-center text-sm text-gray-500">
+                <td colSpan={LIST_COLUMNS.length} className="px-3 py-10 text-center text-sm text-gray-500">
                   No journal entries yet — click <span className="font-medium">Upload</span> or drop a settlement report here.
                 </td>
               </tr>
@@ -364,11 +376,8 @@ function AmazonPayments() {
                           {!je.reconciles && <AlertTriangle size={13} className="text-red-600" />}
                         </span>
                       </td>
-                      {JE_COLUMNS.map((c) => (
-                        <td key={c} className={`px-3 py-2 text-right whitespace-nowrap ${je.columns[c] < 0 ? "text-gray-700" : ""}`}>
-                          $ {money(je.columns[c])}
-                        </td>
-                      ))}
+                      <td className="px-3 py-2 whitespace-nowrap text-gray-600">{shortDate(je.depositDate)}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">$ {money(je.columns.sales)}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">$ {money(je.total)}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs">
                         <FishbowlBadge check={fishbowlCheck(je)} />
@@ -377,7 +386,7 @@ function AmazonPayments() {
                     </tr>
                     {expanded && (
                       <tr className="bg-gray-50">
-                        <td colSpan={HEADERS.length + 2} className="px-4 py-4">
+                        <td colSpan={LIST_COLUMNS.length} className="px-4 py-4">
                           <Breakdown je={je} onDelete={() => void remove(je)} />
                         </td>
                       </tr>
@@ -430,6 +439,7 @@ function Breakdown({ je, onDelete }: { je: SavedSettlement; onDelete: () => void
           <Trash2 size={13} /> Delete entry
         </button>
       </div>
+      <EntryColumns je={je} />
       <FishbowlStatus je={je} />
       <SkuTable je={je} />
       <details className="pt-2 group">
@@ -453,6 +463,35 @@ function Breakdown({ je, onDelete }: { je: SavedSettlement; onDelete: () => void
         </tbody>
       </table>
       </details>
+    </div>
+  );
+}
+
+/** The journal entry itself — every column, like the sheet's yellow summary row. */
+function EntryColumns({ je }: { je: SavedSettlement }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-gray-300 bg-white">
+      <table className="w-full text-xs tabular-nums">
+        <thead>
+          <tr className="bg-[#0b2a4a] text-white">
+            {[...JE_COLUMNS.map((c) => JE_COLUMN_LABELS[c]), "Total"].map((h) => (
+              <th key={h} className="px-2.5 py-1.5 text-right font-semibold whitespace-nowrap">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="bg-yellow-100 font-medium text-gray-900">
+            {JE_COLUMNS.map((c) => (
+              <td key={c} className="px-2.5 py-1.5 text-right whitespace-nowrap">
+                {money(je.columns[c])}
+              </td>
+            ))}
+            <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold">{money(je.total)}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
