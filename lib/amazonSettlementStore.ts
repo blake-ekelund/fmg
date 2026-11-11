@@ -230,7 +230,71 @@ export async function listSettlements(): Promise<{ ready: boolean; items: SavedS
 }
 
 /** One entry by its Amazon settlement id (the per-entry page). */
-export async function getSettlement(settlementId: string): Promise<SavedSettlement | null> {
+/**
+ * The Fishbowl order for a settlement period, read LIVE — for when the synced
+ * copy (refreshed 3×/day) hasn't caught up with an order created since, e.g.
+ * one just pushed from this page. One session, read-only; null if none.
+ */
+async function liveFishbowlOrder(je: { startDate: string; endDate: string }): Promise<FishbowlAmazonOrder | null> {
+  if (!fishbowlConfigured() || !je.startDate || !je.endDate) return null;
+  return withFishbowl(async (query) => {
+    const orders = await query(
+      `SELECT so.id, so.num, so.customerPO, ss.name AS status, so.totalPrice
+         FROM so LEFT JOIN sostatus ss ON ss.id = so.statusId
+        WHERE so.customerId = ${Number(FISHBOWL_AMAZON_CUSTOMER_ID)} AND so.customerPO <> ''
+        ORDER BY so.id DESC LIMIT 300`,
+    );
+    const o = orders.find((r) => {
+      const p = parseAmazonPoPeriod(String(r.customerPO ?? ""));
+      return p && p.start === je.startDate && p.end === je.endDate;
+    });
+    if (!o) return null;
+    const lines = await query(
+      `SELECT p.num AS part, si.qtyOrdered AS qty, si.totalPrice AS total
+         FROM soitem si
+         LEFT JOIN product p ON p.id = si.productId
+         LEFT JOIN soitemtype sit ON sit.id = si.typeId
+        WHERE si.soId = ${Number(o.id)} AND sit.name IN ('Sale', 'Kit') AND si.totalPrice <> 0`,
+    );
+    const units: Record<string, number> = {};
+    const amounts: Record<string, number> = {};
+    for (const l of lines) {
+      const part = String(l.part ?? "");
+      units[part] = (units[part] ?? 0) + Number(l.qty ?? 0);
+      amounts[part] = (amounts[part] ?? 0) + Number(l.total ?? 0);
+    }
+    return {
+      num: String(o.num),
+      status: String(o.status ?? ""),
+      customerPO: String(o.customerPO ?? ""),
+      // so.totalPrice includes Fishbowl's Subtotal line, so total the priced lines instead.
+      total: Math.round(Object.values(amounts).reduce((s, n) => s + n, 0) * 100) / 100,
+      units,
+      amounts,
+      source: "live",
+    };
+  });
+}
+
+/**
+ * One entry by its Amazon settlement id. With `live`, an entry the synced copy
+ * has no Fishbowl order for is looked up in Fishbowl directly (the entry page;
+ * not the list, which would cost a Fishbowl session per row).
+ */
+export async function getSettlement(settlementId: string, opts?: { live?: boolean }): Promise<SavedSettlement | null> {
+  const entry = await getSettlementRow(settlementId);
+  if (entry && opts?.live && !entry.fishbowl) {
+    try {
+      entry.fishbowl = await liveFishbowlOrder(entry);
+    } catch (e) {
+      // Fishbowl busy (3-seat license) or unreachable — the page just shows "not entered".
+      console.error("live Fishbowl lookup failed", settlementId, e instanceof Error ? e.message : e);
+    }
+  }
+  return entry;
+}
+
+async function getSettlementRow(settlementId: string): Promise<SavedSettlement | null> {
   const { data, error } = await supabaseServer
     .from("amazon_settlements")
     .select("*")

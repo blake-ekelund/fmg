@@ -68,7 +68,7 @@ export async function GET(request: Request) {
     }
     const settlementId = params.get("settlement");
     if (settlementId) {
-      const entry = await getSettlement(settlementId);
+      const entry = await getSettlement(settlementId, { live: true });
       if (!entry) return NextResponse.json({ error: "No entry for that settlement." }, { status: 404 });
       return NextResponse.json({ entry });
     }

@@ -292,6 +292,12 @@ export function FishbowlStatus({
           <span className="font-semibold">
             Fishbowl SO {check.num} ({check.status}, PO {je.fishbowl?.customerPO})
           </span>
+          {je.fishbowl?.source === "live" && (
+            <span className="opacity-80" title="The app's copy of Fishbowl orders syncs 3× a day; until then this entry reads Fishbowl directly.">
+              {" "}
+              · read live from Fishbowl (the list catches up at the next sync)
+            </span>
+          )}
           {check.totalDiff === 0
             ? ` · order total matches Sales ($${money(je.columns.sales)})`
             : ` · order total $${money(je.fishbowl?.total ?? 0)} vs Sales $${money(je.columns.sales)}`}

@@ -115,6 +115,8 @@ export type FishbowlAmazonOrder = {
   units: Record<string, number>;
   /** Part → dollars on the order (same lines). */
   amounts?: Record<string, number>;
+  /** "live" = read straight from Fishbowl because the 3×/day synced copy hasn't caught up yet. */
+  source?: "sync" | "live";
 };
 
 /** One SKU where the Fishbowl order and the settlement file disagree. */
