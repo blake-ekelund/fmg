@@ -1,0 +1,185 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { AlertTriangle, ArrowLeft, CheckCircle2, FileDown, Loader2, Trash2 } from "lucide-react";
+import PageMeta from "@/components/PageMeta";
+import type { SavedSettlement } from "@/lib/amazonSettlement";
+import {
+  AMAZON_SETTLEMENTS_API,
+  EntryColumns,
+  FishbowlStatus,
+  LineTypeBreakdown,
+  SkuTable,
+  authHeader,
+  money,
+  shortDate,
+  uploadedLabel,
+} from "@/components/accounting/amazonSettlementParts";
+
+/* One Amazon settlement's journal entry: the entry, its Fishbowl sales order
+   check, Amazon Data by SKU, and the original file. Linked from the list and
+   from Sage, by Amazon settlement id. */
+
+export default function AmazonSettlementPage() {
+  const { settlementId } = useParams<{ settlementId: string }>();
+  const router = useRouter();
+  const [je, setJe] = useState<SavedSettlement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"download" | "delete" | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${AMAZON_SETTLEMENTS_API}?settlement=${encodeURIComponent(settlementId)}`, {
+        headers: await authHeader(),
+        cache: "no-store",
+      });
+      const j = (await res.json()) as { entry?: SavedSettlement; error?: string };
+      if (!res.ok || !j.entry) throw new Error(j.error ?? "Couldn't load this entry.");
+      setJe(j.entry);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load this entry.");
+    }
+  }, [settlementId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const downloadOriginal = async () => {
+    if (!je) return;
+    setBusy("download");
+    try {
+      const res = await fetch(`${AMAZON_SETTLEMENTS_API}?file=${encodeURIComponent(je.settlementId)}`, {
+        headers: await authHeader(),
+      });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Couldn't download it.");
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = je.fileName || `${je.settlementId}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't download it.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    if (!je?.id || !window.confirm(`Delete the journal entry for ${je.label}? Its original file is deleted too.`)) return;
+    setBusy("delete");
+    const res = await fetch(`${AMAZON_SETTLEMENTS_API}?id=${encodeURIComponent(je.id)}`, {
+      method: "DELETE",
+      headers: await authHeader(),
+    });
+    if (!res.ok) {
+      setBusy(null);
+      return setError("Couldn't delete that entry.");
+    }
+    router.push("/accounting/amazon-payments");
+  };
+
+  const btn =
+    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white ring-1 ring-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:pointer-events-none";
+
+  return (
+    <div className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto space-y-5">
+      <PageMeta
+        title={je ? `Amazon Payment · ${je.label}` : "Amazon Payment"}
+        description="One settlement's journal entry, its Fishbowl sales order, and Amazon Data by SKU."
+      />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href="/accounting/amazon-payments"
+          className="mr-auto inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
+        >
+          <ArrowLeft size={14} /> Amazon Payments
+        </Link>
+        {je && (
+          <>
+            <button
+              onClick={() => void downloadOriginal()}
+              disabled={!je.hasFile || busy !== null}
+              className={btn}
+              title={
+                je.hasFile
+                  ? (je.fileName ?? undefined)
+                  : "The original file wasn't kept for this entry — upload it again to keep it."
+              }
+            >
+              {busy === "download" ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Original file
+            </button>
+            <button onClick={() => void remove()} disabled={busy !== null} className={`${btn} hover:text-red-700`}>
+              {busy === "delete" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete
+            </button>
+          </>
+        )}
+      </div>
+
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+      {!je ? (
+        !error && (
+          <div className="py-16 text-center text-gray-400">
+            <Loader2 size={18} className="inline animate-spin" />
+          </div>
+        )
+      ) : (
+        <>
+          <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 space-y-1.5">
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+              <h2 className="text-lg font-semibold text-gray-900">{je.label}</h2>
+              <span className="text-sm text-gray-600">
+                Deposit <span className="font-medium text-gray-900">${money(je.reportedTotal ?? je.total)}</span> on{" "}
+                {shortDate(je.depositDate)}
+              </span>
+              <span className="text-sm text-gray-600">
+                Sales <span className="font-medium text-gray-900">${money(je.columns.sales)}</span>
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+              {je.reconciles ? (
+                <span className="inline-flex items-center gap-1.5 text-green-700">
+                  <CheckCircle2 size={14} /> Columns tie to Amazon&apos;s deposit
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-red-700">
+                  <AlertTriangle size={14} /> Columns total ${money(je.total)} but Amazon reported ${money(je.reportedTotal ?? 0)}{" "}
+                  — check the file is complete.
+                </span>
+              )}
+              <span className="text-gray-500">
+                Settlement {je.settlementId} · {je.lineCount.toLocaleString()} lines
+                {je.fileName ? ` · ${je.fileName}` : ""}
+                {uploadedLabel(je) ? ` · Uploaded by ${uploadedLabel(je)}` : ""}
+              </span>
+            </div>
+          </div>
+
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-gray-900">Journal entry</h3>
+            <EntryColumns je={je} />
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-gray-900">Fishbowl</h3>
+            <FishbowlStatus je={je} />
+          </section>
+
+          <SkuTable je={je} />
+
+          <details className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+            <summary className="cursor-pointer text-sm font-semibold text-gray-900 select-none">By line type</summary>
+            <div className="mt-2">
+              <LineTypeBreakdown je={je} />
+            </div>
+          </details>
+        </>
+      )}
+    </div>
+  );
+}

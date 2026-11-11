@@ -975,8 +975,8 @@ const importAmazonSettlement: HelpTool = {
         ties_to_deposit: e.reconciles,
       },
       action: {
-        label: "Open Amazon Payments",
-        href: `/accounting/amazon-payments?settlement=${encodeURIComponent(e.settlementId)}`,
+        label: "Open the journal entry",
+        href: `/accounting/amazon-payments/${encodeURIComponent(e.settlementId)}`,
       },
     };
   },

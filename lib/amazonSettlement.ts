@@ -93,6 +93,8 @@ export type SavedSettlement = SettlementJournalEntry & {
   uploadedBy?: string | null;
   /** The Fishbowl sales order this settlement was keyed as; null = not found. */
   fishbowl?: FishbowlAmazonOrder | null;
+  /** The original uploaded file is kept and can be downloaded. */
+  hasFile?: boolean;
 };
 
 /**

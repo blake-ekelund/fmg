@@ -153,17 +153,76 @@ async function attachNames(rows: Row[]): Promise<SavedSettlement[]> {
   );
 }
 
-export async function listSettlements(): Promise<{ ready: boolean; items: SavedSettlement[] }> {
-  const { data, error } = await supabaseServer
+/* The uploaded settlement files, as uploaded, so an entry's source can be
+   downloaded again. Private bucket, one object per settlement ("<id>.txt");
+   re-uploading a settlement replaces its file along with its row. */
+const FILE_BUCKET = "amazon-settlements";
+const fileKey = (settlementId: string) => `${settlementId}.txt`;
+
+async function storeFile(settlementId: string, text: string): Promise<boolean> {
+  const put = () =>
+    supabaseServer.storage
+      .from(FILE_BUCKET)
+      .upload(fileKey(settlementId), new Blob([text], { type: "text/plain" }), { upsert: true, contentType: "text/plain" });
+  let { error } = await put();
+  if (error && /bucket not found/i.test(error.message)) {
+    await supabaseServer.storage.createBucket(FILE_BUCKET, { public: false });
+    ({ error } = await put());
+  }
+  // The entry is what matters; a missing file only hides the download.
+  if (error) console.error("amazon settlement file not stored", settlementId, error.message);
+  return !error;
+}
+
+/** Settlement ids that have their original file kept. */
+async function storedFileIds(): Promise<Set<string>> {
+  const { data } = await supabaseServer.storage.from(FILE_BUCKET).list("", { limit: 1000 });
+  return new Set((data ?? []).map((f) => f.name.replace(/\.txt$/, "")));
+}
+
+/** The original file for a settlement, or null if it wasn't kept. */
+export async function getSettlementFile(settlementId: string): Promise<{ text: string; fileName: string } | null> {
+  const { data: row } = await supabaseServer
     .from("amazon_settlements")
-    .select("*")
-    .order("start_date", { ascending: false })
-    .order("settlement_id", { ascending: false });
+    .select("file_name")
+    .eq("settlement_id", settlementId)
+    .maybeSingle();
+  const { data } = await supabaseServer.storage.from(FILE_BUCKET).download(fileKey(settlementId));
+  if (!data) return null;
+  return { text: await data.text(), fileName: (row?.file_name as string | null) || fileKey(settlementId) };
+}
+
+export async function listSettlements(): Promise<{ ready: boolean; items: SavedSettlement[] }> {
+  const [{ data, error }, files] = await Promise.all([
+    supabaseServer
+      .from("amazon_settlements")
+      .select("*")
+      .order("start_date", { ascending: false })
+      .order("settlement_id", { ascending: false }),
+    storedFileIds(),
+  ]);
   if (error) {
     if (tableMissing(error.message)) return { ready: false, items: [] };
     throw new Error(error.message);
   }
-  return { ready: true, items: await attachNames((data ?? []) as Row[]) };
+  const items = await attachNames((data ?? []) as Row[]);
+  return { ready: true, items: items.map((e) => ({ ...e, hasFile: files.has(e.settlementId) })) };
+}
+
+/** One entry by its Amazon settlement id (the per-entry page). */
+export async function getSettlement(settlementId: string): Promise<SavedSettlement | null> {
+  const { data, error } = await supabaseServer
+    .from("amazon_settlements")
+    .select("*")
+    .eq("settlement_id", settlementId)
+    .maybeSingle();
+  if (error) {
+    if (tableMissing(error.message)) return null;
+    throw new Error(error.message);
+  }
+  if (!data) return null;
+  const [[entry], files] = await Promise.all([attachNames([data as Row]), storedFileIds()]);
+  return { ...entry, hasFile: files.has(settlementId) };
 }
 
 /** Parse a settlement file and save it (replacing any earlier upload of the same settlement). */
@@ -207,11 +266,13 @@ export async function importSettlement(
     .select("*")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Couldn't save the settlement.");
-  const [entry] = await attachNames([data as Row]);
-  return { saved: true, replaced: !!existing, entry };
+  const [[entry], hasFile] = await Promise.all([attachNames([data as Row]), storeFile(je.settlementId, text)]);
+  return { saved: true, replaced: !!existing, entry: { ...entry, hasFile } };
 }
 
 export async function deleteSettlement(id: string): Promise<void> {
+  const { data: row } = await supabaseServer.from("amazon_settlements").select("settlement_id").eq("id", id).maybeSingle();
   const { error } = await supabaseServer.from("amazon_settlements").delete().eq("id", id);
   if (error && !tableMissing(error.message)) throw new Error(error.message);
+  if (row?.settlement_id) await supabaseServer.storage.from(FILE_BUCKET).remove([fileKey(String(row.settlement_id))]);
 }

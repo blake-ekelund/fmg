@@ -6,6 +6,8 @@ import { SettlementParseError } from "@/lib/amazonSettlement";
 import {
   AMAZON_PAYMENTS_PATH,
   deleteSettlement,
+  getSettlement,
+  getSettlementFile,
   importSettlement,
   listSettlements,
 } from "@/lib/amazonSettlementStore";
@@ -16,6 +18,8 @@ export const runtime = "nodejs";
  * Accounting → Amazon Payments: saved settlement journal entries.
  *
  * GET                          → { ready, items: SavedSettlement[] } (newest period first)
+ * GET ?settlement=<id>          → { entry }  (one entry, for its own page)
+ * GET ?file=<id>                → the original uploaded file, as an attachment
  * POST { text, file_name }     → { saved, replaced, entry }  (parse + save; same settlement = replace)
  * DELETE ?id=…                → { ok: true }  (one entry at a time — there's no delete-all)
  *
@@ -33,7 +37,25 @@ async function authorize(request: Request) {
 
 export async function GET(request: Request) {
   if (!(await authorize(request))) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
+  const params = new URL(request.url).searchParams;
   try {
+    const fileId = params.get("file");
+    if (fileId) {
+      const file = await getSettlementFile(fileId);
+      if (!file) return NextResponse.json({ error: "The original file wasn't kept for this entry." }, { status: 404 });
+      return new NextResponse(file.text, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${file.fileName.replace(/["\\\r\n]/g, "")}"`,
+        },
+      });
+    }
+    const settlementId = params.get("settlement");
+    if (settlementId) {
+      const entry = await getSettlement(settlementId);
+      if (!entry) return NextResponse.json({ error: "No entry for that settlement." }, { status: 404 });
+      return NextResponse.json({ entry });
+    }
     return NextResponse.json(await listSettlements());
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't load entries." }, { status: 500 });
