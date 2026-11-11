@@ -1,13 +1,16 @@
 "use client";
 
 import { useMemo } from "react";
-import { AlertTriangle, CheckCircle2, Download } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Sparkles } from "lucide-react";
+import { openHelpAssistant } from "@/components/HelpAssistant";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
   JE_COLUMNS,
   JE_COLUMN_LABELS,
+  compareWithFishbowl,
   groupsByType,
   summarizeBySku,
+  type FishbowlComparison,
   type JeColumn,
   type SavedSettlement,
 } from "@/lib/amazonSettlement";
@@ -36,44 +39,9 @@ export const shortDate = (ymd: string) =>
       })
     : "—";
 
-export type FishbowlCheck =
-  | { state: "missing" }
-  | {
-      state: "ok" | "mismatch";
-      num: string;
-      status: string;
-      /** Fishbowl order total minus the entry's Sales (0 = ties). */
-      totalDiff: number;
-      /** Parts whose units differ; null when this entry has no units (saved before they were kept). */
-      diffs: { sku: string; amazon: number; fishbowl: number }[] | null;
-    };
-
-/** Does the hand-keyed Fishbowl sales order match the settlement (Sales $ and units per SKU)? */
-export function fishbowlCheck(je: SavedSettlement): FishbowlCheck {
-  const fb = je.fishbowl;
-  if (!fb) return { state: "missing" };
-  const totalDiff = Math.round((fb.total - je.columns.sales) * 100) / 100;
-  const { rows } = summarizeBySku(je.groups);
-  let diffs: { sku: string; amazon: number; fishbowl: number }[] | null = null;
-  if (rows.length && rows[0].units !== null) {
-    const amazon = new Map(rows.filter((r) => r.units).map((r) => [r.sku, r.units ?? 0]));
-    diffs = [...new Set([...amazon.keys(), ...Object.keys(fb.units)])]
-      .map((sku) => ({
-        sku,
-        amazon: amazon.get(sku) ?? 0,
-        fishbowl: fb.units[sku] ?? 0,
-      }))
-      .filter((d) => d.amazon !== d.fishbowl)
-      .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }));
-  }
-  return {
-    state: totalDiff === 0 && !diffs?.length ? "ok" : "mismatch",
-    num: fb.num,
-    status: fb.status,
-    totalDiff,
-    diffs,
-  };
-}
+/** Does the hand-keyed Fishbowl sales order match the settlement? (lib/amazonSettlement.ts compareWithFishbowl) */
+export type FishbowlCheck = FishbowlComparison;
+export const fishbowlCheck = (je: SavedSettlement): FishbowlCheck => compareWithFishbowl(je);
 
 /** "Julie · Nov 10, 2026" — who uploaded the file and when. */
 export const uploadedLabel = (je: SavedSettlement) => {
@@ -186,28 +154,74 @@ export function FishbowlStatus({ je }: { je: SavedSettlement }) {
     );
   }
   const ok = check.state === "ok";
+  const investigate = () =>
+    openHelpAssistant(
+      `Investigate why Fishbowl SO ${check.num} doesn't match Amazon settlement ${je.settlementId} (${je.label}). Explain what most likely happened and exactly what to change in Fishbowl.`,
+      { fresh: true },
+    );
   return (
     <div
-      className={`rounded-lg border px-3 py-2 text-xs space-y-1 ${ok ? "border-green-200 bg-green-50 text-green-800" : "border-red-200 bg-red-50 text-red-800"}`}
+      className={`rounded-lg border px-3 py-2 text-xs space-y-1.5 ${ok ? "border-green-200 bg-green-50 text-green-800" : "border-red-200 bg-red-50 text-red-800"}`}
     >
-      <div>
-        <span className="font-semibold">
-          Fishbowl SO {check.num} ({check.status}, PO {je.fishbowl?.customerPO})
-        </span>
-        {check.totalDiff === 0
-          ? ` · order total matches Sales ($${money(je.columns.sales)})`
-          : ` · order total $${money(je.fishbowl?.total ?? 0)} vs Sales $${money(je.columns.sales)} (off by ${money(check.totalDiff)})`}
-        {check.diffs === null
-          ? " · units not checked — upload this settlement's file again to compare quantities"
-          : check.diffs.length === 0
-            ? " · every SKU's quantity matches"
-            : ""}
-      </div>
-      {check.diffs && check.diffs.length > 0 && (
-        <div>
-          Quantities that don&apos;t match the file (Fishbowl inventory is off for these):{" "}
-          {check.diffs.map((d) => `${d.sku} keyed ${d.fishbowl}, Amazon ${d.amazon}`).join(" · ")}
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+        <div className="flex-1">
+          <span className="font-semibold">
+            Fishbowl SO {check.num} ({check.status}, PO {je.fishbowl?.customerPO})
+          </span>
+          {check.totalDiff === 0
+            ? ` · order total matches Sales ($${money(je.columns.sales)})`
+            : ` · order total $${money(je.fishbowl?.total ?? 0)} vs Sales $${money(je.columns.sales)}`}
+          {check.diffs === null
+            ? " · units not checked — upload this settlement's file again to compare quantities"
+            : check.diffs.length === 0
+              ? " · every SKU's quantity and amount matches"
+              : ""}
         </div>
+        {!ok && (
+          <button
+            onClick={investigate}
+            className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 font-medium text-red-800 ring-1 ring-red-200 hover:bg-red-100"
+          >
+            <Sparkles size={12} /> Investigate with Sage
+          </button>
+        )}
+      </div>
+      {check.explanation.length > 0 && (
+        <ul className="list-disc space-y-0.5 pl-4">
+          {check.explanation.map((x) => (
+            <li key={x}>{x}</li>
+          ))}
+        </ul>
+      )}
+      {check.diffs && check.diffs.length > 0 && (
+        <table className="mt-1 w-full tabular-nums">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-red-700/80">
+              <th className="py-0.5 pr-3 font-semibold">SKU</th>
+              <th className="py-0.5 pr-3 text-right font-semibold">Fishbowl</th>
+              <th className="py-0.5 pr-3 text-right font-semibold">Amazon</th>
+              <th className="py-0.5 font-semibold">Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {check.diffs.map((d) => (
+              <tr key={d.sku} className="border-t border-red-200/70 align-top">
+                <td className="py-1 pr-3 font-medium whitespace-nowrap">
+                  {d.sku}
+                  {je.skuNames?.[d.sku] && <div className="font-normal text-red-700/80">{je.skuNames[d.sku]}</div>}
+                </td>
+                <td className="py-1 pr-3 text-right whitespace-nowrap">
+                  {d.fishbowlUnits}
+                  {d.fishbowlAmount !== null && <span className="text-red-700/80"> · {money(d.fishbowlAmount)}</span>}
+                </td>
+                <td className="py-1 pr-3 text-right whitespace-nowrap">
+                  {d.amazonUnits} <span className="text-red-700/80">· {money(d.amazonSales)}</span>
+                </td>
+                <td className="py-1">{d.explanation}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
@@ -246,7 +260,9 @@ export function SkuTable({ je }: { je: SavedSettlement }) {
   const units = rows.reduce((s, r) => s + (r.units ?? 0), 0);
   // Units keyed in Fishbowl, where they differ from the file.
   const check = fishbowlCheck(je);
-  const fbDiff = new Map(check.state !== "missing" ? (check.diffs ?? []).map((d) => [d.sku, d.fishbowl]) : []);
+  const fbDiff = new Map(
+    check.state !== "missing" ? (check.diffs ?? []).filter((d) => d.fishbowlUnits !== d.amazonUnits).map((d) => [d.sku, d.fishbowlUnits]) : [],
+  );
   const qty = (r: { units: number | null }) => (r.units == null ? "" : String(r.units));
   // Fishbowl's line price: Sales ÷ units.
   const unitPrice = (r: { units: number | null; columns: Record<JeColumn, number> }) =>

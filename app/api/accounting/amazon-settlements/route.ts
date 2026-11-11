@@ -9,6 +9,7 @@ import {
   getSettlement,
   getSettlementFile,
   importSettlement,
+  investigateSettlement,
   listSettlements,
 } from "@/lib/amazonSettlementStore";
 
@@ -20,6 +21,7 @@ export const runtime = "nodejs";
  * GET                          → { ready, items: SavedSettlement[] } (newest period first)
  * GET ?settlement=<id>          → { entry }  (one entry, for its own page)
  * GET ?file=<id>                → the original uploaded file, as an attachment
+ * GET ?investigate=<id>         → why its Fishbowl sales order differs (Sage's investigate tool; reads Fishbowl live)
  * POST { text, file_name }     → { saved, replaced, entry }  (parse + save; same settlement = replace)
  * DELETE ?id=…                → { ok: true }  (one entry at a time — there's no delete-all)
  *
@@ -49,6 +51,12 @@ export async function GET(request: Request) {
           "Content-Disposition": `attachment; filename="${file.fileName.replace(/["\\\r\n]/g, "")}"`,
         },
       });
+    }
+    const investigateId = params.get("investigate");
+    if (investigateId) {
+      const report = await investigateSettlement(investigateId);
+      if (!report) return NextResponse.json({ error: "No entry for that settlement." }, { status: 404 });
+      return NextResponse.json(report);
     }
     const settlementId = params.get("settlement");
     if (settlementId) {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  compareWithFishbowl,
   groupsByType,
   parseAmazonPoPeriod,
   parseSettlementReport,
@@ -138,6 +139,54 @@ describe("by SKU", () => {
   it("reports entries saved before SKUs were kept", () => {
     const old = parseSettlementReport(FILE).groups.map((g) => ({ ...g, sku: undefined }));
     expect(summarizeBySku(old).hasSkus).toBe(false);
+  });
+});
+
+describe("compareWithFishbowl", () => {
+  const withQty = (sku: string, amount: string, qty: string) =>
+    line("Order", "ItemPrice", "Principal", amount, sku).split("\t").map((c, i) => (i === 22 ? qty : c)).join("\t");
+  // SO 24672 (Jul 16–30 2026): 11 × 110-00-05 @ $24 and 2 × 125-00-10 @ $12 were sold.
+  const je = parseSettlementReport(
+    [HEADER, SUMMARY.replace("1764.88", "288.00"), withQty("110-00-05", "264.00", "11"), withQty("125-00-10", "24.00", "2")].join("\n"),
+  );
+  const order = (units: Record<string, number>, amounts: Record<string, number>) => ({
+    num: "24672",
+    status: "Fulfilled",
+    customerPO: "7/16-7/30/2026",
+    total: Object.values(amounts).reduce((s, n) => s + n, 0),
+    units,
+    amounts,
+  });
+
+  it("explains units keyed on the wrong SKU when the dollars still tie", () => {
+    const c = compareWithFishbowl({ ...je, fishbowl: order({ "110-00-05": 12 }, { "110-00-05": 288 }) });
+    expect(c.state).toBe("mismatch");
+    if (c.state === "missing") return;
+    expect(c.totalDiff).toBe(0);
+    expect(c.diffs?.map((d) => [d.sku, d.fishbowlUnits, d.amazonUnits])).toEqual([
+      ["110-00-05", 12, 11],
+      ["125-00-10", 0, 2],
+    ]);
+    expect(c.explanation[0]).toMatch(/wrong SKU/);
+    expect(c.explanation[1]).toMatch(/110-00-05 is 1 lower.*125-00-10 is 2 higher/);
+  });
+
+  it("explains a price difference when units match", () => {
+    const c = compareWithFishbowl({
+      ...je,
+      fishbowl: order({ "110-00-05": 11, "125-00-10": 2 }, { "110-00-05": 253, "125-00-10": 24 }),
+    });
+    if (c.state === "missing") throw new Error("expected a match");
+    expect(c.totalDiff).toBe(-11);
+    expect(c.diffs?.[0].explanation).toMatch(/price on the Fishbowl line differs/);
+  });
+
+  it("is ok when every line matches", () => {
+    const c = compareWithFishbowl({
+      ...je,
+      fishbowl: order({ "110-00-05": 11, "125-00-10": 2 }, { "110-00-05": 264, "125-00-10": 24 }),
+    });
+    expect(c.state).toBe("ok");
   });
 });
 

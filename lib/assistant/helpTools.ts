@@ -926,6 +926,33 @@ const proposePublishing: HelpTool = {
 /* Accounting                                                         */
 /* ------------------------------------------------------------------ */
 
+const investigateAmazonFishbowl: HelpTool = {
+  page: "/accounting/amazon-payments",
+  status: "Checking the Fishbowl order against Amazon…",
+  def: {
+    name: "investigate_amazon_fishbowl",
+    description:
+      "Investigate why an Amazon settlement's journal entry and the Fishbowl sales order it was hand-keyed as disagree (wrong quantities, missing or extra SKUs, prices, order total). Each settlement is keyed in Fishbowl as one sales order for AMAZON - CUSTOMER: Customer PO = the period (e.g. 9/24-10/8/2026), one line per SKU at units × price (order total = the Sales column), location group Amazon Warehouse, so it also takes the units out of Amazon stock. Returns: the line-by-line comparison with rule-based explanations; Amazon's own order lines (order id, date, qty, amount) for the SKUs that differ, from the original file; the Fishbowl order read LIVE from Fishbowl (header incl. note and who created it, every line with qty, shipped, unit price, total); and the neighbouring Amazon orders' lines for those SKUs (to spot units keyed on the settlement before or after). Explain the most likely cause in plain words (e.g. units keyed on the wrong SKU, the same dollars so the total still tied), how Fishbowl inventory is affected, and exactly which lines to change on the Fishbowl order. Read-only — you cannot change Fishbowl; the user makes the fix. With no settlement_id, ask which period (or use the one the user is looking at).",
+    input_schema: {
+      type: "object",
+      properties: {
+        settlement_id: { type: "string", description: "Amazon settlement id, e.g. 27012276871 (in the entry page's URL)." },
+      },
+      required: ["settlement_id"],
+    },
+  },
+  async run(input, ctx) {
+    const id = str(input.settlement_id, 40).replace(/[^0-9]/g, "");
+    if (!id) return { result: { error: "Which settlement? Give its settlement id." } };
+    const out = await callApi<Record<string, unknown> & { page?: string }>(
+      ctx,
+      "GET",
+      `/api/accounting/amazon-settlements?investigate=${encodeURIComponent(id)}`,
+    );
+    return { result: out, action: { label: "Open the journal entry", href: out.page ?? "/accounting/amazon-payments" } };
+  },
+};
+
 const importAmazonSettlement: HelpTool = {
   page: "/accounting/amazon-payments",
   status: "Building the journal entry…",
@@ -1207,6 +1234,7 @@ const STATIC_TOOLS: HelpTool[] = [
   recipeLookup,
   setOrderingRule,
   importAmazonSettlement,
+  investigateAmazonFishbowl,
   recallConversations,
   proposePublishing,
   createEmailTemplate,

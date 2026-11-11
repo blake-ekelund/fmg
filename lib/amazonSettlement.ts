@@ -109,7 +109,123 @@ export type FishbowlAmazonOrder = {
   total: number;
   /** Part → units on the order (priced lines only; $0 kit components are left out). */
   units: Record<string, number>;
+  /** Part → dollars on the order (same lines). */
+  amounts?: Record<string, number>;
 };
+
+/** One SKU where the Fishbowl order and the settlement file disagree. */
+export type FishbowlLineDiff = {
+  sku: string;
+  amazonUnits: number;
+  fishbowlUnits: number;
+  amazonSales: number;
+  fishbowlAmount: number | null;
+  /** Plain-words reason for this one line. */
+  explanation: string;
+};
+
+export type FishbowlComparison =
+  | { state: "missing" }
+  | {
+      state: "ok" | "mismatch";
+      num: string;
+      status: string;
+      /** Fishbowl order total minus the entry's Sales (0 = ties). */
+      totalDiff: number;
+      /** Lines that differ; null when the entry has no units (saved before they were kept). */
+      diffs: FishbowlLineDiff[] | null;
+      /** Plain-words summary of what probably happened, most likely cause first. */
+      explanation: string[];
+    };
+
+const usd = (n: number) => `$${Math.abs(n).toFixed(2)}`;
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+/**
+ * Compare a settlement with the Fishbowl sales order it was hand-keyed as,
+ * SKU by SKU (units and dollars), and say in plain words what probably went
+ * wrong. The usual mistake is keying units on the wrong SKU: the order total
+ * still ties, but Fishbowl's inventory is off for both parts.
+ */
+export function compareWithFishbowl(je: Pick<SettlementJournalEntry, "groups" | "columns"> & {
+  fishbowl?: FishbowlAmazonOrder | null;
+}): FishbowlComparison {
+  const fb = je.fishbowl;
+  if (!fb) return { state: "missing" };
+  const totalDiff = Math.round((fb.total - je.columns.sales) * 100) / 100;
+  const { rows } = summarizeBySku(je.groups);
+  const explanation: string[] = [];
+
+  if (!rows.length || rows[0].units === null) {
+    if (totalDiff !== 0)
+      explanation.push(
+        `The order total is ${usd(totalDiff)} ${totalDiff > 0 ? "more" : "less"} than Sales. Upload the settlement file again to see which SKU it's on.`,
+      );
+    return { state: totalDiff === 0 ? "ok" : "mismatch", num: fb.num, status: fb.status, totalDiff, diffs: null, explanation };
+  }
+
+  const amazon = new Map(rows.map((r) => [r.sku, r]));
+  const parts = [...new Set([...rows.filter((r) => r.units || r.columns.sales).map((r) => r.sku), ...Object.keys(fb.units)])];
+  const diffs: FishbowlLineDiff[] = [];
+  for (const sku of parts.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))) {
+    const a = amazon.get(sku);
+    const amazonUnits = a?.units ?? 0;
+    const amazonSales = a?.columns.sales ?? 0;
+    const fishbowlUnits = fb.units[sku] ?? 0;
+    const fishbowlAmount = fb.amounts ? Math.round((fb.amounts[sku] ?? 0) * 100) / 100 : null;
+    const unitsOff = amazonUnits !== fishbowlUnits;
+    const dollarsOff = fishbowlAmount !== null && Math.abs(fishbowlAmount - amazonSales) >= 0.005;
+    if (!unitsOff && !dollarsOff) continue;
+
+    let why: string;
+    if (!fishbowlUnits) why = `Amazon sold ${plural(amazonUnits, "unit")} (${usd(amazonSales)}) but it isn't on the Fishbowl order.`;
+    else if (!amazonUnits)
+      why = `Keyed ${plural(fishbowlUnits, "unit")} in Fishbowl, but Amazon sold none of this SKU in this settlement.`;
+    else if (unitsOff) why = `Keyed ${fishbowlUnits}, Amazon sold ${amazonUnits}.`;
+    else
+      why = `Units match (${amazonUnits}) but the line is ${usd(fishbowlAmount ?? 0)} vs Amazon's ${usd(amazonSales)} — the price on the Fishbowl line differs.`;
+    diffs.push({ sku, amazonUnits, fishbowlUnits, amazonSales, fishbowlAmount, explanation: why });
+  }
+
+  const over = diffs.filter((d) => d.fishbowlUnits > d.amazonUnits);
+  const under = diffs.filter((d) => d.fishbowlUnits < d.amazonUnits);
+  const lineDollars = (d: FishbowlLineDiff) => (d.fishbowlAmount ?? 0) - d.amazonSales;
+  const netLines = Math.round(diffs.reduce((s, d) => s + lineDollars(d), 0) * 100) / 100;
+
+  if (over.length && under.length && totalDiff === 0 && netLines === 0) {
+    explanation.push(
+      `Units were most likely keyed on the wrong SKU: the order total still matches because the extra ${over
+        .map((d) => `${d.sku} (+${d.fishbowlUnits - d.amazonUnits}, ${usd(lineDollars(d))})`)
+        .join(", ")} cost the same as the missing ${under
+        .map((d) => `${d.sku} (−${d.amazonUnits - d.fishbowlUnits}, ${usd(lineDollars(d))})`)
+        .join(", ")}.`,
+    );
+  } else if (diffs.length && totalDiff === 0) {
+    explanation.push("The order total matches Sales, but the lines below don't — the differences cancel out in dollars.");
+  } else if (totalDiff !== 0) {
+    explanation.push(
+      `The order total is ${usd(totalDiff)} ${totalDiff > 0 ? "more" : "less"} than Sales${
+        diffs.length ? "; the lines below account for it" : ""
+      }.`,
+    );
+  }
+  if (over.length || under.length)
+    explanation.push(
+      `Fishbowl inventory is off until the order is corrected: ${[
+        ...over.map((d) => `${d.sku} is ${d.fishbowlUnits - d.amazonUnits} lower than it should be`),
+        ...under.map((d) => `${d.sku} is ${d.amazonUnits - d.fishbowlUnits} higher`),
+      ].join("; ")}.`,
+    );
+
+  return {
+    state: totalDiff === 0 && !diffs.length ? "ok" : "mismatch",
+    num: fb.num,
+    status: fb.status,
+    totalDiff,
+    diffs,
+    explanation,
+  };
+}
 
 /**
  * "9/24-10/8/2026" / "12/18-1/1/2026" / "03/12-03/26/2026" → ISO start/end.
