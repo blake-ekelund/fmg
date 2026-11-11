@@ -75,12 +75,20 @@ export async function GET(request: Request) {
   }
 
   const dry = new URL(request.url).searchParams.get("dry") === "1";
-  const enabled = (process.env.FAIRE_INVENTORY_SYNC ?? "").trim().toLowerCase() === "on";
+  // Read the switch forgivingly: from Aug–Nov 2026 the production value didn't
+  // compare equal to "on" (quotes/whitespace from the dashboard), so every run
+  // quietly pushed nothing while reporting 200 — and Faire drifted far above
+  // real stock. Quotes, spaces and case no longer matter.
+  const flag = (process.env.FAIRE_INVENTORY_SYNC ?? "").replace(/["'\s]/g, "").toLowerCase();
+  const enabled = ["on", "true", "1", "yes"].includes(flag);
 
   if (!faireInventoryConfigured()) {
+    console.warn("faire-inventory-sync: no Faire access token — dark");
     return NextResponse.json({ note: "No Faire access token — inventory sync is dark.", dry });
   }
   if (!enabled && !dry) {
+    // Loud on purpose: a 200 that pushes nothing is how this went unnoticed.
+    console.warn(`faire-inventory-sync: FAIRE_INVENTORY_SYNC is not on (value length ${flag.length}) — nothing pushed`);
     return NextResponse.json({
       note: "FAIRE_INVENTORY_SYNC is not 'on' — nothing pushed. Add ?dry=1 to preview.",
       pushed: 0,
@@ -167,6 +175,11 @@ export async function GET(request: Request) {
     const bySku = await pushInventoryLevels(levels, { confirm: enabled, dry });
     const byVariant = await pushInventoryByVariantIds(variantLevels, { confirm: enabled, dry });
 
+    // One line per run, so the logs say what actually happened.
+    console.info(
+      `faire-inventory-sync: ${dry ? "DRY " : ""}pushed ${bySku.sent + byVariant.sent} (by SKU ${bySku.detail}; by variant ${byVariant.detail}); source ${pointbNote ?? "Point B"}; snapshot ${ageHours.toFixed(1)}h`,
+    );
+
     return NextResponse.json({
       dry,
       enabled,
@@ -194,6 +207,7 @@ export async function GET(request: Request) {
       needsAttention: unresolved.map((d) => ({ sku: d.sku, why: d.unresolved })),
     });
   } catch (e) {
+    console.error("faire-inventory-sync failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },
       { status: 502 },
