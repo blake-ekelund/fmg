@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { AlertTriangle, CheckCircle2, Download, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Loader2, Send, Sparkles } from "lucide-react";
 import { openHelpAssistant } from "@/components/HelpAssistant";
+import { amazonPoNum } from "@/lib/amazonFishbowlEstimate";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
   JE_COLUMNS,
@@ -142,14 +143,48 @@ export function FishbowlBadge({ check }: { check: FishbowlCheck }) {
 }
 
 /** Detail line: is it in Fishbowl, and does what was keyed match the file? */
-export function FishbowlStatus({ je }: { je: SavedSettlement }) {
+export function FishbowlStatus({
+  je,
+  onCreateEstimate,
+  pushing,
+  pushed,
+}: {
+  je: SavedSettlement;
+  /** Creates the Fishbowl estimate (the entry page passes it; omitted = no button). */
+  onCreateEstimate?: () => void;
+  pushing?: boolean;
+  /** Set once an estimate was created/found this visit — before the 3×/day sync catches up. */
+  pushed?: { soNum: string; created: boolean } | null;
+}) {
   const check = fishbowlCheck(je);
+  if (check.state === "missing" && pushed) {
+    return (
+      <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+        <span className="font-semibold">
+          {pushed.created ? `Estimate SO ${pushed.soNum} created in Fishbowl` : `Already in Fishbowl as SO ${pushed.soNum}`}
+        </span>{" "}
+        — review and convert it there. The check against the file runs once Fishbowl syncs here (3× a day).
+      </div>
+    );
+  }
   if (check.state === "missing") {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        <span className="font-semibold">Not in Fishbowl yet.</span> Key it as a sales order for AMAZON - CUSTOMER, Customer PO{" "}
-        <span className="font-mono">{poLabel(je)}</span>, location group Amazon Warehouse — one line per SKU using the Qty below
-        (order total ${money(je.columns.sales)}). Fishbowl orders sync here 3× a day.
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <span className="flex-1">
+          <span className="font-semibold">Not in Fishbowl yet.</span> Create it as an estimate for AMAZON - CUSTOMER, Customer PO{" "}
+          <span className="font-mono">{poLabel(je)}</span>, Amazon Warehouse — one line per SKU at the Qty below (total $
+          {money(je.columns.sales)}).
+        </span>
+        {onCreateEstimate && (
+          <button
+            onClick={onCreateEstimate}
+            disabled={pushing || !je.hasFile}
+            title={je.hasFile ? undefined : "Upload the settlement file again first — the estimate's lines come from it."}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#0b2a4a] px-2.5 py-1.5 font-medium text-white hover:bg-[#123a63] disabled:opacity-50"
+          >
+            {pushing ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Create Fishbowl estimate
+          </button>
+        )}
       </div>
     );
   }
@@ -227,13 +262,9 @@ export function FishbowlStatus({ je }: { je: SavedSettlement }) {
   );
 }
 
-/** The Customer PO the Fishbowl order uses: "9/24-10/8/2026". */
+/** The Customer PO an Amazon estimate uses: "10/08-10/22/2026" (lib/amazonFishbowlEstimate.ts). */
 export function poLabel(je: SavedSettlement): string {
-  const md = (ymd: string) => {
-    const [, m, d] = ymd.split("-");
-    return `${Number(m)}/${Number(d)}`;
-  };
-  return je.startDate && je.endDate ? `${md(je.startDate)}-${md(je.endDate)}/${je.endDate.slice(0, 4)}` : je.settlementId;
+  return je.startDate && je.endDate ? amazonPoNum(je) : je.settlementId;
 }
 
 /** Amazon Data by SKU: one row per product, plus the lines with no SKU, tying back to the entry. */

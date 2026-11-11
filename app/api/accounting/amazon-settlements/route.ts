@@ -10,6 +10,7 @@ import {
   getSettlementFile,
   importSettlement,
   investigateSettlement,
+  pushAmazonEstimate,
   listSettlements,
 } from "@/lib/amazonSettlementStore";
 
@@ -23,6 +24,7 @@ export const runtime = "nodejs";
  * GET ?file=<id>                → the original uploaded file, as an attachment
  * GET ?investigate=<id>         → why its Fishbowl sales order differs (Sage's investigate tool; reads Fishbowl live)
  * POST { text, file_name }     → { saved, replaced, entry }  (parse + save; same settlement = replace)
+ * POST ?estimate=<id>           → { soNum, created, poNum, lines }  (Fishbowl ESTIMATE for the settlement)
  * DELETE ?id=…                → { ok: true }  (one entry at a time — there's no delete-all)
  *
  * Gated on the page (owner/admin). Sage's import tool calls POST with the
@@ -73,6 +75,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await authorize(request);
   if (!user) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
+  const estimateFor = new URL(request.url).searchParams.get("estimate");
+  if (estimateFor) {
+    try {
+      return NextResponse.json(await pushAmazonEstimate(estimateFor));
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't create the estimate." }, { status: 500 });
+    }
+  }
   const body = (await request.json().catch(() => ({}))) as { text?: unknown; file_name?: unknown };
   if (typeof body.text !== "string" || !body.text.trim()) {
     return NextResponse.json({ error: "Send the settlement file's text." }, { status: 400 });

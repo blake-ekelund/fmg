@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabaseServer";
-import { fishbowlConfigured, withFishbowl } from "@/lib/fishbowl";
+import { createEstimate, fishbowlConfigured, withFishbowl } from "@/lib/fishbowl";
+import { AMAZON_FISHBOWL_CUSTOMER, amazonEstimateLines, amazonEstimateRows } from "@/lib/amazonFishbowlEstimate";
 import {
   JE_COLUMNS,
   JE_DB_COLUMNS,
@@ -467,4 +468,48 @@ async function completeSettlementTask(label: string): Promise<void> {
     .update({ status: "done", completed: true })
     .eq("name", settlementTaskName({ label }))
     .eq("completed", false);
+}
+
+/* ---------------- Push to Fishbowl (as an estimate) ---------------- */
+
+/**
+ * Create the Fishbowl ESTIMATE for a settlement (lib/amazonFishbowlEstimate.ts
+ * builds it; createEstimate posts it). Never a sales order — a person reviews
+ * and converts it.
+ *
+ * Refuses, before anything is written, when:
+ *  - the original file isn't kept (the lines come from it, not from the saved
+ *    totals) — upload it again first;
+ *  - Fishbowl already has an AMAZON - CUSTOMER order for this period, whatever
+ *    format its PO was typed in (checked live, so a hand-keyed one the 3×/day
+ *    sync hasn't picked up yet still counts). createEstimate's own exact-PO
+ *    check is the second net.
+ */
+export async function pushAmazonEstimate(
+  settlementId: string,
+): Promise<{ soNum: string; created: boolean; poNum: string; lines: number }> {
+  const je = await getSettlement(settlementId);
+  if (!je) throw new Error("No entry for that settlement.");
+  const file = await getSettlementFile(settlementId);
+  if (!file) throw new Error("The original file isn't kept for this entry — upload it again, then push.");
+  const lines = amazonEstimateLines(file.text);
+  const now = new Date();
+  const today = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
+  const { poNum, rows } = amazonEstimateRows(je, lines, today);
+
+  const existing = await withFishbowl((query) =>
+    query(
+      `SELECT num, customerPO FROM so WHERE customerId = ${Number(FISHBOWL_AMAZON_CUSTOMER_ID)} AND customerPO <> '' ORDER BY id DESC LIMIT 300`,
+    ),
+  );
+  const dupe = existing.find((o) => {
+    const p = parseAmazonPoPeriod(String(o.customerPO ?? ""));
+    return p && p.start === je.startDate && p.end === je.endDate;
+  });
+  if (dupe) {
+    return { soNum: String(dupe.num), created: false, poNum: String(dupe.customerPO), lines: lines.length };
+  }
+
+  const res = await createEstimate(poNum, AMAZON_FISHBOWL_CUSTOMER, rows);
+  return { soNum: res.soNum, created: res.created, poNum, lines: lines.length };
 }
