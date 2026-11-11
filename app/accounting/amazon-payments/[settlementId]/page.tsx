@@ -14,7 +14,7 @@ import {
   SkuTable,
   authHeader,
   money,
-  poLabel,
+  createFishbowlEstimate,
   shortDate,
   uploadedLabel,
 } from "@/components/accounting/amazonSettlementParts";
@@ -99,22 +99,11 @@ export default function AmazonSettlementPage() {
   /** Create the Fishbowl estimate for this settlement (never a sales order). */
   const createEstimate = async () => {
     if (!je) return;
-    if (
-      !window.confirm(
-        `Create a Fishbowl ESTIMATE for ${je.label}?\n\nAMAZON - CUSTOMER · PO ${poLabel(je)} · Amazon Warehouse · $${money(je.columns.sales)}\n\nSomeone reviews and converts it in Fishbowl.`,
-      )
-    )
-      return;
     setBusy("estimate");
     setError(null);
     try {
-      const res = await fetch(`${AMAZON_SETTLEMENTS_API}?estimate=${encodeURIComponent(je.settlementId)}`, {
-        method: "POST",
-        headers: await authHeader(),
-      });
-      const j = (await res.json()) as { soNum?: string; created?: boolean; error?: string };
-      if (!res.ok || !j.soNum) throw new Error(j.error ?? "Couldn't create the estimate.");
-      setPushed({ soNum: j.soNum, created: !!j.created });
+      const out = await createFishbowlEstimate(je);
+      if (out) setPushed(out);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create the estimate.");
     } finally {

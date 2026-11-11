@@ -95,6 +95,10 @@ export type SavedSettlement = SettlementJournalEntry & {
   fishbowl?: FishbowlAmazonOrder | null;
   /** The original uploaded file is kept and can be downloaded. */
   hasFile?: boolean;
+  /** When someone ticked "in QuickBooks"; null = not yet; undefined = the column isn't there yet (db push pending). */
+  qboEnteredAt?: string | null;
+  /** First name of whoever ticked it. */
+  qboEnteredBy?: string | null;
 };
 
 /**

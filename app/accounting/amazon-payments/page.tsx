@@ -17,6 +17,7 @@ import {
 import {
   AMAZON_SETTLEMENTS_API,
   FishbowlBadge,
+  createFishbowlEstimate,
   authHeader,
   downloadFile,
   entryHref,
@@ -45,6 +46,7 @@ const LIST_COLUMNS: { label: string; sort?: SortKey; right?: boolean }[] = [
   { label: "Sales", sort: "sales", right: true },
   { label: "Net Deposit", sort: "total", right: true },
   { label: "Fishbowl" },
+  { label: "QuickBooks" },
   { label: "Uploaded" },
 ];
 const rowValues = (je: SavedSettlement) => [je.label, ...JE_COLUMNS.map((c) => je.columns[c].toFixed(2)), je.total.toFixed(2)];
@@ -71,6 +73,9 @@ function AmazonPayments() {
   const [page, setPage] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
+  // "Not entered" → Push: which row is pushing, and estimates created this visit (before the Fishbowl sync catches up).
+  const [pushing, setPushing] = useState<string | null>(null);
+  const [pushed, setPushed] = useState<Record<string, { soNum: string; created: boolean }>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -166,6 +171,40 @@ function AmazonPayments() {
     // One file saved cleanly: open it. Several: stay on the list.
     if (anySaved && added.length === 1 && !errs.length) return router.push(entryHref(added[0]));
     if (anySaved) await load();
+  };
+
+  const pushEstimate = async (je: SavedSettlement) => {
+    setPushing(je.settlementId);
+    setErrors([]);
+    try {
+      const out = await createFishbowlEstimate(je);
+      if (out) setPushed((p) => ({ ...p, [je.settlementId]: out }));
+    } catch (e) {
+      setErrors([`${je.label}: ${e instanceof Error ? e.message : "Couldn't create the estimate."}`]);
+    } finally {
+      setPushing(null);
+    }
+  };
+
+  // QuickBooks tick: undefined on every row = the column isn't there yet (db push pending).
+  const qboReady = entries.some((e) => e.qboEnteredAt !== undefined);
+  const toggleQbo = async (je: SavedSettlement, entered: boolean) => {
+    const prev = { at: je.qboEnteredAt, by: je.qboEnteredBy };
+    const setRow = (at: string | null | undefined, by: string | null | undefined) =>
+      setEntries((list) => list.map((e) => (e.settlementId === je.settlementId ? { ...e, qboEnteredAt: at, qboEnteredBy: by } : e)));
+    setRow(entered ? new Date().toISOString() : null, entered ? "You" : null);
+    try {
+      const res = await fetch(`${AMAZON_SETTLEMENTS_API}?qbo=${encodeURIComponent(je.settlementId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ entered }),
+      });
+      const j = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? "Couldn't save that.");
+    } catch (e) {
+      setRow(prev.at, prev.by);
+      setErrors([`${je.label}: ${e instanceof Error ? e.message : "Couldn't save that."}`]);
+    }
   };
 
   const copyForExcel = async () => {
@@ -351,7 +390,36 @@ function AmazonPayments() {
                   <td className="px-3 py-2 text-right whitespace-nowrap">$ {money(je.columns.sales)}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">$ {money(je.total)}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs">
-                    <FishbowlBadge check={fishbowlCheck(je)} />
+                    <FishbowlBadge
+                      check={fishbowlCheck(je)}
+                      onPush={() => void pushEstimate(je)}
+                      pushing={pushing === je.settlementId}
+                      pushed={pushed[je.settlementId] ?? null}
+                      canPush={!!je.hasFile}
+                    />
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-xs" onClick={(e) => e.stopPropagation()}>
+                    <label
+                      className={`inline-flex items-center gap-1.5 ${qboReady ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}
+                      title={
+                        !qboReady
+                          ? "Switching on — the QuickBooks column needs a database update (migration 20261111000000)."
+                          : je.qboEnteredAt
+                            ? `In QuickBooks — ticked by ${je.qboEnteredBy ?? "someone"} ${shortDate(je.qboEnteredAt.slice(0, 10))}`
+                            : "Tick once this journal entry is in QuickBooks"
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-[#0b2a4a]"
+                        checked={!!je.qboEnteredAt}
+                        disabled={!qboReady}
+                        onChange={(e) => void toggleQbo(je, e.target.checked)}
+                      />
+                      <span className={je.qboEnteredAt ? "font-medium text-green-700" : "text-gray-500"}>
+                        {je.qboEnteredAt ? "In QBO" : "Not yet"}
+                      </span>
+                    </label>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{uploadedLabel(je) || "—"}</td>
                 </tr>

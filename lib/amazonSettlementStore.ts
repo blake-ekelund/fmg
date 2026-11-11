@@ -51,6 +51,8 @@ function fromRow(r: Row): SavedSettlement {
     lineCount: Number(r.line_count ?? 0),
     fileName: (r.file_name as string | null) ?? null,
     createdAt: (r.created_at as string | null) ?? null,
+    // undefined (vs null) = the QuickBooks columns don't exist yet (migration 20261111000000 not pushed).
+    qboEnteredAt: "qbo_entered_at" in r ? ((r.qbo_entered_at as string | null) ?? null) : undefined,
   };
 }
 
@@ -148,7 +150,9 @@ async function attachFishbowl(items: SavedSettlement[]): Promise<SavedSettlement
 async function attachNames(rows: Row[]): Promise<SavedSettlement[]> {
   const items = rows.map(fromRow);
   const skus = [...new Set(items.flatMap((e) => e.groups.map((g) => g.sku).filter((s): s is string => !!s)))];
-  const userIds = [...new Set(rows.map((r) => r.uploaded_by).filter((u): u is string => typeof u === "string"))];
+  const userIds = [
+    ...new Set(rows.flatMap((r) => [r.uploaded_by, r.qbo_entered_by]).filter((u): u is string => typeof u === "string")),
+  ];
   const [products, profiles] = await Promise.all([
     skus.length
       ? supabaseServer.from("inventory_products").select("part, brand, display_name, fragrance, collection, size").in("part", skus)
@@ -164,6 +168,7 @@ async function attachNames(rows: Row[]): Promise<SavedSettlement[]> {
       ...e,
       skuNames: Object.fromEntries(e.groups.flatMap((g) => (g.sku && names[g.sku] ? [[g.sku, names[g.sku]]] : []))),
       uploadedBy: people[String(rows[i].uploaded_by)] || null,
+      qboEnteredBy: people[String(rows[i].qbo_entered_by)] || null,
     })),
   );
 }
@@ -512,4 +517,33 @@ export async function pushAmazonEstimate(
 
   const res = await createEstimate(poNum, AMAZON_FISHBOWL_CUSTOMER, rows);
   return { soNum: res.soNum, created: res.created, poNum, lines: lines.length };
+}
+
+/* ---------------- QuickBooks tick ---------------- */
+
+/**
+ * Tick / untick "this settlement's journal entry is in QuickBooks" (who + when).
+ * Needs migration 20261111000000 — until it's pushed the update errors and the
+ * caller says so.
+ */
+export async function setSettlementInQbo(
+  settlementId: string,
+  entered: boolean,
+  userId: string,
+): Promise<{ qboEnteredAt: string | null }> {
+  const qboEnteredAt = entered ? new Date().toISOString() : null;
+  const { data, error } = await supabaseServer
+    .from("amazon_settlements")
+    .update({ qbo_entered_at: qboEnteredAt, qbo_entered_by: entered ? userId : null })
+    .eq("settlement_id", settlementId)
+    .select("settlement_id")
+    .maybeSingle();
+  if (error) {
+    if (/qbo_entered/i.test(error.message)) {
+      throw new Error("The QuickBooks column isn't switched on yet — migration 20261111000000 needs a db push.");
+    }
+    throw new Error(error.message);
+  }
+  if (!data) throw new Error("No entry for that settlement.");
+  return { qboEnteredAt };
 }

@@ -133,8 +133,73 @@ export function EntryColumns({ je }: { je: SavedSettlement }) {
 }
 
 /** Main-table cell: the Fishbowl sales order this settlement was keyed as. */
-export function FishbowlBadge({ check }: { check: FishbowlCheck }) {
-  if (check.state === "missing") return <span className="font-medium text-amber-700">Not entered</span>;
+/**
+ * Ask, then create the settlement's Fishbowl ESTIMATE (never a sales order).
+ * Returns null when the user cancels; throws with the server's message on failure.
+ */
+export async function createFishbowlEstimate(je: SavedSettlement): Promise<{ soNum: string; created: boolean } | null> {
+  if (
+    !window.confirm(
+      `Create a Fishbowl ESTIMATE for ${je.label}?\n\nAMAZON - CUSTOMER · PO ${poLabel(je)} · Amazon Warehouse · $${money(je.columns.sales)}\n\nSomeone reviews and converts it in Fishbowl.`,
+    )
+  )
+    return null;
+  const res = await fetch(`${AMAZON_SETTLEMENTS_API}?estimate=${encodeURIComponent(je.settlementId)}`, {
+    method: "POST",
+    headers: await authHeader(),
+  });
+  const j = (await res.json()) as { soNum?: string; created?: boolean; error?: string };
+  if (!res.ok || !j.soNum) throw new Error(j.error ?? "Couldn't create the estimate.");
+  return { soNum: j.soNum, created: !!j.created };
+}
+
+/**
+ * List cell: the Fishbowl sales order this settlement was keyed as. "Not
+ * entered" is the lever — with `onPush` it creates the estimate in one click
+ * (when the original file is kept; otherwise the row opens the entry, which
+ * has Upload file again).
+ */
+export function FishbowlBadge({
+  check,
+  onPush,
+  pushing,
+  pushed,
+  canPush = true,
+}: {
+  check: FishbowlCheck;
+  onPush?: () => void;
+  pushing?: boolean;
+  pushed?: { soNum: string; created: boolean } | null;
+  canPush?: boolean;
+}) {
+  if (check.state === "missing" && pushed) {
+    return (
+      <span className="inline-flex items-center gap-1 font-medium text-green-700" title="Estimate created — it shows as matched after the next Fishbowl sync">
+        <CheckCircle2 size={12} /> Estimate SO {pushed.soNum}
+      </span>
+    );
+  }
+  if (check.state === "missing" && onPush && canPush) {
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onPush();
+        }}
+        disabled={pushing}
+        title="Create the Fishbowl estimate for this settlement"
+        className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 font-medium text-amber-800 ring-1 ring-amber-300 hover:bg-amber-200 disabled:opacity-60"
+      >
+        {pushing ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />} Not entered · Push
+      </button>
+    );
+  }
+  if (check.state === "missing")
+    return (
+      <span className="font-medium text-amber-700" title={canPush ? undefined : "Open the entry and upload its file again to push it"}>
+        Not entered
+      </span>
+    );
   return (
     <span className={`inline-flex items-center gap-1 font-medium ${check.state === "ok" ? "text-green-700" : "text-red-700"}`}>
       {check.state === "ok" ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />} SO {check.num}

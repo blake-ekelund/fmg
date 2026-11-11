@@ -11,6 +11,7 @@ import {
   importSettlement,
   investigateSettlement,
   pushAmazonEstimate,
+  setSettlementInQbo,
   listSettlements,
 } from "@/lib/amazonSettlementStore";
 
@@ -25,6 +26,7 @@ export const runtime = "nodejs";
  * GET ?investigate=<id>         → why its Fishbowl sales order differs (Sage's investigate tool; reads Fishbowl live)
  * POST { text, file_name }     → { saved, replaced, entry }  (parse + save; same settlement = replace)
  * POST ?estimate=<id>           → { soNum, created, poNum, lines }  (Fishbowl ESTIMATE for the settlement)
+ * PATCH ?qbo=<id> { entered }   → { qboEnteredAt }  (tick / untick "in QuickBooks")
  * DELETE ?id=…                → { ok: true }  (one entry at a time — there's no delete-all)
  *
  * Gated on the page (owner/admin). Sage's import tool calls POST with the
@@ -106,5 +108,20 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't delete." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const user = await authorize(request);
+  if (!user) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
+  const id = new URL(request.url).searchParams.get("qbo");
+  const body = (await request.json().catch(() => ({}))) as { entered?: unknown };
+  if (!id || typeof body.entered !== "boolean") {
+    return NextResponse.json({ error: "Pass ?qbo=<settlement id> and { entered: true|false }." }, { status: 400 });
+  }
+  try {
+    return NextResponse.json(await setSettlementInQbo(id, body.entered, user.id));
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't save that." }, { status: 500 });
   }
 }
