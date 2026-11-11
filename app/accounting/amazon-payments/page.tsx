@@ -8,6 +8,7 @@ import PageMeta from "@/components/PageMeta";
 import {
   JE_COLUMNS,
   JE_COLUMN_LABELS,
+  entryUnits,
   findMissingPeriods,
   nextExpectedPeriod,
   type JeColumn,
@@ -31,7 +32,7 @@ import {
    opens on its own page (./[settlementId]). */
 
 const PAGE_SIZE = 10;
-type SortKey = "date" | JeColumn | "total";
+type SortKey = "date" | JeColumn | "total" | "units";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
 /* Copy for Excel / CSV export every column; the on-screen list shows just the
@@ -40,6 +41,7 @@ const HEADERS = ["Journal Entry", ...JE_COLUMNS.map((c) => JE_COLUMN_LABELS[c]),
 const LIST_COLUMNS: { label: string; sort?: SortKey; right?: boolean }[] = [
   { label: "Journal Entry", sort: "date" },
   { label: "Deposit" },
+  { label: "Units", sort: "units", right: true },
   { label: "Sales", sort: "sales", right: true },
   { label: "Net Deposit", sort: "total", right: true },
   { label: "Fishbowl" },
@@ -47,7 +49,7 @@ const LIST_COLUMNS: { label: string; sort?: SortKey; right?: boolean }[] = [
 ];
 const rowValues = (je: SavedSettlement) => [je.label, ...JE_COLUMNS.map((c) => je.columns[c].toFixed(2)), je.total.toFixed(2)];
 const sortValue = (je: SavedSettlement, key: SortKey) =>
-  key === "date" ? je.startDate : key === "total" ? je.total : je.columns[key];
+  key === "date" ? je.startDate : key === "total" ? je.total : key === "units" ? entryUnits(je.groups) ?? -1 : je.columns[key];
 
 export default function AmazonPaymentsPage() {
   return (
@@ -340,6 +342,12 @@ function AmazonPayments() {
                     </Link>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-gray-600">{shortDate(je.depositDate)}</td>
+                  <td
+                    className="px-3 py-2 text-right whitespace-nowrap"
+                    title={entryUnits(je.groups) === null ? "Saved before units were kept — upload the file again" : undefined}
+                  >
+                    {entryUnits(je.groups)?.toLocaleString() ?? <span className="text-gray-400">—</span>}
+                  </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">$ {money(je.columns.sales)}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">$ {money(je.total)}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs">

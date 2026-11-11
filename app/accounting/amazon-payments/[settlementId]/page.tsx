@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, CheckCircle2, FileDown, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, FileDown, Loader2, Trash2, Upload } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import type { SavedSettlement } from "@/lib/amazonSettlement";
+import { entryUnits, parseSettlementReport, type SavedSettlement } from "@/lib/amazonSettlement";
 import {
   AMAZON_SETTLEMENTS_API,
   EntryColumns,
@@ -27,7 +27,8 @@ export default function AmazonSettlementPage() {
   const router = useRouter();
   const [je, setJe] = useState<SavedSettlement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"download" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"download" | "delete" | "upload" | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +69,31 @@ export default function AmazonSettlementPage() {
     }
   };
 
+  /** Upload this settlement's file again — fills in quantities and keeps the original. Must be the same settlement. */
+  const reupload = async (file: File) => {
+    if (!je) return;
+    setBusy("upload");
+    setError(null);
+    try {
+      const text = await file.text();
+      const parsed = parseSettlementReport(text);
+      if (parsed.settlementId !== je.settlementId)
+        throw new Error(`That file is settlement ${parsed.settlementId} (${parsed.label}), not ${je.settlementId}. Upload it on the Amazon Payments list instead.`);
+      const res = await fetch(AMAZON_SETTLEMENTS_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ text, file_name: file.name }),
+      });
+      const j = (await res.json()) as { entry?: SavedSettlement; error?: string };
+      if (!res.ok || !j.entry) throw new Error(j.error ?? "Couldn't upload it.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't upload it.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const remove = async () => {
     if (!je?.id || !window.confirm(`Delete the journal entry for ${je.label}? Its original file is deleted too.`)) return;
     setBusy("delete");
@@ -101,6 +127,25 @@ export default function AmazonSettlementPage() {
         </Link>
         {je && (
           <>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".txt,.tsv,text/plain,text/tab-separated-values"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void reupload(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => inputRef.current?.click()}
+              disabled={busy !== null}
+              className={btn}
+              title="Upload this settlement's file again (replaces the entry with the same numbers)"
+            >
+              {busy === "upload" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Upload file again
+            </button>
             <button
               onClick={() => void downloadOriginal()}
               disabled={!je.hasFile || busy !== null}
@@ -140,6 +185,11 @@ export default function AmazonSettlementPage() {
               <span className="text-sm text-gray-600">
                 Sales <span className="font-medium text-gray-900">${money(je.columns.sales)}</span>
               </span>
+              {entryUnits(je.groups) !== null && (
+                <span className="text-sm text-gray-600">
+                  Units <span className="font-medium text-gray-900">{entryUnits(je.groups)?.toLocaleString()}</span>
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               {je.reconciles ? (
@@ -159,6 +209,24 @@ export default function AmazonSettlementPage() {
               </span>
             </div>
           </div>
+
+          {(entryUnits(je.groups) === null || !je.hasFile) && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <AlertTriangle size={16} className="shrink-0" />
+              <span className="flex-1">
+                {entryUnits(je.groups) === null
+                  ? "Quantities are blank because this entry was uploaded before the app kept them. Upload the same settlement file again to fill in Qty and check units against Fishbowl — the numbers stay the same."
+                  : "The original file wasn't kept for this entry. Upload it again to keep it."}
+              </span>
+              <button
+                onClick={() => inputRef.current?.click()}
+                disabled={busy !== null}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#0b2a4a] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#123a63] disabled:opacity-60"
+              >
+                {busy === "upload" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Upload file again
+              </button>
+            </div>
+          )}
 
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-gray-900">Journal entry</h3>

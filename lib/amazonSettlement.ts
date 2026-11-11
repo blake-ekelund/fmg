@@ -387,6 +387,12 @@ export function parseSettlementReport(text: string): SettlementJournalEntry {
   };
 }
 
+/** Units Amazon sold in the settlement; null for entries saved before units were kept. */
+export function entryUnits(groups: SettlementLineGroup[]): number | null {
+  if (!groups.some((g) => g.units !== undefined)) return null;
+  return groups.reduce((s, g) => s + (g.units ?? 0), 0);
+}
+
 /** The groups with SKUs merged away: the by-line-type breakdown. */
 export function groupsByType(groups: SettlementLineGroup[]): SettlementLineGroup[] {
   const merged = new Map<string, SettlementLineGroup>();
