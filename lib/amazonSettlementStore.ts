@@ -2,7 +2,9 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import {
   JE_COLUMNS,
   JE_DB_COLUMNS,
+  parseAmazonPoPeriod,
   parseSettlementReport,
+  type FishbowlAmazonOrder,
   type JeColumn,
   type SavedSettlement,
   type SettlementJournalEntry,
@@ -64,19 +66,91 @@ function describeProduct(p: Row): string {
   return [brand, name.toLowerCase().includes(scent.toLowerCase()) ? "" : scent, name, size].filter(Boolean).join(" ");
 }
 
-/** Catalog descriptions for every SKU across these entries. */
-async function attachSkuNames(items: SavedSettlement[]): Promise<SavedSettlement[]> {
+/** Fishbowl's Amazon customer — every settlement is keyed as one of its sales orders. */
+const FISHBOWL_AMAZON_CUSTOMER_ID = "12345";
+
+/**
+ * The Fishbowl sales order each settlement was keyed as, from the synced copy
+ * (sales_orders_raw / so_items_raw, refreshed 3×/day — never a live Fishbowl
+ * login per page view). Matched on the Customer PO period: exact start + end
+ * first, then end date alone to forgive a mistyped start.
+ */
+async function attachFishbowl(items: SavedSettlement[]): Promise<SavedSettlement[]> {
+  if (!items.length) return items;
+  const { data: orders, error } = await supabaseServer
+    .from("sales_orders_raw")
+    .select("id, num, customerpo, status, totalprice")
+    .eq("customerid", FISHBOWL_AMAZON_CUSTOMER_ID)
+    .neq("customerpo", "")
+    .order("id", { ascending: false });
+  if (error) return items; // the page still works without the match
+  const periods = ((orders ?? []) as Row[]).flatMap((o) => {
+    const p = parseAmazonPoPeriod(String(o.customerpo ?? ""));
+    return p ? [{ o, ...p }] : [];
+  });
+  const matched = new Map<string, Row>();
+  for (const e of items) {
+    const hit =
+      periods.find((p) => p.start === e.startDate && p.end === e.endDate) ?? periods.find((p) => p.end === e.endDate);
+    if (hit) matched.set(e.settlementId, hit.o);
+  }
+
+  const soIds = [...new Set([...matched.values()].map((o) => Number(o.id)))];
+  const units = new Map<number, Record<string, number>>();
+  if (soIds.length) {
+    const { data: lines } = await supabaseServer
+      .from("so_items_raw")
+      .select("soid, productnum, qtyordered, totalprice, solineitem")
+      .in("soid", soIds)
+      .in("typename", ["Sale", "Kit"])
+      .order("soid")
+      .order("solineitem");
+    for (const l of (lines ?? []) as Row[]) {
+      if (!Number(l.totalprice)) continue; // $0 kit components
+      const u = units.get(Number(l.soid)) ?? {};
+      const part = String(l.productnum ?? "");
+      u[part] = (u[part] ?? 0) + Number(l.qtyordered ?? 0);
+      units.set(Number(l.soid), u);
+    }
+  }
+
+  return items.map((e) => {
+    const o = matched.get(e.settlementId);
+    const fishbowl: FishbowlAmazonOrder | null = o
+      ? {
+          num: String(o.num),
+          status: String(o.status ?? ""),
+          customerPO: String(o.customerpo ?? ""),
+          total: Number(o.totalprice ?? 0),
+          units: units.get(Number(o.id)) ?? {},
+        }
+      : null;
+    return { ...e, fishbowl };
+  });
+}
+
+/** Catalog descriptions for every SKU, and the uploader's name, across these entries. */
+async function attachNames(rows: Row[]): Promise<SavedSettlement[]> {
+  const items = rows.map(fromRow);
   const skus = [...new Set(items.flatMap((e) => e.groups.map((g) => g.sku).filter((s): s is string => !!s)))];
-  if (!skus.length) return items;
-  const { data } = await supabaseServer
-    .from("inventory_products")
-    .select("part, brand, display_name, fragrance, collection, size")
-    .in("part", skus);
-  const names = Object.fromEntries(((data ?? []) as Row[]).map((p) => [String(p.part), describeProduct(p)]));
-  return items.map((e) => ({
-    ...e,
-    skuNames: Object.fromEntries(e.groups.flatMap((g) => (g.sku && names[g.sku] ? [[g.sku, names[g.sku]]] : []))),
-  }));
+  const userIds = [...new Set(rows.map((r) => r.uploaded_by).filter((u): u is string => typeof u === "string"))];
+  const [products, profiles] = await Promise.all([
+    skus.length
+      ? supabaseServer.from("inventory_products").select("part, brand, display_name, fragrance, collection, size").in("part", skus)
+      : Promise.resolve({ data: [] as Row[] }),
+    userIds.length
+      ? supabaseServer.from("profiles").select("id, first_name").in("id", userIds)
+      : Promise.resolve({ data: [] as Row[] }),
+  ]);
+  const names = Object.fromEntries(((products.data ?? []) as Row[]).map((p) => [String(p.part), describeProduct(p)]));
+  const people = Object.fromEntries(((profiles.data ?? []) as Row[]).map((p) => [String(p.id), String(p.first_name ?? "")]));
+  return attachFishbowl(
+    items.map((e, i) => ({
+      ...e,
+      skuNames: Object.fromEntries(e.groups.flatMap((g) => (g.sku && names[g.sku] ? [[g.sku, names[g.sku]]] : []))),
+      uploadedBy: people[String(rows[i].uploaded_by)] || null,
+    })),
+  );
 }
 
 export async function listSettlements(): Promise<{ ready: boolean; items: SavedSettlement[] }> {
@@ -89,7 +163,7 @@ export async function listSettlements(): Promise<{ ready: boolean; items: SavedS
     if (tableMissing(error.message)) return { ready: false, items: [] };
     throw new Error(error.message);
   }
-  return { ready: true, items: await attachSkuNames(((data ?? []) as Row[]).map(fromRow)) };
+  return { ready: true, items: await attachNames((data ?? []) as Row[]) };
 }
 
 /** Parse a settlement file and save it (replacing any earlier upload of the same settlement). */
@@ -133,7 +207,7 @@ export async function importSettlement(
     .select("*")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Couldn't save the settlement.");
-  const [entry] = await attachSkuNames([fromRow(data as Row)]);
+  const [entry] = await attachNames([data as Row]);
   return { saved: true, replaced: !!existing, entry };
 }
 

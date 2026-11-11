@@ -55,7 +55,13 @@ export type SettlementLineGroup = {
   count: number;
   /** In cents, to keep the sums exact. */
   cents: number;
+  /** Units sold — only on Order › ItemPrice › Principal groups (every line of an
+   *  order item repeats its quantity, so only one line type can count it). */
+  units?: number;
 };
+
+const isUnitLine = (tt: string, at: string, ad: string) =>
+  tt.toLowerCase() === "order" && at.toLowerCase() === "itemprice" && ad.toLowerCase() === "principal";
 
 export type SettlementJournalEntry = {
   settlementId: string;
@@ -83,7 +89,39 @@ export type SavedSettlement = SettlementJournalEntry & {
   createdAt: string | null;
   /** SKU → catalog description, for the by-SKU table (missing = not in the catalog). */
   skuNames?: Record<string, string>;
+  /** Who uploaded the file (first name from profiles); null if unknown. */
+  uploadedBy?: string | null;
+  /** The Fishbowl sales order this settlement was keyed as; null = not found. */
+  fishbowl?: FishbowlAmazonOrder | null;
 };
+
+/**
+ * A hand-keyed Fishbowl sales order for customer "AMAZON - CUSTOMER": one per
+ * settlement, Customer PO = the period ("9/24-10/8/2026"), one line per SKU at
+ * units × price (so its total = the Sales column), shipped from Amazon Warehouse.
+ */
+export type FishbowlAmazonOrder = {
+  num: string;
+  status: string;
+  customerPO: string;
+  total: number;
+  /** Part → units on the order (priced lines only; $0 kit components are left out). */
+  units: Record<string, number>;
+};
+
+/**
+ * "9/24-10/8/2026" / "12/18-1/1/2026" / "03/12-03/26/2026" → ISO start/end.
+ * The year is only on the end date; a start month after the end month is the
+ * year before.
+ */
+export function parseAmazonPoPeriod(po: string): { start: string; end: string } | null {
+  const m = po.trim().match(/^(\d{1,2})\/(\d{1,2})\s*-\s*(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const [sm, sd, em, ed, y] = m.slice(1).map(Number);
+  const iso = (yy: number, mm: number, dd: number) =>
+    `${yy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+  return { start: iso(sm > em ? y - 1 : y, sm, sd), end: iso(y, em, ed) };
+}
 
 /** amazon_settlements column for each JE column. */
 export const JE_DB_COLUMNS: Record<JeColumn, string> = {
@@ -153,6 +191,7 @@ export function parseSettlementReport(text: string): SettlementJournalEntry {
   const iAd = col("amount-description");
   const iAmt = col("amount");
   const iSku = col("sku");
+  const iQty = col("quantity-purchased");
   if ([iId, iTt, iAt, iAd, iAmt].some((i) => i < 0)) {
     throw new SettlementParseError(
       "This doesn't look like an Amazon settlement report — expected the tab-separated flat file with settlement-id, transaction-type, amount-type, amount-description and amount columns."
@@ -199,6 +238,7 @@ export function parseSettlementReport(text: string): SettlementJournalEntry {
     };
     g.count++;
     g.cents += toCents(cell(iAmt));
+    if (isUnitLine(tt, at, ad)) g.units = (g.units ?? 0) + (Number(cell(iQty)) || 0);
     groups.set(key, g);
     lineCount++;
   }
@@ -234,9 +274,10 @@ export function groupsByType(groups: SettlementLineGroup[]): SettlementLineGroup
   const merged = new Map<string, SettlementLineGroup>();
   for (const g of groups) {
     const key = `${g.transactionType}\u0000${g.amountType}\u0000${g.amountDescription}`;
-    const m = merged.get(key) ?? { ...g, sku: undefined, count: 0, cents: 0 };
+    const m = merged.get(key) ?? { ...g, sku: undefined, count: 0, cents: 0, units: undefined };
     m.count += g.count;
     m.cents += g.cents;
+    if (g.units !== undefined) m.units = (m.units ?? 0) + g.units;
     merged.set(key, m);
   }
   return [...merged.values()].sort(
@@ -247,6 +288,8 @@ export function groupsByType(groups: SettlementLineGroup[]): SettlementLineGroup
 /** One product's share of a settlement, in the journal-entry columns. */
 export type SkuSummary = {
   sku: string;
+  /** Units sold (null on entries saved before units were kept). */
+  units: number | null;
   columns: Record<JeColumn, number>;
   total: number;
 };
@@ -263,15 +306,24 @@ export function summarizeBySku(groups: SettlementLineGroup[]): {
   unassigned: SkuSummary;
 } {
   const cents = new Map<string, Record<JeColumn, number>>();
+  const units = new Map<string, number>();
+  // Entries saved before units were kept carry no `units` anywhere.
+  const hasUnits = groups.some((g) => g.units !== undefined);
   for (const g of groups) {
     const sku = g.sku ?? "";
     const c = cents.get(sku) ?? (Object.fromEntries(JE_COLUMNS.map((k) => [k, 0])) as Record<JeColumn, number>);
     c[g.column] += g.cents;
     cents.set(sku, c);
+    if (g.units) units.set(sku, (units.get(sku) ?? 0) + g.units);
   }
   const toSummary = (sku: string, c: Record<JeColumn, number> | undefined): SkuSummary => {
     const cols = Object.fromEntries(JE_COLUMNS.map((k) => [k, (c?.[k] ?? 0) / 100])) as Record<JeColumn, number>;
-    return { sku, columns: cols, total: JE_COLUMNS.reduce((s, k) => s + (c?.[k] ?? 0), 0) / 100 };
+    return {
+      sku,
+      units: hasUnits ? units.get(sku) ?? 0 : null,
+      columns: cols,
+      total: JE_COLUMNS.reduce((s, k) => s + (c?.[k] ?? 0), 0) / 100,
+    };
   };
   const rows = [...cents.entries()]
     .filter(([sku]) => sku !== "")

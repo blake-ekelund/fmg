@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { groupsByType, parseSettlementReport, SettlementParseError, summarizeBySku } from "../amazonSettlement";
+import {
+  groupsByType,
+  parseAmazonPoPeriod,
+  parseSettlementReport,
+  SettlementParseError,
+  summarizeBySku,
+} from "../amazonSettlement";
 
 const HEADER =
   "settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\ttotal-amount\tcurrency\ttransaction-type\torder-id\tmerchant-order-id\tadjustment-id\tshipment-id\tmarketplace-name\tamount-type\tamount-description\tamount\tfulfillment-id\tposted-date\tposted-date-time\torder-item-code\tmerchant-order-item-id\tmerchant-adjustment-item-id\tsku\tquantity-purchased\tpromotion-id";
@@ -111,8 +117,35 @@ describe("by SKU", () => {
     expect(commission).toMatchObject({ count: 2, cents: -4620 });
   });
 
+  it("counts units once per order item, from the Principal line only", () => {
+    // Every line of an order item repeats its quantity-purchased.
+    const withQty = (tt: string, at: string, ad: string, amount: string, sku: string, qty: string) =>
+      line(tt, at, ad, amount, sku).split("\t").map((c, i) => (i === 22 ? qty : c)).join("\t");
+    const je = parseSettlementReport(
+      [
+        HEADER,
+        SUMMARY.replace("1764.88", "53.44"),
+        withQty("Order", "ItemPrice", "Principal", "48.00", "110-00-01", "2"),
+        withQty("Order", "ItemFees", "Commission", "-7.20", "110-00-01", "2"),
+        withQty("Order", "ItemPrice", "Principal", "24.00", "110-00-01", "1"),
+        withQty("Order", "ItemFees", "Commission", "-3.60", "110-00-01", "1"),
+        withQty("Refund", "ItemPrice", "Principal", "-7.76", "110-00-01", ""),
+      ].join("\n"),
+    );
+    expect(summarizeBySku(je.groups).rows[0]).toMatchObject({ sku: "110-00-01", units: 3 });
+  });
+
   it("reports entries saved before SKUs were kept", () => {
     const old = parseSettlementReport(FILE).groups.map((g) => ({ ...g, sku: undefined }));
     expect(summarizeBySku(old).hasSkus).toBe(false);
+  });
+});
+
+describe("parseAmazonPoPeriod", () => {
+  it("reads the Customer PO periods keyed on Fishbowl's Amazon orders", () => {
+    expect(parseAmazonPoPeriod("9/24-10/8/2026")).toEqual({ start: "2026-09-24", end: "2026-10-08" });
+    expect(parseAmazonPoPeriod("03/12-03/26/2026")).toEqual({ start: "2026-03-12", end: "2026-03-26" });
+    expect(parseAmazonPoPeriod("12/18-1/1/2026")).toEqual({ start: "2025-12-18", end: "2026-01-01" });
+    expect(parseAmazonPoPeriod("PO 1234")).toBeNull();
   });
 });

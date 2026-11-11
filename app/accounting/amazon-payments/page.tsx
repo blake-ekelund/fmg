@@ -46,6 +46,49 @@ const rowValues = (je: SavedSettlement) => [je.label, ...JE_COLUMNS.map((c) => j
 const sortValue = (je: SavedSettlement, key: SortKey) =>
   key === "date" ? je.startDate : key === "total" ? je.total : je.columns[key];
 
+type FishbowlCheck =
+  | { state: "missing" }
+  | {
+      state: "ok" | "mismatch";
+      num: string;
+      status: string;
+      /** Fishbowl order total minus the entry's Sales (0 = ties). */
+      totalDiff: number;
+      /** Parts whose units differ; null when this entry has no units (saved before they were kept). */
+      diffs: { sku: string; amazon: number; fishbowl: number }[] | null;
+    };
+
+/** Does the hand-keyed Fishbowl sales order match the settlement (Sales $ and units per SKU)? */
+function fishbowlCheck(je: SavedSettlement): FishbowlCheck {
+  const fb = je.fishbowl;
+  if (!fb) return { state: "missing" };
+  const totalDiff = Math.round((fb.total - je.columns.sales) * 100) / 100;
+  const { rows } = summarizeBySku(je.groups);
+  let diffs: { sku: string; amazon: number; fishbowl: number }[] | null = null;
+  if (rows.length && rows[0].units !== null) {
+    const amazon = new Map(rows.filter((r) => r.units).map((r) => [r.sku, r.units ?? 0]));
+    diffs = [...new Set([...amazon.keys(), ...Object.keys(fb.units)])]
+      .map((sku) => ({ sku, amazon: amazon.get(sku) ?? 0, fishbowl: fb.units[sku] ?? 0 }))
+      .filter((d) => d.amazon !== d.fishbowl)
+      .sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }));
+  }
+  return {
+    state: totalDiff === 0 && !diffs?.length ? "ok" : "mismatch",
+    num: fb.num,
+    status: fb.status,
+    totalDiff,
+    diffs,
+  };
+}
+
+/** "Julie · Nov 10, 2026" — who uploaded the file and when. */
+const uploadedLabel = (je: SavedSettlement) => {
+  const when = je.createdAt
+    ? new Date(je.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "";
+  return [je.uploadedBy, when].filter(Boolean).join(" · ");
+};
+
 /* Amazon Data by SKU: the bookkeeping sheet's per-product columns. Advertising
    and FBA Fees have no SKU, so they only appear if some SKU line lands there. */
 const SKU_SHEET_COLUMNS: JeColumn[] = ["sales", "shipping", "amazonFees", "promoRebates", "refundedSales", "other"];
@@ -287,18 +330,20 @@ function AmazonPayments() {
                   </th>
                 );
               })}
+              <th className="px-3 py-2 font-semibold whitespace-nowrap align-bottom text-left">Fishbowl</th>
+              <th className="px-3 py-2 font-semibold whitespace-nowrap align-bottom text-left">Uploaded</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={HEADERS.length} className="px-3 py-10 text-center text-gray-400">
+                <td colSpan={HEADERS.length + 2} className="px-3 py-10 text-center text-gray-400">
                   <Loader2 size={16} className="inline animate-spin" />
                 </td>
               </tr>
             ) : visible.length === 0 ? (
               <tr>
-                <td colSpan={HEADERS.length} className="px-3 py-10 text-center text-sm text-gray-500">
+                <td colSpan={HEADERS.length + 2} className="px-3 py-10 text-center text-sm text-gray-500">
                   No journal entries yet — click <span className="font-medium">Upload</span> or drop a settlement report here.
                 </td>
               </tr>
@@ -325,10 +370,14 @@ function AmazonPayments() {
                         </td>
                       ))}
                       <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">$ {money(je.total)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs">
+                        <FishbowlBadge check={fishbowlCheck(je)} />
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{uploadedLabel(je) || "—"}</td>
                     </tr>
                     {expanded && (
                       <tr className="bg-gray-50">
-                        <td colSpan={HEADERS.length} className="px-4 py-4">
+                        <td colSpan={HEADERS.length + 2} className="px-4 py-4">
                           <Breakdown je={je} onDelete={() => void remove(je)} />
                         </td>
                       </tr>
@@ -375,14 +424,17 @@ function Breakdown({ je, onDelete }: { je: SavedSettlement; onDelete: () => void
         )}
         <span className="text-gray-500">
           Settlement {je.settlementId} · {je.lineCount.toLocaleString()} lines{je.fileName ? ` · ${je.fileName}` : ""}
+          {uploadedLabel(je) ? ` · Uploaded by ${uploadedLabel(je)}` : ""}
         </span>
         <button onClick={onDelete} className="ml-auto inline-flex items-center gap-1 text-gray-500 hover:text-red-700">
           <Trash2 size={13} /> Delete entry
         </button>
       </div>
+      <FishbowlStatus je={je} />
       <SkuTable je={je} />
-      <h3 className="pt-2 text-sm font-semibold text-gray-900">By line type</h3>
-      <table className="text-xs tabular-nums">
+      <details className="pt-2 group">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-900 select-none">By line type</summary>
+      <table className="mt-2 text-xs tabular-nums">
         <tbody>
           {JE_COLUMNS.map((c) =>
             groupsByType(je.groups)
@@ -400,8 +452,68 @@ function Breakdown({ je, onDelete }: { je: SavedSettlement; onDelete: () => void
           )}
         </tbody>
       </table>
+      </details>
     </div>
   );
+}
+
+/** Main-table cell: the Fishbowl sales order this settlement was keyed as. */
+function FishbowlBadge({ check }: { check: FishbowlCheck }) {
+  if (check.state === "missing") return <span className="font-medium text-amber-700">Not entered</span>;
+  return (
+    <span className={`inline-flex items-center gap-1 font-medium ${check.state === "ok" ? "text-green-700" : "text-red-700"}`}>
+      {check.state === "ok" ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />} SO {check.num}
+    </span>
+  );
+}
+
+/** Detail line: is it in Fishbowl, and does what was keyed match the file? */
+function FishbowlStatus({ je }: { je: SavedSettlement }) {
+  const check = fishbowlCheck(je);
+  if (check.state === "missing") {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <span className="font-semibold">Not in Fishbowl yet.</span> Key it as a sales order for AMAZON - CUSTOMER, Customer PO{" "}
+        <span className="font-mono">{poLabel(je)}</span>, location group Amazon Warehouse — one line per SKU using the Qty below (order
+        total ${money(je.columns.sales)}). Fishbowl orders sync here 3× a day.
+      </div>
+    );
+  }
+  const ok = check.state === "ok";
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 text-xs space-y-1 ${ok ? "border-green-200 bg-green-50 text-green-800" : "border-red-200 bg-red-50 text-red-800"}`}
+    >
+      <div>
+        <span className="font-semibold">
+          Fishbowl SO {check.num} ({check.status}, PO {je.fishbowl?.customerPO})
+        </span>
+        {check.totalDiff === 0
+          ? ` · order total matches Sales ($${money(je.columns.sales)})`
+          : ` · order total $${money(je.fishbowl?.total ?? 0)} vs Sales $${money(je.columns.sales)} (off by ${money(check.totalDiff)})`}
+        {check.diffs === null
+          ? " · units not checked — upload this settlement's file again to compare quantities"
+          : check.diffs.length === 0
+            ? " · every SKU's quantity matches"
+            : ""}
+      </div>
+      {check.diffs && check.diffs.length > 0 && (
+        <div>
+          Quantities that don&apos;t match the file (Fishbowl inventory is off for these):{" "}
+          {check.diffs.map((d) => `${d.sku} keyed ${d.fishbowl}, Amazon ${d.amazon}`).join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Customer PO the Fishbowl order uses: "9/24-10/8/2026". */
+function poLabel(je: SavedSettlement): string {
+  const md = (ymd: string) => {
+    const [, m, d] = ymd.split("-");
+    return `${Number(m)}/${Number(d)}`;
+  };
+  return je.startDate && je.endDate ? `${md(je.startDate)}-${md(je.endDate)}/${je.endDate.slice(0, 4)}` : je.settlementId;
 }
 
 /** Amazon Data by SKU: one row per product, plus the lines with no SKU, tying back to the entry. */
@@ -423,15 +535,31 @@ function SkuTable({ je }: { je: SavedSettlement }) {
   const unassignedParts = JE_COLUMNS.filter((c) => unassigned.columns[c] !== 0).map(
     (c) => `${JE_COLUMN_LABELS[c]} ${money(unassigned.columns[c])}`,
   );
-  const head = ["SKU", "Description", ...cols.map((c) => JE_COLUMN_LABELS[c]), "Total"];
+  const head = ["SKU", "Description", "Qty", ...cols.map((c) => JE_COLUMN_LABELS[c]), "Total"];
+  const hasUnits = rows[0]?.units != null;
+  const units = rows.reduce((s, r) => s + (r.units ?? 0), 0);
+  // Units keyed in Fishbowl, where they differ from the file.
+  const check = fishbowlCheck(je);
+  const fbDiff = new Map(check.state !== "missing" ? (check.diffs ?? []).map((d) => [d.sku, d.fishbowl]) : []);
+  const qty = (r: { units: number | null }) => (r.units == null ? "" : String(r.units));
+  // Fishbowl's line price: Sales ÷ units.
+  const unitPrice = (r: { units: number | null; columns: Record<JeColumn, number> }) =>
+    r.units ? (r.columns.sales / r.units).toFixed(2) : "";
 
   const download = () =>
     downloadFile(`amazon-by-sku-${je.startDate || je.settlementId}.csv`, [
-      head,
-      ...rows.map((r) => [r.sku, je.skuNames?.[r.sku] ?? "", ...cols.map((c) => r.columns[c].toFixed(2)), r.total.toFixed(2)]),
-      ["Total by SKU", "", ...cols.map((c) => sum(c).toFixed(2)), skuTotal.toFixed(2)],
-      ["No SKU", unassignedParts.join("; "), ...cols.map(() => ""), unassigned.total.toFixed(2)],
-      ["Journal entry total", je.label, ...cols.map(() => ""), je.total.toFixed(2)],
+      [...head.slice(0, 3), "Unit Price", ...head.slice(3)],
+      ...rows.map((r) => [
+        r.sku,
+        je.skuNames?.[r.sku] ?? "",
+        qty(r),
+        unitPrice(r),
+        ...cols.map((c) => r.columns[c].toFixed(2)),
+        r.total.toFixed(2),
+      ]),
+      ["Total by SKU", "", hasUnits ? String(units) : "", "", ...cols.map((c) => sum(c).toFixed(2)), skuTotal.toFixed(2)],
+      ["No SKU", unassignedParts.join("; "), "", "", ...cols.map(() => ""), unassigned.total.toFixed(2)],
+      ["Journal entry total", je.label, "", "", ...cols.map(() => ""), je.total.toFixed(2)],
     ]);
 
   return (
@@ -461,6 +589,14 @@ function SkuTable({ je }: { je: SavedSettlement }) {
                 <td className="px-2.5 py-1 text-gray-600">
                   {je.skuNames?.[r.sku] ?? <span className="text-gray-400">Not in the catalog</span>}
                 </td>
+                <td className="px-2.5 py-1 text-right whitespace-nowrap text-gray-900">
+                  {r.units == null ? <span className="text-gray-300">–</span> : r.units}
+                  {fbDiff.has(r.sku) && (
+                    <span className="ml-1.5 rounded bg-red-100 px-1 font-medium text-red-700" title="Units on the Fishbowl sales order">
+                      FB {fbDiff.get(r.sku)}
+                    </span>
+                  )}
+                </td>
                 {cols.map((c) => (
                   <td key={c} className="px-2.5 py-1 text-right whitespace-nowrap text-gray-800">
                     {r.columns[c] === 0 ? <span className="text-gray-300">–</span> : money(r.columns[c])}
@@ -475,6 +611,7 @@ function SkuTable({ je }: { je: SavedSettlement }) {
               <td className="px-2.5 py-1.5" colSpan={2}>
                 Total by SKU
               </td>
+              <td className="px-2.5 py-1.5 text-right whitespace-nowrap">{hasUnits ? units : ""}</td>
               {cols.map((c) => (
                 <td key={c} className="px-2.5 py-1.5 text-right whitespace-nowrap">
                   {money(sum(c))}
@@ -484,14 +621,14 @@ function SkuTable({ je }: { je: SavedSettlement }) {
             </tr>
             {unassigned.total !== 0 && (
               <tr className="text-gray-600">
-                <td className="px-2.5 py-1" colSpan={2 + cols.length}>
+                <td className="px-2.5 py-1" colSpan={3 + cols.length}>
                   No SKU (in the entry only){unassignedParts.length ? ` — ${unassignedParts.join(", ")}` : ""}
                 </td>
                 <td className="px-2.5 py-1 text-right whitespace-nowrap">{money(unassigned.total)}</td>
               </tr>
             )}
             <tr className="font-semibold text-gray-900 bg-yellow-100">
-              <td className="px-2.5 py-1.5" colSpan={2 + cols.length}>
+              <td className="px-2.5 py-1.5" colSpan={3 + cols.length}>
                 Journal entry total
               </td>
               <td className="px-2.5 py-1.5 text-right whitespace-nowrap">{money(je.total)}</td>
