@@ -86,6 +86,8 @@ export type FairePayout = {
   /** "In QBO" tick (store attaches; null = not yet, undefined = column not there). */
   qboEnteredAt?: string | null;
   qboEnteredBy?: string | null;
+  /** The saved journal entry this payout is in (lib/faireJournalStore.ts), if any. */
+  journalEntry?: { id: string; number: string } | null;
 };
 
 const zeroCols = () => Object.fromEntries(FAIRE_JE_COLUMNS.map((c) => [c, 0])) as Record<FaireJeColumn, number>;

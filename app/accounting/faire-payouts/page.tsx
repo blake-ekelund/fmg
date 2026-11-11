@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ChevronLeft, ChevronRight, Download, Loader2, RefreshCw } from "lucide-react";
+import { BookOpen, CheckCircle2, ChevronLeft, ChevronRight, FileSpreadsheet, Loader2, RefreshCw } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import { payoutsCsvRows, type FairePayout } from "@/lib/fairePayouts";
-import { authHeader, downloadFile, money, shortDate } from "@/components/accounting/amazonSettlementParts";
+import type { FairePayout } from "@/lib/fairePayouts";
+import type { FaireJournalEntry } from "@/lib/faireJournal";
+import { downloadFaireJournalXlsx } from "@/lib/faireJournalXlsx";
+import { authHeader, money, shortDate } from "@/components/accounting/amazonSettlementParts";
 
 /* Faire payouts — the orders Faire paid each day — as journal entries. Select
    payouts, download their entries, and tick them "Entered in QBO" once they're
@@ -16,6 +18,8 @@ import { authHeader, downloadFile, money, shortDate } from "@/components/account
 const API = "/api/accounting/faire-payouts";
 const PAGE_SIZE = 25;
 const payoutHref = (date: string) => `/accounting/faire-payouts/${date}`;
+const JE_LIST = "/accounting/faire-payouts/journal-entries";
+const jeHref = (id: string) => `${JE_LIST}/${id}`;
 
 const fees = (p: FairePayout) => p.columns.commission + p.columns.processingFees;
 const shipping = (p: FairePayout) => p.columns.shippingReimbursed + p.columns.shippingSubsidy;
@@ -28,6 +32,7 @@ export default function FairePayoutsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"open" | "all">("open");
@@ -64,6 +69,27 @@ export default function FairePayoutsPage() {
       setErrors([e instanceof Error ? e.message : "Couldn't refresh from Faire."]);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  /** One journal entry for the selected payouts: saves it, downloads its .xlsx, and opens it. */
+  const createJournalEntry = async () => {
+    const dates = [...selected];
+    setCreating(true);
+    setErrors([]);
+    try {
+      const res = await fetch("/api/accounting/faire-journal-entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
+        body: JSON.stringify({ dates }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { entry?: FaireJournalEntry; error?: string };
+      if (!res.ok || !j.entry) throw new Error(j.error ?? "Couldn't create the journal entry.");
+      downloadFaireJournalXlsx(j.entry);
+      router.push(jeHref(j.entry.id));
+    } catch (e) {
+      setErrors([e instanceof Error ? e.message : "Couldn't create the journal entry."]);
+      setCreating(false);
     }
   };
 
@@ -137,6 +163,9 @@ export default function FairePayoutsPage() {
         <span className="text-xs text-gray-500">
           {lastSyncedAt ? `Synced from Faire ${new Date(lastSyncedAt).toLocaleString()}` : "Not synced from Faire yet"}
         </span>
+        <Link href={JE_LIST} className={btn}>
+          <BookOpen size={14} /> Journal entries
+        </Link>
         <button onClick={() => void refresh()} disabled={refreshing || !ready} className={btn} title="Pull the latest paid orders from Faire">
           {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Refresh from Faire
         </button>
@@ -164,10 +193,16 @@ export default function FairePayoutsPage() {
             {money(selectedPayouts.reduce((s, p) => s + Math.round(p.net * 100), 0) / 100)}
           </span>
           <button
-            onClick={() => downloadFile(`faire-journal-entries-${new Date().toISOString().slice(0, 10)}.csv`, payoutsCsvRows(selectedPayouts))}
-            className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-3 py-1 hover:bg-white/20"
+            onClick={() => void createJournalEntry()}
+            disabled={creating || selectedPayouts.some((p) => p.journalEntry)}
+            title={
+              selectedPayouts.some((p) => p.journalEntry)
+                ? "Some selected payouts are already in a journal entry"
+                : "Save one journal entry for these payouts and download it (.xlsx)"
+            }
+            className="inline-flex items-center gap-1.5 rounded-md bg-yellow-300 px-3 py-1 font-medium text-[#0b2a4a] hover:bg-yellow-200 disabled:opacity-50"
           >
-            <Download size={14} /> Download journal entries
+            {creating ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Create journal entry (.xlsx)
           </button>
           <button
             onClick={() => void setInQbo([...selected], true)}
@@ -264,6 +299,11 @@ export default function FairePayoutsPage() {
                   <td className="px-3 py-2 text-right whitespace-nowrap text-gray-700">$ {money(shipping(p))}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">$ {money(p.net)}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs" onClick={(e) => e.stopPropagation()}>
+                    {p.journalEntry && (
+                      <Link href={jeHref(p.journalEntry.id)} className="mr-2 font-mono text-[11px] text-[#0b2a4a] hover:underline">
+                        {p.journalEntry.number}
+                      </Link>
+                    )}
                     {p.qboEnteredAt ? (
                       <button
                         onClick={() => void setInQbo([p.date], false)}

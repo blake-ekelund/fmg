@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import { faireConfigured, listFaireOrdersRaw } from "@/lib/faire";
 import { groupPayouts, payoutOrderFromFaire, type FairePayout, type FairePayoutOrder } from "@/lib/fairePayouts";
+import { jeNumber } from "@/lib/faireJournal";
 
 /**
  * Accounting → Faire Payouts: payouts rebuilt from paid Faire orders (see
@@ -101,6 +102,21 @@ export async function syncFairePayoutOrders(opts?: { full?: boolean }): Promise<
   return { checked: raw.length, saved: rows.length, since: since.toISOString() };
 }
 
+/** Payout day → the entry it's in, for the payouts list. */
+async function payoutJournalLinks(): Promise<Map<string, { id: string; number: string }>> {
+  const { data, error } = await supabaseServer
+    .from("faire_payouts")
+    .select("payout_date, journal_entry_id, faire_journal_entries(seq)")
+    .not("journal_entry_id", "is", null);
+  if (error) return new Map(); // not migrated yet → no links
+  return new Map(
+    ((data ?? []) as Row[]).map((r) => {
+      const je = (Array.isArray(r.faire_journal_entries) ? r.faire_journal_entries[0] : r.faire_journal_entries) as Row | null;
+      return [String(r.payout_date), { id: String(r.journal_entry_id), number: jeNumber(Number(je?.seq ?? 0)) }];
+    }),
+  );
+}
+
 /** QBO ticks by payout day, with who ticked them. */
 async function loadTicks(): Promise<Map<string, { at: string | null; by: string | null }>> {
   const { data, error } = await supabaseServer.from("faire_payouts").select("payout_date, qbo_entered_at, qbo_entered_by");
@@ -149,10 +165,10 @@ export async function listFairePayouts(): Promise<{
     }
     if ((data ?? []).length < 1000) break;
   }
-  const ticks = await loadTicks();
+  const [ticks, links] = await Promise.all([loadTicks(), payoutJournalLinks()]);
   const payouts = groupPayouts(orders).map((p) => {
     const t = ticks.get(p.date);
-    return { ...p, qboEnteredAt: t?.at ?? null, qboEnteredBy: t?.by ?? null };
+    return { ...p, qboEnteredAt: t?.at ?? null, qboEnteredBy: t?.by ?? null, journalEntry: links.get(p.date) ?? null };
   });
   return { ready: true, payouts, lastSyncedAt };
 }
@@ -169,8 +185,9 @@ export async function getFairePayout(date: string): Promise<FairePayout | null> 
   }
   const [p] = groupPayouts(((data ?? []) as Row[]).map((r) => r.payout as FairePayoutOrder));
   if (!p) return null;
-  const t = (await loadTicks()).get(date);
-  return { ...p, qboEnteredAt: t?.at ?? null, qboEnteredBy: t?.by ?? null };
+  const [ticks, links] = await Promise.all([loadTicks(), payoutJournalLinks()]);
+  const t = ticks.get(date);
+  return { ...p, qboEnteredAt: t?.at ?? null, qboEnteredBy: t?.by ?? null, journalEntry: links.get(date) ?? null };
 }
 
 /** Tick / untick "entered in QBO" for one or more payout days. */
