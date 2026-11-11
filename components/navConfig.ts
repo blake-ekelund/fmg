@@ -364,6 +364,13 @@ export const navSections: readonly NavSection[] = [
         roles: ["owner", "admin"],
       },
       {
+        // Faire payouts (orders Faire paid each day) → journal entries; tick when entered in QBO.
+        label: "Faire Payouts",
+        href: "/accounting/faire-payouts",
+        icon: Receipt,
+        roles: ["owner", "admin"],
+      },
+      {
         // Stripe deposits → the orders each one paid, read live from Stripe.
         label: "Stripe Payouts",
         href: "/accounting/stripe-payouts",

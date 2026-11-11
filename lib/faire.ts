@@ -198,6 +198,27 @@ async function listRecentOrders(): Promise<FaireOrder[]> {
   return out;
 }
 
+/**
+ * Every order UPDATED since `sinceIso`, exactly as Faire sends it (unparsed —
+ * Accounting → Faire Payouts needs `payout_costs` and `shipments[].maker_cost`,
+ * which parseOrder drops). Same cursor walk as listRecentOrders; capped at
+ * `maxHops` × 50 orders. An order's payment updates it, so a window that
+ * starts before a payout day covers every order Faire paid that day.
+ */
+export async function listFaireOrdersRaw(sinceIso: string, maxHops = 60): Promise<Rec[]> {
+  const out: Rec[] = [];
+  let params = `limit=50&updated_at_min=${encodeURIComponent(sinceIso)}`;
+  for (let hop = 0; hop < maxHops; hop++) {
+    const data = await faireGet(`/orders?${params}`);
+    const raw = asArray(data.orders).map(asRecord);
+    out.push(...raw);
+    const cursor = typeof data.cursor === "string" && data.cursor ? data.cursor : null;
+    if (!cursor || raw.length === 0) break;
+    params = `limit=50&cursor=${encodeURIComponent(cursor)}`;
+  }
+  return out;
+}
+
 /* ── Ship-confirmation back-sync ─────────────────────────────────────────── */
 
 /** Our carrier ids → the names Faire displays to retailers. */
