@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       if (!entry) return NextResponse.json({ error: "No entry for that settlement." }, { status: 404 });
       return NextResponse.json({ entry });
     }
-    return NextResponse.json(await listSettlements());
+    return NextResponse.json(await listSettlements({ live: true }));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't load entries." }, { status: 500 });
   }
