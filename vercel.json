@@ -69,6 +69,10 @@
       "schedule": "17 * * * *"
     },
     {
+      "path": "/api/cron/amazon-settlement-tasks",
+      "schedule": "5 13 * * *"
+    },
+    {
       "path": "/api/cron/social-publish",
       "schedule": "*/5 * * * *"
     },

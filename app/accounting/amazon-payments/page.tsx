@@ -5,7 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Copy, Download, Loader2, Upload } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import { JE_COLUMNS, JE_COLUMN_LABELS, type JeColumn, type SavedSettlement } from "@/lib/amazonSettlement";
+import {
+  JE_COLUMNS,
+  JE_COLUMN_LABELS,
+  findMissingPeriods,
+  nextExpectedPeriod,
+  type JeColumn,
+  type SavedSettlement,
+} from "@/lib/amazonSettlement";
 import {
   AMAZON_SETTLEMENTS_API,
   FishbowlBadge,
@@ -110,6 +117,11 @@ function AmazonPayments() {
     });
     return out;
   }, [entries, sort]);
+
+  // Settlement periods with no entry (gaps, and ones whose deposit has landed), and the next one due.
+  const missing = useMemo(() => findMissingPeriods(entries, new Date().toLocaleDateString("en-CA")), [entries]);
+  const next = useMemo(() => nextExpectedPeriod(entries), [entries]);
+  const firstStart = useMemo(() => entries.map((e) => e.startDate).sort()[0] ?? "", [entries]);
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -230,6 +242,36 @@ function AmazonPayments() {
           Saving isn&apos;t switched on yet (the amazon_settlements migration needs a db push). Entries below are only kept until
           you leave the page.
         </div>
+      )}
+
+      {!loading && entries.length > 0 && (
+        missing.length > 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-1.5">
+            <div className="flex items-center gap-1.5 font-semibold">
+              <AlertTriangle size={15} /> {missing.length} settlement{missing.length === 1 ? "" : "s"} missing since{" "}
+              {shortDate(firstStart)}
+            </div>
+            <ul className="space-y-0.5 text-xs">
+              {missing.map((p) => (
+                <li key={p.start}>
+                  <span className="font-medium">{p.label}</span> · deposit {p.kind === "due" ? "landed" : "expected"} ≈{" "}
+                  {shortDate(p.expectedDeposit)}
+                  {p.kind === "gap" ? " · a gap between saved entries" : " · download it from Seller Central and upload it here"}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500">
+            <span className="font-medium text-green-700">No missing settlements</span> since {shortDate(firstStart)}
+            {next && (
+              <>
+                {" "}
+                · next: {next.label}, deposit ≈ {shortDate(next.expectedDeposit)} (Julie gets a task that day)
+              </>
+            )}
+          </p>
+        )
       )}
 
       {errors.length > 0 && (

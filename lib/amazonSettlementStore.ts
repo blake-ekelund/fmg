@@ -4,7 +4,9 @@ import {
   JE_COLUMNS,
   JE_DB_COLUMNS,
   compareWithFishbowl,
+  findMissingPeriods,
   parseAmazonPoPeriod,
+  settlementTaskName,
   parseSettlementReport,
   type FishbowlAmazonOrder,
   type JeColumn,
@@ -278,7 +280,11 @@ export async function importSettlement(
     .select("*")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Couldn't save the settlement.");
-  const [[entry], hasFile] = await Promise.all([attachNames([data as Row]), storeFile(je.settlementId, text)]);
+  const [[entry], hasFile] = await Promise.all([
+    attachNames([data as Row]),
+    storeFile(je.settlementId, text),
+    completeSettlementTask(je.label),
+  ]);
   return { saved: true, replaced: !!existing, entry: { ...entry, hasFile } };
 }
 
@@ -408,4 +414,57 @@ export async function investigateSettlement(settlementId: string): Promise<Recor
     neighbouring_amazon_orders: neighbours,
     page: `/accounting/amazon-payments/${encodeURIComponent(je.settlementId)}`,
   };
+}
+
+/* ---------------- Deposit-day tasks ---------------- */
+
+/** Who books Amazon settlements — gets a Task List item when each deposit lands. */
+const SETTLEMENT_TASK_OWNER = "Julie";
+
+/**
+ * Daily (cron /api/cron/amazon-settlement-tasks): for every settlement period
+ * whose deposit date has arrived with no saved entry, make sure there's one
+ * task for Julie, due on the deposit date. Tasks are matched by name, so a
+ * period never gets a second task — even after it's done or deleted by hand
+ * it's only re-added if no task with that name exists.
+ */
+export async function ensureSettlementTasks(today: string): Promise<{ due: string[]; created: string[] }> {
+  const { data, error } = await supabaseServer.from("amazon_settlements").select("start_date, end_date");
+  if (error) throw new Error(error.message);
+  const entries = ((data ?? []) as Row[]).map((r) => ({ startDate: String(r.start_date ?? ""), endDate: String(r.end_date ?? "") }));
+  const due = findMissingPeriods(entries, today).filter((p) => p.kind === "due");
+  const created: string[] = [];
+  for (const p of due) {
+    const name = settlementTaskName(p);
+    const { data: existing } = await supabaseServer.from("tasks").select("id").eq("name", name).limit(1);
+    if (existing?.length) continue;
+    const { error: insErr } = await supabaseServer.from("tasks").insert({
+      name,
+      description: [
+        `Amazon's deposit for ${p.label} should have landed around ${p.expectedDeposit}.`,
+        "1. Seller Central → Payments → Reports Repository → download the settlement Flat File V2 (.txt).",
+        "2. Upload it on Accounting → Amazon Payments (app.fragrancemarketinggroup.com/accounting/amazon-payments).",
+        "3. Key it in Fishbowl as a sales order for AMAZON - CUSTOMER (Customer PO = the period), using the entry's Amazon Data by SKU quantities.",
+        "This task ticks itself off when the settlement is uploaded.",
+      ].join("\n"),
+      owner: SETTLEMENT_TASK_OWNER,
+      priority: "Medium",
+      status: "todo",
+      due_date: p.expectedDeposit,
+      completed: false,
+      notes: null,
+    });
+    if (insErr) throw new Error(insErr.message);
+    created.push(name);
+  }
+  return { due: due.map((p) => p.label), created };
+}
+
+/** Uploading a settlement completes its deposit-day task, if there is one. */
+async function completeSettlementTask(label: string): Promise<void> {
+  await supabaseServer
+    .from("tasks")
+    .update({ status: "done", completed: true })
+    .eq("name", settlementTaskName({ label }))
+    .eq("completed", false);
 }

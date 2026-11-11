@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   compareWithFishbowl,
+  findMissingPeriods,
   groupsByType,
+  nextExpectedPeriod,
+  settlementTaskName,
   parseAmazonPoPeriod,
   parseSettlementReport,
   SettlementParseError,
@@ -187,6 +190,34 @@ describe("compareWithFishbowl", () => {
       fishbowl: order({ "110-00-05": 11, "125-00-10": 2 }, { "110-00-05": 264, "125-00-10": 24 }),
     });
     expect(c.state).toBe("ok");
+  });
+});
+
+describe("findMissingPeriods", () => {
+  const e = (startDate: string, endDate: string) => ({ startDate, endDate });
+  const saved = [e("2026-07-16", "2026-07-30"), e("2026-07-30", "2026-08-13"), e("2026-08-27", "2026-09-10")];
+
+  it("finds a gap between saved entries", () => {
+    const gaps = findMissingPeriods(saved, "2026-09-11");
+    expect(gaps).toEqual([
+      expect.objectContaining({ start: "2026-08-13", end: "2026-08-27", kind: "gap", expectedDeposit: "2026-08-29" }),
+    ]);
+    expect(gaps[0].label).toBe("08/13/2026 to 08/27/2026");
+  });
+
+  it("flags periods after the latest entry once their deposit date arrives", () => {
+    expect(findMissingPeriods(saved, "2026-09-25").filter((p) => p.kind === "due")).toEqual([]);
+    expect(findMissingPeriods(saved, "2026-09-26").filter((p) => p.kind === "due")).toEqual([
+      expect.objectContaining({ start: "2026-09-10", end: "2026-09-24", expectedDeposit: "2026-09-26" }),
+    ]);
+    expect(findMissingPeriods(saved, "2026-10-15").filter((p) => p.kind === "due")).toHaveLength(2);
+  });
+
+  it("names the next settlement", () => {
+    expect(nextExpectedPeriod(saved)).toMatchObject({ start: "2026-09-10", end: "2026-09-24", expectedDeposit: "2026-09-26" });
+    expect(settlementTaskName({ label: "09/10/2026 to 09/24/2026" })).toBe(
+      "Amazon settlement 09/10/2026 to 09/24/2026: upload + key in Fishbowl",
+    );
   });
 });
 

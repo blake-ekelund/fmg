@@ -453,3 +453,72 @@ export function summarizeBySku(groups: SettlementLineGroup[]): {
     unassigned: toSummary("", cents.get("")),
   };
 }
+
+/* ---------------- Missing settlement periods ---------------- */
+
+/** Amazon settles every 14 days; each period starts the day the last one ended. */
+export const SETTLEMENT_DAYS = 14;
+/** The deposit lands about 2 days after a period ends. */
+export const DEPOSIT_LAG_DAYS = 2;
+
+const addDays = (ymd: string, n: number) => {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+export type MissingPeriod = {
+  start: string;
+  end: string;
+  /** When Amazon's deposit for it should have landed / will land. */
+  expectedDeposit: string;
+  /** "gap" = between two saved entries; "due" = after the latest one, deposit date reached. */
+  kind: "gap" | "due";
+  /** "09/24/2026 to 10/08/2026", like an entry's label. */
+  label: string;
+};
+
+/** Task-list title for a period — also how the cron avoids adding it twice. */
+export const settlementTaskName = (p: Pick<MissingPeriod, "label">) => `Amazon settlement ${p.label}: upload + key in Fishbowl`;
+
+const periodLabel = (start: string, end: string) => {
+  const f = (ymd: string) => `${ymd.slice(5, 7)}/${ymd.slice(8, 10)}/${ymd.slice(0, 4)}`;
+  return `${f(start)} to ${f(end)}`;
+};
+
+/**
+ * Settlement periods with no saved entry, from the first saved entry up to
+ * today: gaps between saved entries (split into 14-day periods), and every
+ * period after the latest entry whose deposit date has arrived.
+ */
+export function findMissingPeriods(entries: { startDate: string; endDate: string }[], today: string): MissingPeriod[] {
+  const sorted = entries.filter((e) => e.startDate && e.endDate).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const out: MissingPeriod[] = [];
+  const push = (start: string, end: string, kind: MissingPeriod["kind"]) =>
+    out.push({ start, end, expectedDeposit: addDays(end, DEPOSIT_LAG_DAYS), kind, label: periodLabel(start, end) });
+
+  for (let i = 1; i < sorted.length; i++) {
+    let start = sorted[i - 1].endDate;
+    const until = sorted[i].startDate;
+    while (start < until) {
+      const end = addDays(start, SETTLEMENT_DAYS) < until ? addDays(start, SETTLEMENT_DAYS) : until;
+      push(start, end, "gap");
+      start = end;
+    }
+  }
+  const latest = sorted[sorted.length - 1];
+  if (latest) {
+    for (let start = latest.endDate; addDays(start, SETTLEMENT_DAYS + DEPOSIT_LAG_DAYS) <= today; start = addDays(start, SETTLEMENT_DAYS)) {
+      push(start, addDays(start, SETTLEMENT_DAYS), "due");
+    }
+  }
+  return out;
+}
+
+/** The next settlement after the latest saved one (for "next deposit ≈ …"). */
+export function nextExpectedPeriod(entries: { startDate: string; endDate: string }[]): MissingPeriod | null {
+  const latest = [...entries].sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+  if (!latest?.endDate) return null;
+  const end = addDays(latest.endDate, SETTLEMENT_DAYS);
+  return { start: latest.endDate, end, expectedDeposit: addDays(end, DEPOSIT_LAG_DAYS), kind: "due", label: periodLabel(latest.endDate, end) };
+}
