@@ -76,6 +76,7 @@ function AmazonPayments() {
   // "Not entered" → Push: which row is pushing, and estimates created this visit (before the Fishbowl sync catches up).
   const [pushing, setPushing] = useState<string | null>(null);
   const [pushed, setPushed] = useState<Record<string, { soNum: string; created: boolean }>>({});
+  const [pushFailed, setPushFailed] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -176,11 +177,20 @@ function AmazonPayments() {
   const pushEstimate = async (je: SavedSettlement) => {
     setPushing(je.settlementId);
     setErrors([]);
+    setPushFailed((f) => Object.fromEntries(Object.entries(f).filter(([id]) => id !== je.settlementId)));
     try {
       const out = await createFishbowlEstimate(je);
       if (out) setPushed((p) => ({ ...p, [je.settlementId]: out }));
     } catch (e) {
-      setErrors([`${je.label}: ${e instanceof Error ? e.message : "Couldn't create the estimate."}`]);
+      // A cut-off request (timeout) arrives as a non-JSON error — say so plainly.
+      const message =
+        e instanceof SyntaxError
+          ? "No answer from the server — the estimate may still have been created. Retry: it finds an existing one instead of making a second."
+          : e instanceof Error
+            ? e.message
+            : "Couldn't create the estimate.";
+      setPushFailed((f) => ({ ...f, [je.settlementId]: message }));
+      setErrors([`${je.label}: ${message}`]);
     } finally {
       setPushing(null);
     }
@@ -395,6 +405,7 @@ function AmazonPayments() {
                       onPush={() => void pushEstimate(je)}
                       pushing={pushing === je.settlementId}
                       pushed={pushed[je.settlementId] ?? null}
+                      failed={pushFailed[je.settlementId] ?? null}
                       canPush={!!je.hasFile}
                     />
                   </td>

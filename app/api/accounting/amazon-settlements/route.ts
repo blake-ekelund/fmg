@@ -16,6 +16,10 @@ import {
 } from "@/lib/amazonSettlementStore";
 
 export const runtime = "nodejs";
+// Creating a Fishbowl estimate is two Fishbowl sessions plus a ~60-line import
+// and its verify — well past the default limit (the first real push finished in
+// Fishbowl but the page never heard back). Same budget as the storefront route ×2.
+export const maxDuration = 120;
 
 /**
  * Accounting → Amazon Payments: saved settlement journal entries.

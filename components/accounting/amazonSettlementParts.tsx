@@ -164,14 +164,38 @@ export function FishbowlBadge({
   onPush,
   pushing,
   pushed,
+  failed,
   canPush = true,
 }: {
   check: FishbowlCheck;
   onPush?: () => void;
   pushing?: boolean;
   pushed?: { soNum: string; created: boolean } | null;
+  /** The last push's error, shown on the row so a failure can't go unnoticed. */
+  failed?: string | null;
   canPush?: boolean;
 }) {
+  if (check.state === "missing" && failed && !pushing && onPush) {
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onPush();
+        }}
+        title={`${failed}\n\nClick to try again — if it was created, the retry finds it instead of making a second one.`}
+        className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 font-medium text-red-700 ring-1 ring-red-200 hover:bg-red-100"
+      >
+        <AlertTriangle size={11} /> Push failed · Retry
+      </button>
+    );
+  }
+  if (check.state === "missing" && pushing) {
+    return (
+      <span className="inline-flex items-center gap-1 font-medium text-amber-800">
+        <Loader2 size={11} className="animate-spin" /> Creating estimate… (up to a minute)
+      </span>
+    );
+  }
   if (check.state === "missing" && pushed) {
     return (
       <span className="inline-flex items-center gap-1 font-medium text-green-700" title="Estimate created — it shows as matched after the next Fishbowl sync">
