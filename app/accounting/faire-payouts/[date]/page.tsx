@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Download, Loader2 } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import { FAIRE_JE_COLUMNS, FAIRE_JE_LABELS, payoutBySku, payoutsCsvRows, type FairePayout } from "@/lib/fairePayouts";
+import { FAIRE_JE_COLUMNS, FAIRE_JE_LABELS, payoutBySku, payoutsCsvRows, type FaireJeColumn, type FairePayout } from "@/lib/fairePayouts";
 import { authHeader, downloadFile, money, shortDate } from "@/components/accounting/amazonSettlementParts";
 
 /* One Faire payout (the orders Faire paid on one day): its journal entry, the
@@ -57,6 +57,13 @@ export default function FairePayoutPage() {
 
   const skus = useMemo(() => (p ? payoutBySku(p) : []), [p]);
   const damaged = p ? p.orders.reduce((s, o) => s + o.damagedReported, 0) : 0;
+
+  // Journal entry read as a payout: what Faire pays in (sales + the shipping it
+  // reimburses), less the costs it nets out, equals the deposit.
+  const incomeRows: FaireJeColumn[] = ["grossSales", "shippingReimbursed"];
+  const costRows: FaireJeColumn[] = ["brandDiscounts", "commission", "processingFees", "shippingSubsidy", "other"];
+  const incomeTotal = p ? incomeRows.reduce((s, c) => s + p.columns[c], 0) : 0;
+  const costTotal = p ? costRows.reduce((s, c) => s + p.columns[c], 0) : 0;
 
   const downloadOrders = () => {
     if (!p) return;
@@ -143,25 +150,37 @@ export default function FairePayoutPage() {
 
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-gray-900">Journal entry</h3>
-            <div className="overflow-x-auto rounded-lg border border-gray-300 bg-white">
-              <table className="w-full text-xs tabular-nums">
-                <thead>
-                  <tr className="bg-[#0b2a4a] text-white">
-                    {[...FAIRE_JE_COLUMNS.map((c) => FAIRE_JE_LABELS[c]), "Net Payout"].map((h) => (
-                      <th key={h} className={`${th} text-right`}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
+            <div className="overflow-hidden rounded-lg border border-gray-300 bg-white max-w-md">
+              <table className="w-full text-sm tabular-nums">
                 <tbody>
-                  <tr className="bg-yellow-100 font-medium text-gray-900">
-                    {FAIRE_JE_COLUMNS.map((c) => (
-                      <td key={c} className="px-2.5 py-1.5 text-right whitespace-nowrap">
-                        {money(p.columns[c])}
-                      </td>
-                    ))}
-                    <td className="px-2.5 py-1.5 text-right whitespace-nowrap font-semibold">{money(p.net)}</td>
+                  {incomeRows.map((c) => (
+                    <tr key={c} className="border-b border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-700">{FAIRE_JE_LABELS[c]}</td>
+                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-gray-900">{money(p.columns[c])}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-b border-gray-200 bg-gray-50 font-medium text-gray-900">
+                    <td className="px-3 py-1.5">Total received</td>
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap">{money(incomeTotal)}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2} className="px-3 pt-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      Faire costs
+                    </td>
+                  </tr>
+                  {costRows.map((c) => (
+                    <tr key={c} className="border-b border-gray-100">
+                      <td className="px-3 py-1.5 text-gray-700">{FAIRE_JE_LABELS[c]}</td>
+                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-gray-900">{money(p.columns[c])}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-b border-gray-200 bg-gray-50 font-medium text-gray-900">
+                    <td className="px-3 py-1.5">Total costs</td>
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap">{money(costTotal)}</td>
+                  </tr>
+                  <tr className="bg-yellow-100 font-semibold text-gray-900">
+                    <td className="px-3 py-2">Net payout</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">{money(p.net)}</td>
                   </tr>
                 </tbody>
               </table>
