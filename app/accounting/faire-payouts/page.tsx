@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BookOpen, CheckCircle2, ChevronLeft, ChevronRight, FileSpreadsheet, Loader2, RefreshCw } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import type { FairePayout } from "@/lib/fairePayouts";
+import { faireReceived, type FairePayout } from "@/lib/fairePayouts";
 import type { FaireJournalEntry } from "@/lib/faireJournal";
 import { downloadFaireJournalXlsx } from "@/lib/faireJournalXlsx";
 import { authHeader, money, shortDate } from "@/components/accounting/amazonSettlementParts";
@@ -21,8 +21,8 @@ const payoutHref = (date: string) => `/accounting/faire-payouts/${date}`;
 const JE_LIST = "/accounting/faire-payouts/journal-entries";
 const jeHref = (id: string) => `${JE_LIST}/${id}`;
 
-const fees = (p: FairePayout) => p.columns.commission + p.columns.processingFees;
-const shipping = (p: FairePayout) => p.columns.shippingReimbursed + p.columns.shippingSubsidy;
+/** Everything Faire nets out of a payout (= net − what it paid in). */
+const faireCosts = (p: FairePayout) => p.net - faireReceived(p.columns);
 
 export default function FairePayoutsPage() {
   const router = useRouter();
@@ -244,8 +244,8 @@ export default function FairePayoutsPage() {
                   }
                 />
               </th>
-              {["Payout", "Orders", "Units", "Sales", "Faire Fees", "Shipping", "Net Payout", "QuickBooks"].map((h, i) => (
-                <th key={h} className={`px-3 py-2 font-semibold whitespace-nowrap ${i >= 1 && i <= 6 ? "text-right" : "text-left"}`}>
+              {["Payout", "Orders", "Units", "Sales", "Shipping Reimb.", "Received", "Faire Costs", "Net Payout", "QuickBooks"].map((h, i) => (
+                <th key={h} className={`px-3 py-2 font-semibold whitespace-nowrap ${i >= 1 && i <= 7 ? "text-right" : "text-left"}`}>
                   {h}
                 </th>
               ))}
@@ -254,13 +254,13 @@ export default function FairePayoutsPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-gray-400">
+                <td colSpan={10} className="px-3 py-10 text-center text-gray-400">
                   <Loader2 size={16} className="inline animate-spin" />
                 </td>
               </tr>
             ) : visible.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-sm text-gray-500">
+                <td colSpan={10} className="px-3 py-10 text-center text-sm text-gray-500">
                   {!ready
                     ? "Waiting for the database update."
                     : payouts.length === 0
@@ -294,9 +294,10 @@ export default function FairePayoutsPage() {
                   </td>
                   <td className="px-3 py-2 text-right">{p.orders.length}</td>
                   <td className="px-3 py-2 text-right">{p.units.toLocaleString()}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">$ {money(p.columns.grossSales + p.columns.brandDiscounts)}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap text-gray-700">$ {money(fees(p))}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap text-gray-700">$ {money(shipping(p))}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">$ {money(p.columns.grossSales)}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap text-gray-700">$ {money(p.columns.shippingReimbursed)}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap font-medium">$ {money(faireReceived(p.columns))}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap text-gray-700">$ {money(faireCosts(p))}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap font-semibold">$ {money(p.net)}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs" onClick={(e) => e.stopPropagation()}>
                     {p.journalEntry && (

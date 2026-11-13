@@ -6,7 +6,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowLeft, CheckCircle2, FileSpreadsheet, Loader2, Trash2 } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
 import { jeTotals, type FaireJournalEntry } from "@/lib/faireJournal";
-import { FAIRE_JE_COLUMNS, FAIRE_JE_LABELS } from "@/lib/fairePayouts";
+import { FAIRE_FLOW_COLUMNS, faireFlowValue } from "@/lib/fairePayouts";
 import { downloadFaireJournalXlsx } from "@/lib/faireJournalXlsx";
 import { authHeader, money, shortDate } from "@/components/accounting/amazonSettlementParts";
 
@@ -193,9 +193,9 @@ export default function FaireJournalEntryPage() {
                     <th className={`${th} text-left`}>Payout</th>
                     <th className={`${th} text-left`}>Order</th>
                     <th className={`${th} text-left`}>Retailer</th>
-                    {FAIRE_JE_COLUMNS.map((c) => (
-                      <th key={c} className={`${th} text-right`}>
-                        {FAIRE_JE_LABELS[c]}
+                    {FAIRE_FLOW_COLUMNS.map((c) => (
+                      <th key={c.key} className={`${th} text-right ${c.key === "received" ? "border-l border-white/20" : ""}`}>
+                        {c.label}
                       </th>
                     ))}
                     <th className={`${th} text-right`}>Net</th>
@@ -216,11 +216,18 @@ export default function FaireJournalEntryPage() {
                         </td>
                         <td className="px-2.5 py-1 font-mono whitespace-nowrap">{o.displayId}</td>
                         <td className="px-2.5 py-1 text-gray-700">{o.retailer}</td>
-                        {FAIRE_JE_COLUMNS.map((c) => (
-                          <td key={c} className="px-2.5 py-1 text-right whitespace-nowrap">
-                            {o.columns[c] === 0 ? <span className="text-gray-300">–</span> : money(o.columns[c])}
-                          </td>
-                        ))}
+                        {FAIRE_FLOW_COLUMNS.map((c) => {
+                          const v = faireFlowValue(o.columns, c.key);
+                          const sub = c.key === "received";
+                          return (
+                            <td
+                              key={c.key}
+                              className={`px-2.5 py-1 text-right whitespace-nowrap ${sub ? "border-l border-gray-200 bg-gray-50/60 font-medium text-gray-900" : ""}`}
+                            >
+                              {v === 0 && !sub ? <span className="text-gray-300">–</span> : money(v)}
+                            </td>
+                          );
+                        })}
                         <td className="px-2.5 py-1 text-right whitespace-nowrap font-semibold">{money(o.net)}</td>
                       </tr>
                     )),
@@ -231,9 +238,9 @@ export default function FaireJournalEntryPage() {
                     <td className="px-2.5 py-1.5" colSpan={3}>
                       Total
                     </td>
-                    {FAIRE_JE_COLUMNS.map((c) => (
-                      <td key={c} className="px-2.5 py-1.5 text-right whitespace-nowrap">
-                        {money(je.columns[c])}
+                    {FAIRE_FLOW_COLUMNS.map((c) => (
+                      <td key={c.key} className={`px-2.5 py-1.5 text-right whitespace-nowrap ${c.key === "received" ? "border-l border-gray-300" : ""}`}>
+                        {money(faireFlowValue(je.columns, c.key))}
                       </td>
                     ))}
                     <td className="px-2.5 py-1.5 text-right whitespace-nowrap">{money(je.net)}</td>

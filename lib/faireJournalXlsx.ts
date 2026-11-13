@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import { jeTotals, type FaireJournalEntry } from "./faireJournal";
-import { FAIRE_JE_COLUMNS, FAIRE_JE_LABELS } from "./fairePayouts";
+import { FAIRE_FLOW_COLUMNS, faireFlowValue } from "./fairePayouts";
 
 /**
  * A Faire journal entry as an .xlsx:
@@ -40,14 +40,14 @@ export function faireJournalWorkbook(je: FaireJournalEntry): XLSX.WorkBook {
   setMoney(sheet1, firstLine, firstLine + lines.length, [3, 4]);
   sheet1["!cols"] = [{ wch: 11 }, { wch: 44 }, { wch: 30 }, { wch: 14 }, { wch: 14 }];
 
-  const detailHead = ["Payout date", "Order", "Retailer", "Paid at", ...FAIRE_JE_COLUMNS.map((c) => FAIRE_JE_LABELS[c]), "Net payout"];
+  const detailHead = ["Payout date", "Order", "Retailer", "Paid at", ...FAIRE_FLOW_COLUMNS.map((c) => c.label), "Net payout"];
   const orders = je.payouts.flatMap((p) =>
-    p.orders.map((o) => [p.date, o.displayId, o.retailer, o.paidAt, ...FAIRE_JE_COLUMNS.map((c) => o.columns[c]), o.net]),
+    p.orders.map((o) => [p.date, o.displayId, o.retailer, o.paidAt, ...FAIRE_FLOW_COLUMNS.map((c) => faireFlowValue(o.columns, c.key)), o.net]),
   );
   const sheet2 = XLSX.utils.aoa_to_sheet([
     detailHead,
     ...orders,
-    ["Total", "", "", "", ...FAIRE_JE_COLUMNS.map((c) => je.columns[c]), je.net],
+    ["Total", "", "", "", ...FAIRE_FLOW_COLUMNS.map((c) => faireFlowValue(je.columns, c.key)), je.net],
   ]);
   const moneyCols = detailHead.map((_, i) => i).filter((i) => i >= 4);
   setMoney(sheet2, 1, orders.length + 1, moneyCols);

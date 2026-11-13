@@ -5,7 +5,15 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Download, Loader2 } from "lucide-react";
 import PageMeta from "@/components/PageMeta";
-import { FAIRE_JE_COLUMNS, FAIRE_JE_LABELS, payoutBySku, payoutsCsvRows, type FaireJeColumn, type FairePayout } from "@/lib/fairePayouts";
+import {
+  FAIRE_FLOW_COLUMNS,
+  FAIRE_JE_LABELS,
+  faireFlowValue,
+  payoutBySku,
+  payoutsCsvRows,
+  type FaireJeColumn,
+  type FairePayout,
+} from "@/lib/fairePayouts";
 import { authHeader, downloadFile, money, shortDate } from "@/components/accounting/amazonSettlementParts";
 
 /* One Faire payout (the orders Faire paid on one day): its journal entry, the
@@ -68,15 +76,15 @@ export default function FairePayoutPage() {
   const downloadOrders = () => {
     if (!p) return;
     downloadFile(`faire-payout-${p.date}-orders.csv`, [
-      ["Order", "Retailer", "Paid", ...FAIRE_JE_COLUMNS.map((c) => FAIRE_JE_LABELS[c]), "Net"],
+      ["Order", "Retailer", "Paid", ...FAIRE_FLOW_COLUMNS.map((c) => c.label), "Net"],
       ...p.orders.map((o) => [
         o.displayId,
         o.retailer,
         o.paidAt,
-        ...FAIRE_JE_COLUMNS.map((c) => o.columns[c].toFixed(2)),
+        ...FAIRE_FLOW_COLUMNS.map((c) => faireFlowValue(o.columns, c.key).toFixed(2)),
         o.net.toFixed(2),
       ]),
-      ["Total", "", "", ...FAIRE_JE_COLUMNS.map((c) => p.columns[c].toFixed(2)), p.net.toFixed(2)],
+      ["Total", "", "", ...FAIRE_FLOW_COLUMNS.map((c) => faireFlowValue(p.columns, c.key).toFixed(2)), p.net.toFixed(2)],
     ]);
   };
 
@@ -206,9 +214,9 @@ export default function FairePayoutPage() {
                   <tr className="bg-[#0b2a4a] text-white">
                     <th className={`${th} text-left`}>Order</th>
                     <th className={`${th} text-left`}>Retailer</th>
-                    {FAIRE_JE_COLUMNS.map((c) => (
-                      <th key={c} className={`${th} text-right`}>
-                        {FAIRE_JE_LABELS[c]}
+                    {FAIRE_FLOW_COLUMNS.map((c) => (
+                      <th key={c.key} className={`${th} text-right ${c.key === "received" ? "border-l border-white/20" : ""}`}>
+                        {c.label}
                       </th>
                     ))}
                     <th className={`${th} text-right`}>Net</th>
@@ -219,11 +227,18 @@ export default function FairePayoutPage() {
                     <tr key={o.displayId} className={`border-t border-gray-100 ${i % 2 ? "bg-gray-50/60" : ""}`}>
                       <td className="px-2.5 py-1 font-mono whitespace-nowrap">{o.displayId}</td>
                       <td className="px-2.5 py-1 text-gray-700">{o.retailer}</td>
-                      {FAIRE_JE_COLUMNS.map((c) => (
-                        <td key={c} className="px-2.5 py-1 text-right whitespace-nowrap text-gray-800">
-                          {o.columns[c] === 0 ? <span className="text-gray-300">–</span> : money(o.columns[c])}
-                        </td>
-                      ))}
+                      {FAIRE_FLOW_COLUMNS.map((c) => {
+                        const v = faireFlowValue(o.columns, c.key);
+                        const sub = c.key === "received";
+                        return (
+                          <td
+                            key={c.key}
+                            className={`px-2.5 py-1 text-right whitespace-nowrap ${sub ? "border-l border-gray-200 bg-gray-50/60 font-medium text-gray-900" : "text-gray-800"}`}
+                          >
+                            {v === 0 && !sub ? <span className="text-gray-300">–</span> : money(v)}
+                          </td>
+                        );
+                      })}
                       <td className="px-2.5 py-1 text-right whitespace-nowrap font-semibold">{money(o.net)}</td>
                     </tr>
                   ))}
@@ -233,9 +248,9 @@ export default function FairePayoutPage() {
                     <td className="px-2.5 py-1.5" colSpan={2}>
                       Payout total
                     </td>
-                    {FAIRE_JE_COLUMNS.map((c) => (
-                      <td key={c} className="px-2.5 py-1.5 text-right whitespace-nowrap">
-                        {money(p.columns[c])}
+                    {FAIRE_FLOW_COLUMNS.map((c) => (
+                      <td key={c.key} className={`px-2.5 py-1.5 text-right whitespace-nowrap ${c.key === "received" ? "border-l border-gray-300" : ""}`}>
+                        {money(faireFlowValue(p.columns, c.key))}
                       </td>
                     ))}
                     <td className="px-2.5 py-1.5 text-right whitespace-nowrap">{money(p.net)}</td>

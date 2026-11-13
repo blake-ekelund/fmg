@@ -43,6 +43,30 @@ export const FAIRE_JE_LABELS: Record<FaireJeColumn, string> = {
   other: "Other",
 };
 
+/** Money Faire pays in — shown first, before the Total Received subtotal. */
+export const FAIRE_INCOME_COLUMNS = ["grossSales", "shippingReimbursed"] as const satisfies readonly FaireJeColumn[];
+/** What Faire nets back out — shown after the Total Received subtotal. */
+export const FAIRE_COST_COLUMNS = ["brandDiscounts", "commission", "processingFees", "shippingSubsidy", "other"] as const satisfies readonly FaireJeColumn[];
+
+/** Sales + Shipping Reimbursed — what Faire pays in before it nets its costs. */
+export const faireReceived = (columns: Record<FaireJeColumn, number>) =>
+  FAIRE_INCOME_COLUMNS.reduce((s, c) => s + columns[c], 0);
+
+/**
+ * Column order every per-order / per-payout breakdown table and CSV reads in:
+ * the income (Sales, Shipping Reimbursed), a Total Received subtotal, then the
+ * costs Faire nets out. Net payout is shown after this, on its own.
+ */
+export const FAIRE_FLOW_COLUMNS: { key: FaireJeColumn | "received"; label: string }[] = [
+  ...FAIRE_INCOME_COLUMNS.map((c) => ({ key: c, label: FAIRE_JE_LABELS[c] })),
+  { key: "received", label: "Total Received" },
+  ...FAIRE_COST_COLUMNS.map((c) => ({ key: c, label: FAIRE_JE_LABELS[c] })),
+];
+
+/** The value of a flow column: the received subtotal, or a plain payout column. */
+export const faireFlowValue = (columns: Record<FaireJeColumn, number>, key: FaireJeColumn | "received") =>
+  key === "received" ? faireReceived(columns) : columns[key];
+
 /** Payout days are calendar days in Central time (where FMG books). */
 export const PAYOUT_TIME_ZONE = "America/Chicago";
 
@@ -191,14 +215,14 @@ export function payoutBySku(p: Pick<FairePayout, "orders">): { sku: string; prod
     .map((r) => ({ sku: r.sku, product: r.product, quantity: r.quantity, sales: r.cents / 100, tester: r.tester }));
 }
 
-/** Every journal-entry column for a set of payouts — the CSV the entries are keyed from. */
+/** Every payout column for a set of payouts — income, Total Received, costs, net — the CSV the entries are keyed from. */
 export function payoutsCsvRows(payouts: FairePayout[]): string[][] {
   return [
-    ["Payout date", "Orders", ...FAIRE_JE_COLUMNS.map((c) => FAIRE_JE_LABELS[c]), "Net payout", "Retailers"],
+    ["Payout date", "Orders", ...FAIRE_FLOW_COLUMNS.map((c) => c.label), "Net payout", "Retailers"],
     ...payouts.map((p) => [
       p.date,
       String(p.orders.length),
-      ...FAIRE_JE_COLUMNS.map((c) => p.columns[c].toFixed(2)),
+      ...FAIRE_FLOW_COLUMNS.map((c) => faireFlowValue(p.columns, c.key).toFixed(2)),
       p.net.toFixed(2),
       [...new Set(p.orders.map((o) => o.retailer))].join("; "),
     ]),
