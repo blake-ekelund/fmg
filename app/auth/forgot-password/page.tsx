@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Mail } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import Link from "next/link";
@@ -14,6 +14,10 @@ export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.title = "Reset password · FMG Portal";
+  }, []);
 
   async function sendReset() {
     if (!email.trim()) return;
@@ -34,10 +38,9 @@ export default function ForgotPasswordPage() {
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !loading) {
-      sendReset();
-    }
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!loading) sendReset();
   }
 
   return (
@@ -89,7 +92,7 @@ export default function ForgotPasswordPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
                   <label htmlFor="email" className="block text-xs font-medium text-ink-secondary">
                     Email
@@ -98,31 +101,38 @@ export default function ForgotPasswordPage() {
                     <Mail size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle" />
                     <input
                       id="email"
+                      name="email"
                       type="email"
+                      autoComplete="email"
+                      autoFocus
+                      required
+                      aria-describedby={error ? "reset-error" : undefined}
                       className="w-full rounded-lg border border-line bg-surface pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-400 transition"
                       placeholder="you@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      onKeyDown={handleKeyDown}
                     />
                   </div>
                 </div>
 
                 {error && (
-                  <p className="rounded-lg bg-critical-soft px-3 py-2 text-sm text-critical">
+                  <p
+                    id="reset-error"
+                    role="alert"
+                    className="rounded-lg bg-critical-soft px-3 py-2 text-sm text-critical"
+                  >
                     {error}
                   </p>
                 )}
 
                 <button
-                  type="button"
-                  onClick={sendReset}
+                  type="submit"
                   disabled={loading}
                   className="mt-1 w-full rounded-lg bg-brand-700 py-2.5 text-sm font-medium text-white shadow-[0_12px_28px_-12px_rgba(27,60,83,0.7)] hover:bg-brand-800 hover:shadow-[0_16px_34px_-12px_rgba(27,60,83,0.85)] active:scale-[0.98] transition-all disabled:opacity-50"
                 >
                   {loading ? "Sending…" : "Send reset link"}
                 </button>
-              </div>
+              </form>
             )}
 
             <div className="mt-6 text-center">

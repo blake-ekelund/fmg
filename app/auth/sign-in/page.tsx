@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
@@ -18,6 +18,10 @@ export default function SignInPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.title = "Sign in · FMG Portal";
+  }, []);
 
   async function signIn() {
     setLoading(true);
@@ -47,10 +51,9 @@ export default function SignInPage() {
     router.replace(getDefaultRoute(role));
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !loading) {
-      signIn();
-    }
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!loading) signIn();
   }
 
   return (
@@ -87,7 +90,7 @@ export default function SignInPage() {
               </p>
             </div>
 
-            <div className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label htmlFor="email" className="block text-xs font-medium text-ink-secondary">
                   Email
@@ -96,12 +99,16 @@ export default function SignInPage() {
                   <Mail size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle" />
                   <input
                     id="email"
+                    name="email"
                     type="email"
+                    autoComplete="email"
+                    autoFocus
+                    required
+                    aria-describedby={error ? "signin-error" : undefined}
                     className="w-full rounded-lg border border-line bg-surface pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-400 transition"
                     placeholder="you@company.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    onKeyDown={handleKeyDown}
                   />
                 </div>
               </div>
@@ -122,12 +129,15 @@ export default function SignInPage() {
                   <Lock size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle" />
                   <input
                     id="password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    aria-describedby={error ? "signin-error" : undefined}
                     className="w-full rounded-lg border border-line bg-surface pl-9 pr-10 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-400 transition"
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={handleKeyDown}
                   />
                   <button
                     type="button"
@@ -143,20 +153,23 @@ export default function SignInPage() {
               </div>
 
               {error && (
-                <p className="rounded-lg bg-critical-soft px-3 py-2 text-sm text-critical">
+                <p
+                  id="signin-error"
+                  role="alert"
+                  className="rounded-lg bg-critical-soft px-3 py-2 text-sm text-critical"
+                >
                   {error}
                 </p>
               )}
 
               <button
-                type="button"
-                onClick={signIn}
+                type="submit"
                 disabled={loading}
                 className="mt-1 w-full rounded-lg bg-brand-700 py-2.5 text-sm font-medium text-white shadow-[0_12px_28px_-12px_rgba(27,60,83,0.7)] hover:bg-brand-800 hover:shadow-[0_16px_34px_-12px_rgba(27,60,83,0.85)] active:scale-[0.98] transition-all disabled:opacity-50"
               >
                 {loading ? "Signing in…" : "Sign in"}
               </button>
-            </div>
+            </form>
           </div>
 
           {/* External link */}
