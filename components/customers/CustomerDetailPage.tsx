@@ -236,7 +236,7 @@ export default function CustomerDetailPage({
         <nav
           role="tablist"
           aria-label="Customer sections"
-          className="flex gap-1 overflow-x-auto border-t border-gray-100 px-3 sm:px-4"
+          className="flex gap-7 overflow-x-auto border-t border-gray-100 px-5 sm:px-6"
         >
           {tabConfig.map((t) => {
             const active = tab === t.value;
@@ -248,7 +248,7 @@ export default function CustomerDetailPage({
                 aria-selected={active}
                 onClick={() => setTab(t.value)}
                 className={clsx(
-                  "inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium transition",
+                  "inline-flex shrink-0 items-center gap-2 border-b-2 py-3.5 text-sm font-medium transition",
                   active
                     ? "border-gray-900 text-gray-900"
                     : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-900"

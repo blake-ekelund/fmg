@@ -668,100 +668,162 @@ export default function ProductDetailPage({
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 space-y-5" {...autosaveProps}>
-      {/* Top bar: back + prev/next */}
-      <div className="flex items-center justify-between">
-        <Link href="/products" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition">
-          <ArrowLeft size={16} /> Back to products
-        </Link>
-        <div className="flex items-center gap-1">
-          {prevProduct ? (
-            <Link
-              href={`/products/${encodeURIComponent(prevProduct.part)}`}
-              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
-              title={prevProduct.display_name}
-            >
-              <ChevronLeft size={14} />
-              <span className="hidden sm:inline max-w-[120px] truncate">{prevProduct.display_name}</span>
-              <span className="sm:hidden">Prev</span>
-            </Link>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-300 cursor-default">
-              <ChevronLeft size={14} />
-              <span className="hidden sm:inline">Prev</span>
-            </span>
-          )}
-
-          {allProducts.length > 0 && (
-            <span className="text-[10px] text-gray-400 tabular-nums px-1">
-              {currentIdx + 1} / {allProducts.length}
-            </span>
-          )}
-
-          {nextProduct ? (
-            <Link
-              href={`/products/${encodeURIComponent(nextProduct.part)}`}
-              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
-              title={nextProduct.display_name}
-            >
-              <span className="hidden sm:inline max-w-[120px] truncate">{nextProduct.display_name}</span>
-              <span className="sm:hidden">Next</span>
-              <ChevronRight size={14} />
-            </Link>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-300 cursor-default">
-              <span className="hidden sm:inline">Next</span>
-              <ChevronRight size={14} />
-            </span>
-          )}
-        </div>
-      </div>
-
       <PageMeta
         title={form.display_name || "Untitled Product"}
         description="Product details, media, inventory, and sales for this SKU."
       />
 
-      {/* SKU + trend badge — the name lives in the top bar */}
-      <div className="flex items-center gap-3">
-        <p className="text-sm text-gray-500 font-mono">{form.part}</p>
-        {trend !== "unknown" && (
-          <span className={clsx("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium", trendCfg.bg, trendCfg.color)}>
-            <TrendIcon size={12} />
-            {trendCfg.label}
-          </span>
-        )}
+      {/* Header — one card for the product: identity on the left, metric
+          tiles on the right, and the section tabs along its bottom edge
+          (same shape as the wholesale / D2C customer pages). */}
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 px-5 pt-4 pb-4 sm:px-6 sm:pt-5 lg:flex-row lg:items-center lg:justify-between">
+          {/* Identity */}
+          <div className="min-w-0">
+            <div className="mb-1.5 flex items-center gap-3">
+              <nav aria-label="Breadcrumb" className="min-w-0">
+                <ol className="flex min-w-0 items-center gap-1.5 text-xs text-gray-400">
+                  <li>
+                    <Link
+                      href="/products"
+                      className="inline-flex items-center gap-1 transition hover:text-gray-900"
+                    >
+                      <ArrowLeft size={12} />
+                      Products
+                    </Link>
+                  </li>
+                  <li aria-hidden="true">/</li>
+                  <li aria-current="page" className="truncate text-gray-500">
+                    {form.display_name || form.part}
+                  </li>
+                </ol>
+              </nav>
+
+              {/* Prev / next product */}
+              {allProducts.length > 0 && currentIdx >= 0 && (
+                <div className="flex shrink-0 items-center gap-0.5 text-gray-400">
+                  {prevProduct ? (
+                    <Link
+                      href={`/products/${encodeURIComponent(prevProduct.part)}`}
+                      className="rounded p-0.5 transition hover:bg-gray-100 hover:text-gray-900"
+                      title={`Previous: ${prevProduct.display_name}`}
+                      aria-label="Previous product"
+                    >
+                      <ChevronLeft size={14} />
+                    </Link>
+                  ) : (
+                    <span className="p-0.5 text-gray-200"><ChevronLeft size={14} /></span>
+                  )}
+                  <span className="text-[10px] tabular-nums">
+                    {currentIdx + 1} / {allProducts.length}
+                  </span>
+                  {nextProduct ? (
+                    <Link
+                      href={`/products/${encodeURIComponent(nextProduct.part)}`}
+                      className="rounded p-0.5 transition hover:bg-gray-100 hover:text-gray-900"
+                      title={`Next: ${nextProduct.display_name}`}
+                      aria-label="Next product"
+                    >
+                      <ChevronRight size={14} />
+                    </Link>
+                  ) : (
+                    <span className="p-0.5 text-gray-200"><ChevronRight size={14} /></span>
+                  )}
+                </div>
+              )}
+            </div>
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-gray-900">
+              {form.display_name || "Untitled Product"}
+            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs text-gray-400">{form.part}</span>
+              {form.brand && (
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                  {form.brand === "NI" ? "Natural Inspirations" : form.brand}
+                </span>
+              )}
+              {tabIndicators.details && (
+                <span className={clsx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", tabIndicators.details.bg, tabIndicators.details.color)}>
+                  {tabIndicators.details.label}
+                </span>
+              )}
+              {trend !== "unknown" && (
+                <span className={clsx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", trendCfg.bg, trendCfg.color)}>
+                  <TrendIcon size={12} />
+                  {trendCfg.label}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Metric tiles */}
+          <div className="grid grid-cols-2 gap-2.5 sm:flex sm:items-stretch sm:gap-3">
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 sm:min-w-[132px]">
+              <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400">TTM revenue</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums text-gray-900">
+                ${fmtNum(salesTotals.revenue)}
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 sm:min-w-[96px]">
+              <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400">TTM units</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums text-gray-900">
+                {fmtNum(salesTotals.units)}
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 sm:min-w-[96px]">
+              <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400">On hand</div>
+              <div className="mt-0.5 text-xl font-semibold tabular-nums text-gray-900">
+                {fmtNum(forecastOnHand)}
+              </div>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 sm:min-w-[108px]">
+              <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400">Supply</div>
+              <div className={clsx("mt-0.5 text-xl font-semibold tabular-nums", tabIndicators.inventory?.color ?? "text-gray-900")}>
+                {monthsOfSupply !== null ? `${monthsOfSupply.toFixed(1)} mo` : "—"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section tabs */}
+        <nav
+          role="tablist"
+          aria-label="Product sections"
+          className="flex gap-7 overflow-x-auto border-t border-gray-100 px-5 sm:px-6"
+        >
+          {NAV_SECTIONS.map((s) => {
+            const active = section === s.value;
+            // Channel already shows as a pill above, so Details stays bare.
+            const indicator = s.value === "details" ? null : tabIndicators[s.value];
+            return (
+              <button
+                key={s.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setSection(s.value)}
+                className={clsx(
+                  "inline-flex shrink-0 items-center gap-2 border-b-2 py-3.5 text-sm font-medium transition",
+                  active
+                    ? "border-gray-900 text-gray-900"
+                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-900"
+                )}
+              >
+                {s.label}
+                {indicator && (
+                  <span className={clsx("rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none", indicator.bg, indicator.color)}>
+                    {indicator.label}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
-      {/* ─── Two-Panel Layout ─── */}
-      <div className="flex gap-6 items-start">
-        {/* LEFT PANEL */}
+      {/* ─── Main content ─── */}
+      <div className="min-w-0">
         <div className="w-full space-y-5">
-          {/* Section Nav */}
-          <nav className="flex gap-1 rounded-lg bg-white border border-gray-200 p-1">
-            {NAV_SECTIONS.map((s) => {
-              const indicator = tabIndicators[s.value];
-              return (
-                <button
-                  key={s.value}
-                  onClick={() => setSection(s.value)}
-                  className={clsx(
-                    "flex-1 rounded-md px-3 py-2 text-sm font-medium transition flex items-center justify-center gap-1.5",
-                    section === s.value
-                      ? "bg-gray-100 text-gray-900"
-                      : "text-gray-500 hover:text-gray-900"
-                  )}
-                >
-                  {s.label}
-                  {indicator && (
-                    <span className={clsx("rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none", indicator.bg, indicator.color)}>
-                      {indicator.label}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-
           {/* ─── DETAILS (core product + publish + pricing + marketing copy + shipping) ─── */}
           {section === "details" && (
             <DetailsSection
