@@ -232,6 +232,13 @@ export default function TemplateEditorPage() {
   // The creation wizard (brand → audience → purpose → title → description →
   // start method). Replaces the old inline "new / upload / plain-text" buttons.
   const [showWizard, setShowWizard] = useState(false);
+  // /templates?new=1 — the top bar's "+ New email template" opens the wizard.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).get("new")) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read of the URL on load
+    setShowWizard(true);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   const selectedBlock = selectedBlockId ? findBlock(blocks, selectedBlockId) : undefined;
 

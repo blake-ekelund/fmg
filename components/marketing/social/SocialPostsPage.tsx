@@ -141,6 +141,12 @@ export default function SocialPostsPage() {
   const [fromBlog, setFromBlog] = useState<{ id: string; brand: SocialBrand } | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
+    // /marketing/social?new=1 — the top bar's "+ New social post".
+    if (q.get("new")) {
+      setWizardOpen(true);
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
     const id = q.get("fromBlog");
     if (!id) return;
     const b = q.get("brand") === "Sassy" ? "Sassy" : "NI";
