@@ -27,7 +27,6 @@ import useCustomerOrders, {
   ORDER_PAGE_SIZE,
   type OrderSortKey,
 } from "./modal/hooks/useCustomerOrders";
-import useOrderItems from "./modal/hooks/useOrderItems";
 import useCustomerMonthlyOrders from "./modal/hooks/useCustomerMonthlyOrders";
 import useCustomerSalesAnalysis from "./modal/hooks/useCustomerSalesAnalysis";
 import useCustomerContact from "./modal/hooks/useCustomerContact";
@@ -69,7 +68,6 @@ export default function CustomerDetailPage({
 
   const {
     orders,
-    setOrders,
     loading: ordersLoading,
     orderPage,
     setOrderPage,
@@ -77,20 +75,13 @@ export default function CustomerDetailPage({
     totalPages: ordersTotalPages,
   } = useCustomerOrders(customerId, tab === "orders", isD2C, orderSort);
 
-  const items = useOrderItems({ orders, setOrders });
-
   const { data: analysisData, loading: analysisLoading } =
     useCustomerSalesAnalysis(customerId, tab === "analysis", isD2C);
 
   const { fields: customFields, loading: customFieldsLoading } =
     useCustomerCustomFields(customerId, isD2C);
 
-  useEffect(() => {
-    if (tab !== "orders") items.reset();
-  }, [tab]);
-
-  /* Date and number columns open descending; text columns ascending. Either
-     way the rows change, so page 1 again and collapse any open expansion. */
+  /* Date and number columns open descending; text columns ascending. */
   const ORDER_DESC_FIRST: OrderSortKey[] = ["order", "placed", "completed", "total"];
 
   function toggleOrderSort(key: OrderSortKey) {
@@ -100,12 +91,10 @@ export default function CustomerDetailPage({
         : { key, dir: ORDER_DESC_FIRST.includes(key) ? "desc" : "asc" }
     );
     setOrderPage(1);
-    items.reset();
   }
 
   function changeOrderPage(page: number) {
     setOrderPage(page);
-    items.reset();
   }
 
   /* ─── Prev / Next customer navigation ─── */
@@ -424,9 +413,6 @@ export default function CustomerDetailPage({
               <OrdersTab
                 orders={orders}
                 ordersLoading={ordersLoading}
-                expandedOrder={items.expandedOrder}
-                toggleOrder={items.toggleOrder}
-                getItemMeta={items.getItemMeta}
                 sortKey={orderSort.key}
                 sortDir={orderSort.dir}
                 onSort={toggleOrderSort}
