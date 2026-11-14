@@ -1,9 +1,9 @@
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { supabase } from "@/lib/supabaseClient";
 import type { BlogBrand, BlogPostRow, BlogPostSummary, BlogStatus } from "@/lib/blogPosts";
 import type { BlogBlock } from "@/lib/blog/blocks";
 import type { HeroCredit } from "@/lib/blog/render";
 import type { BlogAudience, BlogPurpose } from "@/lib/blog/meta";
+import { uploadToFolder } from "@/lib/images/client";
 
 /** Browser-side client for the blog API routes. Every call carries the
  *  current session token; the routes verify it and use the service role. */
@@ -141,15 +141,11 @@ export async function deletePost(id: string): Promise<void> {
 export async function uploadBlogImage(file: File, folder = "blog-uploads"): Promise<string> {
   if (!file.type.startsWith("image/")) throw new Error("That file isn't an image.");
   if (file.size > 8 * 1024 * 1024) throw new Error("Keep hero images under 8 MB.");
-  const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${folder}/${Date.now()}-${safe}`;
-  const { error } = await supabase.storage.from("email-assets").upload(path, file, {
-    cacheControl: "31536000",
-    contentType: file.type,
-    upsert: false,
-  });
-  if (error) throw new Error(error.message);
-  return supabase.storage.from("email-assets").getPublicUrl(path).data.publicUrl;
+  // Shared upload path: de-duplicated, capped at 2400px (still crisp for a
+  // retina hero), readable file name, described by Sage.
+  const res = await uploadToFolder(file, folder);
+  if ("error" in res) throw new Error(res.error);
+  return res.url;
 }
 
 /** Same upload, in the { url } | { error } shape MediaLibraryModal takes. */

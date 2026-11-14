@@ -466,6 +466,24 @@ export default function ProductDetailPage({
       return;
     }
 
+    // Fragrance / brand / tester changed → re-link the shared fragrance photos
+    // (a Eucalyptus product shows every Eucalyptus fragrance photo).
+    if (
+      product &&
+      (product.fragrance !== form.fragrance || product.brand !== form.brand || product.is_tester !== form.is_tester)
+    ) {
+      void (async () => {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        await fetch("/api/products/photos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ sync: part }),
+        }).catch(() => undefined);
+        await loadMedia();
+      })();
+    }
+
     setProduct({ ...form });
     savingRef.current = false;
     setSaving(false);

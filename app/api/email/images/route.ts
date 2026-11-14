@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { requireInternalUser } from "@/lib/email/server-auth";
 import { BRAND_PRODUCT_NAMES, productName as productFolderName } from "@/lib/productImageNames";
 import { listPhotos, unsplashConfigured, unsplashSources } from "@/lib/unsplash";
+import { collectionOf } from "@/lib/images/fragrance";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,11 @@ export const runtime = "nodejs";
  * Product photos (`media_kit_assets`, public `media-kit` bucket) are grouped
  * "<Brand> Products" → one subfolder per product. They're managed on the
  * product page, so here they're read-only: no re-filing, metadata, or delete.
- * Their folder ids start with "~", which no slugged library folder can.
+ * Their folder ids start with "~", which no slugged library folder can. But a
+ * product folder and a Collections (fragrance) folder ACCEPT uploads
+ * (`accepts`): /api/images/upload links the new photo to that product, or
+ * shares it with every product of that fragrance. One stored file shared by
+ * several products is listed ONCE, showing in each product's folder.
  *
  * Unsplash photos (the brand collections + photographers in lib/unsplash.ts)
  * show under a read-only "Unsplash" folder, one subfolder per source. They're
@@ -132,17 +137,6 @@ function labelFor(path: string, folder: string | null): string | null {
 }
 
 /**
- * A product's scent collection ("Sea Salt", "Grapefruit"), from `fragrance`.
- * Null for placeholders and internal codes ("N/A", "Complete", "KLM",
- * "SSC/EUC/LAV") so they don't become junk folders.
- */
-function collectionOf(fragrance: string | null): string | null {
-  const f = fragrance?.trim();
-  if (!f || /^(n\/a|complete|header|frag free)$/i.test(f) || f.includes("/") || /^[A-Z]{2,4}$/.test(f)) return null;
-  return f;
-}
-
-/**
  * A product's category ("Mini Hand Creme", "Body Butter"), from `product_form`,
  * tidied so near-duplicates share one folder: brand tails dropped, holiday
  * variants folded in, per-scent lip butters / gift sets / displays grouped.
@@ -195,7 +189,15 @@ type Img = FileEntry & {
   downloadLocation?: string;
 };
 
-type Folder = { id: string; name: string; readOnly: boolean; kind?: "inbox"; order?: number };
+type Folder = {
+  id: string;
+  name: string;
+  readOnly: boolean;
+  kind?: "inbox";
+  order?: number;
+  /** Read-only folders that still take uploads: a product, or a fragrance (Collections). */
+  accepts?: "product" | "fragrance";
+};
 
 type MetaRow = {
   path: string;
@@ -387,6 +389,9 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
     );
 
     const images: Img[] = [];
+    // One stored file can be on several products (a shared fragrance photo,
+    // or a product photo linked twice): list it once, in each product's folders.
+    const byKey = new Map<string, Img>();
     const folders = new Map<string, Folder>();
     for (const r of rows) {
       if (!/\.(png|jpe?g|gif|webp|svg)$/i.test(r.storage_path)) continue;
@@ -401,14 +406,14 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
       };
       folders.set(brandId, { id: brandId, name: BRAND_PRODUCT_NAMES[brand] ?? `${brand} Products`, readOnly: true });
       const productId = `${group("products", "Products", 4)}/${r.part}`;
-      folders.set(productId, { id: productId, name: productName, readOnly: true });
+      folders.set(productId, { id: productId, name: productName, readOnly: true, accepts: "product" });
 
       const alsoIn: string[] = [];
       if (!p?.is_tester) {
         const collection = collectionOf(p?.fragrance ?? null);
         if (collection) {
           const id = `${group("collections", "Collections", 1)}/${slugFolder(collection)}`;
-          folders.set(id, { id, name: collection, readOnly: true });
+          folders.set(id, { id, name: collection, readOnly: true, accepts: "fragrance" });
           alsoIn.push(id);
         }
         const category = categoryOf(p?.product_form ?? null, p?.display_name ?? null);
@@ -425,10 +430,15 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
         }
       }
 
-      const { data: pub } = supabaseServer.storage.from(PRODUCT_BUCKET).getPublicUrl(r.storage_path);
       const key = `${PRODUCT_BUCKET}:${r.storage_path}`;
+      const seen = byKey.get(key);
+      if (seen) {
+        seen.alsoIn = Array.from(new Set([...(seen.alsoIn ?? []), productId, ...alsoIn])).filter((f) => f !== seen.folder);
+        continue;
+      }
+      const { data: pub } = supabaseServer.storage.from(PRODUCT_BUCKET).getPublicUrl(r.storage_path);
       const meta = metaByPath.get(key);
-      images.push({
+      const img: Img = {
         path: key,
         url: pub.publicUrl,
         size: 0,
@@ -442,7 +452,9 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
         source: "product",
         productPart: r.part,
         alsoIn,
-      });
+      };
+      byKey.set(key, img);
+      images.push(img);
     }
     return { images, folders: Array.from(folders.values()) };
   } catch (e) {

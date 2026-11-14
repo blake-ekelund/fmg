@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { Check, Loader2, Trash2, Upload } from "lucide-react";
+import { Check, EyeOff, Loader2, Share2, Trash2, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { uploadMediaKitAsset } from "@/lib/mediaKit/uploadMediaKitAsset";
 import { DeleteConfirmModal } from "@/components/marketing/media-kit/components/modalSections/DeleteConfirmModal";
 import ProductPhotoModal, { type PhotoDetails } from "./ProductPhotoModal";
 import { PHOTO_TAGS, REQUIRED_PHOTO_TAGS, type PhotoTag } from "./photoTags";
@@ -22,6 +21,33 @@ export type ProductPhoto = {
 const DRAG_TYPE = "application/x-fmg-product-photo";
 
 const NO_DETAILS: PhotoDetails = { title: null, altText: null, description: null, tags: [] };
+
+/** A fragrance photo shared across every product with that scent. */
+type SharedFrom = { id: string; fragrance: string } | null;
+
+type UploadResult = { deduped?: boolean; sharedWith?: { fragrance: string; products: number }; error?: string };
+
+/** The one upload path: optimized, de-duplicated, described by Sage (see /api/images/upload). */
+async function uploadPhoto(file: File, part: string, assetType: string): Promise<UploadResult> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("target", JSON.stringify({ kind: "product", part, assetType }));
+  const res = await fetch("/api/images/upload", { method: "POST", headers: await authHeader(), body });
+  const json = (await res.json().catch(() => ({}))) as UploadResult;
+  if (!res.ok) throw new Error(json.error ?? "Upload failed.");
+  return json;
+}
+
+async function removePhoto(id: string): Promise<{ hidden: boolean }> {
+  const res = await fetch("/api/products/photos", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...(await authHeader()) },
+    body: JSON.stringify({ id }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error ?? "Couldn't remove the photo.");
+  return { hidden: !!json.hidden };
+}
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -64,6 +90,8 @@ export default function ProductPhotos({
   /** Type changes shown immediately while the save runs. */
   const [pendingTags, setPendingTags] = useState<Record<string, string>>({});
   const [details, setDetails] = useState<Record<string, PhotoDetails>>({});
+  const [shared, setShared] = useState<Record<string, SharedFrom>>({});
+  const [notice, setNotice] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -81,8 +109,11 @@ export default function ProductPhotos({
   const loadDetails = useCallback(async () => {
     const res = await fetch(`/api/products/photos?part=${encodeURIComponent(part)}`, { headers: await authHeader() });
     if (!res.ok) return;
-    const json = (await res.json().catch(() => ({}))) as { photos?: Record<string, PhotoDetails> };
+    const json = (await res.json().catch(() => ({}))) as {
+      photos?: Record<string, PhotoDetails & { sharedFrom?: SharedFrom }>;
+    };
     setDetails(json.photos ?? {});
+    setShared(Object.fromEntries(Object.entries(json.photos ?? {}).map(([id, d]) => [id, d.sharedFrom ?? null])));
   }, [part]);
 
   const photoIds = photos.map((p) => p.id).join(",");
@@ -156,12 +187,24 @@ export default function ProductPhotos({
     if (list.length === 0) return;
     setUploading(true);
     setError(null);
+    setNotice(null);
+    const notes: string[] = [];
     try {
-      for (const file of list) await uploadMediaKitAsset({ file, part, assetType: tagForUpload });
+      for (const file of list) {
+        const r = await uploadPhoto(file, part, tagForUpload);
+        if (r.sharedWith) {
+          notes.push(
+            `Shared with all ${r.sharedWith.products} ${r.sharedWith.fragrance} product${r.sharedWith.products === 1 ? "" : "s"}.`,
+          );
+        } else if (r.deduped) {
+          notes.push("That photo was already stored, so it was reused instead of saving a copy.");
+        }
+      }
+      if (notes.length) setNotice(Array.from(new Set(notes)).join(" "));
       onChanged();
     } catch (e) {
       console.error("Upload failed", e);
-      setError("Upload failed. Please try again.");
+      setError(e instanceof Error ? e.message : "Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -200,24 +243,34 @@ export default function ProductPhotos({
     }
   }
 
+  /** Remove a photo from this product. The server deletes the file only if no other product uses it. */
   async function confirmDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      const { error: storageError } = await supabase.storage.from("media-kit").remove([deleteTarget.path]);
-      if (storageError) throw storageError;
-      const { error: dbError } = await supabase.from("media_kit_assets").delete().eq("id", deleteTarget.id);
-      if (dbError) throw dbError;
-      // Its title / alt / description row goes too (best effort).
-      await supabase.from("email_asset_meta").delete().eq("path", `media-kit:${deleteTarget.path}`);
+      await removePhoto(deleteTarget.id);
       setOpenId(null);
       onChanged();
     } catch (e) {
       console.error("Delete failed", e);
-      setError("Couldn't delete the photo.");
+      setError(e instanceof Error ? e.message : "Couldn't delete the photo.");
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
+    }
+  }
+
+  /** A shared fragrance photo is hidden here only; the other products keep it. */
+  async function hideShared(photo: ProductPhoto) {
+    const from = shared[photo.id];
+    setError(null);
+    try {
+      await removePhoto(photo.id);
+      setOpenId(null);
+      setNotice(`Hidden on this product. The other ${from?.fragrance ?? ""} products still show it.`);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't hide the photo.");
     }
   }
 
@@ -302,6 +355,10 @@ export default function ProductPhotos({
           <p className="mt-3 text-xs text-emerald-700">Every photo type is covered.</p>
         )}
       </div>
+
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">{notice}</div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700">{error}</div>
@@ -407,14 +464,34 @@ export default function ProductPhotos({
                         />
                       ) : null}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget(p)}
-                      className="absolute right-2 top-2 rounded-full bg-white/95 p-1.5 opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
-                      title="Delete photo"
-                    >
-                      <Trash2 size={13} className="text-red-500" />
-                    </button>
+                    {shared[p.id] ? (
+                      <button
+                        type="button"
+                        onClick={() => void hideShared(p)}
+                        className="absolute right-2 top-2 rounded-full bg-white/95 p-1.5 opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
+                        title="Hide on this product (other products keep it)"
+                      >
+                        <EyeOff size={13} className="text-gray-600" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(p)}
+                        className="absolute right-2 top-2 rounded-full bg-white/95 p-1.5 opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
+                        title="Delete photo"
+                      >
+                        <Trash2 size={13} className="text-red-500" />
+                      </button>
+                    )}
+                    {shared[p.id] && (
+                      <span
+                        className="pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-violet-600/90 px-2 py-0.5 text-[10px] font-medium text-white shadow-sm"
+                        title={`Shared with every ${shared[p.id]!.fragrance} product`}
+                      >
+                        <Share2 size={10} />
+                        {shared[p.id]!.fragrance}
+                      </span>
+                    )}
                     {d.tags.length > 0 && (
                       <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-medium text-gray-600 shadow-sm">
                         {d.tags.length} tag{d.tags.length === 1 ? "" : "s"}
@@ -455,6 +532,10 @@ export default function ProductPhotos({
           onClose={() => setOpenId(null)}
           onSave={(patch) => saveDetails(open, patch)}
           onDelete={() => {
+            if (shared[open.id]) {
+              void hideShared(open);
+              return;
+            }
             // The confirm dialog sits below this modal — close it first.
             setDeleteTarget(open);
             setOpenId(null);

@@ -19,7 +19,7 @@ import {
   Inbox,
   FolderInput,
 } from "lucide-react";
-import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
+import { uploadToFolder } from "@/lib/images/client";
 import { listImages, createFolder, deleteFolder, deleteImages, refileImages, trackUnsplashUse } from "./api";
 import ImageDetailModal from "./ImageDetailModal";
 import MoveToFolderDrawer, { type MoveTarget } from "./MoveToFolderDrawer";
@@ -228,13 +228,17 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
 
   const current = folder ? folderMap.get(folder) : undefined;
   const canWriteHere = writable(current);
+  // Product and Collections (fragrance) folders are read-only but take uploads:
+  // the photo is linked to that product, or shared with every product of the scent.
+  const acceptsHere = !!current?.accepts;
+  const canUploadHere = canWriteHere || acceptsHere;
   // Inboxes are a to-be-filed pile, not somewhere to build a tree.
   const canNestHere =
     canWriteHere && !!folder && current?.kind !== "inbox" && depthOf(folder) < MAX_FOLDER_DEPTH;
   // New folders go inside the open folder when it can hold one, else top level.
   const newFolderParent = canNestHere ? folder : null;
   // Uploads go into the open folder when it can take them.
-  const uploadTarget = canWriteHere && folder ? folder : pick?.inbox ?? DEFAULT_FOLDER;
+  const uploadTarget = canUploadHere && folder ? folder : pick?.inbox ?? DEFAULT_FOLDER;
 
   /* Folders the Move drawer offers: writable library folders in tree order
      (parents before children), never upload inboxes — those are a pile to
@@ -291,12 +295,21 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
     let lastError: string | null = null;
     let firstUrl: string | null = null;
     let ok = 0;
+    let reused = 0;
+    let shared: { fragrance: string; products: number } | null = null;
+    const toProducts = target.startsWith("~");
     for (const file of list) {
-      const res = pick?.uploader ? await pick.uploader(file, target) : await uploadEmailImage(file, target);
+      // Product / fragrance folders always take the full-size shared path;
+      // library folders use the editor's uploader (email resize) when picking.
+      const res =
+        pick?.uploader && !toProducts ? await pick.uploader(file, target) : await uploadToFolder(file, target);
       if ("error" in res) lastError = res.error;
       else {
         ok++;
         firstUrl ??= res.url;
+        const r = res as { deduped?: boolean; sharedWith?: { fragrance: string; products: number } };
+        if (r.deduped) reused++;
+        if (r.sharedWith) shared = r.sharedWith;
       }
     }
     setUploading(false);
@@ -306,7 +319,12 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
       return;
     }
     if (lastError) setError(lastError);
-    if (ok) setNotice(`Uploaded ${ok} image${ok === 1 ? "" : "s"} to ${pathName(target)}.`);
+    if (ok) {
+      const parts = [`Uploaded ${ok} image${ok === 1 ? "" : "s"} to ${pathName(target)}.`];
+      if (shared) parts.push(`Now on all ${shared.products} ${shared.fragrance} product${shared.products === 1 ? "" : "s"}.`);
+      if (reused) parts.push(`${reused} ${reused === 1 ? "was" : "were"} already in the library, so no copy was made.`);
+      setNotice(parts.join(" "));
+    }
     await load();
   }
 
@@ -698,7 +716,7 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
               New folder
             </button>
           )}
-          {(!folder || canWriteHere) && (
+          {(!folder || canUploadHere) && (
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
@@ -730,9 +748,17 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
           download those on unsplash.com and upload them to a library folder. To use one of these in an email,
           blog post or page, pick it from the image picker&apos;s Unsplash tab so the photographer is credited.
         </p>
+      ) : current?.accepts === "product" ? (
+        <p className="mt-2 text-sm text-gray-500">
+          Photos you upload here go on this product (and its storefront page). Edit or reorder them on the product&apos;s page.
+        </p>
+      ) : current?.accepts === "fragrance" ? (
+        <p className="mt-2 text-sm text-gray-500">
+          Photos you upload here are shared with every {current.name} product: one file, shown on each product page.
+        </p>
       ) : current?.readOnly && current.id.startsWith("~") ? (
         <p className="mt-2 text-sm text-gray-500">
-          Product photos are edited on each product&apos;s page.
+          Product photos are edited on each product&apos;s page. Open a product or a collection folder to add photos.
         </p>
       ) : null}
 

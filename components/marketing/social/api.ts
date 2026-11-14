@@ -2,6 +2,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import { supabase } from "@/lib/supabaseClient";
 import { SOCIAL_BUCKET, type InstagramFeed, type MetaConnectionStatus, type SocialBrand, type SocialPlatform, type SocialPost } from "@/lib/social/types";
 import type { PostDesign } from "@/lib/social/design";
+import { uploadToFolder } from "@/lib/images/client";
 
 /** Browser-side client for /api/social. Every call carries the session token. */
 
@@ -61,15 +62,9 @@ export async function uploadSocialImage(
 ): Promise<{ url: string } | { error: string }> {
   if (!file.type.startsWith("image/")) return { error: "That file isn't an image." };
   if (file.size > 15 * 1024 * 1024) return { error: "Keep images under 15 MB." };
-  const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${folder}/${Date.now()}-${safe}`;
-  const { error } = await supabase.storage.from("email-assets").upload(path, file, {
-    cacheControl: "31536000",
-    contentType: file.type,
-    upsert: false,
-  });
-  if (error) return { error: error.message };
-  return { url: supabase.storage.from("email-assets").getPublicUrl(path).data.publicUrl };
+  // Shared upload path: de-duplicated, web-optimized, described by Sage.
+  const res = await uploadToFolder(file, folder);
+  return "error" in res ? res : { url: res.url };
 }
 
 /** Reel video upload straight to storage through a signed URL. */

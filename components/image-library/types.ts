@@ -42,6 +42,12 @@ export type LibraryFolder = {
   kind?: "inbox";
   /** Fixed position among siblings (Collections, Categories, Products). */
   order?: number;
+  /**
+   * Read-only folders that still take uploads: a product folder links the
+   * photo to that product; a Collections folder shares it with every product
+   * of that fragrance.
+   */
+  accepts?: "product" | "fragrance";
 };
 
 export type MetaPatch = {

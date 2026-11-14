@@ -12,7 +12,6 @@ import {
   Wand2,
   Ban,
 } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
 import { mergeGroupsFor } from "@/lib/email/mergeFields";
 import { validateTemplateBody } from "@/lib/email/htmlTemplate";
 import MergeFieldTextarea from "@/components/email/MergeFieldTextarea";
@@ -20,6 +19,7 @@ import { sendTemplateTest } from "@/lib/email/sendTemplateTest";
 import type { Brand, Channel, EmailTemplate } from "./types";
 import { formatHtml } from "./formatHtml";
 import { resizeImageForEmail } from "./resizeImage";
+import { uploadToFolder } from "@/lib/images/client";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -132,20 +132,14 @@ export default function HtmlTemplateEditor({
       }
       // Shrink + re-encode for email before it ever hits the bucket.
       const resized = await resizeImageForEmail(file);
-      const safe = resized.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      // Under the Email uploads inbox, one subfolder per template.
-      const path = `email-uploads/${templateId ?? "unsaved"}/${Date.now()}-${safe}`;
-      const { error } = await supabase.storage.from("email-assets").upload(path, resized.blob, {
-        cacheControl: "31536000",
-        contentType: resized.type,
-        upsert: false,
-      });
-      if (error) {
-        setUploadError(`Upload failed: ${error.message}`);
+      // Under the Email uploads inbox, one subfolder per template. Shared
+      // upload path: an identical image is reused, never stored twice.
+      const res = await uploadToFolder(resized.blob, `email-uploads/${templateId ?? "unsaved"}`, resized.name);
+      if ("error" in res) {
+        setUploadError(`Upload failed: ${res.error}`);
         continue;
       }
-      const { data } = supabase.storage.from("email-assets").getPublicUrl(path);
-      added.push({ name: resized.name, url: data.publicUrl, width: resized.width, size: resized.blob.size });
+      added.push({ name: resized.name, url: res.url, width: resized.width, size: resized.blob.size });
     }
     setAssets((prev) => [...added, ...prev]);
     setImgBusy(false);
