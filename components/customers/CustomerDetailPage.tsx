@@ -1,21 +1,17 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Mail,
   Phone,
-  ChevronLeft,
-  ChevronRight,
   TrendingUp,
   TrendingDown,
   Minus,
 } from "lucide-react";
 import clsx from "clsx";
 
-import { supabase } from "@/lib/supabaseClient";
 import PageMeta from "@/components/PageMeta";
 import DetailsTab from "./modal/tabs/DetailsTab";
 import OrdersTab from "./modal/tabs/OrdersTab";
@@ -35,8 +31,6 @@ import type { Customer } from "./types";
 
 type Tab = "details" | "orders" | "analysis" | "emails";
 
-type NavNeighbor = { customerid: string; name: string } | null;
-
 export default function CustomerDetailPage({
   customerId,
   isD2C = false,
@@ -44,7 +38,6 @@ export default function CustomerDetailPage({
   customerId: string;
   isD2C?: boolean;
 }) {
-  const router = useRouter();
   const [tab, setTab] = useState<Tab>("details");
 
   /* ─── Data hooks ─── */
@@ -96,57 +89,6 @@ export default function CustomerDetailPage({
   function changeOrderPage(page: number) {
     setOrderPage(page);
   }
-
-  /* ─── Prev / Next customer navigation ─── */
-
-  const [prevCustomer, setPrevCustomer] = useState<NavNeighbor>(null);
-  const [nextCustomer, setNextCustomer] = useState<NavNeighbor>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadNeighbors() {
-      const table = isD2C ? "d2c_customer_summary" : "customer_summary";
-      const idField = isD2C ? "person_key" : "customerid";
-
-      const [prevRes, nextRes] = await Promise.all([
-        Promise.resolve(
-          supabase
-            .from(table)
-            .select(`${idField}, name`)
-            .lt("name", summary?.name ?? "")
-            .order("name", { ascending: false })
-            .limit(1)
-        ),
-        Promise.resolve(
-          supabase
-            .from(table)
-            .select(`${idField}, name`)
-            .gt("name", summary?.name ?? "")
-            .order("name", { ascending: true })
-            .limit(1)
-        ),
-      ]);
-
-      if (cancelled) return;
-
-      const prevRow = prevRes.data?.[0] as Record<string, string> | undefined;
-      const nextRow = nextRes.data?.[0] as Record<string, string> | undefined;
-
-      setPrevCustomer(
-        prevRow ? { customerid: prevRow[idField], name: prevRow.name } : null
-      );
-      setNextCustomer(
-        nextRow ? { customerid: nextRow[idField], name: nextRow.name } : null
-      );
-    }
-
-    if (summary?.name) loadNeighbors();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [summary?.name]);
 
   /* ─── Derived ─── */
 
@@ -204,56 +146,23 @@ export default function CustomerDetailPage({
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 space-y-5">
-      {/* Back link + prev/next nav */}
-      <div className="flex items-center justify-between">
-        <Link
-          href={isD2C ? "/customers/d2c" : "/customers"}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition"
-        >
-          <ArrowLeft size={16} /> Back to {isD2C ? "D2C" : "wholesale"} customers
-        </Link>
-
-        <div className="flex items-center gap-1">
-          {prevCustomer ? (
-            <Link
-              href={`${isD2C ? "/customers/d2c" : "/customers"}/${encodeURIComponent(prevCustomer.customerid)}`}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50 transition"
-              title={prevCustomer.name}
-            >
-              <ChevronLeft size={14} />
-              <span className="hidden sm:inline max-w-[120px] truncate">{prevCustomer.name}</span>
-            </Link>
-          ) : (
-            <span className="px-2.5 py-1.5 rounded-lg border border-gray-100 text-xs text-gray-300">
-              <ChevronLeft size={14} />
-            </span>
-          )}
-          {nextCustomer ? (
-            <Link
-              href={`${isD2C ? "/customers/d2c" : "/customers"}/${encodeURIComponent(nextCustomer.customerid)}`}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-600 hover:bg-gray-50 transition"
-              title={nextCustomer.name}
-            >
-              <span className="hidden sm:inline max-w-[120px] truncate">{nextCustomer.name}</span>
-              <ChevronRight size={14} />
-            </Link>
-          ) : (
-            <span className="px-2.5 py-1.5 rounded-lg border border-gray-100 text-xs text-gray-300">
-              <ChevronRight size={14} />
-            </span>
-          )}
-        </div>
-      </div>
+      {/* Back link */}
+      <Link
+        href={isD2C ? "/customers/d2c" : "/customers"}
+        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition"
+      >
+        <ArrowLeft size={16} /> Back to {isD2C ? "D2C" : "wholesale"} customers
+      </Link>
 
       <PageMeta
         title={customerName}
         description={`${isD2C ? "D2C" : "Wholesale"} customer details, orders, sales, and emails.`}
       />
 
-      {/* Header — a self-contained customer hero: identity on the left,
-          metric tiles on the right. */}
-      <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm sm:px-6 sm:py-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      {/* Header — one card for the customer: identity on the left, metric
+          tiles on the right, and the section tabs along its bottom edge. */}
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 px-5 pt-4 pb-4 sm:px-6 sm:pt-5 lg:flex-row lg:items-center lg:justify-between">
           {/* Identity */}
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold tracking-tight text-gray-900">
@@ -313,6 +222,44 @@ export default function CustomerDetailPage({
             </div>
           )}
         </div>
+
+        {/* Section tabs */}
+        <nav
+          role="tablist"
+          aria-label="Customer sections"
+          className="flex gap-1 overflow-x-auto border-t border-gray-100 px-3 sm:px-4"
+        >
+          {tabConfig.map((t) => {
+            const active = tab === t.value;
+            return (
+              <button
+                key={t.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(t.value)}
+                className={clsx(
+                  "inline-flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium transition",
+                  active
+                    ? "border-gray-900 text-gray-900"
+                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-900"
+                )}
+              >
+                {t.label}
+                {t.badge != null && (
+                  <span
+                    className={clsx(
+                      "rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                      active ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"
+                    )}
+                  >
+                    {t.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
       {/* ─── Churned Re-engagement Banner ─── */}
@@ -385,33 +332,6 @@ export default function CustomerDetailPage({
 
       {/* ─── Main content ─── */}
       <div className="min-w-0 space-y-5">
-          {/* Tab nav */}
-          <nav className="flex gap-1 rounded-lg bg-white border border-gray-200 p-1">
-            {tabConfig.map((t) => (
-              <button
-                key={t.value}
-                onClick={() => setTab(t.value)}
-                className={clsx(
-                  "flex-1 rounded-md px-3 py-2 text-sm font-medium transition inline-flex items-center justify-center gap-2",
-                  tab === t.value
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:text-gray-900"
-                )}
-              >
-                {t.label}
-                {t.badge != null && (
-                  <span className={clsx(
-                    "text-[10px] font-medium rounded-full px-1.5 py-0.5 tabular-nums",
-                    tab === t.value
-                      ? "bg-gray-200 text-gray-700"
-                      : "bg-gray-100 text-gray-400"
-                  )}>
-                    {t.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
 
           {/* Tab content */}
           <div>
