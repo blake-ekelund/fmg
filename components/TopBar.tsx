@@ -9,6 +9,7 @@ import { navItems } from "./navConfig";
 import { useBrand } from "./BrandContext";
 import type { BrandFilter } from "@/types/brand";
 import CommandPalette from "./CommandPalette";
+import NotificationBell from "./NotificationBell";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { usePageMetaValue } from "./PageMeta";
@@ -112,6 +113,9 @@ export default function TopBar() {
           {/* Divider */}
           <div className="h-5 w-px bg-line" />
 
+          {/* Notifications */}
+          <NotificationBell />
+
           {/* User menu */}
           <UserMenu />
         </div>
@@ -154,6 +158,7 @@ function UserMenu() {
   }
 
   const initials = ((profile?.first_name || profile?.email || "?").trim()[0] ?? "?").toUpperCase();
+  const avatar = profile?.avatar_url ?? null;
 
   return (
     <div className="relative" ref={ref}>
@@ -162,9 +167,18 @@ function UserMenu() {
         className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-surface-muted transition"
         aria-label="Open user menu"
       >
-        <div className="h-7 w-7 rounded-full bg-brand-700 text-white text-[11px] font-semibold flex items-center justify-center ring-1 ring-brand-900/10">
-          {initials}
-        </div>
+        {avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatar}
+            alt=""
+            className="h-7 w-7 rounded-full object-cover ring-1 ring-brand-900/10"
+          />
+        ) : (
+          <div className="h-7 w-7 rounded-full bg-brand-700 text-white text-[11px] font-semibold flex items-center justify-center ring-1 ring-brand-900/10">
+            {initials}
+          </div>
+        )}
         <ChevronDown size={12} className="text-ink-subtle" />
       </button>
 
@@ -172,9 +186,14 @@ function UserMenu() {
         <div className="absolute right-0 mt-2 w-60 rounded-xl border border-line bg-surface shadow-overlay z-40 overflow-hidden">
           {profile && (
             <div className="flex items-center gap-2.5 px-3 py-3 border-b border-line bg-surface-muted">
-              <div className="h-8 w-8 rounded-full bg-brand-700 text-white text-[12px] font-semibold flex items-center justify-center shrink-0">
-                {initials}
-              </div>
+              {avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatar} alt="" className="h-8 w-8 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="h-8 w-8 rounded-full bg-brand-700 text-white text-[12px] font-semibold flex items-center justify-center shrink-0">
+                  {initials}
+                </div>
+              )}
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink truncate">
                   {profile.first_name || profile.email}
