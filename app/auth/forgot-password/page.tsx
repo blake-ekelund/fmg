@@ -147,7 +147,7 @@ export default function ForgotPasswordPage() {
       {/* ════════════════════════════════════════════════
           RIGHT — reset password
           ════════════════════════════════════════════════ */}
-      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface px-5 py-12 lg:min-h-0">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface-muted px-5 py-12 lg:min-h-0">
         {/* Soft brand wash on the mobile view (no left panel there) */}
         <div className="pointer-events-none absolute inset-0 lg:hidden">
           <div className="absolute -top-24 right-0 h-[320px] w-[320px] rounded-full bg-brand-500/10 blur-3xl" />
@@ -155,23 +155,26 @@ export default function ForgotPasswordPage() {
         </div>
 
         <div className="relative z-10 w-full max-w-sm">
-          {/* Brand header — carries the identity on mobile, a quiet greeting on desktop */}
-          <div className="mb-8">
-            <div className="flex items-center gap-3 lg:hidden">
-              <LogoMark size={40} className="rounded-[12px] ring-1 ring-line shadow-raised" />
-              <span className="text-[15px] font-semibold tracking-tight text-ink">
-                Fragrance Marketing Group
-              </span>
-            </div>
-            <h1 className="mt-6 text-2xl font-semibold tracking-tight text-ink lg:mt-0">
-              Reset your password
-            </h1>
-            <p className="mt-2 text-sm text-ink-muted">
-              {sent
-                ? "Check your inbox for the link"
-                : "We'll email you a link to set a new one"}
-            </p>
+          {/* Mobile-only brand lockup (desktop identity lives on the left panel) */}
+          <div className="mb-6 flex items-center gap-3 lg:hidden">
+            <LogoMark size={40} className="rounded-[12px] ring-1 ring-line shadow-raised" />
+            <span className="text-[15px] font-semibold tracking-tight text-ink">
+              Fragrance Marketing Group
+            </span>
           </div>
+
+          {/* Form card */}
+          <div className="rounded-2xl border border-line bg-surface p-6 shadow-overlay sm:p-7">
+            <div className="mb-6">
+              <h1 className="text-2xl font-semibold tracking-tight text-ink">
+                Reset your password
+              </h1>
+              <p className="mt-2 text-sm text-ink-muted">
+                {sent
+                  ? "Check your inbox for the link"
+                  : "We'll email you a link to set a new one"}
+              </p>
+            </div>
 
           {sent ? (
             <div className="space-y-3 rounded-xl border border-line bg-surface-muted p-4">
@@ -226,6 +229,7 @@ export default function ForgotPasswordPage() {
             >
               Remembered your password? Sign in
             </Link>
+          </div>
           </div>
 
           {/* External link */}

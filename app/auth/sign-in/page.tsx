@@ -161,7 +161,7 @@ export default function SignInPage() {
       {/* ════════════════════════════════════════════════
           RIGHT — sign in
           ════════════════════════════════════════════════ */}
-      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface px-5 py-12 lg:min-h-0">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface-muted px-5 py-12 lg:min-h-0">
         {/* Soft brand wash on the mobile view (no left panel there) */}
         <div className="pointer-events-none absolute inset-0 lg:hidden">
           <div className="absolute -top-24 right-0 h-[320px] w-[320px] rounded-full bg-brand-500/10 blur-3xl" />
@@ -169,21 +169,24 @@ export default function SignInPage() {
         </div>
 
         <div className="relative z-10 w-full max-w-sm">
-          {/* Brand header — carries the identity on mobile, a quiet greeting on desktop */}
-          <div className="mb-8">
-            <div className="flex items-center gap-3 lg:hidden">
-              <LogoMark size={40} className="rounded-[12px] ring-1 ring-line shadow-raised" />
-              <span className="text-[15px] font-semibold tracking-tight text-ink">
-                Fragrance Marketing Group
-              </span>
-            </div>
-            <h1 className="mt-6 text-2xl font-semibold tracking-tight text-ink lg:mt-0">
-              Welcome back
-            </h1>
-            <p className="mt-2 text-sm text-ink-muted">Sign in to the internal portal</p>
+          {/* Mobile-only brand lockup (desktop identity lives on the left panel) */}
+          <div className="mb-6 flex items-center gap-3 lg:hidden">
+            <LogoMark size={40} className="rounded-[12px] ring-1 ring-line shadow-raised" />
+            <span className="text-[15px] font-semibold tracking-tight text-ink">
+              Fragrance Marketing Group
+            </span>
           </div>
 
-          <div className="space-y-4">
+          {/* Form card */}
+          <div className="rounded-2xl border border-line bg-surface p-6 shadow-overlay sm:p-7">
+            <div className="mb-6">
+              <h1 className="text-2xl font-semibold tracking-tight text-ink">
+                Welcome back
+              </h1>
+              <p className="mt-2 text-sm text-ink-muted">Sign in to the internal portal</p>
+            </div>
+
+            <div className="space-y-4">
             <div className="space-y-1.5">
               <label htmlFor="email" className="block text-xs font-medium text-ink-secondary">
                 Email
@@ -248,6 +251,7 @@ export default function SignInPage() {
             >
               {loading ? "Signing in…" : "Sign in"}
             </button>
+            </div>
           </div>
 
           {/* External link */}
