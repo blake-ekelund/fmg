@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  CircleHelp,
   Archive,
   LayoutGrid,
   Bot,
@@ -86,7 +87,17 @@ type Conversation = {
   resolved_at?: string | null;
   resolved_by?: "ai" | "agent" | "auto" | null;
   resolution?: string | null;
+  /** The survey (migration 20261114060000). */
+  customer_resolved?: boolean | null;
+  csat_rating?: number | null;
+  csat_comment?: string | null;
+  csat_agent_id?: string | null;
 };
+
+type RepRating = { agentId: string; name: string; avg: number; count: number };
+
+/** ★★★★☆ for a 1–5 rating. */
+const stars = (n: number) => "★".repeat(n) + "☆".repeat(5 - n);
 
 /** A photo the shopper sent from the chat widget. `url` is a signed link. */
 type Attachment = { path: string; name?: string; url: string | null };
@@ -100,6 +111,8 @@ type Message = {
   author_name: string | null;
   tools: ToolCall[] | null;
   attachments?: Attachment[] | null;
+  /** 'resolution_check' = a rep asked the customer if it's resolved. */
+  kind?: string | null;
   created_at: string;
   seq: number;
 };
@@ -271,6 +284,8 @@ export default function ConversationsPage() {
   const [view, setView] = useState<"board" | "archive">("board");
   // Bumped on every move so the archive list refetches too.
   const [version, setVersion] = useState(0);
+  const [ratings, setRatings] = useState<RepRating[]>([]);
+  const [asking, setAsking] = useState(false);
   const [storeFilter, setStoreFilter] = useState<"all" | "sassy" | "ni">("all");
   const [query, setQuery] = useState("");
 
@@ -298,6 +313,7 @@ export default function ConversationsPage() {
       }
       setRows(json.conversations ?? []);
       setAgents(json.agents ?? {});
+      setRatings(json.ratings ?? []);
       setNotReady(Boolean(json.notReady));
       setError(null);
     } catch {
@@ -403,6 +419,17 @@ export default function ConversationsPage() {
       void reload();
     }
     setSending(null);
+  }
+
+  /** Send "has this been resolved?" — the customer gets Yes / No buttons. */
+  async function askResolved() {
+    if (!openId || asking) return;
+    setAsking(true);
+    await post({ action: "check_resolved", text: draft.trim() || undefined });
+    setDraft("");
+    await loadThread(openId, true);
+    void reload();
+    setAsking(false);
   }
 
   async function post(body: Record<string, unknown>) {
@@ -548,6 +575,24 @@ export default function ConversationsPage() {
               />
             </div>
           </div>
+
+          {view === "board" && ratings.length ? (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-gray-400">Customer ratings, last 90 days:</span>
+              {ratings.map((r) => (
+                <span
+                  key={r.agentId}
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-0.5"
+                  title={`${r.count} rating${r.count === 1 ? "" : "s"}`}
+                >
+                  <span className="font-medium text-gray-800">{r.name}</span>
+                  <span className="text-amber-500">★</span>
+                  <span className="tabular-nums text-gray-700">{r.avg.toFixed(1)}</span>
+                  <span className="text-gray-400">({r.count})</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {view === "archive" ? (
             <ArchiveView
@@ -717,6 +762,18 @@ export default function ConversationsPage() {
                           {threadOf.resolution ? ` · ${threadOf.resolution}` : ""}
                         </p>
                       ) : null}
+                      {threadOf.csat_rating ? (
+                        <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                          <span className="font-medium tracking-wider text-amber-500">{stars(threadOf.csat_rating)}</span>
+                          {" "}Customer rated
+                          {threadOf.csat_agent_id && agents[threadOf.csat_agent_id] ? ` ${agents[threadOf.csat_agent_id]}` : " the rep"}
+                          {threadOf.csat_comment ? <span className="mt-0.5 block italic">&ldquo;{threadOf.csat_comment}&rdquo;</span> : null}
+                        </p>
+                      ) : threadOf.customer_resolved === false ? (
+                        <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800">
+                          Asked if it was resolved. The customer said they still need help.
+                        </p>
+                      ) : null}
                     </div>
                     <button
                       type="button"
@@ -736,6 +793,17 @@ export default function ConversationsPage() {
                         title="Assign to you; the AI stops replying"
                       >
                         Take it
+                      </button>
+                    ) : null}
+                    {threadOf.status !== "closed" ? (
+                      <button
+                        type="button"
+                        onClick={() => void askResolved()}
+                        disabled={asking}
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        title="Asks the customer if it's resolved. They get Yes / No buttons; Yes closes it and asks them to rate you. Uses what's in the reply box as the question, if anything."
+                      >
+                        <CircleHelp size={13} /> {asking ? "Asking…" : "Ask if resolved"}
                       </button>
                     ) : null}
                     {threadOf.status !== "closed" ? (
@@ -816,6 +884,9 @@ export default function ConversationsPage() {
                             ) : m.role === "agent" ? (
                               <>
                                 <Check size={10} /> {m.author_name ?? "Team"}
+                                {m.kind === "resolution_check" ? (
+                                  <span className="ml-1 rounded bg-sky-50 px-1 text-sky-700">asked if resolved</span>
+                                ) : null}
                               </>
                             ) : (
                               <>
@@ -971,6 +1042,14 @@ function Card({
             className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700"
           >
             Refund
+          </span>
+        ) : null}
+        {c.csat_rating ? (
+          <span
+            title={`Customer rating${c.csat_comment ? `: "${c.csat_comment}"` : ""}`}
+            className="text-[10px] tracking-wider text-amber-500"
+          >
+            {stars(c.csat_rating)}
           </span>
         ) : null}
         {c.has_attachments ? (
@@ -1177,6 +1256,11 @@ function ArchiveView({
                       ) : (
                         <span className="text-[11px] text-gray-300">—</span>
                       )}
+                      {c.csat_rating ? (
+                        <p className="mt-1 whitespace-nowrap text-[11px] tracking-wider text-amber-500" title={c.csat_comment ?? undefined}>
+                          {stars(c.csat_rating)}
+                        </p>
+                      ) : null}
                     </td>
                   </tr>
                 );

@@ -132,6 +132,7 @@ export async function GET(request: Request) {
   // first and step back to what the database has, so the inbox loads at
   // every stage.
   const COL_SETS: [string, boolean][] = [
+    [`${BASE_COLS}, has_attachments, refund_requested, phone, resolved_at, resolved_by, resolution, customer_resolved, csat_rating, csat_comment, csat_agent_id`, true],
     [`${BASE_COLS}, has_attachments, refund_requested, phone, resolved_at, resolved_by, resolution`, true],
     [`${BASE_COLS}, has_attachments, refund_requested, phone`, false],
     [`${BASE_COLS}, has_attachments, refund_requested`, false],
@@ -152,7 +153,7 @@ export async function GET(request: Request) {
   // Resolve assignee names in one round trip rather than a join per row —
   // the same handful of people own most of the queue.
   const ids = Array.from(
-    new Set((data ?? []).map((r) => r.assigned_to).filter(Boolean))
+    new Set((data ?? []).flatMap((r) => [r.assigned_to, r.csat_agent_id as string | null | undefined]).filter(Boolean))
   ) as string[];
   const agents: Record<string, string> = {};
   if (ids.length) {
@@ -172,6 +173,51 @@ export async function GET(request: Request) {
     conversations: data ?? [],
     agents,
     ...(status === "archive" ? { total: count ?? null, offset } : {}),
+    ...(status === "board" ? { ratings: await repRatings() } : {}),
     notReady: false,
   });
+}
+
+/**
+ * Rep scorecard for the board: average stars per rep over the last 90 days,
+ * from the survey customers fill in after saying "yes, it's resolved".
+ * Empty before migration 20261114060000.
+ */
+async function repRatings(): Promise<{ agentId: string; name: string; avg: number; count: number }[]> {
+  const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
+  const { data, error } = await supabaseServer
+    .from("support_conversations")
+    .select("csat_agent_id, csat_rating")
+    .not("csat_rating", "is", null)
+    .gte("csat_at", since)
+    .limit(2000);
+  if (error || !data?.length) return [];
+
+  const by = new Map<string, { sum: number; count: number }>();
+  for (const r of data as { csat_agent_id: string | null; csat_rating: number }[]) {
+    if (!r.csat_agent_id) continue;
+    const t = by.get(r.csat_agent_id) ?? { sum: 0, count: 0 };
+    t.sum += r.csat_rating;
+    t.count += 1;
+    by.set(r.csat_agent_id, t);
+  }
+  if (!by.size) return [];
+  const { data: people } = await supabaseServer
+    .from("profiles")
+    .select("id, first_name, email")
+    .in("id", Array.from(by.keys()));
+  const names = new Map(
+    ((people ?? []) as { id: string; first_name: string | null; email: string | null }[]).map((p) => [
+      p.id,
+      p.first_name?.trim() || p.email?.split("@")[0] || "Team",
+    ]),
+  );
+  return Array.from(by.entries())
+    .map(([agentId, t]) => ({
+      agentId,
+      name: names.get(agentId) ?? "Team",
+      avg: Math.round((t.sum / t.count) * 10) / 10,
+      count: t.count,
+    }))
+    .sort((a, b) => b.count - a.count);
 }

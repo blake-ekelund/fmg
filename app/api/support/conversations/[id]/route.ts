@@ -25,7 +25,7 @@ export const runtime = "nodejs";
 const MAX_REPLY = 4000;
 
 type PostBody = {
-  action?: "reply" | "note" | "status" | "claim";
+  action?: "reply" | "note" | "status" | "claim" | "check_resolved";
   text?: string;
   status?: "bot" | "needs_human" | "human" | "closed";
 };
@@ -95,7 +95,9 @@ export async function GET(
       .order("seq", { ascending: true })
       .limit(500)
       .returns<Array<Record<string, unknown> & { attachments?: unknown }>>();
-  let { data: messages, error: msgErr } = await loadMessages(`${BASE_COLS}, attachments`);
+  // `kind` arrives with migration 20261114060000, `attachments` with 20261114030000.
+  let { data: messages, error: msgErr } = await loadMessages(`${BASE_COLS}, attachments, kind`);
+  if (msgErr) ({ data: messages, error: msgErr } = await loadMessages(`${BASE_COLS}, attachments`));
   if (msgErr) ({ data: messages } = await loadMessages(BASE_COLS));
 
   // Customer photos sit in a private bucket. Hand the browser signed links
@@ -206,6 +208,48 @@ export async function POST(
     .maybeSingle();
   if (!conversation) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (action === "check_resolved") {
+    // "Has this been resolved?" A message the customer sees like any reply,
+    // but marked so their chat shows Yes / No buttons under it. Asking it
+    // takes the thread, and makes the asker the rep the survey rates.
+    const name = await agentName(user.id);
+    const text =
+      String(body.text ?? "").trim().slice(0, 500) ||
+      "Has everything been resolved for you? Just let me know below.";
+    const row = {
+      conversation_id: id,
+      role: "agent",
+      content: text,
+      author_id: user.id,
+      author_name: name,
+    };
+    let { error: insErr } = await supabaseServer
+      .from("support_messages")
+      .insert({ ...row, kind: "resolution_check" });
+    let buttons = true;
+    if (insErr) {
+      // Before the migration: still ask, the customer just types the answer.
+      ({ error: insErr } = await supabaseServer.from("support_messages").insert(row));
+      buttons = false;
+    }
+    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+
+    await supabaseServer
+      .from("support_conversations")
+      .update({
+        status: "human",
+        assigned_to: user.id,
+        agent_unread: false,
+        last_message_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    await supabaseServer
+      .from("support_conversations")
+      .update({ csat_agent_id: user.id, customer_resolved: null })
+      .eq("id", id);
+    return NextResponse.json({ ok: true, status: "human", buttons });
   }
 
   if (action === "claim") {
