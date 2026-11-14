@@ -250,52 +250,69 @@ export default function CustomerDetailPage({
         description={`${isD2C ? "D2C" : "Wholesale"} customer details, orders, sales, and emails.`}
       />
 
-      {/* Header — name lives in the top bar; ID + status stay here */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div className="min-w-0 flex items-center gap-3">
-          <p className="text-sm text-gray-500 font-mono">{customerId}</p>
-          {status && (
-            <span className={clsx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", status.bg, status.color)}>
-              {status.label}
-            </span>
+      {/* Header — a self-contained customer hero: identity on the left,
+          metric tiles on the right. */}
+      <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm sm:px-6 sm:py-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          {/* Identity */}
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-gray-900">
+              {customerName}
+            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs text-gray-400">#{customerId}</span>
+              {status && (
+                <span className={clsx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", status.bg, status.color)}>
+                  {status.label}
+                </span>
+              )}
+              {contact?.primary_channel && (
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                  {contact.primary_channel}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Metric tiles */}
+          {(summary || contact) && (
+            <div className="grid grid-cols-2 gap-2.5 sm:flex sm:items-stretch sm:gap-3">
+              {(summary?.lifetime_revenue ?? contact?.lifetime_revenue) != null && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 sm:min-w-[132px]">
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400">Lifetime revenue</div>
+                  <div className="mt-0.5 text-xl font-semibold tabular-nums text-gray-900">
+                    ${(summary?.lifetime_revenue ?? contact?.lifetime_revenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              )}
+
+              {ttmTrend && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 sm:min-w-[108px]">
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400">TTM trend</div>
+                  <div className={clsx("mt-0.5 flex items-center gap-1 text-xl font-semibold tabular-nums", {
+                    "text-green-600": ttmTrend.direction === "up",
+                    "text-red-600": ttmTrend.direction === "down",
+                    "text-gray-500": ttmTrend.direction === "flat",
+                  })}>
+                    {ttmTrend.direction === "up" && <TrendingUp size={16} />}
+                    {ttmTrend.direction === "down" && <TrendingDown size={16} />}
+                    {ttmTrend.direction === "flat" && <Minus size={16} />}
+                    {ttmTrend.direction === "flat" ? "Flat" : `${ttmTrend.pct}%`}
+                  </div>
+                </div>
+              )}
+
+              {orderCount != null && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-2.5 sm:min-w-[96px]">
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400">Orders</div>
+                  <div className="mt-0.5 text-xl font-semibold tabular-nums text-gray-900">
+                    {orderCount.toLocaleString("en-US")}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
-
-        {(summary || contact) && (
-          <div className="flex items-center gap-4 shrink-0">
-            {contact?.primary_channel && (
-              <div className="text-right">
-                <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Channel</div>
-                <div className="text-sm font-medium text-gray-700">{contact.primary_channel}</div>
-              </div>
-            )}
-
-            {ttmTrend && (
-              <div className="text-right">
-                <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">TTM Trend</div>
-                <div className={clsx("flex items-center justify-end gap-1 text-sm font-semibold", {
-                  "text-green-600": ttmTrend.direction === "up",
-                  "text-red-600": ttmTrend.direction === "down",
-                  "text-gray-500": ttmTrend.direction === "flat",
-                })}>
-                  {ttmTrend.direction === "up" && <TrendingUp size={14} />}
-                  {ttmTrend.direction === "down" && <TrendingDown size={14} />}
-                  {ttmTrend.direction === "flat" && <Minus size={14} />}
-                  {ttmTrend.direction === "flat" ? "Flat" : `${ttmTrend.pct}%`}
-                </div>
-              </div>
-            )}
-
-            {(summary?.lifetime_revenue ?? contact?.lifetime_revenue) != null && (
-              <div className="text-right">
-                <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Lifetime Revenue</div>
-                <div className="text-lg font-semibold tabular-nums text-gray-900">
-                  ${(summary?.lifetime_revenue ?? contact?.lifetime_revenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* ─── Churned Re-engagement Banner ─── */}
