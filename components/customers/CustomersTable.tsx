@@ -97,6 +97,7 @@ const alignClass: Record<Align, string> = {
 export default function CustomersTable({
   customers = [],
   loading,
+  error = null,
   sortColumn,
   sortDir,
   onSort,
@@ -110,6 +111,8 @@ export default function CustomersTable({
 }: {
   customers?: (Customer | D2CCustomer)[];
   loading: boolean;
+  /** Set when the last fetch failed — shown instead of the empty state. */
+  error?: string | null;
   sortColumn: SortColumn;
   sortDir: "asc" | "desc";
   onSort: (column: SortColumn) => void;
@@ -259,7 +262,16 @@ export default function CustomersTable({
               </tr>
             )}
 
-            {!loading && safeCustomers.length === 0 && (
+            {!loading && error && (
+              <tr>
+                <td colSpan={colCount} className="px-4 py-8 text-center">
+                  <div className="text-sm font-medium text-red-600">Couldn&apos;t load customers</div>
+                  <div className="mx-auto mt-1 max-w-md text-xs text-red-500">{error}</div>
+                </td>
+              </tr>
+            )}
+
+            {!loading && !error && safeCustomers.length === 0 && (
               <tr>
                 <td colSpan={colCount} className="py-8 text-center text-sm text-slate-400">
                   No customers match your filters.
@@ -362,7 +374,16 @@ export default function CustomersTable({
             </tr>
           )}
 
-          {!loading && safeCustomers.length === 0 && (
+          {!loading && error && (
+            <tr>
+              <td colSpan={colCount} className="px-4 py-8 text-center">
+                <div className="text-sm font-medium text-red-600">Couldn&apos;t load customers</div>
+                <div className="mx-auto mt-1 max-w-md text-xs text-red-500">{error}</div>
+              </td>
+            </tr>
+          )}
+
+          {!loading && !error && safeCustomers.length === 0 && (
             <tr>
               <td colSpan={colCount} className="py-8 text-center text-sm text-slate-400">
                 No customers match your filters.

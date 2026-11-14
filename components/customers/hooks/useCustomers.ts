@@ -193,6 +193,7 @@ export function useCustomers({
     atRisk: 0,
     churned: 0,
   });
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -316,10 +317,12 @@ export function useCustomers({
           console.error(error);
           // Surface the failure instead of leaving the previous page's rows
           // on screen looking like a valid result for the new filters.
+          setError(error.message || "Couldn't load customers.");
           setCustomers([]);
           setTotalCount(0);
           setStats({ all: 0, active: 0, atRisk: 0, churned: 0 });
         } else {
+          setError(null);
           /* Stamp the flag onto each row so the badge matches the bucket the
              row was selected into — the table shouldn't re-derive status from
              dates and contradict the filter that produced it. */
@@ -441,6 +444,7 @@ export function useCustomers({
   return {
     customers,
     loading,
+    error,
     totalCount,
     channelOptions,
     agencyOptions,

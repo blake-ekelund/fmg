@@ -131,6 +131,7 @@ export function useD2CCustomers({
     churned: 0,
   });
   const [stateOptions, setStateOptions] = useState<{ label: string; value: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -202,10 +203,12 @@ export function useD2CCustomers({
           console.error(error);
           // Don't leave the previous filter's rows on screen as if they were
           // a valid result for the new one.
+          setError(error.message || "Couldn't load customers.");
           setCustomers([]);
           setTotalCount(0);
           setStats({ all: 0, active: 0, atRisk: 0, churned: 0 });
         } else {
+          setError(null);
           setCustomers((data as D2CCustomer[]) ?? []);
           setTotalCount(count ?? 0);
           setStats({
@@ -244,5 +247,5 @@ export function useD2CCustomers({
     return () => { cancelled = true; };
   }, [enabled]);
 
-  return { customers, loading, totalCount, stats, stateOptions };
+  return { customers, loading, error, totalCount, stats, stateOptions };
 }

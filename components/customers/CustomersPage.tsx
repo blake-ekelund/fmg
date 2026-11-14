@@ -225,6 +225,7 @@ export default function CustomersPage({
   const {
     customers: wholesaleCustomers = [],
     loading: wholesaleLoading = false,
+    error: wholesaleError = null,
     totalCount: wholesaleTotalCount = 0,
     channelOptions = [],
     agencyOptions = [],
@@ -252,6 +253,7 @@ export default function CustomersPage({
   const {
     customers: d2cCustomers = [],
     loading: d2cLoading = false,
+    error: d2cError = null,
     totalCount: d2cTotalCount = 0,
     stateOptions: d2cStateOptions = [],
     stats: d2cStats = { all: 0, active: 0, atRisk: 0, churned: 0 },
@@ -273,6 +275,7 @@ export default function CustomersPage({
   /* ─── Active data based on view mode ─── */
   const isD2C = viewMode === "d2c";
   const loading = isD2C ? d2cLoading : wholesaleLoading;
+  const loadError = isD2C ? d2cError : wholesaleError;
   const totalCount = isD2C ? d2cTotalCount : wholesaleTotalCount;
   const stats = isD2C ? d2cStats : wholesaleStats;
   const stateOptions = isD2C ? d2cStateOptions : wholesaleStateOptions;
@@ -651,6 +654,7 @@ export default function CustomersPage({
       <CustomersTable
         customers={isD2C ? d2cCustomers : wholesaleCustomers}
         loading={loading}
+        error={loadError}
         sortColumn={sortColumn}
         sortDir={sortDir}
         onSort={handleSort}
