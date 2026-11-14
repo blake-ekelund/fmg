@@ -13,6 +13,10 @@ export type AnalysisRow = {
   revenue: number;
 };
 
+/** Current year first, then the two before it. */
+const THIS_YEAR = new Date().getFullYear();
+export const ANALYSIS_YEARS = [THIS_YEAR, THIS_YEAR - 1, THIS_YEAR - 2] as const;
+
 export default function useCustomerSalesAnalysis(
   customerId: string | null,
   enabled: boolean,
@@ -34,7 +38,7 @@ export default function useCustomerSalesAnalysis(
         .from(table)
         .select("*")
         .eq(filterField, customerId)
-        .in("year", [2024, 2025, 2026])
+        .in("year", [...ANALYSIS_YEARS])
         .order("year", { ascending: false });
 
       if (error) {
