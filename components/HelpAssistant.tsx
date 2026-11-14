@@ -311,27 +311,6 @@ export default function HelpAssistant() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  /* Save the conversation to the user's Sage history after each reply, so Sage
-     can recall it later and it shows under History. Best-effort: if history
-     isn't set up (migration not applied) the server returns id null. */
-  async function persist(all: ChatMessage[]) {
-    try {
-      const res = await fetch("/api/help/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ id: conversationIdRef.current, messages: all }),
-      });
-      const j = (await res.json().catch(() => null)) as { id?: string | null } | null;
-      if (res.ok && j?.id) {
-        conversationIdRef.current = j.id;
-        setConversationId(j.id);
-        historyChanged();
-      }
-    } catch {
-      /* history is a nice-to-have — never block the chat on it */
-    }
-  }
-
   async function openHistory() {
     setView("history");
     setHistory(null);
@@ -534,13 +513,11 @@ export default function HelpAssistant() {
         setMessages([...next, assistantMessage(reply, [...actions])]);
       }
       if (!reply.trim() && !actions.length) throw new Error("Sage didn't send a reply. Try again.");
-      void persist([...next, assistantMessage(reply, actions)]);
       announceDone(true, Date.now() - startedAt);
     } catch (e) {
       // Keep anything Sage already made — the draft exists even if the reply broke off.
       const kept: ChatMessage[] = reply || actions.length ? [...next, assistantMessage(reply, actions)] : next;
       setMessages(kept);
-      if (kept.length > next.length) void persist(kept);
       const msg = e instanceof Error ? e.message : "Something went wrong.";
       setError(msg);
       announceDone(false, Date.now() - startedAt);
@@ -597,7 +574,6 @@ export default function HelpAssistant() {
           },
     );
     setMessages(out);
-    void persist(out);
   }
 
   async function runConfirm(i: number, j: number) {
