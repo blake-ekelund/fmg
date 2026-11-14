@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import clsx from "clsx";
 import { ForecastRow as Row, getInventoryStatus, Period } from "./types";
 import { project, colorFor } from "./utils/forecast";
+import { describeDemand } from "@/lib/seasonalDemand";
 import { brandBadgeStyle, BrandSettings } from "@/lib/brand-settings";
 
 type Props = {
@@ -107,7 +108,9 @@ export default function ForecastRow({
     row.on_hand,
     row.on_order,
     row.avg_monthly_demand,
+    row.demand,
   );
+  const seasonal = row.demand?.method === "seasonal";
   const visuals = statusVisuals(statusLabel);
   const now = useMemo(() => new Date(), []);
   const brandStyle = brandBadgeStyle(brandSettings?.primary_color);
@@ -216,31 +219,48 @@ export default function ForecastRow({
         />
       </td>
 
-      {/* Avg / Mo (editable) */}
-      <td className="px-2 py-2 text-right" onClick={stopRow}>
-        <input
-          type="text"
-          inputMode="numeric"
-          value={avgText}
-          onChange={(e) => {
-            setAvgText(e.target.value);
-            onUpdateAvg(row.part, parseFormatted(e.target.value));
-          }}
-          onBlur={() => {
-            const parsed = parseFormatted(avgText);
-            setAvgText(formatNumber(parsed));
-            onUpdateAvg(row.part, parsed);
-          }}
-          className={inputClass}
-        />
+      {/* Avg / Mo — editable for flat rows; seasonal rows are forecast from
+          their own history, so the cell shows the 12-month average read-only. */}
+      <td
+        className="px-2 py-2 text-right"
+        onClick={stopRow}
+        title={row.demand ? describeDemand(row.demand) : undefined}
+      >
+        {seasonal ? (
+          <span className="inline-flex items-center justify-end gap-1 text-xs tabular-nums text-gray-700">
+            <span className="rounded bg-violet-50 px-1 text-[9px] font-semibold uppercase tracking-wide text-violet-700">
+              Seasonal
+            </span>
+            {formatNumber(row.avg_monthly_demand)}
+          </span>
+        ) : (
+          <input
+            type="text"
+            inputMode="numeric"
+            value={avgText}
+            onChange={(e) => {
+              setAvgText(e.target.value);
+              onUpdateAvg(row.part, parseFormatted(e.target.value));
+            }}
+            onBlur={() => {
+              const parsed = parseFormatted(avgText);
+              setAvgText(formatNumber(parsed));
+              onUpdateAvg(row.part, parsed);
+            }}
+            className={inputClass}
+          />
+        )}
       </td>
 
       {/* Projection columns (monthly or quarterly, driven by periods prop) */}
       {periods.map((p, i) => {
         const v = project(row, p.index, now);
+        // Sales expected in this period: the drop from the previous column.
+        const before = i === 0 ? row.on_hand + row.on_order : project(row, periods[i - 1].index, now);
         return (
           <td
             key={i}
+            title={`Expected sales: ${formatNumber(Math.round(before - v))}`}
             className={clsx(
               "px-2 py-2 text-right tabular-nums text-xs",
               colorFor(v, row.avg_monthly_demand),

@@ -213,10 +213,14 @@ export default function ForecastSection({
   /* ─── Updates ─── */
 
   function updateAvg(part: string, value: number) {
+    // Seasonal rows are forecast from their own sales history — a typed number
+    // wouldn't be used, so the cell is read-only there (ForecastRow/Table).
+    if (rows.find((r) => r.part === part)?.demand?.method === "seasonal") return;
     setRows((prev) =>
       prev.map((r) =>
         r.part === part
-          ? { ...r, avg_monthly_demand: value, is_auto_avg: false }
+          ? // A typed number replaces the flat profile, so projections use it now.
+            { ...r, avg_monthly_demand: value, is_auto_avg: false, demand: undefined }
           : r,
       ),
     );
@@ -270,6 +274,7 @@ export default function ForecastSection({
       "Variance (Point B Physical - Fishbowl)",
       "On Order",
       "Avg Monthly Demand",
+      "Demand Basis",
       "Lead Time (Months)",
       ...monthLabels,
     ];
@@ -280,6 +285,7 @@ export default function ForecastSection({
         row.on_hand,
         row.on_order,
         row.avg_monthly_demand,
+        row.demand,
       );
       const projections: number[] = [];
       for (let i = 0; i < 12; i++) {
@@ -301,6 +307,11 @@ export default function ForecastSection({
         row.variance ?? "",
         row.on_order,
         row.avg_monthly_demand,
+        row.demand?.method === "seasonal"
+          ? "Seasonal (last year × trend)"
+          : row.is_auto_avg
+            ? "Last 90 days ÷ 3"
+            : "Typed",
         row.lead_time_months ?? 0,
         ...projections,
       ];
@@ -399,6 +410,7 @@ export default function ForecastSection({
           r.on_hand,
           r.on_order,
           r.avg_monthly_demand,
+          r.demand,
         );
         const haystack = [r.part, r.display_name, r.fragrance, status]
           .filter(Boolean)
@@ -411,6 +423,7 @@ export default function ForecastSection({
           r.on_hand,
           r.on_order,
           r.avg_monthly_demand,
+          r.demand,
         );
         if (!statusFilter.has(status)) return false;
       }
@@ -435,6 +448,7 @@ export default function ForecastSection({
         r.on_hand,
         r.on_order,
         r.avg_monthly_demand,
+        r.demand,
       );
       c[s]++;
     }
@@ -451,11 +465,11 @@ export default function ForecastSection({
         case "status": {
           const sa =
             STATUS_RANK[
-              getInventoryStatus(a.on_hand, a.on_order, a.avg_monthly_demand)
+              getInventoryStatus(a.on_hand, a.on_order, a.avg_monthly_demand, a.demand)
             ];
           const sb =
             STATUS_RANK[
-              getInventoryStatus(b.on_hand, b.on_order, b.avg_monthly_demand)
+              getInventoryStatus(b.on_hand, b.on_order, b.avg_monthly_demand, b.demand)
             ];
           cmp = sa - sb;
           break;

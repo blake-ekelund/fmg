@@ -10,6 +10,7 @@
  */
 
 import type { BomPart } from "./fishbowlBom";
+import { demandAhead, monthsOfCover, type DemandProfile } from "./seasonalDemand";
 import {
   FILLER_LOCATION,
   awayFromFiller,
@@ -33,9 +34,9 @@ export const NO_VENDOR = "No vendor on file";
 
 /** Same statuses and thresholds as the Inventory page (forecasting/types.ts). */
 export type PlanStatus = "at risk" | "needs review" | "healthy" | "no demand";
-export function statusFor(onHand: number, onOrder: number, avg: number): PlanStatus {
-  if (avg <= 0) return "no demand";
-  const mos = (onHand + onOrder) / avg;
+export function statusFor(onHand: number, onOrder: number, avg: number, demand?: DemandProfile): PlanStatus {
+  if ((demand ? demand.avg : avg) <= 0) return "no demand";
+  const mos = demand ? monthsOfCover(onHand + onOrder, demand) : (onHand + onOrder) / avg;
   if (mos > 3) return "healthy";
   if (mos > 1.5) return "needs review";
   return "at risk";
@@ -49,7 +50,8 @@ export type PlanRow = {
   onOrder: number;
   avg: number;
   have: number;
-  /** Months of cover: (on hand + on order) ÷ avg. Null with no demand. */
+  /** Months of cover: (on hand + on order) against the coming months' demand
+   *  (seasonal when the product has a profile, else ÷ avg). Null with no demand. */
   cover: number | null;
   /** Units to make to reach the target months. */
   suggested: number;
@@ -62,8 +64,25 @@ export function toPlanRow(
   onOrder: number,
   avg: number,
   targetMonths: number,
+  /** Month-by-month demand (lib/seasonalDemand). Seasonal products plan for
+   *  what the NEXT `targetMonths` are forecast to sell — more ahead of spring,
+   *  less ahead of summer — instead of targetMonths × a yearly average. */
+  demand?: DemandProfile,
 ): PlanRow {
   const have = onHand + onOrder;
+  if (demand && demand.avg > 0) {
+    return {
+      part,
+      name,
+      status: statusFor(onHand, onOrder, avg, demand),
+      onHand,
+      onOrder,
+      avg: Math.round(demand.avg),
+      have,
+      cover: monthsOfCover(have, demand),
+      suggested: Math.max(0, Math.ceil(demandAhead(demand, targetMonths) - have)),
+    };
+  }
   return {
     part,
     name,

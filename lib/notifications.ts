@@ -1,5 +1,7 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isOverstock, isUnderstock, COVERAGE_MONTHS, OVERSTOCK_MIN_MONTHS } from "@/lib/inventoryHealth";
+import { getDemandProfiles } from "@/lib/seasonalDemandServer";
+import type { DemandProfile } from "@/lib/seasonalDemand";
 
 /**
  * The top-bar notification bell.
@@ -277,6 +279,9 @@ async function inventoryItems(): Promise<NotificationItem[]> {
     ((units90.data ?? []) as { part: string; units_last_90_days: number }[]).map((r) => [r.part, r.units_last_90_days]),
   );
 
+  // Seasonal month-by-month demand, shared with the dashboard and Inventory page.
+  const demand = await getDemandProfiles().catch(() => new Map<string, DemandProfile>());
+
   let under = 0;
   let over = 0;
   for (const p of rows) {
@@ -287,7 +292,7 @@ async function inventoryItems(): Promise<NotificationItem[]> {
       p.avg_monthly_demand && p.avg_monthly_demand > 0
         ? p.avg_monthly_demand
         : Math.round((units90Map.get(p.part) ?? 0) / 3);
-    const shape = { on_hand, on_order, avg_monthly_demand, display_name: p.display_name };
+    const shape = { on_hand, on_order, avg_monthly_demand, display_name: p.display_name, demand: demand.get(p.part) };
     if (isUnderstock(shape)) under += 1;
     if (isOverstock(shape)) over += 1;
   }

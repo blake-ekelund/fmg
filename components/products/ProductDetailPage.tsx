@@ -41,6 +41,8 @@ import ProductPhotos from "./ProductPhotos";
 import { DetailsSection } from "./DetailsSection";
 import BomSection from "./BomSection";
 import SitePreviewSection from "./SitePreviewSection";
+import { fetchDemandProfiles } from "@/lib/demandClient";
+import { describeDemand, monthsOfCover, type DemandProfile } from "@/lib/seasonalDemand";
 
 /* ─── Types ─── */
 
@@ -300,6 +302,21 @@ export default function ProductDetailPage({
       }
     }
     loadForecast();
+  }, [part]);
+
+  /* Seasonal demand (lib/seasonalDemand) — same profile the Inventory page
+     uses. Only a SEASONAL profile drives this page; flat products keep using
+     the editable Avg Monthly Demand field below. */
+  const [seasonal, setSeasonal] = useState<DemandProfile | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchDemandProfiles().then((m) => {
+      const p = m.get(part);
+      if (!cancelled) setSeasonal(p && p.method === "seasonal" ? p : null);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [part]);
 
   /* Auto-fill avg_monthly_demand from trailing 90d and default lead time.
@@ -562,8 +579,12 @@ export default function ProductDetailPage({
       on_hand: forecastOnHand,
       on_order: forecastOnOrder,
       snapshot_id: forecastSnapshotId ?? "",
+      demand: seasonal ?? undefined,
     };
-  }, [form, forecastOnHand, forecastOnOrder, forecastSnapshotId]);
+  }, [form, forecastOnHand, forecastOnOrder, forecastSnapshotId, seasonal]);
+
+  /** The demand the projection runs on: seasonal 12-month average, else the field. */
+  const demandAvg = seasonal ? seasonal.avg : (form?.avg_monthly_demand ?? 0);
 
   const forecastMonths = 12;
   const forecastProjections = useMemo(() => {
@@ -581,18 +602,20 @@ export default function ProductDetailPage({
   }, [forecastRow]);
 
   const monthsOfSupply = useMemo(() => {
-    if (!form || form.avg_monthly_demand <= 0) return null;
+    if (!form || demandAvg <= 0) return null;
+    // Seasonal: walk the coming months' forecast, not stock ÷ a yearly average.
+    if (seasonal) return monthsOfCover(forecastOnHand + forecastOnOrder, seasonal);
     return (forecastOnHand + forecastOnOrder) / form.avg_monthly_demand;
-  }, [form, forecastOnHand, forecastOnOrder]);
+  }, [form, forecastOnHand, forecastOnOrder, seasonal, demandAvg]);
 
   const forecastStatus = useMemo(() => {
-    if (!form || form.avg_monthly_demand <= 0)
+    if (!form || demandAvg <= 0)
       return { label: "No demand data", color: "text-gray-400", bg: "bg-gray-50", icon: Package };
     if (monthsOfSupply === null) return { label: "Unknown", color: "text-gray-400", bg: "bg-gray-50", icon: Package };
     if (monthsOfSupply > 3) return { label: "Healthy", color: "text-green-700", bg: "bg-green-50", icon: CheckCircle };
     if (monthsOfSupply > 1.5) return { label: "Needs Review", color: "text-amber-700", bg: "bg-amber-50", icon: AlertTriangle };
     return { label: "At Risk", color: "text-red-700", bg: "bg-red-50", icon: AlertTriangle };
-  }, [form, monthsOfSupply]);
+  }, [form, monthsOfSupply, demandAvg]);
 
   /* ─── Tab status indicators ─── */
 
@@ -603,7 +626,7 @@ export default function ProductDetailPage({
   const tabIndicators = useMemo((): Record<Section, TabIndicator> => {
     // Inventory & Forecast
     let invIndicator: TabIndicator = null;
-    if (form && form.avg_monthly_demand > 0 && monthsOfSupply !== null) {
+    if (form && demandAvg > 0 && monthsOfSupply !== null) {
       if (monthsOfSupply > 3) invIndicator = { color: "text-green-700", bg: "bg-green-100", label: "Healthy" };
       else if (monthsOfSupply > 1.5) invIndicator = { color: "text-amber-700", bg: "bg-amber-100", label: "Review" };
       else invIndicator = { color: "text-red-700", bg: "bg-red-100", label: "At Risk" };
@@ -642,7 +665,7 @@ export default function ProductDetailPage({
       media: mediaIndicator,
       site: null,
     };
-  }, [form, monthsOfSupply, trend, trendCfg, mediaText, missingPhotoCount]);
+  }, [form, monthsOfSupply, demandAvg, trend, trendCfg, mediaText, missingPhotoCount]);
 
   /* ─── Loading / Not Found ─── */
 
@@ -931,6 +954,12 @@ export default function ProductDetailPage({
                     <FormattedNumField label="Lead Time (mo)" value={form.lead_time_months} onChange={(v) => update("lead_time_months", v)} />
                     <FormattedNumField label="Avg Monthly Demand" value={form.avg_monthly_demand} onChange={(v) => update("avg_monthly_demand", v)} />
                   </div>
+                  {seasonal && (
+                    <p className="mt-3 text-[11px] leading-relaxed text-gray-500">
+                      This product is forecast seasonally from its own sales history, so Avg Monthly Demand is only a
+                      fallback. {describeDemand(seasonal)}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -939,11 +968,14 @@ export default function ProductDetailPage({
                 <div className="px-5 py-4 border-b border-gray-100">
                   <h2 className="text-sm font-medium text-gray-900">12-Month Projection</h2>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Based on {fmtNum(form.avg_monthly_demand)} units/mo demand · {form.lead_time_months}mo lead time
+                    {seasonal
+                      ? `Seasonal — last year's monthly sales × ${Math.round((seasonal.trend ?? 0) * 100)}% trend (avg ${fmtNum(Math.round(seasonal.avg))}/mo)`
+                      : `Based on ${fmtNum(form.avg_monthly_demand)} units/mo demand`}{" "}
+                    · {form.lead_time_months}mo lead time
                   </p>
                 </div>
 
-                {form.avg_monthly_demand > 0 ? (
+                {demandAvg > 0 ? (
                   <>
                     <div className="px-4 pt-4 pb-2">
                       <ResponsiveContainer width="100%" height={200}>

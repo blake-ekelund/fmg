@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useBrand } from "@/components/BrandContext";
 import type { VarianceRow } from "@/lib/inventoryVariance";
 import { fetchPointBRows, normPart, resolveOnHand } from "@/lib/inventoryOnHand";
+import { fetchDemandProfiles } from "@/lib/demandClient";
 import { ForecastRow } from "../types";
 
 type Units90Row = {
@@ -60,6 +61,10 @@ export function useForecastData() {
       }
       return fetchPointBRows();
     })();
+
+    // Seasonal month-by-month demand, in parallel with everything else. An
+    // empty map (API down) leaves every row on the flat avg, as before.
+    const demandPromise = fetchDemandProfiles();
 
     async function load() {
       setLoading(true);
@@ -126,6 +131,8 @@ export function useForecastData() {
         ]) ?? []
       );
 
+      const demand = await demandPromise;
+
       /* -------------------------------
          4. Merge + compute avg / mo
       -------------------------------- */
@@ -133,6 +140,7 @@ export function useForecastData() {
         products?.map((p) => {
           const inv = inventoryMap.get(p.part);
           const units90 = units90Map.get(p.part) ?? 0;
+          const profile = demand.get(p.part);
 
           const hasManualAvg =
             !!p.avg_monthly_demand && p.avg_monthly_demand > 0;
@@ -154,10 +162,13 @@ export function useForecastData() {
             pointb_on_hand: null,
             variance: null,
             on_order: inv?.on_order ?? 0,
+            // Seasonal products show their 12-month average; projections and
+            // status walk the month-by-month profile (row.demand).
             avg_monthly_demand: Math.round(
-              hasManualAvg ? p.avg_monthly_demand : avgFromSales,
+              profile ? profile.avg : hasManualAvg ? p.avg_monthly_demand : avgFromSales,
             ),
-            is_auto_avg: !hasManualAvg,
+            is_auto_avg: profile ? profile.method !== "manual" : !hasManualAvg,
+            demand: profile,
           };
         }) ?? [];
 

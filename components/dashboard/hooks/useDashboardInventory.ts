@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { fetchPointBRows, normPart, resolveOnHand } from "@/lib/inventoryOnHand";
+import { fetchDemandProfiles } from "@/lib/demandClient";
+import { monthsOfCover, type DemandProfile } from "@/lib/seasonalDemand";
 import type { VarianceRow } from "@/lib/inventoryVariance";
 import type { BrandFilter } from "@/types/brand";
 
@@ -22,6 +24,9 @@ export type DashboardInventoryItem = {
   avg_monthly_demand: number;
   months_of_supply: number;
   status: InventoryStatus;
+  /** Month-by-month demand (seasonal for products with a year of history);
+   *  same source as the Inventory page, so the counts here match it. */
+  demand?: DemandProfile;
 };
 
 export type InventoryKPIs = {
@@ -37,10 +42,11 @@ export type InventoryKPIs = {
 function classifyStatus(
   onHand: number,
   onOrder: number,
-  avgDemand: number
+  avgDemand: number,
+  demand?: DemandProfile,
 ): { status: InventoryStatus; monthsOfSupply: number } {
-  if (avgDemand <= 0) return { status: "no_demand", monthsOfSupply: Infinity };
-  const months = (onHand + onOrder) / avgDemand;
+  if ((demand ? demand.avg : avgDemand) <= 0) return { status: "no_demand", monthsOfSupply: Infinity };
+  const months = demand ? monthsOfCover(onHand + onOrder, demand) : (onHand + onOrder) / avgDemand;
   if (months < 1.5) return { status: "at_risk", monthsOfSupply: months };
   if (months < 3) return { status: "review", monthsOfSupply: months };
   return { status: "healthy", monthsOfSupply: months };
@@ -77,6 +83,7 @@ export function useDashboardInventory(brand: BrandFilter) {
           error: e instanceof Error ? e.message : String(e),
         }),
       );
+      const demandPromise = fetchDemandProfiles();
 
       // 1. Forecasted products
       let productsQuery = supabase
@@ -125,6 +132,7 @@ export function useDashboardInventory(brand: BrandFilter) {
       );
 
       const pointb = await pointbPromise;
+      const demand = await demandPromise;
       if (cancelled) return;
 
       // 4. Merge & classify
@@ -136,14 +144,16 @@ export function useDashboardInventory(brand: BrandFilter) {
         ).onHand;
         const onOrder = inv?.on_order ?? 0;
         const units = units90Map.get(p.part) ?? 0;
-        const avgDemand =
-          p.avg_monthly_demand && p.avg_monthly_demand > 0
+        const profile = demand.get(p.part);
+        const avgDemand = profile
+          ? Math.round(profile.avg)
+          : p.avg_monthly_demand && p.avg_monthly_demand > 0
             ? p.avg_monthly_demand
             : // Rounded like the Inventory page, so a borderline SKU gets
               // the same status in both places.
               Math.round(units / 3);
 
-        const { status, monthsOfSupply } = classifyStatus(onHand, onOrder, avgDemand);
+        const { status, monthsOfSupply } = classifyStatus(onHand, onOrder, avgDemand, profile);
 
         return {
           part: p.part,
@@ -157,6 +167,7 @@ export function useDashboardInventory(brand: BrandFilter) {
           avg_monthly_demand: avgDemand,
           months_of_supply: monthsOfSupply,
           status,
+          demand: profile,
         };
       });
 

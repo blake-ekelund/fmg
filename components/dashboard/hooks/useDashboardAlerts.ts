@@ -11,6 +11,7 @@ import {
   OVERSTOCK_MIN_MONTHS,
   isOverstock,
   isUnderstock,
+  unitsShort,
 } from "@/lib/inventoryHealth";
 
 /**
@@ -193,10 +194,9 @@ export function useDashboardAlerts({
     for (const it of items) {
       if (!isUnderstock(it)) continue;
       underCount += 1;
-      const shortUnits = Math.max(
-        0,
-        COVERAGE_MONTHS * it.avg_monthly_demand - (it.on_hand + it.on_order)
-      );
+      // Seasonal: what the NEXT three months are forecast to sell, not 3× a
+      // yearly average (lib/inventoryHealth.unitsShort).
+      const shortUnits = unitsShort(it);
       underShortUnits += shortUnits;
       const econ = economics.get(it.part);
       const revPerUnit = econ && econ.units > 0 ? econ.revenue / econ.units : null;

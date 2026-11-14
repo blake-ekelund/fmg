@@ -3,8 +3,9 @@
  * "what should I order?" with exactly the numbers the page shows.
  *
  * Same sources, same rules:
- *  - products: forecasted inventory_products; demand = manual Avg/Mo, else
- *    last-90-days units ÷ 3 (rounded) — as useForecastData.
+ *  - products: forecasted inventory_products; demand = the seasonal profile
+ *    (lib/seasonalDemand) for products with a year of history, else manual
+ *    Avg/Mo, else last-90-days units ÷ 3 (rounded) — as useForecastData.
  *  - product on-hand: Point B AVAILABLE first, Fishbowl snapshot fallback
  *    (resolveOnHand) — as the Inventory page.
  *  - ingredient stock: usableStock() over Fishbowl locations, Point B live for
@@ -26,6 +27,8 @@ import {
   type VendorSetting,
 } from "@/lib/bomPlan";
 import { toPlanRow, type PlanContext, type PlanRow, type PlanStatus } from "@/lib/purchasingPlan";
+import { getDemandProfiles } from "@/lib/seasonalDemandServer";
+import type { DemandProfile } from "@/lib/seasonalDemand";
 
 export type ServerPlan = {
   universe: BomUniverse;
@@ -87,7 +90,7 @@ export async function loadServerPlan(opts: {
     }
   }
 
-  const [{ data: products }, { data: units90 }, partSet, vendorSet] = await Promise.all([
+  const [{ data: products }, { data: units90 }, partSet, vendorSet, demand] = await Promise.all([
     supabaseServer
       .from("inventory_products")
       .select("part, display_name, avg_monthly_demand")
@@ -95,6 +98,9 @@ export async function loadServerPlan(opts: {
     supabaseServer.from("units_by_product_last_90_days").select("part, units_last_90_days"),
     supabaseServer.from("purchasing_part_settings").select("*"),
     supabaseServer.from("purchasing_vendor_settings").select("*"),
+    // Seasonal month-by-month demand, as the Purchasing page uses. Failing
+    // falls back to the flat avg below rather than breaking the plan.
+    getDemandProfiles().catch(() => new Map<string, DemandProfile>()),
   ]);
   const u90 = new Map((units90 ?? []).map((r: { part: string; units_last_90_days: number }) => [r.part, r.units_last_90_days]));
 
@@ -105,7 +111,7 @@ export async function loadServerPlan(opts: {
     const avg = Math.round(manual > 0 ? manual : (u90.get(p.part) ?? 0) / 3);
     const snap = snapOf.get(p.part);
     const onHand = resolveOnHand(snap ? snap.on_hand : null, pointb.get(normPart(p.part))).onHand;
-    rows.push(toPlanRow(p.part, p.display_name || p.part, onHand, snap?.on_order ?? 0, avg, targetMonths));
+    rows.push(toPlanRow(p.part, p.display_name || p.part, onHand, snap?.on_order ?? 0, avg, targetMonths, demand.get(p.part)));
   }
   const rowOf = new Map(rows.map((r) => [r.part, r]));
 

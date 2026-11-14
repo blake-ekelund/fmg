@@ -130,7 +130,7 @@ export default function PurchasingPage({
     return products
       .filter((p) => !!boms[p.part])
       .map((p) => ({
-        ...toPlanRow(p.part, p.display_name || p.part, p.on_hand, p.on_order, p.avg_monthly_demand, targetMonths),
+        ...toPlanRow(p.part, p.display_name || p.part, p.on_hand, p.on_order, p.avg_monthly_demand, targetMonths, p.demand),
         p,
       }));
   }, [products, boms, targetMonths]);

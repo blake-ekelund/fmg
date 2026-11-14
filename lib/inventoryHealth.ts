@@ -6,6 +6,8 @@
  * predicates live here rather than being re-derived (and drifting) in each.
  */
 
+import { demandAhead, monthsOfCover, type DemandProfile } from "@/lib/seasonalDemand";
+
 /** Stock we want covered by on-hand + inbound POs before a SKU reads as short. */
 export const COVERAGE_MONTHS = 3;
 
@@ -41,20 +43,40 @@ type StockShape = {
   on_order: number;
   avg_monthly_demand: number;
   display_name?: string | null;
+  /** Month-by-month demand (lib/seasonalDemand). When present, cover walks the
+   *  coming months' forecast and velocity is its 12-month average. */
+  demand?: DemandProfile;
 };
+
+/** Months the stock (on hand + on order) lasts — seasonal when a profile is given. */
+export function coverMonths(it: StockShape): number {
+  return it.demand
+    ? monthsOfCover(it.on_hand + it.on_order, it.demand)
+    : monthsOfSupply(it.on_hand, it.on_order, it.avg_monthly_demand);
+}
+
+const velocity = (it: StockShape) => (it.demand ? it.demand.avg : it.avg_monthly_demand);
 
 /** Slow-mover overstock: the founder-review set. */
 export function isOverstock(it: StockShape): boolean {
-  if (it.avg_monthly_demand <= 0) return false;
-  if (it.avg_monthly_demand >= OVERSTOCK_MAX_MONTHLY_DEMAND) return false;
+  const v = velocity(it);
+  if (v <= 0) return false;
+  if (v >= OVERSTOCK_MAX_MONTHLY_DEMAND) return false;
   if (isNonRetailFixture(it.display_name)) return false;
-  const mos = monthsOfSupply(it.on_hand, it.on_order, it.avg_monthly_demand);
+  const mos = coverMonths(it);
   return Number.isFinite(mos) && mos > OVERSTOCK_MIN_MONTHS;
 }
 
-/** Understock: short of a COVERAGE_MONTHS cushion once inbound POs are counted. */
+/** Understock: short of a COVERAGE_MONTHS cushion once inbound POs are counted.
+ *  Seasonal: "3 months" means the NEXT three months' forecast, so stock that
+ *  would last a slow summer can still be short going into a busy spring. */
 export function isUnderstock(it: StockShape): boolean {
-  if (it.avg_monthly_demand <= 0) return false;
-  const mos = monthsOfSupply(it.on_hand, it.on_order, it.avg_monthly_demand);
-  return mos < COVERAGE_MONTHS;
+  if (velocity(it) <= 0) return false;
+  return coverMonths(it) < COVERAGE_MONTHS;
+}
+
+/** Units short of COVERAGE_MONTHS of cover (0 if covered). */
+export function unitsShort(it: StockShape): number {
+  const need = it.demand ? demandAhead(it.demand, COVERAGE_MONTHS) : COVERAGE_MONTHS * it.avg_monthly_demand;
+  return Math.max(0, need - (it.on_hand + it.on_order));
 }

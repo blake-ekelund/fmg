@@ -1,11 +1,16 @@
 import { ForecastRow } from "../types";
 import { daysInMonth, daysRemainingInMonth } from "./date";
+import { projectStock } from "@/lib/seasonalDemand";
 
+/** Stock left at the end of the month `monthIndex` months from now. Walks the
+ *  row's month-by-month demand when it has one (seasonal), else the flat avg. */
 export function project(
   row: ForecastRow,
   monthIndex: number,
   now: Date
 ): number {
+  if (row.demand) return projectStock(row.on_hand + row.on_order, row.demand, monthIndex, now);
+
   const firstMonthFraction =
     daysRemainingInMonth(now) / daysInMonth(now);
 
