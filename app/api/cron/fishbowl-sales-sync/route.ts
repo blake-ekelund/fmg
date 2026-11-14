@@ -272,14 +272,6 @@ export async function GET(request: Request) {
     const { error: rpcErr } = await supabaseServer.rpc("sync_withheld_commissions");
     if (rpcErr) throw rpcErr;
 
-    // Rebuild the stored sales rollups Reports read (migration 20261102020000).
-    // Not fatal: reports fall back to the live views if this fails or isn't set up.
-    // Surfaced in the response (and the audit row) so a silently-stale rollup —
-    // which blanks sales reports — is visible instead of only a server warn.
-    const { error: rollErr } = await supabaseServer.rpc("refresh_sales_rollups");
-    if (rollErr) console.warn("[fishbowl-sales-sync] refresh_sales_rollups:", rollErr.message);
-    const rollupError = rollErr?.message ?? null;
-
     // 8) Mark the audit row complete.
     await supabaseServer
       .from("sales_uploads")
@@ -291,6 +283,27 @@ export async function GET(request: Request) {
         error_text: null,
       })
       .eq("id", uploadId);
+
+    // 9) Rebuild the stored sales rollups (migration 20261102020000) that Custom
+    //    Reports and the inventory forecast read — only now, AFTER step 8. This
+    //    used to run before the upload was marked complete: the old rows were
+    //    already deleted and the *_current views (defined in the DB, outside
+    //    this repo) showed nothing yet, so every sync rebuilt the rollups from an
+    //    empty source and stored 0 rows (found 2026-11-14 — readers silently
+    //    fell back to the slow live views).
+    //    Not fatal; a failure is written to the audit row and the response so
+    //    it's visible, not just a server log line.
+    const { error: rollErr } = await supabaseServer.rpc("refresh_sales_rollups");
+    const rollupError = rollErr?.message ?? null;
+    if (rollupError) {
+      console.warn("[fishbowl-sales-sync] refresh_sales_rollups:", rollupError);
+      await supabaseServer
+        .from("sales_uploads")
+        .update({
+          error_text: `Sales rollups not rebuilt (reports and the inventory forecast use the slower live views): ${rollupError}`,
+        })
+        .eq("id", uploadId);
+    }
 
     return NextResponse.json({
       synced: true,

@@ -344,13 +344,6 @@ export async function uploadSalesData({
     if (syncErr) throw syncErr;
 
     /* --------------------------------------------------
-       Rebuild the stored sales rollups Reports read — not fatal
-       (reports fall back to the live views)
-    -------------------------------------------------- */
-    const { error: rollErr } = await supabase.rpc("refresh_sales_rollups");
-    if (rollErr) console.warn("refresh_sales_rollups:", rollErr.message);
-
-    /* --------------------------------------------------
        Mark upload complete
     -------------------------------------------------- */
     const { error: doneErr } = await supabase
@@ -364,6 +357,23 @@ export async function uploadSalesData({
       .eq("id", uploadId);
 
     if (doneErr) throw doneErr;
+
+    /* --------------------------------------------------
+       Rebuild the stored sales rollups — not fatal (readers fall back to the
+       live views). Must run AFTER the upload is marked complete: before it,
+       the *_current views show nothing and the rollups are rebuilt empty
+       (see the note in /api/cron/fishbowl-sales-sync).
+    -------------------------------------------------- */
+    const { error: rollErr } = await supabase.rpc("refresh_sales_rollups");
+    if (rollErr) {
+      console.warn("refresh_sales_rollups:", rollErr.message);
+      await supabase
+        .from("sales_uploads")
+        .update({
+          error_text: `Sales rollups not rebuilt (reports and the inventory forecast use the slower live views): ${rollErr.message}`,
+        })
+        .eq("id", uploadId);
+    }
 
     return {
       uploadId,
