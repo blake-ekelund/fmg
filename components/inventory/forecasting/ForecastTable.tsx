@@ -11,6 +11,7 @@ import {
   getInventoryStatus,
 } from "./types";
 import { project, colorFor } from "./utils/forecast";
+import { describeDemand } from "@/lib/seasonalDemand";
 import { brandBadgeStyle, BrandSettings } from "@/lib/brand-settings";
 
 type Props = {
@@ -316,7 +317,8 @@ function MobileCard({
 
   const [showAllPeriods, setShowAllPeriods] = useState(false);
 
-  const statusLabel = getInventoryStatus(r.on_hand, r.on_order, r.avg_monthly_demand);
+  const statusLabel = getInventoryStatus(r.on_hand, r.on_order, r.avg_monthly_demand, r.demand);
+  const seasonal = r.demand?.method === "seasonal";
   const atRisk = statusLabel === "at risk";
   const brandStyle = brandBadgeStyle(brandSettings?.primary_color);
   const stopRow = (e: React.MouseEvent) => e.stopPropagation();
@@ -399,14 +401,24 @@ function MobileCard({
         </div>
         <div>
           <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-            Avg / Mo
+            Avg / Mo{seasonal && <span className="ml-1 normal-case tracking-normal text-violet-700">· seasonal</span>}
           </div>
-          <input
-            inputMode="numeric"
-            value={avgLocal}
-            onChange={(e) => { setAvgLocal(e.target.value); if (e.target.value) onUpdateAvg(r.part, Number(e.target.value)); }}
-            className="mt-0.5 w-full rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition"
-          />
+          {seasonal ? (
+            // Forecast from its own history — read-only (see describeDemand).
+            <div
+              className="mt-0.5 px-2 py-1 text-sm tabular-nums text-gray-700"
+              title={r.demand ? describeDemand(r.demand) : undefined}
+            >
+              {fmt(r.avg_monthly_demand)}
+            </div>
+          ) : (
+            <input
+              inputMode="numeric"
+              value={avgLocal}
+              onChange={(e) => { setAvgLocal(e.target.value); if (e.target.value) onUpdateAvg(r.part, Number(e.target.value)); }}
+              className="mt-0.5 w-full rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition"
+            />
+          )}
         </div>
       </div>
 

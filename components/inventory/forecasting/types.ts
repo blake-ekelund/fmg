@@ -1,4 +1,5 @@
 import { Product } from "../types";
+import { monthsOfCover, type DemandProfile } from "@/lib/seasonalDemand";
 
 /** Where a row's forecast on-hand came from. Point B is the building, so its
  *  count is the source of truth. "fishbowl" means Point B had no comparable
@@ -36,6 +37,10 @@ export type ForecastRow = Product & {
    *  a manual override saved on the product row. Cleared on user edit.
    *  Optional so legacy call sites that build ForecastRow shapes still type-check. */
   is_auto_avg?: boolean;
+  /** Month-by-month demand (lib/seasonalDemand). When present, projections and
+   *  status walk it instead of a flat avg_monthly_demand; avg_monthly_demand
+   *  then holds its 12-month average for display and sorting. */
+  demand?: DemandProfile;
 };
 
 export type Period = { label: string; index: number };
@@ -63,9 +68,12 @@ export function getInventoryStatus(
   onHand: number,
   onOrder: number,
   avg: number,
+  demand?: DemandProfile,
 ): InventoryStatus {
-  if (avg <= 0) return "no demand";
-  const mos = (onHand + onOrder) / avg;
+  if ((demand ? demand.avg : avg) <= 0) return "no demand";
+  // With a demand profile, "months of supply" walks the coming months'
+  // forecast (a seasonal spring drains stock faster than the yearly average).
+  const mos = demand ? monthsOfCover(onHand + onOrder, demand) : (onHand + onOrder) / avg;
   if (mos > 3) return "healthy";
   if (mos > 1.5) return "needs review";
   return "at risk";

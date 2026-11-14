@@ -23,6 +23,15 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "2026-11-14-seasonal-forecast",
+    date: "2026-11-14",
+    title: "Seasonal inventory forecast",
+    body:
+      "Products with a year of sales now forecast each month from last year's sales for that month, scaled by their recent trend — so busy springs and slow summers show up instead of one flat number. Hover a product's avg / mo to see its trend, or a month to see expected sales. Purchasing and the dashboard use the same numbers.",
+    href: "/inventory",
+    linkLabel: "Open Inventory",
+  },
+  {
     id: "2026-11-14-help-menu",
     date: "2026-11-14",
     title: "Report a bug, and create from anywhere",
