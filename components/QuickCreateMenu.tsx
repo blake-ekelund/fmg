@@ -6,6 +6,7 @@ import { ListTodo, Mail, Newspaper, Plus, Share2 } from "lucide-react";
 import { useUser } from "@/components/UserContext";
 import { getAllowedPaths } from "@/components/navConfig";
 import { AddTaskModal } from "@/components/tasks/AddTaskModal";
+import BodyPortal from "@/components/BodyPortal";
 
 /**
  * The top-bar "+" menu: start a new task, email template, social post or blog
@@ -104,14 +105,18 @@ export default function QuickCreateMenu() {
       )}
 
       {taskOpen && (
-        <AddTaskModal
-          open
-          onClose={() => setTaskOpen(false)}
-          // The Task List loads its rows once; refresh it if that's where we are.
-          onSaved={() => {
-            if (pathname === "/task-list") window.location.reload();
-          }}
-        />
+        // Portaled: the top bar's backdrop-blur would otherwise trap the
+        // fixed dialog inside the 56px header.
+        <BodyPortal>
+          <AddTaskModal
+            open
+            onClose={() => setTaskOpen(false)}
+            // The Task List loads its rows once; refresh it if that's where we are.
+            onSaved={() => {
+              if (pathname === "/task-list") window.location.reload();
+            }}
+          />
+        </BodyPortal>
       )}
     </div>
   );

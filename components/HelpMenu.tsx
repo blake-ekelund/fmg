@@ -7,6 +7,7 @@ import { useUser } from "@/components/UserContext";
 import { getAllowedPaths } from "@/components/navConfig";
 import { openHelpAssistant } from "@/components/HelpAssistant";
 import BugReportModal from "@/components/BugReportModal";
+import BodyPortal from "@/components/BodyPortal";
 import { WHATS_NEW, WHATS_NEW_SEEN_KEY, type WhatsNewEntry } from "@/lib/whatsNew";
 
 /**
@@ -133,8 +134,18 @@ export default function HelpMenu() {
         </div>
       )}
 
-      {bugOpen && <BugReportModal onClose={() => setBugOpen(false)} />}
-      {newsOpen && <WhatsNewModal entries={entries} onClose={() => setNewsOpen(false)} />}
+      {/* Portaled: the top bar's backdrop-blur would otherwise trap these
+          fixed dialogs inside the 56px header. */}
+      {bugOpen && (
+        <BodyPortal>
+          <BugReportModal onClose={() => setBugOpen(false)} />
+        </BodyPortal>
+      )}
+      {newsOpen && (
+        <BodyPortal>
+          <WhatsNewModal entries={entries} onClose={() => setNewsOpen(false)} />
+        </BodyPortal>
+      )}
     </div>
   );
 }
