@@ -274,8 +274,11 @@ export async function GET(request: Request) {
 
     // Rebuild the stored sales rollups Reports read (migration 20261102020000).
     // Not fatal: reports fall back to the live views if this fails or isn't set up.
+    // Surfaced in the response (and the audit row) so a silently-stale rollup —
+    // which blanks sales reports — is visible instead of only a server warn.
     const { error: rollErr } = await supabaseServer.rpc("refresh_sales_rollups");
     if (rollErr) console.warn("[fishbowl-sales-sync] refresh_sales_rollups:", rollErr.message);
+    const rollupError = rollErr?.message ?? null;
 
     // 8) Mark the audit row complete.
     await supabaseServer
@@ -295,6 +298,8 @@ export async function GET(request: Request) {
       items: itemsToInsert.length,
       shipments: shipmentsToInsert.length,
       uploadId,
+      rollupRefreshed: !rollupError,
+      rollupError,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed";

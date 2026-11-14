@@ -635,11 +635,22 @@ const PARALLEL_PAGES = 6;
 const missingFast = new Set<string>();
 const isMissingRelation = (m: string) => /schema cache|does not exist|42P01/i.test(m);
 
-/** Run fn against the dataset's stored copy when there is one, else its view. */
-async function onSource<T>(d: Dataset, fn: (table: string, orderKey: string | null) => Promise<T>): Promise<T> {
+/** Run fn against the dataset's stored copy when there is one, else its view.
+ *  `isEmpty` guards against a stored copy that exists but hasn't been populated
+ *  (e.g. a materialized view created before its base had data, or never
+ *  refreshed): reading it would blank a report even though the live view has
+ *  rows, so an empty result is treated as a miss and the view is read instead.
+ *  Unlike a missing relation, an empty copy isn't cached as missing — it may be
+ *  refreshed later, so the next query gives it another try. */
+async function onSource<T>(
+  d: Dataset,
+  fn: (table: string, orderKey: string | null) => Promise<T>,
+  isEmpty?: (result: T) => boolean,
+): Promise<T> {
   if (d.fast && !missingFast.has(d.fast.source)) {
     try {
-      return await fn(d.fast.source, d.fast.orderKey);
+      const result = await fn(d.fast.source, d.fast.orderKey);
+      if (!isEmpty?.(result)) return result;
     } catch (e) {
       if (!(e instanceof Error && isMissingRelation(e.message))) throw e;
       missingFast.add(d.fast.source);
@@ -752,19 +763,22 @@ export async function runQuery(
     const want = Math.max(1, Math.min(spec.limit ?? opts.maxRows, opts.maxRows));
     // PostgREST caps a request at 1000 rows — page through, ordered by the sort
     // column (plus a tiebreak) so pages don't skip rows.
-    const { rows, total } = await onSource(d, (table, orderKey) =>
-      fetchPages(
-        (from, to, withCount) => {
-          let q = supabaseServer
-            .from(table)
-            .select(columns.join(","), { count: withCount ? "exact" : undefined })
-            .order(order, { ascending, nullsFirst: false });
-          if (orderKey) q = q.order(orderKey, { ascending: true });
-          else if (order !== columns[0]) q = q.order(columns[0], { ascending: true });
-          return applyFilters(q, spec, snapshotId).range(from, to);
-        },
-        want,
-      ),
+    const { rows, total } = await onSource(
+      d,
+      (table, orderKey) =>
+        fetchPages(
+          (from, to, withCount) => {
+            let q = supabaseServer
+              .from(table)
+              .select(columns.join(","), { count: withCount ? "exact" : undefined })
+              .order(order, { ascending, nullsFirst: false });
+            if (orderKey) q = q.order(orderKey, { ascending: true });
+            else if (order !== columns[0]) q = q.order(columns[0], { ascending: true });
+            return applyFilters(q, spec, snapshotId).range(from, to);
+          },
+          want,
+        ),
+      (r) => r.total === 0,
     );
     return { dataset: spec.dataset, title: d.title, columns, rows, total, truncated: total > rows.length };
   }
@@ -780,18 +794,21 @@ export async function runQuery(
   const needed = [...new Set([...groupKeys.map((g) => g.column), ...metrics.flatMap((m) => (m.column ? [m.column] : []))])];
   const select = needed.length ? needed : [Object.keys(d.columns)[0]];
   const scanLimit = opts.scanLimit ?? 100_000;
-  const { rows: raw, total } = await onSource(d, (table, orderKey) =>
-    fetchPages(
-      (from, to, withCount) => {
-        let q = supabaseServer
-          .from(table)
-          .select(select.join(","), { count: withCount ? "exact" : undefined })
-          .order(orderKey ?? select[0], { ascending: true });
-        if (!orderKey && select[1]) q = q.order(select[1], { ascending: true });
-        return applyFilters(q, spec, snapshotId).range(from, to);
-      },
-      scanLimit,
-    ),
+  const { rows: raw, total } = await onSource(
+    d,
+    (table, orderKey) =>
+      fetchPages(
+        (from, to, withCount) => {
+          let q = supabaseServer
+            .from(table)
+            .select(select.join(","), { count: withCount ? "exact" : undefined })
+            .order(orderKey ?? select[0], { ascending: true });
+          if (!orderKey && select[1]) q = q.order(select[1], { ascending: true });
+          return applyFilters(q, spec, snapshotId).range(from, to);
+        },
+        scanLimit,
+      ),
+    (r) => r.total === 0,
   );
 
   const label = (m: { fn: string; column?: string }) => (m.column ? `${m.fn}_${m.column}` : m.fn);
