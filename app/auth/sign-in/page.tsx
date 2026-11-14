@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { getDefaultRoute } from "@/components/navConfig";
@@ -67,21 +67,24 @@ export default function SignInPage() {
         </div>
 
         <div className="relative z-10 w-full max-w-sm">
-          {/* Mobile-only brand lockup (desktop identity lives on the left panel) */}
-          <div className="mb-6 flex items-center gap-3 lg:hidden">
-            <LogoMark size={40} className="rounded-[12px] ring-1 ring-line shadow-raised" />
-            <span className="text-[15px] font-semibold tracking-tight text-ink">
-              Fragrance Marketing Group
-            </span>
-          </div>
-
           {/* Form card */}
-          <div className="rounded-2xl border border-line bg-surface p-6 shadow-overlay sm:p-7">
-            <div className="mb-6">
-              <h1 className="text-2xl font-semibold tracking-tight text-ink">
+          <div className="relative overflow-hidden rounded-2xl border border-line bg-surface p-7 shadow-[0_28px_70px_-28px_rgba(10,27,39,0.5)]">
+            {/* Gold hairline accent */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-accent-400 via-accent-500 to-transparent" />
+
+            <div className="mb-7">
+              <div className="mb-5 flex items-center gap-2.5">
+                <LogoMark size={34} className="rounded-[10px] ring-1 ring-line shadow-raised" />
+                <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent-600">
+                  Internal Portal
+                </span>
+              </div>
+              <h1 className="text-[1.7rem] leading-tight font-semibold tracking-tight text-ink">
                 Welcome back
               </h1>
-              <p className="mt-2 text-sm text-ink-muted">Sign in to the internal portal</p>
+              <p className="mt-1.5 text-sm text-ink-muted">
+                Sign in to continue to your dashboard.
+              </p>
             </div>
 
             <div className="space-y-4">
@@ -89,15 +92,18 @@ export default function SignInPage() {
                 <label htmlFor="email" className="block text-xs font-medium text-ink-secondary">
                   Email
                 </label>
-                <input
-                  id="email"
-                  type="email"
-                  className="w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-400 transition"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                />
+                <div className="relative">
+                  <Mail size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle" />
+                  <input
+                    id="email"
+                    type="email"
+                    className="w-full rounded-lg border border-line bg-surface pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-400 transition"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -113,10 +119,11 @@ export default function SignInPage() {
                   </a>
                 </div>
                 <div className="relative">
+                  <Lock size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-subtle" />
                   <input
                     id="password"
                     type={showPassword ? "text" : "password"}
-                    className="w-full rounded-lg border border-line bg-surface pl-3 pr-10 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-400 transition"
+                    className="w-full rounded-lg border border-line bg-surface pl-9 pr-10 py-2.5 text-sm text-ink placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/25 focus:border-brand-400 transition"
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -145,7 +152,7 @@ export default function SignInPage() {
                 type="button"
                 onClick={signIn}
                 disabled={loading}
-                className="w-full rounded-lg bg-brand-700 py-2.5 text-sm font-medium text-white hover:bg-brand-800 hover:shadow-raised active:scale-[0.98] transition-all disabled:opacity-50"
+                className="mt-1 w-full rounded-lg bg-brand-700 py-2.5 text-sm font-medium text-white shadow-[0_12px_28px_-12px_rgba(27,60,83,0.7)] hover:bg-brand-800 hover:shadow-[0_16px_34px_-12px_rgba(27,60,83,0.85)] active:scale-[0.98] transition-all disabled:opacity-50"
               >
                 {loading ? "Signing in…" : "Sign in"}
               </button>

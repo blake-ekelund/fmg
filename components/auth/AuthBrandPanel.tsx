@@ -8,16 +8,26 @@ import { LogoMark } from "@/components/ui/Logo";
    with the FMG lockup, headline and house brands on top. Hidden below lg —
    the auth form carries the brand on its own at phone width. */
 
+// Interleaved so the slideshow alternates the two houses (NI, Sassy, NI, …).
 const PHOTOS = [
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/150-00-06/lifestyle/lifestyle-1785718243401-160.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/125-00-11/lifestyle/lifestyle-1770490991078.png",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/121-00-06/lifestyle/lifestyle-1770084427669.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/123-00-04/lifestyle/lifestyle-1770084633596.png",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/140-00-05/lifestyle/lifestyle-1785718300968-233.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/125-00-14/lifestyle/lifestyle-1770491093663.png",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/130-00-01/lifestyle/lifestyle-1770141200354.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/410-00-01/lifestyle/lifestyle-1770493491862.png",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/271-00-08/lifestyle/lifestyle-1770600129008.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/125-00-15/lifestyle/lifestyle-1770491146686.jpg",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/150-00-01/lifestyle/lifestyle-1785718228747-143.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/124-00-06/lifestyle/lifestyle-1770085463274.png",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/121-00-04/lifestyle/lifestyle-1770084345687.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/410-00-07/lifestyle/lifestyle-1770491318197.jpg",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/160-00-01/lifestyle/lifestyle-1770604473367.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/410-00-05/lifestyle/lifestyle-1770493286183.jpg",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/121-00-02/lifestyle/lifestyle-1770141161932.jpg",
+  "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/125-00-10/lifestyle/lifestyle-1770490959699.jpg",
   "https://vxisjubwezhxfxocoawk.supabase.co/storage/v1/object/public/media-kit/inventory_products/150-00-09/lifestyle/lifestyle-1771342798063.jpg",
 ];
 
