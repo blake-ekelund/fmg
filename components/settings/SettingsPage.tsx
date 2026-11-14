@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -16,12 +16,17 @@ import {
   Users as UsersIcon,
   KeyRound,
   Send,
+  Bell,
+  Lock,
+  Camera,
+  Trash2,
 } from "lucide-react";
 import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useUser } from "@/components/UserContext";
 import PageMeta from "@/components/PageMeta";
+import { uploadEmailImage } from "@/components/templates/uploadEmailImage";
 
 import TeamSection from "@/components/company/team/TeamSection";
 import PlatformsSection from "@/components/company/platform/PlatformsSection";
@@ -30,6 +35,8 @@ type SectionKey =
   | "profile"
   | "email-signature"
   | "email-connection"
+  | "change-password"
+  | "notifications"
   | "team"
   | "system-sender"
   | "platforms"
@@ -83,6 +90,20 @@ const SECTIONS: SectionDef[] = [
     group: "personal",
     icon: <Mail size={14} />,
     render: () => <OutlookCard />,
+  },
+  {
+    key: "notifications",
+    label: "Notifications",
+    group: "personal",
+    icon: <Bell size={14} />,
+    render: () => <NotificationPrefsCard />,
+  },
+  {
+    key: "change-password",
+    label: "Password",
+    group: "personal",
+    icon: <Lock size={14} />,
+    render: () => <ChangePasswordCard />,
   },
   {
     key: "team",
@@ -537,6 +558,8 @@ function ProfileCard() {
   const { profile, reload } = useUser();
   const [firstName, setFirstName] = useState(profile?.first_name ?? "");
   const [saving, setSaving] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [banner, setBanner] = useState<{
     kind: "ok" | "error";
     text: string;
@@ -547,6 +570,43 @@ function ProfileCard() {
   }, [profile?.first_name]);
 
   const dirty = firstName.trim() !== (profile?.first_name ?? "").trim();
+
+  async function setAvatar(url: string | null) {
+    if (!profile) return;
+    setAvatarBusy(true);
+    setBanner(null);
+    const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", profile.id);
+    if (error) {
+      setBanner({
+        kind: "error",
+        text: /avatar_url/i.test(error.message)
+          ? "Profile photos aren't switched on yet — ask Blake to run the database update."
+          : error.message,
+      });
+    } else {
+      reload();
+    }
+    setAvatarBusy(false);
+  }
+
+  async function onPickAvatar(file: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setBanner({ kind: "error", text: "That file isn't an image." });
+      return;
+    }
+    setAvatarBusy(true);
+    setBanner(null);
+    const res = await uploadEmailImage(file, "avatars");
+    if ("error" in res) {
+      setBanner({ kind: "error", text: res.error });
+      setAvatarBusy(false);
+      return;
+    }
+    await setAvatar(res.url);
+  }
+
+  const initial = ((profile?.first_name || profile?.email || "?").trim()[0] ?? "?").toUpperCase();
 
   async function save() {
     if (!profile || !dirty) return;
@@ -573,6 +633,55 @@ function ProfileCard() {
     >
       <div className="space-y-4">
         <Banner banner={banner} />
+
+        <Field label="Profile photo" hint="JPG or PNG">
+          <div className="flex items-center gap-4">
+            {profile?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.avatar_url}
+                alt="Your profile photo"
+                className="h-16 w-16 rounded-full object-cover ring-1 ring-gray-200"
+              />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-900 text-lg font-semibold text-white">
+                {initial}
+              </div>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                void onPickAvatar(e.target.files?.[0] ?? null);
+                e.target.value = "";
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={avatarBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-50 hover:border-gray-300 disabled:opacity-50"
+              >
+                {avatarBusy ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
+                {profile?.avatar_url ? "Change" : "Upload"}
+              </button>
+              {profile?.avatar_url && (
+                <button
+                  type="button"
+                  onClick={() => setAvatar(null)}
+                  disabled={avatarBusy}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium text-gray-500 transition hover:bg-gray-100 hover:text-red-600 disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        </Field>
 
         <Field label="Display name">
           <input
@@ -1227,6 +1336,197 @@ function BrandRowEditor({
         </Field>
       </div>
     </div>
+  );
+}
+
+/* ─── Change password ─── */
+
+function ChangePasswordCard() {
+  const [pw, setPw] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [banner, setBanner] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const tooShort = pw.length > 0 && pw.length < 8;
+  const mismatch = confirm.length > 0 && confirm !== pw;
+  const canSave = pw.length >= 8 && confirm === pw && !saving;
+
+  async function save() {
+    if (!canSave) return;
+    setSaving(true);
+    setBanner(null);
+    const { error } = await supabaseBrowser().auth.updateUser({ password: pw });
+    if (error) {
+      setBanner({ kind: "error", text: error.message });
+    } else {
+      setBanner({ kind: "ok", text: "Password updated." });
+      setPw("");
+      setConfirm("");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <CardShell
+      icon={<Lock size={15} />}
+      title="Password"
+      subtitle="Change the password you sign in with"
+    >
+      <div className="space-y-4">
+        <Banner banner={banner} />
+
+        <Field label="New password" hint="At least 8 characters">
+          <input
+            type="password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            autoComplete="new-password"
+            placeholder="••••••••"
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+          />
+          {tooShort && <p className="mt-1 text-[11px] text-red-600">Use at least 8 characters.</p>}
+        </Field>
+
+        <Field label="Confirm new password">
+          <input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+            placeholder="••••••••"
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+          />
+          {mismatch && <p className="mt-1 text-[11px] text-red-600">The passwords don&apos;t match.</p>}
+        </Field>
+
+        <div className="flex justify-end pt-1">
+          <button
+            onClick={save}
+            disabled={!canSave}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Lock size={13} />}
+            {saving ? "Updating…" : "Update password"}
+          </button>
+        </div>
+      </div>
+    </CardShell>
+  );
+}
+
+/* ─── Notification preferences ─── */
+
+type NotifPrefs = { tasks: boolean; inventory: boolean; orders: boolean; reviews: boolean };
+
+const NOTIF_ROWS: { key: keyof NotifPrefs; label: string; desc: string }[] = [
+  { key: "tasks", label: "My tasks", desc: "Tasks assigned to you that are due soon or overdue" },
+  { key: "inventory", label: "Inventory asks", desc: "Understock and overstock lists to review" },
+  { key: "orders", label: "New orders", desc: "Recent storefront and wholesale orders" },
+  { key: "reviews", label: "New reviews", desc: "Product reviews waiting for moderation" },
+];
+
+function NotificationPrefsCard() {
+  const [prefs, setPrefs] = useState<NotifPrefs | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [banner, setBanner] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/notifications?prefs", { headers: await authHeader(), cache: "no-store" });
+        const j = (await res.json()) as { prefs?: NotifPrefs; error?: string };
+        if (cancelled) return;
+        if (!res.ok) throw new Error(j.error ?? "Couldn't load your settings.");
+        setPrefs(j.prefs ?? { tasks: true, inventory: true, orders: true, reviews: true });
+      } catch (e) {
+        if (!cancelled) setBanner({ kind: "error", text: e instanceof Error ? e.message : "Couldn't load your settings." });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function toggle(key: keyof NotifPrefs) {
+    if (!prefs) return;
+    const next = { ...prefs, [key]: !prefs[key] };
+    setPrefs(next);
+    setBanner(null);
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "PUT",
+        headers: { ...(await authHeader()), "Content-Type": "application/json" },
+        body: JSON.stringify({ prefs: next }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Couldn't save.");
+      }
+      setSavedAt(Date.now());
+    } catch (e) {
+      setPrefs(prefs); // roll back the toggle
+      setBanner({ kind: "error", text: e instanceof Error ? e.message : "Couldn't save." });
+    }
+  }
+
+  return (
+    <CardShell
+      icon={<Bell size={15} />}
+      title="Notifications"
+      subtitle="What the bell in the top bar shows you"
+    >
+      <div className="space-y-4">
+        <Banner banner={banner} />
+
+        {!prefs ? (
+          <div className="inline-flex items-center gap-2 text-xs text-gray-400">
+            <Loader2 size={12} className="animate-spin" />
+            Loading…
+          </div>
+        ) : (
+          <>
+            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+              {NOTIF_ROWS.map((r) => (
+                <li key={r.key} className="flex items-center justify-between gap-4 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-800">{r.label}</div>
+                    <div className="text-[11px] text-gray-500">{r.desc}</div>
+                  </div>
+                  <Toggle on={prefs[r.key]} onClick={() => toggle(r.key)} label={r.label} />
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-gray-400">
+              {savedAt && Date.now() - savedAt < 4000 ? "Saved." : "Changes save automatically."}
+            </p>
+          </>
+        )}
+      </div>
+    </CardShell>
+  );
+}
+
+function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onClick}
+      className={clsx(
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition",
+        on ? "bg-gray-900" : "bg-gray-200",
+      )}
+    >
+      <span
+        className={clsx(
+          "inline-block h-4 w-4 transform rounded-full bg-white shadow transition",
+          on ? "translate-x-4" : "translate-x-0.5",
+        )}
+      />
+    </button>
   );
 }
 

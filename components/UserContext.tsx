@@ -23,6 +23,8 @@ type UserProfile = {
   first_name: string;
   email: string;
   access: UserRole;
+  /** Public URL of the staff member's profile photo; null → initials. */
+  avatar_url?: string | null;
   /** Only set for access='rep': the sales agency this rep may view. */
   rep_agency_code?: number | null;
   /** Reserved for the deferred principals-see-everyone feature. */
@@ -58,13 +60,26 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { data } = await (supabaseBrowser() as unknown as SupabaseClient)
+    const client = supabaseBrowser() as unknown as SupabaseClient;
+    const full = await client
       .from("profiles")
-      .select("id, first_name, email, access, rep_agency_code, rep_is_principal")
+      .select("id, first_name, email, access, avatar_url, rep_agency_code, rep_is_principal")
       .eq("id", userId)
       .single();
 
-    setProfile(data as UserProfile | null);
+    // avatar_url is a newer column; until its migration is pushed the select
+    // above errors. Fall back to the base columns so the whole app doesn't hang
+    // on the spinner waiting for a profile that never loads.
+    if (full.error && /avatar_url/i.test(full.error.message)) {
+      const { data } = await client
+        .from("profiles")
+        .select("id, first_name, email, access, rep_agency_code, rep_is_principal")
+        .eq("id", userId)
+        .single();
+      setProfile(data as UserProfile | null);
+    } else {
+      setProfile(full.data as UserProfile | null);
+    }
     setLoading(false);
   }, []);
 
