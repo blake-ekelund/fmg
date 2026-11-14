@@ -28,7 +28,7 @@ const SORT_COLUMN: Record<OrderSortKey, string> = {
 };
 
 const SELECT_COLS =
-  "id, num, status, dateissued, datecompleted, totalprice, channel, shiptocity, shiptostate";
+  "id, num, status, dateissued, datecompleted, totalprice, channel, billtoname, billtoaddress, billtocity, billtostate, billtozip, shiptoname, shiptoaddress, shiptocity, shiptostate, shiptozip";
 
 export default function useCustomerOrders(
   customerId: string | null,

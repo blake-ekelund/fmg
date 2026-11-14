@@ -21,7 +21,7 @@ import OrderDrawer from "./OrderDrawer";
 /** Sortable table columns, in display order. Items isn't sortable: units are
  *  counted per page, so the DB can't order on them. */
 const COLUMNS: {
-  key: OrderSortKey | "items";
+  key: OrderSortKey | "items" | "billto" | "shipto";
   label: string;
   align?: "right";
   sortable?: boolean;
@@ -30,6 +30,8 @@ const COLUMNS: {
   { key: "placed", label: "Placed", sortable: true },
   { key: "completed", label: "Completed", sortable: true },
   { key: "channel", label: "Channel", sortable: true },
+  { key: "billto", label: "Bill To" },
+  { key: "shipto", label: "Ship To" },
   { key: "items", label: "Items", align: "right" },
   { key: "total", label: "Total", align: "right", sortable: true },
   { key: "status", label: "Status", sortable: true },
@@ -46,6 +48,34 @@ const STAGE_BADGE: Record<OrderStage, { label: string; badge: string }> = {
 /** The order number a human would quote — Fishbowl's `num`, else the row id. */
 function orderRef(o: Order) {
   return o.num ? String(o.num) : `#${o.id}`;
+}
+
+/** A compact two-line address: street, then "City, ST ZIP". `full` is the
+ *  hover title. Returns null when there's nothing to show. */
+function compactAddress(
+  street: string | null | undefined,
+  city: string | null | undefined,
+  state: string | null | undefined,
+  zip: string | null | undefined,
+) {
+  const loc = [[city, state].filter(Boolean).join(", "), zip].filter(Boolean).join(" ").trim();
+  const s = (street ?? "").trim();
+  if (!s && !loc) return null;
+  return { street: s || null, loc: loc || null, full: [s, loc].filter(Boolean).join(" · ") };
+}
+
+function AddressCell({
+  addr,
+}: {
+  addr: { street: string | null; loc: string | null; full: string } | null;
+}) {
+  if (!addr) return <span className="text-gray-300">—</span>;
+  return (
+    <div className="max-w-[170px]" title={addr.full}>
+      {addr.street && <div className="truncate text-gray-600">{addr.street}</div>}
+      <div className="truncate text-gray-400">{addr.loc ?? "—"}</div>
+    </div>
+  );
 }
 
 export default function OrdersTab({
@@ -241,6 +271,12 @@ export default function OrdersTab({
                     ) : (
                       <span className="text-gray-300">—</span>
                     )}
+                  </td>
+                  <td className="px-3 py-3">
+                    <AddressCell addr={compactAddress(o.billtoaddress, o.billtocity, o.billtostate, o.billtozip)} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <AddressCell addr={compactAddress(o.shiptoaddress, o.shiptocity, o.shiptostate, o.shiptozip)} />
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-gray-600">{o.units ?? "—"}</td>
                   <td className="px-3 py-3 text-right font-semibold tabular-nums text-gray-900">{formatMoney(o.totalprice)}</td>

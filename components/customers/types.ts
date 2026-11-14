@@ -60,8 +60,16 @@ export type Order = {
   datecompleted: string;
   totalprice: number;
   channel: string;
+  billtoname?: string | null;
+  billtoaddress?: string | null;
+  billtocity?: string | null;
+  billtostate?: string | null;
+  billtozip?: string | null;
+  shiptoname?: string | null;
+  shiptoaddress?: string | null;
   shiptocity?: string | null;
   shiptostate?: string | null;
+  shiptozip?: string | null;
   /** Units on the order, filled in per page after the order list loads. */
   units?: number;
   items?: OrderItem[];
