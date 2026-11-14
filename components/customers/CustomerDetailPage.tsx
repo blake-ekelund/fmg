@@ -146,14 +146,6 @@ export default function CustomerDetailPage({
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 space-y-5">
-      {/* Back link */}
-      <Link
-        href={isD2C ? "/customers/d2c" : "/customers"}
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition"
-      >
-        <ArrowLeft size={16} /> Back to {isD2C ? "D2C" : "wholesale"} customers
-      </Link>
-
       <PageMeta
         title={customerName}
         description={`${isD2C ? "D2C" : "Wholesale"} customer details, orders, sales, and emails.`}
@@ -165,6 +157,23 @@ export default function CustomerDetailPage({
         <div className="flex flex-col gap-4 px-5 pt-4 pb-4 sm:px-6 sm:pt-5 lg:flex-row lg:items-center lg:justify-between">
           {/* Identity */}
           <div className="min-w-0">
+            <nav aria-label="Breadcrumb" className="mb-1.5">
+              <ol className="flex min-w-0 items-center gap-1.5 text-xs text-gray-400">
+                <li>
+                  <Link
+                    href={isD2C ? "/customers/d2c" : "/customers"}
+                    className="inline-flex items-center gap-1 transition hover:text-gray-900"
+                  >
+                    <ArrowLeft size={12} />
+                    {isD2C ? "D2C customers" : "Wholesale customers"}
+                  </Link>
+                </li>
+                <li aria-hidden="true">/</li>
+                <li aria-current="page" className="truncate text-gray-500">
+                  {customerName}
+                </li>
+              </ol>
+            </nav>
             <h1 className="truncate text-2xl font-semibold tracking-tight text-gray-900">
               {customerName}
             </h1>
