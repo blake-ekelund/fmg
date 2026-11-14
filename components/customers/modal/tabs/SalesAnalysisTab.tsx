@@ -122,7 +122,15 @@ export default function SalesAnalysisTab({
     return <div className="text-sm text-gray-400 py-8">No sales in {prev2}–{cur}.</div>;
   }
 
-  const maxYearRev = Math.max(1, ...years.map((y) => yearStats[y]?.rev ?? 0));
+  /* Skip years before the first purchase — new (often D2C) customers would
+     otherwise get a row of $0 cards. */
+  const firstIdx = years.findIndex(
+    (y) => (yearStats[y]?.rev ?? 0) !== 0 || (yearStats[y]?.units ?? 0) !== 0
+  );
+  const shownYears = firstIdx === -1 ? years : years.slice(firstIdx);
+  const hasPrevYear = shownYears.includes(prev);
+
+  const maxYearRev = Math.max(1, ...shownYears.map((y) => yearStats[y]?.rev ?? 0));
   const curRev = yearStats[cur]?.rev ?? 0;
   const prevRev = yearStats[prev]?.rev ?? 0;
   const pctOfLastYear = prevRev > 0 ? curRev / prevRev : null;
@@ -137,7 +145,7 @@ export default function SalesAnalysisTab({
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="flex items-baseline justify-between gap-3 mb-4">
           <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-            Year over year
+            {shownYears.length > 1 ? "Year over year" : "Purchases"}
           </h3>
           {pctOfLastYear != null && (
             <p className="text-sm text-gray-600">
@@ -155,8 +163,14 @@ export default function SalesAnalysisTab({
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {years.map((y) => {
+        <div
+          className={clsx(
+            "grid grid-cols-1 gap-4",
+            shownYears.length === 3 && "sm:grid-cols-3",
+            shownYears.length === 2 && "sm:grid-cols-2"
+          )}
+        >
+          {shownYears.map((y) => {
             const s = yearStats[y];
             const isCur = y === cur;
             return (
@@ -199,7 +213,8 @@ export default function SalesAnalysisTab({
         />
       </div>
 
-      {/* ─── What changed ─── */}
+      {/* ─── What changed (only when there's a last year to compare to) ─── */}
+      {hasPrevYear && (
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-4">
           What changed · {cur} vs {prev}
@@ -246,6 +261,7 @@ export default function SalesAnalysisTab({
           />
         </div>
       </section>
+      )}
 
       {/* ─── Mix ─── */}
       <section className="rounded-xl border border-gray-200 bg-white p-5">
@@ -260,8 +276,12 @@ export default function SalesAnalysisTab({
               setShowAll(false);
             }}
             options={[
-              ...[cur, prev, prev2].map((y) => ({ value: String(y), label: String(y) })),
-              { value: "all", label: "All 3 yrs" },
+              ...[...shownYears]
+                .reverse()
+                .map((y) => ({ value: String(y), label: String(y) })),
+              ...(shownYears.length > 1
+                ? [{ value: "all", label: `All ${shownYears.length} yrs` }]
+                : []),
             ]}
           />
         </div>
