@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, Settings, LogOut, ChevronDown, Blocks, CircleHelp } from "lucide-react";
+import { Search, Settings, LogOut, ChevronDown, Blocks } from "lucide-react";
 import clsx from "clsx";
 import Link from "next/link";
 import { navItems } from "./navConfig";
@@ -10,6 +10,8 @@ import { useBrand } from "./BrandContext";
 import type { BrandFilter } from "@/types/brand";
 import CommandPalette from "./CommandPalette";
 import NotificationBell from "./NotificationBell";
+import HelpMenu from "./HelpMenu";
+import QuickCreateMenu from "./QuickCreateMenu";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { usePageMetaValue } from "./PageMeta";
@@ -89,6 +91,9 @@ export default function TopBar() {
             </kbd>
           </button>
 
+          {/* Quick create (+) */}
+          <QuickCreateMenu />
+
           {/* Divider */}
           <div className="h-5 w-px bg-line" />
 
@@ -112,6 +117,9 @@ export default function TopBar() {
 
           {/* Divider */}
           <div className="h-5 w-px bg-line" />
+
+          {/* Help: report a bug, what's new, Sage, user guide */}
+          <HelpMenu />
 
           {/* Notifications */}
           <NotificationBell />
@@ -212,14 +220,6 @@ function UserMenu() {
             >
               <Settings size={14} className="text-ink-subtle" />
               Settings
-            </Link>
-            <Link
-              href="/help"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-secondary hover:bg-surface-muted hover:text-ink transition"
-            >
-              <CircleHelp size={14} className="text-ink-subtle" />
-              Help &amp; User Guide
             </Link>
             {isAdmin && (
               <Link

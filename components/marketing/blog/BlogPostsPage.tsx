@@ -137,6 +137,14 @@ export default function BlogPostsPage() {
     load();
   }, [load]);
 
+  // /marketing/blog?new=1 — the top bar's "+ New blog post" opens the wizard.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).get("new")) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read of the URL on load
+    setWizardOpen(true);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+
   const scoped = useMemo(() => (brand === "all" ? posts : posts.filter((p) => p.brand === brand)), [posts, brand]);
 
   const counts = useMemo(() => {
