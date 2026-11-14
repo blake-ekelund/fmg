@@ -40,6 +40,7 @@ import type { Section as MediaSection } from "@/components/marketing/media-kit/c
 import ProductPhotos from "./ProductPhotos";
 import { DetailsSection } from "./DetailsSection";
 import BomSection from "./BomSection";
+import SitePreviewSection from "./SitePreviewSection";
 
 /* ─── Types ─── */
 
@@ -66,7 +67,7 @@ type SalesRow = {
   units_fulfilled: number;
 };
 
-type Section = "details" | "inventory" | "bom" | "media" | "sales";
+type Section = "details" | "inventory" | "bom" | "media" | "sales" | "site";
 
 type TabIndicator = {
   color: string;
@@ -621,6 +622,7 @@ export default function ProductDetailPage({
       bom: null,
       sales: salesIndicator,
       media: mediaIndicator,
+      site: null,
     };
   }, [form, monthsOfSupply, trend, trendCfg, mediaText, missingPhotoCount]);
 
@@ -656,6 +658,7 @@ export default function ProductDetailPage({
     { value: "bom", label: "BOM" },
     { value: "sales", label: "Sales" },
     { value: "media", label: "Media" },
+    ...(isNewProduct ? [] : [{ value: "site" as const, label: "Site preview" }]),
   ];
 
   /* ─── Prev / Next product ─── */
@@ -1008,6 +1011,9 @@ export default function ProductDetailPage({
 
           {/* ─── BILL OF MATERIALS ─── */}
           {section === "bom" && <BomSection part={part} />}
+
+          {/* ─── SITE PREVIEW (the storefront page, embedded) ─── */}
+          {section === "site" && <SitePreviewSection part={form.part} />}
 
           {/* ─── SALES ANALYSIS ─── */}
           {section === "sales" && (
