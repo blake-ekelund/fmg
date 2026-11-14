@@ -84,12 +84,46 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { data: messages } = await supabaseServer
-    .from("support_messages")
-    .select("id, role, content, author_name, tools, created_at, seq")
-    .eq("conversation_id", id)
-    .order("seq", { ascending: true })
-    .limit(500);
+  // `attachments` arrives with migration 20261114030000; until it's applied
+  // the thread still loads, just without photos.
+  const BASE_COLS = "id, role, content, author_name, tools, created_at, seq";
+  const loadMessages = (cols: string) =>
+    supabaseServer
+      .from("support_messages")
+      .select(cols)
+      .eq("conversation_id", id)
+      .order("seq", { ascending: true })
+      .limit(500)
+      .returns<Array<Record<string, unknown> & { attachments?: unknown }>>();
+  let { data: messages, error: msgErr } = await loadMessages(`${BASE_COLS}, attachments`);
+  if (msgErr) ({ data: messages } = await loadMessages(BASE_COLS));
+
+  // Customer photos sit in a private bucket. Hand the browser signed links
+  // that expire, rather than ever making the bucket public.
+  type Att = { path: string; name?: string; type?: string; size?: number };
+  const paths = (messages ?? []).flatMap((m) =>
+    Array.isArray((m as { attachments?: Att[] }).attachments)
+      ? ((m as { attachments: Att[] }).attachments.map((a) => a.path).filter(Boolean) as string[])
+      : [],
+  );
+  const signed: Record<string, string> = {};
+  if (paths.length) {
+    const { data: urls } = await supabaseServer.storage
+      .from("support-attachments")
+      .createSignedUrls(paths, 60 * 60);
+    for (const u of urls ?? []) {
+      if (u.path && u.signedUrl) signed[u.path] = u.signedUrl;
+    }
+  }
+  const withPhotos = (messages ?? []).map((m) => {
+    const atts = (m as { attachments?: Att[] }).attachments;
+    return {
+      ...m,
+      attachments: Array.isArray(atts)
+        ? atts.map((a) => ({ ...a, url: signed[a.path] ?? null }))
+        : null,
+    };
+  });
 
   // Opening the thread is what "read" means here — there's no separate
   // acknowledge step, and an agent who opened it has seen it.
@@ -145,7 +179,7 @@ export async function GET(
 
   return NextResponse.json({
     conversation: { ...conversation, agent_unread: false },
-    messages: messages ?? [],
+    messages: withPhotos,
     related: related ?? [],
   });
 }
@@ -179,6 +213,11 @@ export async function POST(
       .from("support_conversations")
       .update({ status: "human", assigned_to: user.id, agent_unread: false })
       .eq("id", id);
+    // Taking a resolved ticket back un-resolves it (separate: pre-migration safe).
+    await supabaseServer
+      .from("support_conversations")
+      .update({ resolved_at: null, resolved_by: null, resolution: null })
+      .eq("id", id);
     return NextResponse.json({ ok: true, status: "human" });
   }
 
@@ -195,6 +234,22 @@ export async function POST(
         // showing a person's name in the header.
         ...(next === "bot" || next === "closed" ? { assigned_to: null } : {}),
       })
+      .eq("id", id);
+
+    // Who resolved it and when (migration 20261114050000). This drives the
+    // board → Archive move 12h later, so it's set on close and cleared on any
+    // other move. Its own update, so an unmigrated database still changes status.
+    await supabaseServer
+      .from("support_conversations")
+      .update(
+        next === "closed"
+          ? {
+              resolved_at: new Date().toISOString(),
+              resolved_by: "agent",
+              resolution: String(body.text ?? "").trim().slice(0, 300) || null,
+            }
+          : { resolved_at: null, resolved_by: null, resolution: null },
+      )
       .eq("id", id);
 
     await supabaseServer.from("support_messages").insert({
@@ -247,6 +302,10 @@ export async function POST(
       agent_unread: false,
       last_message_at: new Date().toISOString(),
     })
+    .eq("id", id);
+  await supabaseServer
+    .from("support_conversations")
+    .update({ resolved_at: null, resolved_by: null, resolution: null })
     .eq("id", id);
 
   return NextResponse.json({ ok: true, status: "human", authorName: name });

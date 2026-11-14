@@ -16,6 +16,11 @@ import type { DemandProfile } from "@/lib/seasonalDemand";
  *               the dashboard and Inventory page share (lib/inventoryHealth).
  *   • order     recent storefront + wholesale orders.
  *   • review    product reviews awaiting moderation.
+ *   • support   storefront chats the AI handed to a person and nobody has
+ *               taken yet. Shown to EVERY internal user regardless of their
+ *               toggles (a customer is waiting), and each one counts toward
+ *               the badge until someone takes or closes it, not just until
+ *               the bell is opened.
  *
  * Per-user state (which sources to show, and when the bell was last opened for
  * the unread badge) lives in `user_notification_state`. Everything else is read
@@ -27,7 +32,7 @@ import type { DemandProfile } from "@/lib/seasonalDemand";
  * SKU or two; the Inventory page it links to remains the precise view.
  */
 
-export type NotifType = "task" | "inventory" | "order" | "review";
+export type NotifType = "task" | "inventory" | "order" | "review" | "support";
 
 export type NotificationItem = {
   /** Stable key (survives polls so React keys and "new" styling don't flicker). */
@@ -244,6 +249,35 @@ async function reviewItems(since: string): Promise<NotificationItem[]> {
   }));
 }
 
+async function supportItems(): Promise<NotificationItem[]> {
+  const { data, error } = await supabaseServer
+    .from("support_conversations")
+    .select("id, store, subject, email, name, last_message_at")
+    .eq("status", "needs_human")
+    .order("last_message_at", { ascending: false })
+    .limit(15);
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as {
+    id: string;
+    store: string | null;
+    subject: string | null;
+    email: string | null;
+    name: string | null;
+    last_message_at: string;
+  }[]).map((c) => ({
+    id: `support:${c.id}`,
+    type: "support" as const,
+    title: `Customer needs help · ${c.store === "ni" ? "NI" : "Sassy"}`,
+    subtitle: [c.name || c.email, c.subject].filter(Boolean).join(" · ") || "The AI handed this chat to a person",
+    href: `/storefronts/conversations?open=${c.id}`,
+    ts: c.last_message_at,
+    // Outstanding until someone takes it: a waiting customer doesn't stop
+    // being urgent because the bell was opened.
+    unread: true,
+  }));
+}
+
 async function inventoryItems(): Promise<NotificationItem[]> {
   // Mirror useDashboardInventory, but snapshot-only (no live Point B read).
   const products = await supabaseServer
@@ -350,9 +384,13 @@ export async function getNotifications(userId: string): Promise<NotificationsPay
     prefs.inventory ? safe("inventory", () => inventoryItems()) : Promise.resolve([]),
     prefs.orders ? safe("orders", () => orderItems(since)) : Promise.resolve([]),
     prefs.reviews ? safe("reviews", () => reviewItems(since)) : Promise.resolve([]),
+    safe("support", () => supportItems()),
   ]);
 
   const items = groups.flat().sort((a, b) => {
+    // Waiting customers first, always.
+    if (a.type === "support" && b.type !== "support") return -1;
+    if (b.type === "support" && a.type !== "support") return 1;
     // Standing items (inventory, ts null) sit at the top; the rest newest-first.
     if (a.ts === null && b.ts === null) return 0;
     if (a.ts === null) return -1;
@@ -361,7 +399,7 @@ export async function getNotifications(userId: string): Promise<NotificationsPay
   });
 
   // The badge counts genuinely new events (orders + reviews) since last opened.
-  const unreadCount = items.filter((i) => i.unread && (i.type === "order" || i.type === "review")).length;
+  const unreadCount = items.filter((i) => i.unread && (i.type === "order" || i.type === "review" || i.type === "support")).length;
 
   return { items, unreadCount, prefs };
 }

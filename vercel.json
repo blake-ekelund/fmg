@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/image-cleanup",
       "schedule": "17 9 * * *"
+    },
+    {
+      "path": "/api/cron/support-review",
+      "schedule": "21 * * * *"
     }
   ]
 }

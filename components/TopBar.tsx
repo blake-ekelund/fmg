@@ -12,6 +12,7 @@ import CommandPalette from "./CommandPalette";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "./HelpMenu";
 import QuickCreateMenu from "./QuickCreateMenu";
+import SupportInboxButton from "./SupportInboxButton";
 import { useUser } from "./UserContext";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { usePageMetaValue } from "./PageMeta";
@@ -120,6 +121,9 @@ export default function TopBar() {
 
           {/* Help: report a bug, what's new, Sage, user guide */}
           <HelpMenu />
+
+          {/* Customer Service inbox (storefront chats waiting on a person) */}
+          <SupportInboxButton />
 
           {/* Notifications */}
           <NotificationBell />

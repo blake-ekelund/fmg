@@ -23,6 +23,15 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "2026-11-14-support-photos",
+    date: "2026-11-14",
+    title: "Customer Service is now a board",
+    body:
+      "Customer Service shows every chat in four columns: AI is handling → Sent to a human → Human helping → Issue handled. Drag a card to move it. Before handing a chat to a person, the AI now collects the customer's email and phone. Customers can attach photos, for example of a damaged item. When the AI escalates, everyone gets an alert, and the headphones icon counts the outstanding chats. The AI marks chats resolved itself, and handled chats move to the Archive 12 hours later.",
+    href: "/storefronts/conversations",
+    linkLabel: "Open Customer Service",
+  },
+  {
     id: "2026-11-14-reviews-live",
     date: "2026-11-14",
     title: "Customer reviews on product pages",

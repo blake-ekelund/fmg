@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, ListTodo, Boxes, ShoppingBag, Star, Loader2 } from "lucide-react";
+import { Bell, ListTodo, Boxes, ShoppingBag, Star, Loader2, Headphones } from "lucide-react";
 import clsx from "clsx";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
@@ -14,7 +14,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
  * opened; opening it marks them seen.
  */
 
-type NotifType = "task" | "inventory" | "order" | "review";
+type NotifType = "task" | "inventory" | "order" | "review" | "support";
 
 type NotificationItem = {
   id: string;
@@ -35,6 +35,7 @@ const ICON: Record<NotifType, React.ReactNode> = {
   inventory: <Boxes size={15} />,
   order: <ShoppingBag size={15} />,
   review: <Star size={15} />,
+  support: <Headphones size={15} />,
 };
 
 const TONE: Record<NotifType, string> = {
@@ -42,6 +43,7 @@ const TONE: Record<NotifType, string> = {
   inventory: "bg-violet-50 text-violet-600",
   order: "bg-blue-50 text-blue-600",
   review: "bg-emerald-50 text-emerald-600",
+  support: "bg-rose-50 text-rose-600",
 };
 
 async function authHeader(): Promise<Record<string, string>> {

@@ -41,22 +41,107 @@ export async function GET(request: Request) {
   const status = params.get("status") ?? "all";
   const store = params.get("store") ?? "all";
 
-  let query = supabaseServer
-    .from("support_conversations")
-    .select(
-      "id, store, session_key, profile_id, email, name, channel, status, assigned_to, subject, entry_preset, message_count, last_message_at, agent_unread, page_url, created_at"
-    )
-    .order("last_message_at", { ascending: false })
-    .limit(200);
+  const BASE_COLS =
+    "id, store, session_key, profile_id, email, name, channel, status, assigned_to, subject, entry_preset, message_count, last_message_at, agent_unread, page_url, created_at";
 
-  if (STATUSES.includes(status as (typeof STATUSES)[number])) {
-    query = query.eq("status", status);
-  }
-  if (store === "sassy" || store === "ni") {
-    query = query.eq("store", store);
-  }
+  type Row = Record<string, unknown> & { assigned_to: string | null };
+  type Result = { data: Row[] | null; error: { message: string } | null; count?: number | null };
 
-  const { data, error } = await query;
+  // A resolved ticket stays on the board for this long, then it's archived.
+  // Derived, not moved: nothing has to run for a ticket to "move".
+  const HANDLED_ON_BOARD_MS = 12 * 60 * 60_000;
+  const handledCutoff = new Date(Date.now() - HANDLED_ON_BOARD_MS).toISOString();
+
+  const offset = Math.max(0, Number(params.get("offset") ?? 0) || 0);
+  // Search goes into a PostgREST .or() string, so keep only characters that
+  // can't break out of it.
+  const q = (params.get("q") ?? "").replace(/[^\w@.+\- ]/g, " ").trim().slice(0, 80);
+
+  /**
+   * One query. `resolution` says whether this column set includes the
+   * resolution columns (migration 20261114050000); without them the
+   * handled/archive split falls back to last activity.
+   */
+  const one = (
+    cols: string,
+    resolution: boolean,
+    opts: { only?: string | null; limit: number; handled?: "recent" | "archive" },
+  ) => {
+    const when = resolution ? "resolved_at" : "last_message_at";
+    let query = supabaseServer
+      .from("support_conversations")
+      .select(cols, opts.handled === "archive" ? { count: "exact" } : undefined)
+      .order(opts.handled ? when : "last_message_at", { ascending: false, nullsFirst: false });
+    if (opts.only) query = query.eq("status", opts.only);
+    if (opts.handled === "recent") query = query.gte(when, handledCutoff);
+    if (opts.handled === "archive") {
+      query = resolution
+        ? query.or(`resolved_at.lt.${handledCutoff},resolved_at.is.null`)
+        : query.lt("last_message_at", handledCutoff);
+      if (q) {
+        const like = `%${q}%`;
+        query = query.or(
+          ["subject", "email", "name", ...(resolution ? ["resolution", "phone"] : [])]
+            .map((c) => `${c}.ilike.${like}`)
+            .join(","),
+        );
+      }
+    }
+    if (store === "sassy" || store === "ni") {
+      query = query.eq("store", store);
+    }
+    return opts.handled === "archive"
+      ? query.range(offset, offset + opts.limit - 1).returns<Row[]>()
+      : query.limit(opts.limit).returns<Row[]>();
+  };
+
+  // `status=board` is the kanban: each column fetched on its own, so a busy
+  // day of AI-handled chats can't push an escalated one off the board the way
+  // a single newest-200 list would. "Issue handled" only holds the last 12h.
+  // `status=archive` is everything resolved before that, paged + searchable.
+  const BOARD_LIMITS: Record<(typeof STATUSES)[number], number> = {
+    bot: 60,
+    needs_human: 150,
+    human: 150,
+    closed: 60,
+  };
+  const run = async (cols: string, resolution: boolean): Promise<Result> => {
+    if (status === "board") {
+      const parts = await Promise.all(
+        STATUSES.map((s) =>
+          one(cols, resolution, {
+            only: s,
+            limit: BOARD_LIMITS[s],
+            handled: s === "closed" ? "recent" : undefined,
+          }),
+        ),
+      );
+      const failed = parts.find((p) => p.error);
+      if (failed) return { data: null, error: failed.error };
+      return { data: parts.flatMap((p) => p.data ?? []), error: null };
+    }
+    if (status === "archive") {
+      return one(cols, resolution, { only: "closed", limit: 100, handled: "archive" });
+    }
+    const only = STATUSES.includes(status as (typeof STATUSES)[number]) ? status : null;
+    return one(cols, resolution, { only, limit: 200 });
+  };
+
+  // Newer columns arrive with later migrations (photos/refund: 20261114030000,
+  // phone: 20261114040000, resolution: 20261114050000). Try the widest set
+  // first and step back to what the database has, so the inbox loads at
+  // every stage.
+  const COL_SETS: [string, boolean][] = [
+    [`${BASE_COLS}, has_attachments, refund_requested, phone, resolved_at, resolved_by, resolution`, true],
+    [`${BASE_COLS}, has_attachments, refund_requested, phone`, false],
+    [`${BASE_COLS}, has_attachments, refund_requested`, false],
+    [BASE_COLS, false],
+  ];
+  let { data, error, count } = await run(...COL_SETS[0]);
+  for (const set of COL_SETS.slice(1)) {
+    if (!error || tableMissing(error.message)) break;
+    ({ data, error, count } = await run(...set));
+  }
   if (error) {
     if (tableMissing(error.message)) {
       return NextResponse.json({ conversations: [], agents: {}, notReady: true, hint: MIGRATION_HINT });
@@ -86,6 +171,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     conversations: data ?? [],
     agents,
+    ...(status === "archive" ? { total: count ?? null, offset } : {}),
     notReady: false,
   });
 }
