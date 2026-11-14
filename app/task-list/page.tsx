@@ -12,14 +12,19 @@ import {
   X,
   Check,
   Minus,
+  List,
+  CalendarDays,
 } from "lucide-react";
 import clsx from "clsx";
 
 import { supabase } from "@/lib/supabaseClient";
 import { AddTaskModal, type Task, type TaskStatus } from "@/components/tasks/AddTaskModal";
 import { DeleteTaskModal } from "@/components/tasks/DeleteTaskModal";
+import { TaskCalendar } from "@/components/tasks/TaskCalendar";
 import { useTeamOwners, getOwnerColor } from "@/lib/team-owners";
 import PageMeta from "@/components/PageMeta";
+
+type ViewMode = "list" | "calendar";
 
 /* ─── Main Page ─── */
 
@@ -27,6 +32,9 @@ export default function TaskListPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const { owners } = useTeamOwners();
+
+  // View
+  const [view, setView] = useState<ViewMode>("list");
 
   // Filters
   const [search, setSearch] = useState("");
@@ -37,6 +45,7 @@ export default function TaskListPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [defaultStatus, setDefaultStatus] = useState<TaskStatus>("todo");
+  const [defaultDueDate, setDefaultDueDate] = useState<string | undefined>(undefined);
   const [deleteTask, setDeleteTask] = useState<Task | null>(null);
 
   // Multi-select: ids of checked tasks, plus the last one clicked (shift-click
@@ -107,14 +116,16 @@ export default function TaskListPage() {
 
   /* ─── Actions ─── */
 
-  function openNewTask(status: TaskStatus = "todo") {
+  function openNewTask(status: TaskStatus = "todo", dueDate?: string) {
     setEditTask(null);
     setDefaultStatus(status);
+    setDefaultDueDate(dueDate);
     setModalOpen(true);
   }
 
   function openEditTask(task: Task) {
     setEditTask(task);
+    setDefaultDueDate(undefined);
     setModalOpen(true);
   }
 
@@ -187,10 +198,34 @@ export default function TaskListPage() {
             {showDone ? "Hide completed" : "Show completed"}
           </button>
 
+          {/* View toggle */}
+          <div className="ml-auto inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
+            <button
+              onClick={() => setView("list")}
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition",
+                view === "list" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900",
+              )}
+            >
+              <List size={13} />
+              List
+            </button>
+            <button
+              onClick={() => setView("calendar")}
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition",
+                view === "calendar" ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900",
+              )}
+            >
+              <CalendarDays size={13} />
+              Calendar
+            </button>
+          </div>
+
           {/* New task */}
           <button
             onClick={() => openNewTask("todo")}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm font-medium hover:bg-gray-800 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm font-medium hover:bg-gray-800 transition"
           >
             <Plus size={14} />
             New task
@@ -198,7 +233,7 @@ export default function TaskListPage() {
         </div>
 
         {/* ─── Bulk action bar (only while tasks are selected) ─── */}
-        {selectedIds.length > 0 && (
+        {view === "list" && selectedIds.length > 0 && (
           <BulkBar
             count={selectedIds.length}
             owners={owners}
@@ -217,16 +252,24 @@ export default function TaskListPage() {
         )}
 
         {/* ─── Content ─── */}
-        <ListView
-          tasks={filteredTasks}
-          loading={loading}
-          selected={selected}
-          onSelectionChange={setSelected}
-          onClickTask={openEditTask}
-          onStatusChange={changeStatus}
-          onDelete={(t) => setDeleteTask(t)}
-          onAdd={openNewTask}
-        />
+        {view === "list" ? (
+          <ListView
+            tasks={filteredTasks}
+            loading={loading}
+            selected={selected}
+            onSelectionChange={setSelected}
+            onClickTask={openEditTask}
+            onStatusChange={changeStatus}
+            onDelete={(t) => setDeleteTask(t)}
+            onAdd={openNewTask}
+          />
+        ) : (
+          <TaskCalendar
+            tasks={filteredTasks}
+            onClickTask={openEditTask}
+            onNewTaskOnDay={(iso) => openNewTask("todo", iso)}
+          />
+        )}
       </div>
 
       {/* Modals */}
@@ -234,6 +277,7 @@ export default function TaskListPage() {
         open={modalOpen}
         task={editTask}
         defaultStatus={defaultStatus}
+        defaultDueDate={defaultDueDate}
         onClose={() => setModalOpen(false)}
         onSaved={loadTasks}
       />

@@ -33,11 +33,12 @@ type Props = {
   open: boolean;
   task?: Task | null;
   defaultStatus?: TaskStatus;
+  defaultDueDate?: string;
   onClose: () => void;
   onSaved: () => void;
 };
 
-export function AddTaskModal({ open, task, defaultStatus, onClose, onSaved }: Props) {
+export function AddTaskModal({ open, task, defaultStatus, defaultDueDate, onClose, onSaved }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [owner, setOwner] = useState("");
@@ -63,10 +64,10 @@ export function AddTaskModal({ open, task, defaultStatus, onClose, onSaved }: Pr
       setOwner("");
       setPriority("Medium");
       setStatus(defaultStatus ?? "todo");
-      setDueDate("");
+      setDueDate(defaultDueDate ?? "");
       setNotes("");
     }
-  }, [task, defaultStatus, open]);
+  }, [task, defaultStatus, defaultDueDate, open]);
 
   if (!open) return null;
 
