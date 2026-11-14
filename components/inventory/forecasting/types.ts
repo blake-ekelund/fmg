@@ -44,7 +44,9 @@ export type ForecastRow = Product & {
 };
 
 export type Period = { label: string; index: number };
-export type ViewMode = "monthly" | "quarterly";
+/** monthly / quarterly = projected stock; demand = expected units per month,
+ *  editable (hand-set overrides). */
+export type ViewMode = "monthly" | "quarterly" | "demand";
 
 export type SortKey =
   | "status"

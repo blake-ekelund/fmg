@@ -23,6 +23,15 @@ import { project } from "./utils/forecast";
 import { useForecastData } from "./hooks/useForecastData";
 import { useDebouncedSave } from "./hooks/useDebouncedSave";
 import ForecastTable from "./ForecastTable";
+import DemandTable from "./DemandTable";
+import { invalidateDemandProfiles } from "@/lib/demandClient";
+import {
+  addMonths as addMonthKeys,
+  monthKey,
+  withMonthOverride,
+  withoutOverrides,
+  type DemandProfile,
+} from "@/lib/seasonalDemand";
 import StatusFilterDropdown from "./StatusFilterDropdown";
 import {
   ForecastRow as Row,
@@ -220,7 +229,23 @@ export default function ForecastSection({
       prev.map((r) =>
         r.part === part
           ? // A typed number replaces the flat profile, so projections use it now.
-            { ...r, avg_monthly_demand: value, is_auto_avg: false, demand: undefined }
+            // Hand-set months (Demand view) stay on top of the new flat figure.
+            r.demand?.overridden
+              ? {
+                  ...r,
+                  is_auto_avg: false,
+                  ...(() => {
+                    const d = r.demand!;
+                    const base = Array(12).fill(value) as number[];
+                    const monthly = base.map((v, i) => (d.overridden![i] ? d.monthly[i] : v));
+                    const avg = monthly.reduce((x, y) => x + y, 0) / 12;
+                    return {
+                      demand: { ...d, method: "manual" as const, base, monthly, avg },
+                      avg_monthly_demand: Math.round(avg),
+                    };
+                  })(),
+                }
+              : { ...r, avg_monthly_demand: value, is_auto_avg: false, demand: undefined }
           : r,
       ),
     );
@@ -231,6 +256,97 @@ export default function ForecastSection({
         .eq("part", part);
     });
   }
+
+  /* ─── Demand view: hand-set months ─── */
+
+  const [demandSaving, setDemandSaving] = useState<Set<string>>(new Set());
+  const [demandError, setDemandError] = useState<string | null>(null);
+  const demandStart = monthKey(new Date());
+
+  /** Swap a row's profile (and the avg / status that follow from it). */
+  function putProfile(part: string, profile: DemandProfile) {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.part === part
+          ? { ...r, demand: profile, avg_monthly_demand: Math.round(profile.avg) }
+          : r,
+      ),
+    );
+  }
+
+  async function demandRequest(method: "PUT" | "DELETE", body: Record<string, unknown>) {
+    const { data } = await supabaseBrowser().auth.getSession();
+    const token = data.session?.access_token;
+    const res = await fetch("/api/inventory/demand-overrides", {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error ?? `Save failed (${res.status})`);
+    }
+    // The dashboard, Purchasing and product pages re-read on their next load.
+    invalidateDemandProfiles();
+  }
+
+  function busy(key: string, on: boolean) {
+    setDemandSaving((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  /** Set one SKU-month by hand. Optimistic; reverted if the save fails. */
+  async function setDemand(part: string, i: number, units: number) {
+    const before = rows.find((r) => r.part === part)?.demand;
+    if (!before) {
+      setDemandError("The forecast for this SKU hasn't loaded yet, so it can't be overridden. Try again in a moment.");
+      return;
+    }
+    setDemandError(null);
+    putProfile(part, withMonthOverride(before, i, units));
+    busy(`${part}|${i}`, true);
+    try {
+      await demandRequest("PUT", { part, month: addMonthKeys(before.startMonth, i), units });
+    } catch (e) {
+      putProfile(part, before);
+      setDemandError(e instanceof Error ? e.message : "Couldn't save that.");
+    } finally {
+      busy(`${part}|${i}`, false);
+    }
+  }
+
+  /** Back to the forecast: one month, or (no index) every month for the SKU. */
+  async function resetDemand(part: string, i?: number) {
+    const before = rows.find((r) => r.part === part)?.demand;
+    if (!before) return;
+    setDemandError(null);
+    putProfile(part, i === undefined ? withoutOverrides(before) : withMonthOverride(before, i, null));
+    const key = `${part}|${i ?? "*"}`;
+    busy(key, true);
+    try {
+      await demandRequest(
+        "DELETE",
+        i === undefined ? { part } : { part, month: addMonthKeys(before.startMonth, i) },
+      );
+    } catch (e) {
+      putProfile(part, before);
+      setDemandError(e instanceof Error ? e.message : "Couldn't reset that.");
+    } finally {
+      busy(key, false);
+    }
+  }
+
+  const overriddenCount = useMemo(
+    () => rows.filter((r) => r.demand?.overridden?.some(Boolean)).length,
+    [rows],
+  );
 
   function updateOnOrder(part: string, value: number) {
     setRows((prev) =>
@@ -594,6 +710,18 @@ export default function ForecastSection({
             >
               Quarterly
             </button>
+            <button
+              onClick={() => setView("demand")}
+              title="Expected units per SKU per month. Type over a month to set it by hand."
+              className={clsx(
+                "rounded-md px-2.5 py-1 transition font-medium",
+                view === "demand"
+                  ? "bg-gray-900 text-white"
+                  : "text-gray-600 hover:text-gray-900",
+              )}
+            >
+              Demand
+            </button>
           </div>
 
           {/* Export. Desktop downloads the CSV; a download on a phone lands
@@ -733,6 +861,21 @@ export default function ForecastSection({
           </div>
         )}
 
+        {effectiveView === "demand" && (
+          <p className="text-xs text-gray-500">
+            Expected units sold each month. Type over a month to set it by hand. Your number is
+            used for projections, status, Purchasing and the dashboard, and stays until you reset it
+            (hover the cell for ↺, or Reset SKU).
+            {overriddenCount > 0 ? (
+              <span className="ml-1 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800">
+                {overriddenCount} SKU{overriddenCount === 1 ? "" : "s"} with hand-set months
+              </span>
+            ) : null}
+          </p>
+        )}
+
+        {demandError && <p className="text-xs text-red-600">{demandError}</p>}
+
         {refreshNote && (
           <p
             className={clsx(
@@ -757,6 +900,16 @@ export default function ForecastSection({
       </div>
 
       {/* Table */}
+      {effectiveView === "demand" ? (
+        <DemandTable
+          rows={visibleRows}
+          startMonth={demandStart}
+          saving={demandSaving}
+          onSet={(part, i, units) => void setDemand(part, i, units)}
+          onReset={(part, i) => void resetDemand(part, i)}
+          onRowClick={(part) => router.push(`/products/${encodeURIComponent(part)}`)}
+        />
+      ) : (
       <ForecastTable
         rows={visibleRows}
         periods={periods}
@@ -771,6 +924,7 @@ export default function ForecastSection({
         onUpdateAvg={updateAvg}
         onUpdateOnOrder={updateOnOrder}
       />
+      )}
 
       {visibleRows.length === 0 && rows.length > 0 && (
         <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-400">

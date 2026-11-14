@@ -1,8 +1,10 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   addMonths,
+  applyDemandOverrides,
   buildDemandProfiles,
   monthKey,
+  type DemandOverrides,
   type DemandProductInput,
   type DemandProfile,
   type MonthlyUnits,
@@ -92,8 +94,8 @@ async function build(now: Date): Promise<Map<string, DemandProfile>> {
   return buildDemandProfiles((products.data ?? []) as DemandProductInput[], history, u90, now);
 }
 
-/** Every forecasted product's demand profile, keyed by part. Cached for an hour. */
-export function getDemandProfiles(now: Date = new Date()): Promise<Map<string, DemandProfile>> {
+/** The calculated profiles, before overrides. Cached for an hour. */
+function calculatedProfiles(now: Date): Promise<Map<string, DemandProfile>> {
   const month = monthKey(now);
   if (cache && cache.month === month && Date.now() - cache.at < CACHE_MS) return cache.value;
   const value = build(now);
@@ -103,4 +105,34 @@ export function getDemandProfiles(now: Date = new Date()): Promise<Map<string, D
     if (cache?.value === value) cache = null;
   });
   return value;
+}
+
+/**
+ * Hand-set months (inventory_demand_overrides) from this month on. Read fresh
+ * every time, never cached: an edit must show up everywhere at once, and this
+ * is one small indexed query. Before the migration runs it returns nothing.
+ */
+export async function loadDemandOverrides(now: Date = new Date()): Promise<DemandOverrides> {
+  const { data, error } = await supabaseServer
+    .from("inventory_demand_overrides")
+    .select("part, month, units")
+    .gte("month", monthKey(now))
+    .limit(20000);
+  const out: DemandOverrides = new Map();
+  if (error) return out;
+  for (const r of (data ?? []) as { part: string; month: string; units: number | string }[]) {
+    let m = out.get(r.part);
+    if (!m) out.set(r.part, (m = new Map()));
+    m.set(r.month, Number(r.units) || 0);
+  }
+  return out;
+}
+
+/**
+ * Every forecasted product's demand profile, keyed by part: the calculation
+ * (cached for an hour) with hand-set months applied on top (always fresh).
+ */
+export async function getDemandProfiles(now: Date = new Date()): Promise<Map<string, DemandProfile>> {
+  const [profiles, overrides] = await Promise.all([calculatedProfiles(now), loadDemandOverrides(now)]);
+  return applyDemandOverrides(profiles, overrides);
 }

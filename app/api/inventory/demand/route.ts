@@ -18,7 +18,9 @@ export async function GET(request: Request) {
     const profiles = await getDemandProfiles();
     return NextResponse.json(
       { profiles: Object.fromEntries(profiles), asOf: new Date().toISOString() },
-      { headers: { "Cache-Control": "private, max-age=300" } },
+      // No browser caching: a hand-set month must show up on the next read.
+      // lib/demandClient keeps its own short in-page cache, cleared on edit.
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't build the forecast." }, { status: 500 });

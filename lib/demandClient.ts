@@ -28,6 +28,12 @@ async function load(): Promise<Map<string, DemandProfile>> {
   }
 }
 
+/** Drop the in-page cache, e.g. after a demand override was saved, so the
+ *  next caller (dashboard, Purchasing, product page) sees the change. */
+export function invalidateDemandProfiles(): void {
+  cached = null;
+}
+
 export function fetchDemandProfiles(): Promise<Map<string, DemandProfile>> {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
   const value = load();

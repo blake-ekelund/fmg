@@ -23,6 +23,15 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "2026-11-14-demand-overrides",
+    date: "2026-11-14",
+    title: "Set the forecast by hand, month by month",
+    body:
+      "Inventory has a new Demand view: expected units for every SKU over the next 12 months. Type over any month to set it yourself, for example for a launch or a promo. Your number is used for projections, status, Purchasing and the dashboard, and it stays until you reset that month or the whole SKU.",
+    href: "/inventory",
+    linkLabel: "Open Inventory",
+  },
+  {
     id: "2026-11-14-support-photos",
     date: "2026-11-14",
     title: "Customer Service is now a board",

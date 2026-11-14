@@ -44,7 +44,16 @@ export type DemandProfile = {
   last12: number | null;
   /** yyyy-mm of the first month in `monthly` (the current month when built). */
   startMonth: string;
+  /** The calculated figure for each month, before any hand-set override. Only
+   *  present when at least one month is overridden; `monthly` then holds
+   *  the overrides in place of these. */
+  base?: number[];
+  /** Which months of `monthly` are hand-set (inventory_demand_overrides). */
+  overridden?: boolean[];
 };
+
+/** Hand-set demand: part → yyyy-mm → units. */
+export type DemandOverrides = Map<string, Map<string, number>>;
 
 export type MonthlyUnits = Map<string, Map<string, number>>; // part → yyyy-mm → units
 
@@ -186,6 +195,83 @@ export function buildDemandProfiles(
   return out;
 }
 
+/**
+ * Put hand-set months over the calculated ones. An override is keyed to a
+ * calendar month, so it lands on whichever of the profile's 12 months it is,
+ * and one for a month already past (or beyond the next 12) doesn't apply.
+ * Returns new profiles; the inputs are left alone (they may be cached).
+ */
+export function applyDemandOverrides(
+  profiles: Map<string, DemandProfile>,
+  overrides: DemandOverrides,
+): Map<string, DemandProfile> {
+  if (!overrides.size) return profiles;
+  const out = new Map(profiles);
+  for (const [part, months] of overrides) {
+    const p = profiles.get(part);
+    if (!p) continue;
+    const base = p.base ?? p.monthly;
+    const monthly = [...base];
+    const overridden = Array(12).fill(false);
+    let any = false;
+    for (let i = 0; i < 12; i++) {
+      const v = months.get(addMonths(p.startMonth, i));
+      if (v === undefined) continue;
+      monthly[i] = Math.max(0, v);
+      overridden[i] = true;
+      any = true;
+    }
+    if (!any) continue;
+    out.set(part, {
+      ...p,
+      monthly,
+      base,
+      overridden,
+      avg: monthly.reduce((a, b) => a + b, 0) / 12,
+    });
+  }
+  return out;
+}
+
+/**
+ * One month of a profile set by hand (units) or reset to the calculation
+ * (null). Index `i` counts from the profile's start month. For the editor's
+ * optimistic update; the saved truth lives in inventory_demand_overrides.
+ */
+export function withMonthOverride(p: DemandProfile, i: number, units: number | null): DemandProfile {
+  const base = p.base ?? p.monthly;
+  const monthly = [...p.monthly];
+  const overridden = p.overridden ? [...p.overridden] : Array(12).fill(false);
+  if (units === null) {
+    monthly[i] = base[i];
+    overridden[i] = false;
+  } else {
+    monthly[i] = Math.max(0, units);
+    overridden[i] = true;
+  }
+  const any = overridden.some(Boolean);
+  return {
+    ...p,
+    monthly,
+    avg: monthly.reduce((x, y) => x + y, 0) / 12,
+    base: any ? base : undefined,
+    overridden: any ? overridden : undefined,
+  };
+}
+
+/** The profile with every hand-set month back on the calculation. */
+export function withoutOverrides(p: DemandProfile): DemandProfile {
+  if (!p.base) return p;
+  const monthly = [...p.base];
+  return {
+    ...p,
+    monthly,
+    avg: monthly.reduce((x, y) => x + y, 0) / 12,
+    base: undefined,
+    overridden: undefined,
+  };
+}
+
 /* ─── Using a profile ─── */
 
 /** Demand for the month `i` months after the profile's start (wraps yearly). */
@@ -247,6 +333,12 @@ export function demandAhead(p: DemandProfile, months: number, now: Date = new Da
 
 /** A one-line explanation for tooltips. */
 export function describeDemand(p: DemandProfile): string {
+  const set = p.overridden?.filter(Boolean).length ?? 0;
+  const note = set ? ` ${set} month${set === 1 ? "" : "s"} set by hand (Demand view).` : "";
+  return describeCalculated(p) + note;
+}
+
+function describeCalculated(p: DemandProfile): string {
   if (p.method === "manual") return "Flat — the typed avg / mo (not enough sales history for a seasonal forecast).";
   if (p.method === "recent") return "Flat — last 90 days of sales ÷ 3 (not enough history for a seasonal forecast).";
   const pct = (v: number | null) => (v === null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v * 100)}%`);
