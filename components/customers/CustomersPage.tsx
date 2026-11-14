@@ -160,6 +160,10 @@ export default function CustomersPage({
 
   const [downloading, setDownloading] = useState(false);
 
+  /* A banner when an export or select-all hits its row cap, so a filtered
+     view that exceeds the cap doesn't silently return a partial set. */
+  const [notice, setNotice] = useState<string | null>(null);
+
   /* ─── Multi-select ─── */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
@@ -176,9 +180,10 @@ export default function CustomersPage({
 
   // handleToggleAll is defined below hooks (needs customer data)
 
-  // Clear selection on page / filter / view change
+  // Clear selection (and any stale cap notice) on page / filter / view change
   useEffect(() => {
     setSelectedIds(new Set());
+    setNotice(null);
   }, [page, search, statuses, channel, agency, states, repeatOnly, spendBucket, emailFlag, lastOrder, openOnly, viewMode]);
 
   /* Export column picker state */
@@ -304,6 +309,9 @@ export default function CustomersPage({
           lastOrder,
         });
         const { data } = await q.range(0, 4999);
+        if ((data?.length ?? 0) >= 5000) {
+          setNotice("Selected the first 5,000 matching customers — narrow the filter to include them all.");
+        }
         let ids = (data ?? []).map((r: { person_key: string }) => r.person_key);
         if (emailFlagIds) {
           const allowed = new Set(emailFlagIds);
@@ -333,6 +341,9 @@ export default function CustomersPage({
           q = q.ilike("brands_purchased", `%${brand}%`);
         }
         const { data } = await q;
+        if ((data?.length ?? 0) >= 5000) {
+          setNotice("Selected the first 5,000 matching customers — narrow the filter to include them all.");
+        }
         let ids = (data ?? []).map((r: { customerid: string }) => r.customerid);
         if (openOnly) {
           const open = await fetchOpenOrderCustomerIds(supabase);
@@ -457,6 +468,9 @@ export default function CustomersPage({
 
     const { data, error } = await query;
     if (error || !data?.length) return;
+    if (data.length >= 10000) {
+      setNotice("Export capped at 10,000 rows — narrow the filter to include the rest.");
+    }
 
     const selectedCols = Object.entries(d2cExportColumns)
       .filter(([, checked]) => checked)
@@ -510,6 +524,9 @@ export default function CustomersPage({
 
     const { data, error } = await query;
     if (error || !data?.length) return;
+    if (data.length >= 5000) {
+      setNotice("Export capped at 5,000 rows — narrow the filter to include the rest.");
+    }
 
     const customerIds = data.map((r: Record<string, unknown>) => r.customerid as string);
     const { data: contactData } = await supabase
@@ -611,6 +628,24 @@ export default function CustomersPage({
         exportColumns={activeExportColumns}
         setExportColumns={activeSetExportColumns}
       />
+
+      {/* Row-cap notice (export / select-all) */}
+      {notice && (
+        <div
+          role="status"
+          className="flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+        >
+          <span>{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss"
+            className="shrink-0 text-amber-600 transition hover:text-amber-900"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Table (md+) */}
       <CustomersTable
