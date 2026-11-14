@@ -23,6 +23,15 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "2026-11-14-reviews-live",
+    date: "2026-11-14",
+    title: "Customer reviews on product pages",
+    body:
+      "Every product page on sassyandco.com and redek.io now has a Write a review button and shows approved reviews with an average star rating. Sassy's \"it was delivered\" email also asks for a review. Nothing shows until it's approved in Product Reviews — and only if the customer agreed to be featured.",
+    href: "/storefronts/reviews",
+    linkLabel: "Open Product Reviews",
+  },
+  {
     id: "2026-11-14-seasonal-forecast",
     date: "2026-11-14",
     title: "Seasonal inventory forecast",

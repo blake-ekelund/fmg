@@ -544,7 +544,7 @@ export const BLOCK_INFO: Record<
   benefits_banner: { label: "Benefits banner", description: "A heading and short punchy benefit lines.", single: true },
   philosophy: { label: "Brand story (two columns)", description: "Two columns of brand copy.", single: true },
   related_products: { label: "Pairs well with", description: "Four related products, picked automatically.", single: true },
-  reviews_note: { label: "Reviews", description: "The reviews section (a placeholder until reviews go live).", single: true },
+  reviews_note: { label: "Reviews", description: "Approved customer reviews with a Write a review button. The message shows until the first review is approved.", single: true },
   collection_header: {
     label: "Collection header",
     description: "The top of the page — the collection's name, tagline, story and colors, filled from the collection.",

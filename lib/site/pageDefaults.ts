@@ -229,8 +229,8 @@ const PRODUCT: PageBlock[] = [
     id: "reviews",
     type: "reviews_note",
     eyebrow: "what the group chat says",
-    heading: "reviews are coming soon",
-    message: "Real reviews are on the way. Once you've put it to work, you'll get to weigh in — loud opinions encouraged.",
+    heading: "the reviews",
+    message: "No reviews yet — be the first to weigh in. Loud opinions encouraged.",
   },
 ];
 
@@ -856,6 +856,11 @@ const SITE: PageBlock[] = [
               "id": "order",
               "label": "Find My Order",
               "href": "/order"
+            },
+            {
+              "id": "review",
+              "label": "Write a Review",
+              "href": "/review"
             }
           ]
         },
