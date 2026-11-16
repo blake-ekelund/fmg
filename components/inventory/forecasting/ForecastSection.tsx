@@ -1,25 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  Search,
-  CalendarClock,
-  ExternalLink,
-  Download,
-  Mail,
-  Loader2,
-  Check,
-  X,
-  RefreshCw,
-  ShoppingCart,
-} from "lucide-react";
+import { Search, X, RefreshCw } from "lucide-react";
 import clsx from "clsx";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { isOverstock } from "@/lib/inventoryHealth";
 import { addMonths } from "./utils/date";
-import { project } from "./utils/forecast";
 import { useForecastData } from "./hooks/useForecastData";
 import { useDebouncedSave } from "./hooks/useDebouncedSave";
 import ForecastTable from "./ForecastTable";
@@ -44,7 +31,6 @@ import {
   getInventoryStatus,
 } from "./types";
 import { useBrand } from "@/components/BrandContext";
-import { useUser } from "@/components/UserContext";
 import { useBrandSettings } from "@/lib/brand-settings";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -76,20 +62,6 @@ function shortMonthYear(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
-function daysSince(d: Date): number {
-  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-/** Quote-escape a single CSV cell value. */
-function csvCell(v: unknown): string {
-  if (v == null) return "";
-  const s = String(v);
-  if (/[",\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
 export default function ForecastSection({
   initialFilter,
 }: {
@@ -97,8 +69,7 @@ export default function ForecastSection({
   initialFilter?: string;
 }) {
   const router = useRouter();
-  const { rows, setRows, snapshotDate, pointbStatus, pointbError, reload } =
-    useForecastData();
+  const { rows, setRows, reload } = useForecastData();
   const [refreshState, setRefreshState] = useState<"idle" | "running" | "done" | "error">("idle");
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
 
@@ -157,9 +128,7 @@ export default function ForecastSection({
   }
   const scheduleSave = useDebouncedSave();
   const { brand } = useBrand();
-  const { profile } = useUser();
   const { byBrand } = useBrandSettings();
-  const isAdmin = profile?.access === "owner" || profile?.access === "admin";
 
   const [search, setSearch] = useState("");
   /* Deep-links from the dashboard seed the initial view: understock maps to the
@@ -186,8 +155,6 @@ export default function ForecastSection({
   const [sortKey, setSortKey] = useState<SortKey>("part");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [view, setView] = useState<ViewMode>("monthly");
-  const [emailState, setEmailState] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  const [emailNote, setEmailNote] = useState<string | null>(null);
 
   /* Phones get a deliberately narrower product: monthly only, sorted by part,
      no uploading. These are forced in JS rather than just hidden in CSS —
@@ -362,148 +329,6 @@ export default function ForecastSection({
     });
   }
 
-  /* ─── CSV export ─────────────────────────────────────────────────────
-     Always exports 12 monthly columns regardless of the view toggle — the
-     user came here for a monthly format. Respects the current search +
-     status filters so the export matches what's on screen. */
-
-  function buildCsv(): string {
-    const now = new Date();
-    const months = Array.from({ length: 12 }).map((_, i) => addMonths(now, i));
-    const monthLabels = months.map((m) =>
-      m.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-    );
-
-    const headers = [
-      "Status",
-      "Part",
-      "Display Name",
-      "Brand",
-      "Fragrance",
-      "Size",
-      "Product Type",
-      "On Hand (Forecast)",
-      "On Hand Source",
-      "Point B Available",
-      "Point B Physical",
-      "Fishbowl On Hand",
-      "Variance (Point B Physical - Fishbowl)",
-      "On Order",
-      "Avg Monthly Demand",
-      "Demand Basis",
-      "Lead Time (Months)",
-      ...monthLabels,
-    ];
-
-    const lines: string[] = [headers.join(",")];
-    for (const row of visibleRows) {
-      const status = getInventoryStatus(
-        row.on_hand,
-        row.on_order,
-        row.avg_monthly_demand,
-        row.demand,
-      );
-      const projections: number[] = [];
-      for (let i = 0; i < 12; i++) {
-        projections.push(Math.round(project(row, i, now)));
-      }
-      const cells: unknown[] = [
-        status,
-        row.part,
-        row.display_name ?? "",
-        row.brand,
-        row.fragrance ?? "",
-        row.size ?? "",
-        row.product_type ?? "",
-        row.on_hand,
-        row.on_hand_source === "pointb" ? "Point B" : "Fishbowl",
-        row.pointb_on_hand ?? "",
-        row.pointb_physical ?? "",
-        row.fishbowl_on_hand ?? "",
-        row.variance ?? "",
-        row.on_order,
-        row.avg_monthly_demand,
-        row.demand?.method === "seasonal"
-          ? "Seasonal (last year × trend)"
-          : row.is_auto_avg
-            ? "Last 90 days ÷ 3"
-            : "Typed",
-        row.lead_time_months ?? 0,
-        ...projections,
-      ];
-      lines.push(cells.map(csvCell).join(","));
-    }
-
-    return lines.join("\n");
-  }
-
-  function csvFilename(): string {
-    return `inventory_forecast_${new Date().toISOString().split("T")[0]}.csv`;
-  }
-
-  /** Plain-English note of what the export was filtered to, for the email body. */
-  function exportScope(): string {
-    const parts: string[] = [];
-    if (statusFilter.size > 0) {
-      parts.push(`status ${[...statusFilter].map((s) => `"${s}"`).join(", ")}`);
-    }
-    if (search.trim()) parts.push(`search "${search.trim()}"`);
-    if (brand !== "all") parts.push(`brand ${brand}`);
-    return parts.length ? parts.join(", ") : "all products";
-  }
-
-  function handleDownload() {
-    const blob = new Blob([buildCsv()], {
-      type: "text/csv;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", csvFilename());
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
-
-  /* Emails the same CSV to the signed-in user. On a phone a downloaded file is
-     effectively gone, so this is the only export that actually lands. */
-  async function handleEmailReport() {
-    if (emailState === "sending") return;
-    setEmailState("sending");
-    setEmailNote(null);
-    try {
-      const sb = supabaseBrowser();
-      const { data } = await sb.auth.getSession();
-      const token = data.session?.access_token;
-
-      const res = await fetch("/api/inventory/email-report", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          csv: buildCsv(),
-          filename: csvFilename(),
-          scope: exportScope(),
-          rowCount: visibleRows.length,
-        }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) {
-        setEmailState("error");
-        setEmailNote(json?.error ?? `Failed (${res.status})`);
-        return;
-      }
-      setEmailState("sent");
-      setEmailNote(json?.sentTo ? `Sent to ${json.sentTo}` : "Sent");
-    } catch (e) {
-      setEmailState("error");
-      setEmailNote(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   function handleSort(key: SortKey) {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -622,42 +447,14 @@ export default function ForecastSection({
     return sorted;
   }, [rows, passesFilters, effectiveSortKey, effectiveSortDir]);
 
-  /** Visible parts whose forecast had to fall back to Fishbowl. */
-  const fishbowlFallbacks = useMemo(
-    () => visibleRows.filter((r) => r.on_hand_source === "fishbowl").length,
-    [visibleRows],
-  );
-
-  /* ─── Snapshot freshness ─── */
-
-  const snapshotMeta = useMemo(() => {
-    if (!snapshotDate) {
-      return {
-        label: "No snapshot uploaded yet",
-        days: null as number | null,
-        stale: true,
-      };
-    }
-    const days = daysSince(snapshotDate);
-    const dateStr = snapshotDate.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
-    return {
-      label: `Fishbowl ${dateStr} · ${days === 0 ? "today" : `${days}d ago`}`,
-      days,
-      stale: days >= 14,
-    };
-  }, [snapshotDate]);
-
   /* ─── Render ─── */
 
   const showBrand = brand === "all";
 
   return (
     <div className="space-y-3">
-      {/* Toolbar — search, status multiselect, view, and export all on one
-          row (wraps only when the viewport is too narrow to hold it). */}
+      {/* Toolbar — search, status multiselect, view and refresh on one row
+          (wraps only when the viewport is too narrow to hold it). */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           {/* Search */}
@@ -724,50 +521,6 @@ export default function ForecastSection({
             </button>
           </div>
 
-          {/* Export. Desktop downloads the CSV; a download on a phone lands
-              somewhere the user can't get at, so mobile mails it instead. */}
-          <button
-            onClick={handleDownload}
-            disabled={visibleRows.length === 0}
-            title="Download visible rows as CSV with 12-month forecast"
-            className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed md:inline-flex"
-          >
-            <Download size={13} />
-            Export
-          </button>
-
-          {/* Hand the same status filter to Purchasing, so "what's running
-              low" here becomes "what to order" there, product family by family. */}
-          <Link
-            href={`/inventory/purchasing${statusFilter.size ? `?status=${encodeURIComponent([...statusFilter].join(","))}` : ""}`}
-            title="Work out which ingredients to order for these products"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-900 bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-gray-800"
-          >
-            <ShoppingCart size={13} />
-            Order ingredients
-          </Link>
-
-          {/* Email to me — mobile only (desktop downloads via Export instead). */}
-          <button
-            onClick={handleEmailReport}
-            disabled={visibleRows.length === 0 || emailState === "sending"}
-            title="Email this report to yourself as a CSV attachment"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed md:hidden"
-          >
-            {emailState === "sending" ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : emailState === "sent" ? (
-              <Check size={13} className="text-green-600" />
-            ) : (
-              <Mail size={13} />
-            )}
-            {emailState === "sending"
-              ? "Sending…"
-              : emailState === "sent"
-                ? "Emailed"
-                : "Email to me"}
-          </button>
-
           {/* Refresh both systems at once */}
           <button
             onClick={handleRefreshInventory}
@@ -778,69 +531,6 @@ export default function ForecastSection({
             <RefreshCw size={13} className={clsx(refreshState === "running" && "animate-spin")} />
             {refreshState === "running" ? "Refreshing…" : "Refresh inventory"}
           </button>
-
-          {/* Point B — the forecast's source of truth. Says when it's still
-              loading, when it failed (whole table on Fishbowl), and how many
-              parts fell back to Fishbowl, so the numbers never silently
-              switch source. */}
-          <Link
-            href="/inventory/variance"
-            title={
-              pointbStatus === "error"
-                ? `Point B read failed: ${pointbError ?? "unknown error"}. Forecast is using Fishbowl.`
-                : "On hand comes from Point B (live). Open the full variance report."
-            }
-            className={clsx(
-              "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition hover:border-gray-300",
-              pointbStatus === "error"
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-gray-200 bg-white text-gray-500",
-            )}
-          >
-            {pointbStatus === "loading" ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <span
-                className={clsx(
-                  "inline-block h-1.5 w-1.5 rounded-full",
-                  pointbStatus === "ok" ? "bg-green-500" : "bg-red-500",
-                )}
-              />
-            )}
-            <span>
-              {pointbStatus === "loading"
-                ? "Loading Point B…"
-                : pointbStatus === "error"
-                  ? "Point B unavailable · using Fishbowl"
-                  : fishbowlFallbacks > 0
-                    ? `Point B live · ${fishbowlFallbacks} on Fishbowl`
-                    : "Point B live"}
-            </span>
-          </Link>
-
-          {/* Fishbowl snapshot freshness — pinned to the far right of the row. */}
-          <div
-            className={clsx(
-              "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs",
-              snapshotMeta.stale
-                ? "border-amber-200 bg-amber-50 text-amber-700"
-                : "border-gray-200 bg-white text-gray-500",
-            )}
-          >
-            <CalendarClock size={12} />
-            <span>{snapshotMeta.label}</span>
-            {/* Uploading a snapshot is a desktop job — it means picking a file
-                off a machine that has one. Hidden on mobile entirely. */}
-            {isAdmin && !isMobile && (
-              <Link
-                href="/integrations"
-                className="ml-1 inline-flex items-center gap-0.5 underline hover:text-gray-900"
-              >
-                Upload
-                <ExternalLink size={11} />
-              </Link>
-            )}
-          </div>
         </div>
 
         {/* Slow-mover overstock is a synthetic filter with no matching status,
@@ -887,16 +577,6 @@ export default function ForecastSection({
           </p>
         )}
 
-        {emailNote && (
-          <p
-            className={clsx(
-              "text-xs",
-              emailState === "error" ? "text-red-600" : "text-gray-500",
-            )}
-          >
-            {emailNote}
-          </p>
-        )}
       </div>
 
       {/* Table */}
