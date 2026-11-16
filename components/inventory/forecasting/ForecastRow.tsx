@@ -13,10 +13,11 @@ type Props = {
   onRowClick: (part: string) => void;
   onUpdateAvg: (part: string, value: number) => void;
   onUpdateOnOrder: (part: string, value: number) => void;
+  onResetOnOrder: (part: string) => void;
 };
 
 const inputClass =
-  "w-20 h-7 rounded-md border border-gray-200 bg-gray-50 px-1.5 text-xs text-right text-gray-700 placeholder:text-gray-300 outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition tabular-nums";
+  "w-14 h-7 rounded-md border border-gray-200 bg-gray-50 px-1.5 text-xs text-right text-gray-700 placeholder:text-gray-300 outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition tabular-nums";
 
 function formatNumber(n: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
@@ -92,6 +93,7 @@ export default function ForecastRow({
   onRowClick,
   onUpdateAvg,
   onUpdateOnOrder,
+  onResetOnOrder,
 }: Props) {
   const [onOrderText, setOnOrderText] = useState(formatNumber(row.on_order));
   const [avgText, setAvgText] = useState(formatNumber(row.avg_monthly_demand));
@@ -200,8 +202,18 @@ export default function ForecastRow({
         {formatVariance(row)}
       </td>
 
-      {/* On Order (editable) */}
-      <td className="px-2 py-2 text-right" onClick={stopRow}>
+      {/* On Order (editable). A typed figure sticks through Fishbowl syncs
+          (amber) until ↺ puts Fishbowl's own number back. */}
+      <td
+        className="w-[1%] px-1.5 py-2 text-right"
+        onClick={stopRow}
+        title={
+          row.on_order_override
+            ? `Set by hand. Fishbowl says ${formatNumber(row.on_order_fishbowl ?? 0)}. Stays until reset.`
+            : "From Fishbowl. Type a number to set it by hand."
+        }
+      >
+        <div className="group/oo relative inline-block">
         <input
           type="text"
           inputMode="numeric"
@@ -215,14 +227,30 @@ export default function ForecastRow({
             setOnOrderText(formatNumber(parsed));
             onUpdateOnOrder(row.part, parsed);
           }}
-          className={inputClass}
+          className={clsx(
+            inputClass,
+            row.on_order_override && "border-amber-200 bg-amber-50 font-semibold text-amber-800",
+          )}
         />
+        {row.on_order_override && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onResetOnOrder(row.part)}
+            aria-label="Reset On Order to Fishbowl"
+            title={`Reset to Fishbowl (${formatNumber(row.on_order_fishbowl ?? 0)})`}
+            className="absolute -right-1 -top-1.5 hidden h-4 w-4 place-items-center rounded-full border border-amber-300 bg-white text-[10px] leading-none text-amber-700 shadow-sm group-hover/oo:grid"
+          >
+            ↺
+          </button>
+        )}
+        </div>
       </td>
 
       {/* Avg / Mo — editable for flat rows; seasonal rows are forecast from
           their own history, so the cell shows the 12-month average read-only. */}
       <td
-        className="px-2 py-2 text-right"
+        className="w-[1%] px-1.5 py-2 text-right"
         onClick={stopRow}
         title={row.demand ? describeDemand(row.demand) : undefined}
       >

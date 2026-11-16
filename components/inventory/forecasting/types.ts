@@ -33,6 +33,11 @@ export type ForecastRow = Product & {
   /** Why a line isn't comparable, when it isn't — shown as a tooltip. */
   variance_note?: string | null;
   snapshot_id: string;
+  /** On Order was typed on /inventory (inventory_on_order_overrides); it sticks
+   *  through Fishbowl syncs until reset. */
+  on_order_override?: boolean;
+  /** Fishbowl's own on-order figure while overridden (restored on reset). */
+  on_order_fishbowl?: number | null;
   /** True when avg_monthly_demand was derived from sales-last-90-days, not
    *  a manual override saved on the product row. Cleared on user edit.
    *  Optional so legacy call sites that build ForecastRow shapes still type-check. */

@@ -36,6 +36,28 @@ function applyPointB(row: ForecastRow, vr: VarianceRow | undefined): ForecastRow
   };
 }
 
+/** Parts with a hand-set On Order. Never throws: an empty map = none / not loaded. */
+async function fetchOnOrderOverrides(): Promise<Map<string, { units: number; fishbowl: number | null }>> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    const res = await fetch("/api/inventory/on-order", {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return new Map();
+    const json = (await res.json()) as { overrides?: { part: string; units: number; fishbowl_on_order: number | null }[] };
+    return new Map(
+      (json.overrides ?? []).map((o) => [
+        o.part,
+        { units: Number(o.units), fishbowl: o.fishbowl_on_order == null ? null : Number(o.fishbowl_on_order) },
+      ]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 export function useForecastData() {
   const { brand } = useBrand();
   const [rows, setRows] = useState<ForecastRow[]>([]);
@@ -65,6 +87,9 @@ export function useForecastData() {
     // Seasonal month-by-month demand, in parallel with everything else. An
     // empty map (API down) leaves every row on the flat avg, as before.
     const demandPromise = fetchDemandProfiles();
+
+    // Hand-set On Order (sticky through Fishbowl syncs). Empty on any failure.
+    const onOrderPromise = fetchOnOrderOverrides();
 
     async function load() {
       setLoading(true);
@@ -132,6 +157,7 @@ export function useForecastData() {
       );
 
       const demand = await demandPromise;
+      const onOrderOverrides = await onOrderPromise;
 
       /* -------------------------------
          4. Merge + compute avg / mo
@@ -161,7 +187,10 @@ export function useForecastData() {
             fishbowl_on_hand: inv ? inv.on_hand : null,
             pointb_on_hand: null,
             variance: null,
-            on_order: inv?.on_order ?? 0,
+            // The snapshot already carries a typed figure; the map says which ones are typed.
+            on_order: onOrderOverrides.get(p.part)?.units ?? inv?.on_order ?? 0,
+            on_order_override: onOrderOverrides.has(p.part),
+            on_order_fishbowl: onOrderOverrides.get(p.part)?.fishbowl ?? null,
             // Seasonal products show their 12-month average; projections and
             // status walk the month-by-month profile (row.demand).
             avg_monthly_demand: Math.round(

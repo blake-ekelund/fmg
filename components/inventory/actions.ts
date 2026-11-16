@@ -2,6 +2,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { applyOnOrderOverrides } from "@/lib/onOrderOverrides";
 
 /* ======================================================
    Supabase Client (Service Role)
@@ -180,7 +181,12 @@ export async function uploadInventorySnapshot(
     throw new Error("No inventory rows parsed from file");
   }
 
-  await insertInChunks("inventory_snapshot_items", items, 2000);
+  // Hand-set On Order (Inventory page) wins over the file until reset.
+  const withOverrides = await applyOnOrderOverrides(
+    supabase,
+    items as { part: string; on_order: number }[],
+  );
+  await insertInChunks("inventory_snapshot_items", withOverrides, 2000);
 
   return { uploadId: upload.id, rowsInserted: items.length };
 }

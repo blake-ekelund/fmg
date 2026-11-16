@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getAuthUser } from "@/lib/email/server-auth";
 import { fishbowlConfigured, getInventoryAvailability } from "@/lib/fishbowl";
+import { applyOnOrderOverrides } from "@/lib/onOrderOverrides";
 import {
   FISHBOWL_SYNC_INVENTORY_LABEL,
   FISHBOWL_INVENTORY_SYNC_HOURS_ET,
@@ -178,9 +179,11 @@ export async function GET(request: Request) {
   const uploadId = upload.id as string;
 
   try {
+    // Hand-set On Order (Inventory page) wins over Fishbowl until reset.
+    const withOverrides = await applyOnOrderOverrides(supabaseServer, items);
     await insertInChunks(
       "inventory_snapshot_items",
-      items.map((it) => ({ ...it, upload_id: uploadId })),
+      withOverrides.map((it) => ({ ...it, upload_id: uploadId })),
       1000,
     );
 

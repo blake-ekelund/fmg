@@ -25,6 +25,7 @@ type Props = {
   onRowClick: (part: string) => void;
   onUpdateAvg: (part: string, value: number) => void;
   onUpdateOnOrder: (part: string, value: number) => void;
+  onResetOnOrder: (part: string) => void;
 };
 
 function fmt(n: number): string {
@@ -56,6 +57,7 @@ export default function ForecastTable({
   onRowClick,
   onUpdateAvg,
   onUpdateOnOrder,
+  onResetOnOrder,
 }: Props) {
   const now = useMemo(() => new Date(), []);
 
@@ -91,6 +93,7 @@ export default function ForecastTable({
             onRowClick={onRowClick}
             onUpdateAvg={onUpdateAvg}
             onUpdateOnOrder={onUpdateOnOrder}
+            onResetOnOrder={onResetOnOrder}
           />
         ))}
 
@@ -182,11 +185,12 @@ export default function ForecastTable({
               />
               <SortableTh
                 label="On Order"
+                title="From Fishbowl. Amber = set by hand; it stays through Fishbowl syncs until reset."
                 sortKey="on_order"
                 activeKey={sortKey}
                 dir={sortDir}
                 onSort={onSort}
-                widthClass="text-right"
+                widthClass="w-[1%] text-right whitespace-nowrap"
               />
               <SortableTh
                 label="Avg / Mo"
@@ -194,7 +198,7 @@ export default function ForecastTable({
                 activeKey={sortKey}
                 dir={sortDir}
                 onSort={onSort}
-                widthClass="text-right"
+                widthClass="w-[1%] text-right whitespace-nowrap"
               />
               {periods.map((p) => (
                 <th
@@ -217,6 +221,7 @@ export default function ForecastTable({
                 onRowClick={onRowClick}
                 onUpdateAvg={onUpdateAvg}
                 onUpdateOnOrder={onUpdateOnOrder}
+                onResetOnOrder={onResetOnOrder}
               />
             ))}
           </tbody>
@@ -294,6 +299,7 @@ function MobileCard({
   onRowClick,
   onUpdateAvg,
   onUpdateOnOrder,
+  onResetOnOrder,
 }: {
   row: Row;
   periods: Period[];
@@ -303,6 +309,7 @@ function MobileCard({
   onRowClick: (part: string) => void;
   onUpdateAvg: (part: string, value: number) => void;
   onUpdateOnOrder: (part: string, value: number) => void;
+  onResetOnOrder: (part: string) => void;
 }) {
   const [onOrderLocal, setOnOrderLocal] = useState(r.on_order === 0 ? "" : r.on_order.toString());
   const [avgLocal, setAvgLocal] = useState(r.avg_monthly_demand === 0 ? "" : r.avg_monthly_demand.toString());
@@ -396,8 +403,20 @@ function MobileCard({
             inputMode="numeric"
             value={onOrderLocal}
             onChange={(e) => { setOnOrderLocal(e.target.value); if (e.target.value) onUpdateOnOrder(r.part, Number(e.target.value)); }}
-            className="mt-0.5 w-full rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition"
+            className={clsx(
+              "mt-0.5 w-full rounded-md border px-2 py-1 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition",
+              r.on_order_override ? "border-amber-200 bg-amber-50 font-semibold text-amber-800" : "border-gray-200 bg-gray-50",
+            )}
           />
+          {r.on_order_override && (
+            <button
+              type="button"
+              onClick={() => onResetOnOrder(r.part)}
+              className="mt-1 text-[11px] text-amber-700 underline"
+            >
+              Reset to Fishbowl ({fmt(r.on_order_fishbowl ?? 0)})
+            </button>
+          )}
         </div>
         <div>
           <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">

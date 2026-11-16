@@ -315,18 +315,72 @@ export default function ForecastSection({
     [rows],
   );
 
-  function updateOnOrder(part: string, value: number) {
-    setRows((prev) =>
-      prev.map((r) => (r.part === part ? { ...r, on_order: value } : r)),
-    );
-    const row = rows.find((r) => r.part === part);
-    if (!row?.snapshot_id) return;
-    scheduleSave(`onorder-${part}`, async () => {
-      await supabase
-        .from("inventory_snapshot_items")
-        .update({ on_order: value })
-        .eq("id", row.snapshot_id);
+  /* On Order: a typed figure is saved as a sticky override (survives the
+     Fishbowl syncs) until reset back to Fishbowl's own number. */
+  const [onOrderError, setOnOrderError] = useState<string | null>(null);
+
+  async function onOrderRequest(method: "PUT" | "DELETE", body: Record<string, unknown>) {
+    const { data } = await supabaseBrowser().auth.getSession();
+    const token = data.session?.access_token;
+    const res = await fetch("/api/inventory/on-order", {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
     });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error ?? `Save failed (${res.status})`);
+    return json as { fishbowl?: number | null; onOrder?: number };
+  }
+
+  function updateOnOrder(part: string, value: number) {
+    const before = rows.find((r) => r.part === part);
+    setRows((prev) =>
+      prev.map((r) =>
+        r.part === part
+          ? {
+              ...r,
+              on_order: value,
+              on_order_override: true,
+              on_order_fishbowl: r.on_order_override ? r.on_order_fishbowl : r.on_order,
+            }
+          : r,
+      ),
+    );
+    scheduleSave(`onorder-${part}`, async () => {
+      try {
+        setOnOrderError(null);
+        await onOrderRequest("PUT", { part, units: value });
+      } catch (e) {
+        if (before) setRows((prev) => prev.map((r) => (r.part === part ? before : r)));
+        setOnOrderError(e instanceof Error ? e.message : "Couldn't save On Order.");
+      }
+    });
+  }
+
+  async function resetOnOrder(part: string) {
+    const before = rows.find((r) => r.part === part);
+    if (!before) return;
+    setOnOrderError(null);
+    setRows((prev) =>
+      prev.map((r) =>
+        r.part === part
+          ? { ...r, on_order: r.on_order_fishbowl ?? r.on_order, on_order_override: false, on_order_fishbowl: null }
+          : r,
+      ),
+    );
+    try {
+      const res = await onOrderRequest("DELETE", { part });
+      if (typeof res.onOrder === "number") {
+        const n = res.onOrder;
+        setRows((prev) => prev.map((r) => (r.part === part ? { ...r, on_order: n } : r)));
+      }
+    } catch (e) {
+      setRows((prev) => prev.map((r) => (r.part === part ? before : r)));
+      setOnOrderError(e instanceof Error ? e.message : "Couldn't reset On Order.");
+    }
   }
 
   function handleSort(key: SortKey) {
@@ -565,6 +619,7 @@ export default function ForecastSection({
         )}
 
         {demandError && <p className="text-xs text-red-600">{demandError}</p>}
+        {onOrderError && <p className="text-xs text-red-600">{onOrderError}</p>}
 
         {refreshNote && (
           <p
@@ -585,6 +640,8 @@ export default function ForecastSection({
           rows={visibleRows}
           startMonth={demandStart}
           saving={demandSaving}
+          showBrand={showBrand}
+          brandSettings={byBrand}
           onSet={(part, i, units) => void setDemand(part, i, units)}
           onReset={(part, i) => void resetDemand(part, i)}
           onRowClick={(part) => router.push(`/products/${encodeURIComponent(part)}`)}
@@ -603,6 +660,7 @@ export default function ForecastSection({
         }
         onUpdateAvg={updateAvg}
         onUpdateOnOrder={updateOnOrder}
+        onResetOnOrder={(part) => void resetOnOrder(part)}
       />
       )}
 
