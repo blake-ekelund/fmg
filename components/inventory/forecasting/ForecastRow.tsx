@@ -228,9 +228,6 @@ export default function ForecastRow({
       >
         {seasonal ? (
           <span className="inline-flex items-center justify-end gap-1 text-xs tabular-nums text-gray-700">
-            <span className="rounded bg-violet-50 px-1 text-[9px] font-semibold uppercase tracking-wide text-violet-700">
-              Seasonal
-            </span>
             {formatNumber(row.avg_monthly_demand)}
           </span>
         ) : (

@@ -401,7 +401,7 @@ function MobileCard({
         </div>
         <div>
           <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
-            Avg / Mo{seasonal && <span className="ml-1 normal-case tracking-normal text-violet-700">· seasonal</span>}
+            Avg / Mo
           </div>
           {seasonal ? (
             // Forecast from its own history — read-only (see describeDemand).
