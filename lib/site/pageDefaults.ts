@@ -32,6 +32,7 @@ export type SitePageSlug =
   | "terms"
   | "privacy"
   | "quiz"
+  | "collection-copy"
   | "site"
   | "theme";
 
@@ -248,6 +249,42 @@ const SHOP: PageBlock[] = [
   },
   { id: "catalog", type: "catalog" },
   { ...(HOME[4] as PageBlock), id: "newsletter" },
+];
+
+/** Each collection's words (and picture) — the names, colors and the
+ *  per-collection art stay in the store's code (src/lib/products.ts). */
+const COLLECTION_COPY: PageBlock[] = [
+  {
+    id: "collections",
+    type: "collections_copy",
+    items: [
+      {
+        slug: "everyday",
+        name: "Everyday",
+        tagline: "Daily Rotation",
+        description:
+          "Your unbothered, glowing, well-moisturized routine. The ones you reach for before you've even had coffee.",
+        notes: [],
+        heroLabel: "", heroTitle: "", heroAccent: "", heroDescription: "", heroCta: "", heroInvitation: "", heroKicker: "", heroLine: "",
+      },
+      {
+        slug: "love",
+        name: "Love",
+        tagline: "Gift-Ready & Extra",
+        description: "For the people you actually like. Wrapped, ribboned, and ready to make you the favorite.",
+        notes: [],
+        heroLabel: "", heroTitle: "", heroAccent: "", heroDescription: "", heroCta: "", heroInvitation: "", heroKicker: "", heroLine: "",
+      },
+      {
+        slug: "holiday",
+        name: "Holiday",
+        tagline: "Limited Drops",
+        description: "Seasonal flings. Here for a good time, not a long time. Once they're gone, they're gone.",
+        notes: [],
+        heroLabel: "", heroTitle: "", heroAccent: "", heroDescription: "", heroCta: "", heroInvitation: "", heroKicker: "", heroLine: "",
+      },
+    ],
+  },
 ];
 
 /** Every /collections/<slug> page, as hand-coded: the themed header, the
@@ -1031,6 +1068,16 @@ export const SITE_PAGES: SitePageDef[] = [
     addable: [],
     fixed: true,
     defaults: QUIZ,
+  },
+  {
+    slug: "collection-copy",
+    label: "Collections (words & pictures)",
+    path: "/collections/…",
+    group: "Site-wide",
+    note: "Each collection's tagline, story and picture — on its collection page and in link previews. You can also type them straight onto a collection page. Names stay in the store.",
+    addable: [],
+    fixed: true,
+    defaults: COLLECTION_COPY,
   },
   {
     slug: "site",

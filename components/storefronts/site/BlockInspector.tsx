@@ -1079,7 +1079,7 @@ export default function BlockInspector({
       );
 
     case "collections_copy":
-      return <CollectionsCopyForm block={block} onChange={onChange} />;
+      return <CollectionsCopyForm block={block} onChange={onChange} brand={brand} catalog={catalog} />;
 
     case "theme":
       return <PaletteForm brand={brand} palette={block.palette} onChange={(palette) => onChange({ ...block, palette })} />;
@@ -1415,7 +1415,19 @@ function QuizForm({
 }
 
 /** NI fragrance collections: the words per collection (names stay in code). */
-function CollectionsCopyForm({ block, onChange }: { block: CollectionsCopyBlock; onChange: (b: PageBlock) => void }) {
+function CollectionsCopyForm({
+  block,
+  onChange,
+  brand,
+  catalog,
+}: {
+  block: CollectionsCopyBlock;
+  onChange: (b: PageBlock) => void;
+  brand: "Sassy" | "NI";
+  catalog: CatalogItem[];
+}) {
+  // Sassy collections have no notes or living hero slide — just words + picture.
+  const ni = brand === "NI";
   const [open, setOpen] = useState<string | null>(null);
   const set = (i: number, patch: Partial<CollectionCopy>) =>
     onChange({ ...block, items: block.items.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
@@ -1429,12 +1441,39 @@ function CollectionsCopyForm({ block, onChange }: { block: CollectionsCopyBlock;
           open={open === c.slug}
           onToggle={() => setOpen(open === c.slug ? null : c.slug)}
         >
-          <Field label="Tagline" hint="Small line on tiles and above the name.">
+          <Field label="Tagline" hint={ni ? "Small line on tiles and above the name." : "Shown as “the …” above the name."}>
             <TextInput value={c.tagline} maxLength={80} onChange={(tagline) => set(i, { tagline })} />
           </Field>
-          <Field label="Scent story">
+          <Field label={ni ? "Scent story" : "Description"}>
             <TextArea value={c.description} rows={4} maxLength={600} onChange={(description) => set(i, { description })} />
           </Field>
+          <Field
+            label="Picture"
+            hint={ni ? "On the collection's tiles (collections page, homepage, Keep exploring)." : "Shown when the collection page is shared (link previews)."}
+          >
+            <ImageInput
+              value={c.image ?? ""}
+              optional={ni ? "Blank = a photo from its products" : "Blank = the store's built-in picture"}
+              onChange={(image) => set(i, { image })}
+            />
+          </Field>
+          {ni ? (
+            <Field label="Featured product" hint="Whose photos stand for the collection when no picture is set.">
+              <Select
+                value={c.heroProduct ?? ""}
+                onChange={(heroProduct) => set(i, { heroProduct })}
+                options={[
+                  { value: "", label: "The store's default" },
+                  ...(c.heroProduct && !catalog.some((p) => p.part === c.heroProduct)
+                    ? [{ value: c.heroProduct, label: c.heroProduct }]
+                    : []),
+                  ...catalog.map((p) => ({ value: p.part, label: `${p.name} · ${p.part}` })),
+                ]}
+              />
+            </Field>
+          ) : null}
+          {ni ? (
+          <>
           <Field label="Three notes">
             <div className="space-y-1.5">
               {[0, 1, 2].map((k) => (
@@ -1481,6 +1520,8 @@ function CollectionsCopyForm({ block, onChange }: { block: CollectionsCopyBlock;
               </Field>
             </div>
           </div>
+          </>
+          ) : null}
         </ItemCard>
       ))}
     </div>

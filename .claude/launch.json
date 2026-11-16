@@ -4,15 +4,40 @@
     {
       "name": "fmg-dev",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/next/dist/bin/next", "dev"],
+      "runtimeArgs": [
+        "node_modules/next/dist/bin/next",
+        "dev"
+      ],
       "port": 3000,
       "autoPort": true
     },
     {
       "name": "sassy-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "C:/Users/blake/OneDrive/Desktop/store/sassy", "--", "-p", "3010"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "C:/Users/blake/OneDrive/Desktop/store/sassy",
+        "--",
+        "-p",
+        "3010"
+      ],
       "port": 3010
+    },
+    {
+      "name": "ni-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "C:/Users/blake/OneDrive/Desktop/store/ni",
+        "--",
+        "-p",
+        "3011"
+      ],
+      "port": 3011
     }
   ]
 }

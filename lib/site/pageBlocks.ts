@@ -134,6 +134,11 @@ export type CollectionCopy = {
   heroInvitation: string;
   heroKicker: string;
   heroLine: string;
+  /** The collection's picture on tiles and link previews (blank = picked
+   *  from its products). */
+  image?: string;
+  /** NI: the product whose photos stand for the collection (blank = picked). */
+  heroProduct?: string;
 };
 export type Benefit = { id: string; lead: string; punch: string };
 export type StoryColumn = {
@@ -1373,6 +1378,8 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
         items: list(r.items, 20)
           .map((x): CollectionCopy => {
             const o = obj(x);
+            const image = safeImage(o.image);
+            const heroProduct = str(o.heroProduct, 60);
             return {
               slug: str(o.slug, 60).replace(/[^a-z0-9-]/gi, ""),
               name: str(o.name, 60),
@@ -1387,6 +1394,8 @@ export function normalizeBlockFields(r: Record<string, unknown>): BlockFields | 
               heroInvitation: str(o.heroInvitation, 120),
               heroKicker: str(o.heroKicker, 80),
               heroLine: str(o.heroLine, 120),
+              ...(image ? { image } : {}),
+              ...(heroProduct ? { heroProduct } : {}),
             };
           })
           .filter((x) => x.slug),

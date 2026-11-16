@@ -29,6 +29,8 @@ import {
   Plus,
   ChevronLeft,
   Info,
+  Layers,
+  Package,
   X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -69,6 +71,8 @@ import { useWidgets, type SiteWidget } from "./useWidgets";
 import SectionPicker from "./SectionPicker";
 import PublishReview, { diffPage } from "./PublishReview";
 import SiteHome from "./SiteHome";
+import ProductPanel, { saveProductCopy, type ProductCopyField } from "./ProductPanel";
+import CollectionPanel, { saveCollectionField, type CollectionField } from "./CollectionPanel";
 import PageMeta from "@/components/PageMeta";
 
 type PageState = {
@@ -85,6 +89,22 @@ type PageState = {
   followsTemplate?: boolean;
   ownStarted?: boolean;
 };
+
+/** The product's own area on a product page canvas ("__product:<part>"):
+ *  its copy and photos, saved to the catalog — not to the page. */
+const PRODUCT = "__product:";
+const PRODUCT_COPY = new Set<string>(["shortDescription", "longDescription", "benefits", "ingredients", "howToUse"]);
+/** A collection's own words on its page header ("__collection:<slug>"):
+ *  saved live to the store's collection words page — not to this page. */
+const COLLECTION = "__collection:";
+const COLLECTION_COPY = new Set<string>([
+  "tagline",
+  "description",
+  "notes.0",
+  "notes.1",
+  "notes.2",
+  "heroLabel", "heroTitle", "heroAccent", "heroDescription", "heroInvitation", "heroKicker", "heroLine",
+]);
 
 /** `product~SKU` → "product"; any other slug as is. */
 const templateOf = (slug: string) => parseOverrideSlug(slug)?.base ?? slug;
@@ -655,12 +675,76 @@ function PageEditor({
     [slug],
   );
   const [siteHint, setSiteHint] = useState<string | null>(null);
+  // The product on the canvas, when its own area (copy + photos) is picked;
+  // `productVersion` bumps after copy typed on the page is saved.
+  const [productPart, setProductPart] = useState<string | null>(null);
+  const [productVersion, setProductVersion] = useState(0);
+  const [productSave, setProductSave] = useState<"saving" | "saved" | "error" | null>(null);
+  // Same for a collection's header: its words + picture, saved live.
+  const [collectionSlug, setCollectionSlug] = useState<string | null>(null);
+  const [collectionVersion, setCollectionVersion] = useState(0);
+  const [collectionSave, setCollectionSave] = useState<"saving" | "saved" | "error" | null>(null);
+  const productTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const t = productTimers.current;
+    return () => t.forEach((x) => clearTimeout(x));
+  }, []);
+  /** Copy typed on the page → the catalog (debounced per field). */
+  const queueProductCopy = useCallback((part: string, field: string, value: string) => {
+    if (!PRODUCT_COPY.has(field)) return;
+    const key = `${part}|${field}`;
+    const prev = productTimers.current.get(key);
+    if (prev) clearTimeout(prev);
+    setProductSave("saving");
+    productTimers.current.set(
+      key,
+      setTimeout(async () => {
+        productTimers.current.delete(key);
+        try {
+          await saveProductCopy(part, field as ProductCopyField, value);
+          setProductSave("saved");
+          setProductVersion((v) => v + 1);
+        } catch (e) {
+          setProductSave("error");
+          setError(e instanceof Error ? e.message : "The product text didn't save.");
+        }
+      }, 800),
+    );
+  }, []);
+
+  /** Collection words typed on the page → live (debounced per field). */
+  const queueCollectionCopy = useCallback(
+    (slugKey: string, field: string, value: string) => {
+      if (!COLLECTION_COPY.has(field)) return;
+      const key = `${COLLECTION}${slugKey}|${field}`;
+      const prev = productTimers.current.get(key);
+      if (prev) clearTimeout(prev);
+      setCollectionSave("saving");
+      productTimers.current.set(
+        key,
+        setTimeout(async () => {
+          productTimers.current.delete(key);
+          try {
+            await saveCollectionField(brand, slugKey, field as CollectionField, value);
+            setCollectionSave("saved");
+            setCollectionVersion((v) => v + 1);
+          } catch (e) {
+            setCollectionSave("error");
+            setError(e instanceof Error ? e.message : "The collection words didn't save.");
+          }
+        }, 800),
+      );
+    },
+    [brand],
+  );
 
   const select = useCallback(
     (id: string | null, scroll = true) => {
       setSelected(id);
       selectedRef.current = id;
       setSiteHint(null);
+      if (id) setProductPart(null);
+      if (id) setCollectionSlug(null);
       if (id) setTab("block");
       postFrames({ type: "select", id: toCanvasId(id), scroll });
     },
@@ -744,6 +828,13 @@ function PageEditor({
     () => ({
       "__site:announcement": "Announcement bar (every page)",
       "__site:footer": "Footer (every page)",
+      ...(own?.base === "product" ? { [`${PRODUCT}${own.key}`]: "This product — text & photos save to the catalog" } : {}),
+      ...(!own && slug === "product" && previewPart
+        ? { [`${PRODUCT}${previewPart}`]: "This product — text & photos save to the catalog" }
+        : {}),
+      ...Object.fromEntries(
+        collections.map((c) => [`${COLLECTION}${c.slug}`, "This collection — its words save live"]),
+      ),
       ...Object.fromEntries(
         blocks.map((x) => [
           toCanvasId(x.id) ?? x.id,
@@ -751,7 +842,7 @@ function PageEditor({
         ]),
       ),
     }),
-    [blocks, toCanvasId, widgetById],
+    [blocks, toCanvasId, widgetById, own, slug, previewPart, collections],
   );
   const labelsRef = useRef(labels);
   useEffect(() => {
@@ -851,6 +942,28 @@ function PageEditor({
         // as the backdrop of the collection-words page) selects the page's
         // only block, or nothing.
         const list = blocksRef.current;
+        if (m.id?.startsWith(PRODUCT)) {
+          // The product's own area: its panel (if open) shows its copy + photos.
+          setProductPart(m.id.slice(PRODUCT.length));
+          setCollectionSlug(null);
+          setSelected(null);
+          selectedRef.current = null;
+          setSiteHint(null);
+          setTab("block");
+          return;
+        }
+        if (m.id?.startsWith(COLLECTION)) {
+          // The collection's header: its panel (if open) shows its words + picture.
+          setCollectionSlug(m.id.slice(COLLECTION.length));
+          setProductPart(null);
+          setSelected(null);
+          selectedRef.current = null;
+          setSiteHint(null);
+          setTab("block");
+          return;
+        }
+        setProductPart(null);
+        setCollectionSlug(null);
         let id: string | null;
         let hint: string | null = null;
         if (m.id?.startsWith("__site:")) {
@@ -874,13 +987,29 @@ function PageEditor({
           frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "select", id: toCanvasId(id), scroll: false }, "*");
         }
       } else if (m.type === "drop") {
-        insert(m.blockType as PageBlockType, m.targetId, m.pos, m.widgetId);
+        insert(
+          m.blockType as PageBlockType,
+          m.targetId.startsWith(PRODUCT)
+            ? (blocksRef.current.find((x) => x.type === "product_details")?.id ?? null)
+            : m.targetId.startsWith(COLLECTION)
+              ? (blocksRef.current.find((x) => x.type === "collection_header")?.id ?? null)
+              : m.targetId,
+          m.pos,
+          m.widgetId,
+        );
       } else if (m.type === "edit") {
-        setField(m.id, m.path, m.value, false);
+        if (m.id.startsWith(PRODUCT)) queueProductCopy(m.id.slice(PRODUCT.length), m.path, m.value);
+        else if (m.id.startsWith(COLLECTION)) queueCollectionCopy(m.id.slice(COLLECTION.length), m.path, m.value);
+        else setField(m.id, m.path, m.value, false);
       } else if (m.type === "editing") {
         // Typing into something this page doesn't own (the footer on the
         // homepage): stop, and point to where it's edited.
-        if (m.id && !blocksRef.current.some((x) => x.id === fromCanvasId(m.id!))) {
+        if (
+          m.id &&
+          !m.id.startsWith(PRODUCT) &&
+          !m.id.startsWith(COLLECTION) &&
+          !blocksRef.current.some((x) => x.id === fromCanvasId(m.id!))
+        ) {
           frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "stopEditing" }, "*");
           if (m.id.startsWith("__site:")) {
             setSiteHint(m.id.slice("__site:".length));
@@ -902,14 +1031,20 @@ function PageEditor({
           }
         }
       } else if (m.type === "image") {
-        setImagePick({ id: m.id, path: m.path });
+        if (m.id.startsWith(PRODUCT)) {
+          // The product's photos: its photo manager, in the panel.
+          setProductPart(m.id.slice(PRODUCT.length));
+          setCollectionSlug(null);
+          setTab("block");
+          setPanelOpen(true);
+        } else setImagePick({ id: m.id, path: m.path });
       } else if (m.type === "rect") {
         applyRectRef.current(m);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [insert, toCanvasId, setField, fromCanvasId, promote]);
+  }, [insert, toCanvasId, setField, fromCanvasId, promote, queueProductCopy, queueCollectionCopy]);
 
   const hoverInCanvas = (id: string | null) =>
     frameRef.current?.contentWindow?.postMessage({ src: "site-edit", type: "hover", id: toCanvasId(id) }, "*");
@@ -1085,6 +1220,26 @@ function PageEditor({
           </IconButton>
         </div>
         <SaveBadge state={saveState} />
+        {productSave ? (
+          <span
+            className={clsx("text-[11px]", productSave === "error" ? "text-red-600" : "text-emerald-700")}
+            title="Product text typed on the page saves to the catalog and goes live within a minute"
+          >
+            {productSave === "saving" ? "Saving product…" : productSave === "saved" ? "Product saved to catalog" : "Product not saved"}
+          </span>
+        ) : null}
+        {collectionSave ? (
+          <span
+            className={clsx("text-[11px]", collectionSave === "error" ? "text-red-600" : "text-emerald-700")}
+            title="Collection words typed on the page go live within a minute"
+          >
+            {collectionSave === "saving"
+              ? "Saving collection…"
+              : collectionSave === "saved"
+                ? "Collection words live"
+                : "Collection words not saved"}
+          </span>
+        ) : null}
 
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {perItem && !own ? (
@@ -1123,6 +1278,44 @@ function PageEditor({
           <IconButton label="Reload the page preview" onClick={() => setFrameKey((k) => k + 1)}>
             {canvasLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           </IconButton>
+          {templateSlug === "product" && (productPart || own?.key || previewPart) ? (
+            <TextButton
+              title="This product's text and photos (saved to the catalog)"
+              active={panelOpen && tab === "block" && !!productPart}
+              onClick={() => {
+                if (panelOpen && tab === "block" && productPart) setPanelOpen(false);
+                else {
+                  setProductPart(productPart ?? own?.key ?? previewPart);
+                  setCollectionSlug(null);
+                  setSelected(null);
+                  selectedRef.current = null;
+                  setTab("block");
+                  setPanelOpen(true);
+                }
+              }}
+            >
+              <Package size={14} /> <span className="hidden xl:inline">Product text &amp; photos</span>
+            </TextButton>
+          ) : null}
+          {templateSlug === "collection" && (collectionSlug || own?.key || previewPart || collections[0]) ? (
+            <TextButton
+              title="This collection's words and picture (saved live)"
+              active={panelOpen && tab === "block" && !!collectionSlug}
+              onClick={() => {
+                if (panelOpen && tab === "block" && collectionSlug) setPanelOpen(false);
+                else {
+                  setCollectionSlug(collectionSlug ?? own?.key ?? (previewPart || collections[0]?.slug));
+                  setProductPart(null);
+                  setSelected(null);
+                  selectedRef.current = null;
+                  setTab("block");
+                  setPanelOpen(true);
+                }
+              }}
+            >
+              <Layers size={14} /> <span className="hidden xl:inline">Collection words &amp; picture</span>
+            </TextButton>
+          ) : null}
           <TextButton
             title="Page settings"
             active={panelOpen && tab === "page"}
@@ -1547,6 +1740,22 @@ function PageEditor({
                 onDeleteWidget={(id) => {
                   if (confirm("Delete this saved section? Only possible when no page uses it.")) void w.remove(id);
                 }}
+              />
+            ) : collectionSlug ? (
+              <CollectionPanel
+                brand={brand}
+                slug={collectionSlug}
+                catalog={catalog}
+                version={collectionVersion}
+                onSaved={() => setFrameKey((k) => k + 1)}
+                onOpenWordsPage={sitePageFor(brand, "collection-copy") ? () => onNavigate(brand, "collection-copy") : undefined}
+              />
+            ) : productPart ? (
+              <ProductPanel
+                part={productPart}
+                brand={brand}
+                version={productVersion}
+                onSaved={() => setFrameKey((k) => k + 1)}
               />
             ) : siteHint ? (
               <div className="space-y-3 py-4">
