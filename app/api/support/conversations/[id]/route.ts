@@ -25,8 +25,10 @@ export const runtime = "nodejs";
 const MAX_REPLY = 4000;
 
 type PostBody = {
-  action?: "reply" | "note" | "status" | "claim" | "check_resolved";
+  action?: "reply" | "note" | "status" | "claim" | "check_resolved" | "typing";
   text?: string;
+  /** For action "typing": true while the rep is typing a reply, false to clear. */
+  typing?: boolean;
   status?: "bot" | "needs_human" | "human" | "closed";
 };
 
@@ -208,6 +210,17 @@ export async function POST(
     .maybeSingle();
   if (!conversation) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (action === "typing") {
+    // "Rep is typing": the storefront shows its typing dots while this is a
+    // few seconds fresh. Best-effort: before migration 20261116010000 the
+    // column doesn't exist, and that's a no-op, not an error for the rep.
+    await supabaseServer
+      .from("support_conversations")
+      .update({ agent_typing_at: body.typing === false ? null : new Date().toISOString() })
+      .eq("id", id);
+    return NextResponse.json({ ok: true });
   }
 
   if (action === "check_resolved") {

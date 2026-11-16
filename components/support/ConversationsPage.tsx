@@ -298,6 +298,38 @@ export default function ConversationsPage() {
   const [sending, setSending] = useState<"reply" | "note" | null>(null);
   const [isNote, setIsNote] = useState(false);
 
+  // "Rep is typing" for the customer's chat. While a REPLY (never a note) is
+  // being typed, ping the thread every 3s; the storefront shows its typing
+  // dots only while the last ping is a few seconds fresh, so it clears on its
+  // own when you stop. Cleared right away when the box empties or you leave.
+  const lastTypingPing = useRef(0);
+  useEffect(() => {
+    if (!openId || isNote) return;
+    const id = openId;
+    if (!draft.trim()) {
+      if (lastTypingPing.current) {
+        lastTypingPing.current = 0;
+        void postTo(id, { action: "typing", typing: false });
+      }
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTypingPing.current > 3000) {
+      lastTypingPing.current = now;
+      void postTo(id, { action: "typing", typing: true });
+    }
+  }, [draft, openId, isNote]);
+  useEffect(() => {
+    if (!openId) return;
+    const id = openId;
+    return () => {
+      if (lastTypingPing.current) {
+        lastTypingPing.current = 0;
+        void postTo(id, { action: "typing", typing: false });
+      }
+    };
+  }, [openId]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(async () => {
