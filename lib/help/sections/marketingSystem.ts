@@ -268,7 +268,7 @@ The shared home for our images. The same library appears in the image pickers of
 
 ## What's on the page
 - Header: **Image Library** (or a folder breadcrumb with a back arrow), **New folder**, and **Upload**.
-- **Folders** tiles, including product photo folders (read-only — product photos are edited on each product's page).
+- **Folders** tiles, including product photo folders (product photos are edited on each product's page, and deleted here).
 - **Images** grid with a count, a **Search** box, a filter (**All images**, **Shared with reps**, **Internal only**), and **Select**.
 - Each image: hover for **Copy link**; a **Reps** badge means reps can see and use it. Click an image to open its details.
 
@@ -290,10 +290,10 @@ Click the image. Edit **Name**, **Folder**, **Who can use it**, **Description** 
 Open it and set **Who can use it** to **Our team + reps** (or **Our team** for internal only), then **Save changes**. Shared images show on the rep portal.
 
 ### Delete an image
-Open it, click **Delete**, then confirm "Delete this image for good?". This cannot be undone.
+Open it and check **Where it's used**: the products it's on, and any website page, saved section, blog post or email template that uses it ("Live" means shoppers can see it now). Click **Delete**, then confirm. If it's in use the button reads **Delete everywhere** and removes it from all of those. This cannot be undone. Product photos are deleted here too: a product page only takes a photo off that product, and photos no longer on any product sit in the **Not on any product** folder.
 
 ### Delete many images at once
-Click **Select**, tap the images (or **Select all**), click **Delete** in the dark bar, then **Delete N** to confirm. This cannot be undone, and any email or blog post using those images will show a broken image. Product photos can't be selected or deleted here — remove them on the product page.
+Click **Select**, tap the images (or **Select all**), click **Delete** in the dark bar, then **Delete N** to confirm. This cannot be undone, and any email or blog post using those images will show a broken image. Product photos can't be selected here — delete them one at a time from the image itself, where you can see what uses it.
 
 ## Good to know
 Moving an image to another folder never changes its link, so emails already using it keep working.`,

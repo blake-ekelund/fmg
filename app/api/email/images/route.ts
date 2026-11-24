@@ -4,6 +4,8 @@ import { requireInternalUser } from "@/lib/email/server-auth";
 import { BRAND_PRODUCT_NAMES, productName as productFolderName } from "@/lib/productImageNames";
 import { listPhotos, unsplashConfigured, unsplashSources } from "@/lib/unsplash";
 import { collectionOf } from "@/lib/images/fragrance";
+import { deleteProductFile } from "@/lib/images/registry";
+import { imageUsage, parseLibraryKey } from "@/lib/images/usage";
 
 export const runtime = "nodejs";
 
@@ -17,7 +19,10 @@ export const runtime = "nodejs";
  *  POST   — create a folder, optionally inside another (`{ name, parent }`).
  *  PATCH  — upsert metadata for one image (by storage path), or re-file many
  *           images at once (`{ paths, folder }`).
- *  DELETE — remove one image (storage object AND metadata row), or an empty folder.
+ *  DELETE — remove one image for good (storage object AND metadata row; a
+ *           product photo also comes off every product), or an empty folder.
+ *           This is the ONLY place an image file is deleted. An image that is
+ *           in use is refused (409, with where) unless `force` is sent.
  *
  * Folders are paths, up to MAX_FOLDER_DEPTH segments ("sassy-holiday/ads").
  * An image's folder is its `email_asset_meta.folder` label when set, else its
@@ -34,8 +39,10 @@ export const runtime = "nodejs";
  * placeholder is gone) drops out.
  *
  * Product photos (`media_kit_assets`, public `media-kit` bucket) are grouped
- * "<Brand> Products" → one subfolder per product. They're managed on the
- * product page, so here they're read-only: no re-filing, metadata, or delete.
+ * "<Brand> Products" → one subfolder per product. Their details are edited on
+ * the product page, so here there's no re-filing or metadata — but this IS
+ * where they're deleted (a product page only takes a photo off that product).
+ * Media-kit files no product uses any more show under "Not on any product".
  * Their folder ids start with "~", which no slugged library folder can. But a
  * product folder and a Collections (fragrance) folder ACCEPT uploads
  * (`accepts`): /api/images/upload links the new photo to that product, or
@@ -62,6 +69,8 @@ const PLACEHOLDER = ".emptyFolderPlaceholder";
 /** Images sitting at the bucket root have no directory; they read as this folder. */
 const ROOT = "root";
 const PRODUCT_PREFIX = "~products";
+/** Media-kit files that are no longer on any product. */
+const UNLINKED_FOLDER = "~unlinked";
 /** Storefront gallery type order — matches HERO_PRIORITY in each storefront's lib/fmg/products.ts. */
 const GALLERY_TYPE_ORDER = ["front", "benefits", "lifestyle", "fragrance", "ingredients", "other"];
 
@@ -378,15 +387,20 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
     );
 
     // Titles / alt / descriptions set on the product page (keyed like `path` below).
-    const { data: metaRows } = await supabaseServer
-      .from("email_asset_meta")
-      .select("path, title, alt_text, description")
-      .like("path", `${PRODUCT_BUCKET}:%`);
-    const metaByPath = new Map(
-      ((metaRows ?? []) as { path: string; title: string | null; alt_text: string | null; description: string | null }[]).map(
-        (m) => [m.path, m],
-      ),
-    );
+    type ProductMeta = { path: string; title: string | null; alt_text: string | null; description: string | null; updated_at?: string | null };
+    const metaRows: ProductMeta[] = [];
+    for (let from = 0; from < MAX_PRODUCT_IMAGES * 2; from += PAGE) {
+      const { data, error } = await supabaseServer
+        .from("email_asset_meta")
+        .select("path, title, alt_text, description, updated_at")
+        .like("path", `${PRODUCT_BUCKET}:%`)
+        .order("path", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error || !data) break;
+      metaRows.push(...(data as ProductMeta[]));
+      if (data.length < PAGE) break;
+    }
+    const metaByPath = new Map(metaRows.map((m) => [m.path, m]));
 
     const images: Img[] = [];
     // One stored file can be on several products (a shared fragrance photo,
@@ -454,6 +468,32 @@ async function productSnapshot(): Promise<{ images: Img[]; folders: Folder[] }> 
         alsoIn,
       };
       byKey.set(key, img);
+      images.push(img);
+    }
+
+    // Media-kit files no product links to any more (taken off their last
+    // product, or only shared with a fragrance that has no products). They
+    // stay here until someone deletes them in the library.
+    // (Skipped if the link list above was cut short — a linked photo must never read as unlinked.)
+    for (const m of rows.length >= MAX_PRODUCT_IMAGES ? [] : metaRows) {
+      if (byKey.has(m.path)) continue;
+      const storagePath = m.path.slice(PRODUCT_BUCKET.length + 1);
+      if (!/.(png|jpe?g|gif|webp|svg)$/i.test(storagePath)) continue;
+      folders.set(UNLINKED_FOLDER, { id: UNLINKED_FOLDER, name: "Not on any product", readOnly: true });
+      const { data: pub } = supabaseServer.storage.from(PRODUCT_BUCKET).getPublicUrl(storagePath);
+      const img: Img = {
+        path: m.path,
+        url: pub.publicUrl,
+        size: 0,
+        updatedAt: m.updated_at ?? null,
+        title: m.title || null,
+        altText: m.alt_text || null,
+        description: m.description ?? null,
+        shareScope: "third_party",
+        folder: UNLINKED_FOLDER,
+        source: "product",
+      };
+      byKey.set(m.path, img);
       images.push(img);
     }
     return { images, folders: Array.from(folders.values()) };
@@ -637,7 +677,7 @@ export async function DELETE(request: Request) {
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const body = (await request.json().catch(() => null)) as
-    | { path?: string; paths?: unknown; folder?: string }
+    | { path?: string; paths?: unknown; folder?: string; force?: boolean }
     | null;
 
   // Bulk delete — several library images at once (the selection bar). Product
@@ -659,7 +699,7 @@ export async function DELETE(request: Request) {
     );
     if (bad) {
       return NextResponse.json(
-        { error: bad.startsWith(`${PRODUCT_BUCKET}:`) ? "Product photos are removed on the product page." : `Invalid image path: ${bad}` },
+        { error: bad.startsWith(`${PRODUCT_BUCKET}:`) ? "Product photos are deleted one at a time — open the image to see where it's used." : `Invalid image path: ${bad}` },
         { status: 400 },
       );
     }
@@ -701,8 +741,27 @@ export async function DELETE(request: Request) {
 
   const path = body?.path?.trim();
   if (!path) return NextResponse.json({ error: "Missing image path" }, { status: 400 });
-  if (path.startsWith(`${PRODUCT_BUCKET}:`)) {
-    return NextResponse.json({ error: "Product photos are removed on the product page." }, { status: 400 });
+  if (path.startsWith("unsplash:") || path.includes("..")) {
+    return NextResponse.json({ error: "Invalid image path" }, { status: 400 });
+  }
+
+  // Deleting breaks every place the image is used, so an image in use needs
+  // an explicit `force` — the library shows the list and asks first.
+  const target = parseLibraryKey(path);
+  if (!body?.force) {
+    const usage = await imageUsage(target.bucket, target.path);
+    if (usage.inUse) {
+      return NextResponse.json({ error: "This image is in use. Confirm to delete it everywhere.", usage }, { status: 409 });
+    }
+  }
+
+  if (target.bucket === PRODUCT_BUCKET) {
+    try {
+      await deleteProductFile(target.path);
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Delete failed" }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
   }
 
   const { error: rmErr } = await supabaseServer.storage.from(BUCKET).remove([path]);

@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
-import type { LibraryFolder, LibraryImage, MetaPatch } from "./types";
+import type { ImageUsage, LibraryFolder, LibraryImage, MetaPatch } from "./types";
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -79,11 +79,23 @@ export async function updateImageMeta(path: string, patch: MetaPatch): Promise<v
   }
 }
 
-export async function deleteImage(path: string): Promise<void> {
+/** Where an image is used: products, fragrances, website pages, blog posts, emails. */
+export async function getImageUsage(path: string): Promise<ImageUsage> {
+  const res = await fetch(`/api/email/images/usage?path=${encodeURIComponent(path)}`, { headers: await authHeader() });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error ?? "Couldn't check where this image is used.");
+  return json.usage as ImageUsage;
+}
+
+/**
+ * Delete an image for good. The API refuses one that's in use unless
+ * `force` is set — pass it only after showing the person where it's used.
+ */
+export async function deleteImage(path: string, force = false): Promise<void> {
   const res = await fetch("/api/email/images", {
     method: "DELETE",
     headers: { "Content-Type": "application/json", ...(await authHeader()) },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path, force }),
   });
   if (!res.ok) {
     const json = await res.json().catch(() => ({}));

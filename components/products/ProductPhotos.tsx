@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { Check, EyeOff, Loader2, Share2, Trash2, Upload } from "lucide-react";
+import { Check, EyeOff, Loader2, Share2, Upload, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { DeleteConfirmModal } from "@/components/marketing/media-kit/components/modalSections/DeleteConfirmModal";
 import ProductPhotoModal, { type PhotoDetails } from "./ProductPhotoModal";
@@ -243,17 +243,18 @@ export default function ProductPhotos({
     }
   }
 
-  /** Remove a photo from this product. The server deletes the file only if no other product uses it. */
+  /** Remove a photo from this product. The file itself stays in the Image Library — it's only deleted there. */
   async function confirmDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
       await removePhoto(deleteTarget.id);
       setOpenId(null);
+      setNotice("Removed from this product. The image is still in the Image Library.");
       onChanged();
     } catch (e) {
-      console.error("Delete failed", e);
-      setError(e instanceof Error ? e.message : "Couldn't delete the photo.");
+      console.error("Remove failed", e);
+      setError(e instanceof Error ? e.message : "Couldn't remove the photo.");
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
@@ -478,9 +479,9 @@ export default function ProductPhotos({
                         type="button"
                         onClick={() => setDeleteTarget(p)}
                         className="absolute right-2 top-2 rounded-full bg-white/95 p-1.5 opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
-                        title="Delete photo"
+                        title="Remove from this product (the image stays in the Image Library)"
                       >
-                        <Trash2 size={13} className="text-red-500" />
+                        <X size={13} className="text-gray-700" />
                       </button>
                     )}
                     {shared[p.id] && (

@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { X, Loader2, Trash2, Copy, Check, ExternalLink, ChevronDown } from "lucide-react";
-import { updateImageMeta, deleteImage, trackUnsplashUse } from "./api";
+import { updateImageMeta, deleteImage, getImageUsage, trackUnsplashUse } from "./api";
 import { displayName, fileName } from "./format";
-import type { LibraryImage, ShareScope } from "./types";
+import type { ImageUsage, LibraryImage, ShareScope } from "./types";
 
 function prettySize(bytes: number): string {
   if (!bytes) return "";
@@ -17,6 +17,131 @@ function prettySize(bytes: number): string {
 const fieldClass =
   "w-full rounded-xl border border-gray-300 bg-white px-3.5 py-2.5 text-[15px] text-gray-900 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200";
 const labelClass = "mb-1.5 block text-sm font-medium text-gray-700";
+
+const LiveTag = () => (
+  <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Live</span>
+);
+const QuietTag = ({ children }: { children: React.ReactNode }) => (
+  <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{children}</span>
+);
+
+/** One short line for the delete confirmation: "3 products, 1 website page". */
+function usageSummary(u: ImageUsage): string {
+  const count = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : null);
+  return [
+    count(u.products.length, "product", "products"),
+    count(u.pages.length + u.sections.length, "website page", "website pages"),
+    count(u.blogPosts.length, "blog post", "blog posts"),
+    count(u.emails.length, "email", "emails"),
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** Everywhere FMG knows the image is used. */
+function UsageList({ usage, error }: { usage: ImageUsage | null; error: string | null }) {
+  if (error) return <p className="text-sm text-rose-700">{error}</p>;
+  if (!usage) {
+    return (
+      <p className="inline-flex items-center gap-2 text-sm text-gray-500">
+        <Loader2 size={14} className="animate-spin" /> Checking…
+      </p>
+    );
+  }
+  if (!usage.inUse) {
+    return (
+      <p className="text-[15px] text-gray-600">
+        Not on any product, website page, blog post or email. A link pasted somewhere outside FMG can&apos;t be seen
+        here.
+      </p>
+    );
+  }
+  const row = "flex items-center justify-between gap-3 py-1.5 text-[15px] text-gray-900";
+  return (
+    <div className="space-y-3">
+      {usage.liveOnSite ? (
+        <p className="rounded-xl bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-900">
+          Shoppers can see this image on the live site right now.
+        </p>
+      ) : null}
+      {usage.products.length ? (
+        <div>
+          <div className="text-sm font-medium text-gray-500">
+            {usage.products.length} {usage.products.length === 1 ? "product" : "products"}
+          </div>
+          <ul className="max-h-44 divide-y divide-gray-100 overflow-y-auto">
+            {usage.products.map((p) => (
+              <li key={p.part} className={row}>
+                <Link href={`/products/${encodeURIComponent(p.part)}`} className="min-w-0 truncate underline-offset-2 hover:underline">
+                  {p.name}
+                </Link>
+                <span className="shrink-0">
+                  {p.viaFragrance ? <QuietTag>via {p.viaFragrance}</QuietTag> : null}
+                  {p.live ? <LiveTag /> : <QuietTag>Not on a storefront</QuietTag>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {usage.fragrances.length ? (
+        <div className="text-[15px] text-gray-900">
+          <span className="text-sm font-medium text-gray-500">Shared with every product of: </span>
+          {usage.fragrances.map((f) => f.fragrance).join(", ")}
+        </div>
+      ) : null}
+      {usage.pages.length + usage.sections.length ? (
+        <div>
+          <div className="text-sm font-medium text-gray-500">Website</div>
+          <ul className="divide-y divide-gray-100">
+            {usage.pages.map((p) => (
+              <li key={`${p.brand}/${p.slug}`} className={row}>
+                <span className="min-w-0 truncate">
+                  {p.brand} · {p.slug} page
+                </span>
+                <span className="shrink-0">{p.live ? <LiveTag /> : <QuietTag>Draft only</QuietTag>}</span>
+              </li>
+            ))}
+            {usage.sections.map((w) => (
+              <li key={`${w.brand}/${w.name}`} className={row}>
+                <span className="min-w-0 truncate">
+                  {w.brand ? `${w.brand} · ` : ""}
+                  {w.name} (saved section)
+                </span>
+                <span className="shrink-0">{w.live ? <LiveTag /> : <QuietTag>Draft only</QuietTag>}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {usage.blogPosts.length ? (
+        <div>
+          <div className="text-sm font-medium text-gray-500">Blog</div>
+          <ul className="divide-y divide-gray-100">
+            {usage.blogPosts.map((b) => (
+              <li key={b.id} className={row}>
+                <span className="min-w-0 truncate">{b.title}</span>
+                <span className="shrink-0">{b.live ? <LiveTag /> : <QuietTag>Not published</QuietTag>}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {usage.emails.length ? (
+        <div>
+          <div className="text-sm font-medium text-gray-500">Email templates</div>
+          <ul className="divide-y divide-gray-100">
+            {usage.emails.map((t) => (
+              <li key={t.id} className={row}>
+                <span className="min-w-0 truncate">{t.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function ImageDetailModal({
   image,
@@ -46,6 +171,26 @@ export default function ImageDetailModal({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [usage, setUsage] = useState<ImageUsage | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
+
+  // Where this image is used — shown beside it, and spelled out before a delete.
+  useEffect(() => {
+    setUsage(null);
+    setUsageError(null);
+    if (image.source === "unsplash") return;
+    let stale = false;
+    getImageUsage(image.path)
+      .then((u) => {
+        if (!stale) setUsage(u);
+      })
+      .catch((e) => {
+        if (!stale) setUsageError(e instanceof Error ? e.message : "Couldn't check where this image is used.");
+      });
+    return () => {
+      stale = true;
+    };
+  }, [image.path, image.source]);
 
   // Re-seed the form whenever a different image is opened.
   useEffect(() => {
@@ -96,7 +241,9 @@ export default function ImageDetailModal({
     setDeleting(true);
     setError(null);
     try {
-      await deleteImage(image.path);
+      // `force` only once the usage list is on screen and they confirmed
+      // against it; if the check failed, the server refuses an in-use image.
+      await deleteImage(image.path, !!usage);
       onDeleted(image.path);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't delete image.");
@@ -221,15 +368,19 @@ export default function ImageDetailModal({
               ) : null}
             </div>
           ) : isProduct ? (
-            // Product photos come from the catalog — edited on the product page.
+            // Product photos come from the catalog — details are edited on the product page.
             <div className="space-y-5">
               <p className="text-[15px] leading-relaxed text-gray-600">
-                This is a product photo. To change or remove it, open the product&apos;s
-                page — it updates here, on the storefront, and on the rep portal.
+                This is a product photo. To take it off one product, or change its details, open that product&apos;s
+                page. Deleting it here removes it from every product below.
               </p>
               <div>
                 <div className={labelClass}>Folder</div>
                 <div className="text-[15px] text-gray-900">{currentFolderLabel}</div>
+              </div>
+              <div>
+                <div className={labelClass}>Where it&apos;s used</div>
+                <UsageList usage={usage} error={usageError} />
               </div>
               {image.productPart && (
                 <Link
@@ -291,6 +442,11 @@ export default function ImageDetailModal({
                 </div>
               </div>
 
+              <div>
+                <div className={labelClass}>Where it&apos;s used</div>
+                <UsageList usage={usage} error={usageError} />
+              </div>
+
               {/* Rarely-needed fields stay folded away. */}
               <div>
                 <button
@@ -335,18 +491,24 @@ export default function ImageDetailModal({
         )}
 
         {/* Footer */}
-        {!isProduct && !isUnsplash && (
+        {!isUnsplash && (
           <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-gray-100 px-6 py-4">
             {confirmDelete ? (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[15px] text-gray-700">Delete this image for good?</span>
+                <span className="max-w-md text-[15px] text-gray-700">
+                  {usage?.inUse
+                    ? `This is used by ${usageSummary(usage) || "a fragrance"}${usage.liveOnSite ? ", and is live on the site" : ""}. Deleting removes it from all of them and can't be undone.`
+                    : usage
+                      ? "Delete this image for good? This can't be undone."
+                      : "Delete this image for good? (Couldn't confirm where it's used, so an image in use won't be deleted.)"}
+                </span>
                 <button
                   onClick={handleDelete}
                   disabled={deleting}
                   className="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-[15px] font-medium text-white hover:bg-rose-700 disabled:opacity-50"
                 >
                   {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                  Delete
+                  {usage?.inUse ? "Delete everywhere" : "Delete"}
                 </button>
                 <button
                   onClick={() => setConfirmDelete(false)}
@@ -365,14 +527,16 @@ export default function ImageDetailModal({
               </button>
             )}
 
-            <button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-2.5 text-[15px] font-semibold text-white hover:bg-violet-700 disabled:bg-gray-200 disabled:text-gray-500"
-            >
-              {saving && <Loader2 size={16} className="animate-spin" />}
-              Save changes
-            </button>
+            {!isProduct && (
+              <button
+                onClick={handleSave}
+                disabled={saving || !dirty}
+                className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-2.5 text-[15px] font-semibold text-white hover:bg-violet-700 disabled:bg-gray-200 disabled:text-gray-500"
+              >
+                {saving && <Loader2 size={16} className="animate-spin" />}
+                Save changes
+              </button>
+            )}
           </div>
         )}
       </div>

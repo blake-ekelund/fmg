@@ -30,6 +30,18 @@ export type LibraryImage = {
   downloadLocation?: string;
 };
 
+/** Where an image is used — mirrors ImageUsage in lib/images/usage.ts. */
+export type ImageUsage = {
+  products: { part: string; name: string; brand: string | null; viaFragrance: string | null; live: boolean }[];
+  fragrances: { id: string; brand: string; fragrance: string }[];
+  pages: { brand: string; slug: string; live: boolean; draft: boolean }[];
+  sections: { brand: string | null; name: string; live: boolean; draft: boolean }[];
+  blogPosts: { id: string; title: string; brand: string | null; live: boolean }[];
+  emails: { id: string; name: string; status: string | null }[];
+  liveOnSite: boolean;
+  inUse: boolean;
+};
+
 /**
  * A folder. Ids are paths ("sassy-holiday/ads"); product folders start with
  * "~" and are read-only (no uploads, filing, subfolders, or delete).

@@ -17,7 +17,8 @@ import { fragrancesOf, hasFragrance } from "./fragrance";
  *   product   → a media_kit_assets row (part, storage_path, asset_type)
  *   fragrance → a fragrance_images row, materialized as media_kit_assets rows
  *               (shared_from) on every product with that scent
- * A file is deleted only when nothing links to it any more.
+ * Taking an image OFF a product or fragrance only removes the link. A file is
+ * deleted in one place only: the Image Library, which shows where it is used.
  */
 
 export const PRODUCT_BUCKET = "media-kit";
@@ -319,9 +320,10 @@ export function singleFragrance(p: ProductInfo): string | null {
 /* ─── Removing ─── */
 
 /**
- * Take a photo off one product. A shared fragrance photo is HIDDEN on this
- * product (so the sync won't bring it back); its file stays for the others.
- * The file itself goes only when nothing links to it any more.
+ * Take a photo off one product. This only ever removes the LINK: the file
+ * stays in the Image Library (for other products, pages, emails, or later
+ * use) and is deleted there, never from a product. A shared fragrance photo
+ * is HIDDEN on this product so the sync won't bring it back.
  */
 export async function removeProductPhoto(id: string): Promise<{ hidden: boolean }> {
   const { data: row, error } = await supabaseServer
@@ -337,27 +339,41 @@ export async function removeProductPhoto(id: string): Promise<{ hidden: boolean 
       .from("fragrance_image_exclusions")
       .upsert({ part: r.part, fragrance_image_id: r.shared_from }, { onConflict: "part,fragrance_image_id" });
   }
+  // Make sure the file has a registry row, so it still shows in the Image
+  // Library once nothing links to it (older uploads may not have one).
+  await supabaseServer
+    .from("email_asset_meta")
+    .upsert({ path: metaKey(PRODUCT_BUCKET, r.storage_path) }, { onConflict: "path", ignoreDuplicates: true });
   const { error: delErr } = await supabaseServer.from("media_kit_assets").delete().eq("id", id);
   if (delErr) throw new Error(delErr.message);
-  if (!r.shared_from) await releaseFile(r.storage_path);
   return { hidden: !!r.shared_from };
 }
 
-/** Stop sharing a fragrance photo everywhere (removes it from every product). */
+/** Stop sharing a fragrance photo everywhere (removes it from every product). The file stays in the Image Library. */
 export async function removeFragranceImage(id: string): Promise<void> {
   const { data } = await supabaseServer.from("fragrance_images").select("storage_path").eq("id", id).maybeSingle();
+  if (data) {
+    await supabaseServer
+      .from("email_asset_meta")
+      .upsert(
+        { path: metaKey(PRODUCT_BUCKET, (data as { storage_path: string }).storage_path) },
+        { onConflict: "path", ignoreDuplicates: true },
+      );
+  }
   await supabaseServer.from("fragrance_images").delete().eq("id", id); // cascades shared rows + exclusions
-  if (data) await releaseFile((data as { storage_path: string }).storage_path);
 }
 
-/** Delete a media-kit file (and its registry row) if nothing links to it. */
-export async function releaseFile(storagePath: string): Promise<boolean> {
-  const [{ count: rows }, fi] = await Promise.all([
-    supabaseServer.from("media_kit_assets").select("id", { count: "exact", head: true }).eq("storage_path", storagePath),
-    supabaseServer.from("fragrance_images").select("id", { count: "exact", head: true }).eq("storage_path", storagePath),
-  ]);
-  if ((rows ?? 0) > 0 || (fi.error ? 0 : fi.count ?? 0) > 0) return false;
-  await supabaseServer.storage.from(PRODUCT_BUCKET).remove([storagePath]);
+/**
+ * Delete a media-kit file for good — the Image Library's delete. Takes it off
+ * every product and fragrance first, then removes the file and its registry
+ * row. Callers decide whether that's allowed (see lib/images/usage.ts).
+ */
+export async function deleteProductFile(storagePath: string): Promise<void> {
+  const { error: linkErr } = await supabaseServer.from("media_kit_assets").delete().eq("storage_path", storagePath);
+  if (linkErr) throw new Error(linkErr.message);
+  // Tolerates the table not existing before the image-registry migration.
+  await supabaseServer.from("fragrance_images").delete().eq("storage_path", storagePath);
+  const { error: rmErr } = await supabaseServer.storage.from(PRODUCT_BUCKET).remove([storagePath]);
+  if (rmErr) throw new Error(rmErr.message);
   await supabaseServer.from("email_asset_meta").delete().eq("path", metaKey(PRODUCT_BUCKET, storagePath));
-  return true;
 }

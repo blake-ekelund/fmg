@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { X } from "lucide-react";
 
 type Props = {
   loading: boolean;
@@ -20,17 +20,17 @@ export function DeleteConfirmModal({
 
       <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
         <div className="flex items-center gap-3 mb-4">
-          <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
-            <Trash2 className="text-red-600" size={18} />
+          <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center">
+            <X className="text-gray-700" size={18} />
           </div>
           <h3 className="text-sm font-semibold">
-            Delete image?
+            Remove image from this product?
           </h3>
         </div>
 
         <p className="text-sm text-gray-600 mb-6">
-          This will permanently remove the image from the
-          media kit. This action cannot be undone.
+          The image comes off this product only. It stays in the
+          Image Library, where it can be reused or deleted.
         </p>
 
         <div className="flex justify-end gap-3">
@@ -42,11 +42,11 @@ export function DeleteConfirmModal({
             Cancel
           </button>
           <button
-            className="px-4 py-2 text-sm rounded-xl bg-red-600 text-white hover:bg-red-700"
+            className="px-4 py-2 text-sm rounded-xl bg-gray-900 text-white hover:bg-gray-700"
             onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? "Deleting…" : "Delete"}
+            {loading ? "Removing…" : "Remove"}
           </button>
         </div>
       </div>

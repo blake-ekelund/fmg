@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy, ExternalLink, Loader2, Trash2, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, X } from "lucide-react";
 import { PHOTO_TAGS } from "./photoTags";
 
 export type PhotoDetails = {
@@ -234,7 +234,7 @@ export default function ProductPhotoModal({
             onClick={onDelete}
             className="inline-flex items-center gap-2 rounded-full px-3 py-2 text-[15px] font-medium text-gray-500 hover:bg-rose-50 hover:text-rose-600"
           >
-            <Trash2 size={16} /> Delete
+            <X size={16} /> Remove from product
           </button>
           <button
             type="button"

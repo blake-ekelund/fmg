@@ -65,16 +65,13 @@ export function PhotoSection({
         url.pathname.split("/media-kit/")[1]
       );
 
-      const { error: storageError } =
-        await supabase.storage
-          .from("media-kit")
-          .remove([path]);
-
-      if (storageError) throw storageError;
-
+      // Take the image off THIS product only. The file stays in storage —
+      // other products may use it, and it's only ever deleted in the Image
+      // Library.
       const { error: dbError } = await supabase
         .from("media_kit_assets")
         .delete()
+        .eq("part", part)
         .eq("storage_path", path);
 
       if (dbError) throw dbError;
@@ -82,7 +79,7 @@ export function PhotoSection({
       onUploaded();
     } catch (err) {
       console.error("Delete failed", err);
-      alert("Failed to delete image.");
+      alert("Failed to remove image.");
     } finally {
       setDeleting(false);
       setDeleteTarget(null);

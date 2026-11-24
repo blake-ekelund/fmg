@@ -118,7 +118,8 @@ The **BOM** tab shows the product's bill of materials from Fishbowl (read-only):
 - **Sales** tab: last 12 months of revenue, units and average price from Fishbowl, plus TTM totals. Read-only.
 - If Avg Monthly Demand is 0, the page pre-fills it from the last 3 months of sales, and Lead Time defaults to 3 months; these save with your next edit.
 - Archived products always stay draft — un-archive before publishing.
-- **Delete** → **Confirm Delete** permanently removes the product and cannot be undone. Deleting a photo also asks for confirmation and is permanent. Consider archiving instead.`,
+- **Delete** → **Confirm Delete** permanently removes the product and cannot be undone. Consider archiving instead.
+- Removing a photo (the **×** on it, or **Remove from product** in its pop-up) only takes it off this product. The image stays in the **Image Library**, which is the only place an image is deleted.`,
   },
 
   /* ───────────────────────────── Inventory ───────────────────────────────── */

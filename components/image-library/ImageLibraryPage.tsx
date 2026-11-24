@@ -756,9 +756,15 @@ export default function ImageLibraryPage({ pick }: { pick?: PickOptions } = {}) 
         <p className="mt-2 text-sm text-gray-500">
           Photos you upload here are shared with every {current.name} product: one file, shown on each product page.
         </p>
+      ) : current?.id === "~unlinked" ? (
+        <p className="mt-2 text-sm text-gray-500">
+          Product photos that were taken off their products. They&apos;re kept here until you delete them; open one to
+          see whether a page or email still uses it.
+        </p>
       ) : current?.readOnly && current.id.startsWith("~") ? (
         <p className="mt-2 text-sm text-gray-500">
           Product photos are edited on each product&apos;s page. Open a product or a collection folder to add photos.
+          To delete a photo for good, open it here.
         </p>
       ) : null}
 

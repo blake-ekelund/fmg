@@ -22,7 +22,8 @@ const PHOTO_TAGS = ["front", "benefits", "lifestyle", "ingredients", "fragrance"
  *                  photos (call after its fragrance changes).
  *  DELETE        — { id } take one photo off this product (a shared one is
  *                  hidden here only), or { fragranceImageId } stop sharing it
- *                  everywhere. The file is deleted only when nothing uses it.
+ *                  everywhere. Either way only the link goes: the file stays
+ *                  in the Image Library, the one place an image is deleted.
  *
  * Type + tags live on `media_kit_assets`. Title / alt / description live in
  * the Image Library's `email_asset_meta` sidecar under the key the library
